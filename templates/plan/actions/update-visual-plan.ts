@@ -4,7 +4,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -407,7 +407,7 @@ export default defineAction({
       .optional()
       .default([])
       .describe(
-        "Targeted structured content edits addressed by stable id. For live plans this is the preferred edit path; patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype plans; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.",
+        "Targeted structured content edits addressed by stable id. For live plans this is the preferred edit path; patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.",
       ),
     markdown: z
       .string()
@@ -516,6 +516,9 @@ export default defineAction({
         resolvePlanAccessContext(currentAccess()),
       );
       if (!access) throw new Error(`Plan ${args.planId} not found`);
+      if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+        throw new ForbiddenError(`Plan ${args.planId} not found`);
+      }
     } else {
       await assertPlanEditor(args.planId);
     }
@@ -626,6 +629,7 @@ export default defineAction({
             and(
               eq(schema.planComments.id, comment.id),
               eq(schema.planComments.planId, args.planId),
+              isNull(schema.planComments.deletedAt),
             ),
           );
         if (existing) {
@@ -882,6 +886,7 @@ export default defineAction({
             and(
               eq(schema.planComments.id, comment.id),
               eq(schema.planComments.planId, args.planId),
+              isNull(schema.planComments.deletedAt),
             ),
           );
       }
@@ -899,6 +904,7 @@ export default defineAction({
             and(
               eq(schema.planComments.planId, args.planId),
               inArray(schema.planComments.id, args.consumedCommentIds),
+              isNull(schema.planComments.deletedAt),
             ),
           );
       }

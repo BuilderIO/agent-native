@@ -569,6 +569,32 @@ describe("agent teams message queue", () => {
   });
 });
 
+describe("getCurrentDelegationDepth", () => {
+  it("returns 0 outside any delegation scope (top-level chat)", async () => {
+    const { getCurrentDelegationDepth } = await import("./agent-teams.js");
+    expect(getCurrentDelegationDepth()).toBe(0);
+  });
+
+  it("reflects the ambient depth set by runWithDelegationDepth", async () => {
+    const { getCurrentDelegationDepth, _agentTeamsQueueForTests } =
+      await import("./agent-teams.js");
+    const { runWithDelegationDepth } = _agentTeamsQueueForTests;
+
+    const seen: number[] = [];
+    await runWithDelegationDepth(2, async () => {
+      seen.push(getCurrentDelegationDepth());
+      await runWithDelegationDepth(3, async () => {
+        seen.push(getCurrentDelegationDepth());
+      });
+      seen.push(getCurrentDelegationDepth());
+    });
+    // Back outside the scope it is 0 again.
+    seen.push(getCurrentDelegationDepth());
+
+    expect(seen).toEqual([2, 3, 2, 0]);
+  });
+});
+
 function useTempCodeAgentsHome(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-teams-code-"));
   tmpRoots.push(root);

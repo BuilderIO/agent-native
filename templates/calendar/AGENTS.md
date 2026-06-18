@@ -18,15 +18,34 @@ Detailed event, availability, booking, storage, and UI rules live in
   the user says today/tomorrow/yesterday.
 - Use `view-screen` when the active date range, selected event, booking link, or
   connected-calendar health is unclear.
+- Treat provider-specific actions as shortcuts, not capability limits. When the
+  exact Google Calendar, CRM, or enrichment endpoint/filter/pagination/API
+  version matters, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request` against the real provider API instead of weakening the
+  answer around a narrow action.
+- For relationship-history searches, prefer raw Google Calendar API calls via
+  `provider-api-request` so the agent controls `calendarId`, `timeMin`,
+  `timeMax`, `q`, `maxResults`, and pagination. For large scans, stage results
+  with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
 - Use framework sharing actions for calendars/events/booking resources when
   applicable.
+- Booking-link sharing controls who can manage the link. Public booking access
+  is still controlled by the `/book/{username}/{slug}` URL and `isActive`.
+- `create-booking-link` and `update-booking-link` accept `hosts` for required
+  co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
+  only offer times when the owner and all co-hosts are free, then invite
+  co-hosts to the created Google Calendar event.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
   visible RSVP comment on a declined or tentative response; pass an empty note to
   clear an existing RSVP comment.
+- When adding guests to an existing event, prefer `update-event` with
+  `addAttendees` so existing RSVP notes/statuses are preserved. Use
+  `scope: "all"` only when the user wants a recurring-event guest change applied
+  to the whole series.
 
 ## Application State
 

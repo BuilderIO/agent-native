@@ -2,6 +2,7 @@ import type { AgentChatEvent } from "../agent/types.js";
 import type { AgentLoopUsage } from "../agent/production-agent.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
+import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -93,6 +94,18 @@ export async function instrumentAgentLoop(opts: {
   const runStart = Date.now();
   const parentSpanId = spanId();
 
+  // Optional OpenTelemetry root span for this run. No-ops unless a host has
+  // installed `@opentelemetry/api` and registered a provider. The promise is
+  // resolved before the loop runs so child tool/model spans can parent under
+  // it conceptually (we keep them flat in the same tracer, which is enough
+  // for the dashboards an embedding app would build).
+  const otelRunSpanPromise = startAgentSpan("agent.run", {
+    "agent.run_id": runId,
+    "agent.thread_id": threadId ?? undefined,
+    "agent.user_id": userId ?? undefined,
+    "agent.model": loopOpts.model,
+  });
+
   const spans: TraceSpan[] = [];
   let toolInvocationCounter = 0;
   // Keyed by counter to handle concurrent calls to the same tool name
@@ -103,6 +116,8 @@ export async function instrumentAgentLoop(opts: {
       startMs: number;
       toolName: string;
       input: Record<string, string>;
+      otelSpan: AgentSpan | null;
+      endResult?: { status: "success" | "error"; errorMessage: string | null };
     }
   >();
   // Secondary index: tool name → FIFO queue of pending invocation counters.
@@ -116,16 +131,54 @@ export async function instrumentAgentLoop(opts: {
   let successfulTools = 0;
   let failedTools = 0;
 
+  // Track in-flight OTel tool spans so they're all ended even if the loop
+  // throws before a matching `tool_done` arrives.
+  const openOtelToolSpans = new Set<AgentSpan>();
+
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
-        pendingTools.set(counter, {
+        // Start the OTel tool span synchronously-ish: kick off the async
+        // resolution and stash the span once it lands. Tool spans are short
+        // and the api tracer is synchronous in practice, but we tolerate the
+        // microtask gap by recording the span on the pending entry when ready.
+        const entry: {
+          spanId: string;
+          startMs: number;
+          toolName: string;
+          input: Record<string, string>;
+          otelSpan: AgentSpan | null;
+          // Set by the done handler if it fires before the span promise
+          // resolves, so the resolved span is ended with the correct status.
+          endResult?: {
+            status: "success" | "error";
+            errorMessage: string | null;
+          };
+        } = {
           spanId: sid,
           startMs: Date.now(),
           toolName: event.tool,
           input: event.input,
+          otelSpan: null,
+        };
+        pendingTools.set(counter, entry);
+        void startAgentSpan("tool.call", {
+          "tool.name": event.tool,
+        }).then((span) => {
+          if (!span) return;
+          // If `tool_done` already ran for this call, end the span now with the
+          // status it recorded; otherwise stash it for the done handler.
+          if (entry.endResult) {
+            endAgentSpan(span, {
+              status: entry.endResult.status,
+              errorMessage: entry.endResult.errorMessage,
+            });
+          } else {
+            entry.otelSpan = span;
+            openOtelToolSpans.add(span);
+          }
         });
         const queue = toolNameToCounters.get(event.tool);
         if (queue) queue.push(counter);
@@ -148,6 +201,23 @@ export async function instrumentAgentLoop(opts: {
             event.result.startsWith("Error running "));
         if (isError) failedTools++;
         else successfulTools++;
+
+        // Finalize the OTel tool span. If the span promise hasn't resolved yet
+        // we record the result on the entry so its `.then` handler ends it.
+        const otelEndResult = {
+          status: (isError ? "error" : "success") as "success" | "error",
+          errorMessage: isError ? (event.result as string) : null,
+        };
+        if (pending?.otelSpan) {
+          openOtelToolSpans.delete(pending.otelSpan);
+          endAgentSpan(pending.otelSpan, {
+            status: otelEndResult.status,
+            errorMessage: otelEndResult.errorMessage,
+            attributes: { "tool.name": event.tool },
+          });
+        } else if (pending) {
+          pending.endResult = otelEndResult;
+        }
 
         const span: TraceSpan = {
           id: pending?.spanId ?? spanId(),
@@ -278,6 +348,49 @@ export async function instrumentAgentLoop(opts: {
     };
 
     writeTraceData(spans, summary, runId, config).catch(() => {});
+
+    // OpenTelemetry export (no-op unless a provider is registered). Emit a
+    // self-contained `llm.call` span carrying model + token usage, end any
+    // tool spans still open (loop threw mid-tool), and end the run span. Awaited
+    // so the spans are emitted before the function returns; cheap when no-op.
+    try {
+      if (usage) {
+        endAgentSpan(await startAgentSpan("llm.call", {}), {
+          status: runStatus,
+          errorMessage,
+          attributes: {
+            "llm.model": usage.model,
+            "llm.input_tokens": usage.inputTokens,
+            "llm.output_tokens": usage.outputTokens,
+            "llm.cache_read_tokens": usage.cacheReadTokens,
+            "llm.cache_write_tokens": usage.cacheWriteTokens,
+            "llm.cost_cents_x100": costCentsX100,
+          },
+        });
+      }
+      for (const toolSpan of openOtelToolSpans) {
+        endAgentSpan(toolSpan, {
+          status: "error",
+          errorMessage: "Agent run ended before tool_done.",
+        });
+      }
+      openOtelToolSpans.clear();
+      endAgentSpan(await otelRunSpanPromise, {
+        status: runStatus,
+        errorMessage,
+        attributes: {
+          "agent.tool_calls": toolCallCount,
+          "agent.successful_tools": successfulTools,
+          "agent.failed_tools": failedTools,
+          "agent.duration_ms": totalDurationMs,
+          "agent.input_tokens": usage?.inputTokens ?? 0,
+          "agent.output_tokens": usage?.outputTokens ?? 0,
+          "agent.cost_cents_x100": costCentsX100,
+        },
+      });
+    } catch {
+      // OTel export must never break the run.
+    }
   }
 
   return usage!;

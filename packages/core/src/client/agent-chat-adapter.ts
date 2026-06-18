@@ -54,6 +54,7 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "image/svg+xml",
   "text/csv",
   "text/css",
   "text/html",
@@ -65,8 +66,11 @@ const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
 
 const AUTO_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
+const AUTO_CONTINUE_COMPLETION_GUARD =
+  "Before doing more work, inspect the prior partial assistant output in history. If it already gives a coherent answer, summary, artifact, coverage note, or next-step recommendation, finish with at most one short closing sentence and do not call tools, scan more data, or expand the search. Continue only genuinely unfinished work.";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
+const MAX_QUEUED_CONFLICT_RETRIES = 120;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
@@ -230,6 +234,14 @@ function isTextAttachmentContentType(value: string | undefined): boolean {
   );
 }
 
+function isSvgAttachment(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  const contentType = args.contentType?.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(args.name ?? "");
+}
+
 function decodeTextDataUrl(dataUrl: string): string | null {
   const match = dataUrl.match(
     /^data:([^;,]+)(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
@@ -273,6 +285,9 @@ function extractAttachmentsFromMessage(message: {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const preserveDataUrl =
+          part.data.startsWith("data:") &&
+          shouldPreserveFileDataUrl({ name: att.name, contentType });
         const decodedText = part.data.startsWith("data:")
           ? decodeTextDataUrl(part.data)
           : null;
@@ -280,11 +295,18 @@ function extractAttachmentsFromMessage(message: {
           type: "file",
           name: att.name,
           contentType,
-          ...(decodedText !== null
-            ? { text: truncateOutboundAttachment(decodedText) }
-            : part.data.startsWith("data:")
-              ? { data: part.data }
-              : { text: truncateOutboundAttachment(part.data) }),
+          ...(preserveDataUrl
+            ? {
+                data: part.data,
+                ...(decodedText !== null
+                  ? { text: truncateOutboundAttachment(decodedText) }
+                  : {}),
+              }
+            : decodedText !== null
+              ? { text: truncateOutboundAttachment(decodedText) }
+              : part.data.startsWith("data:")
+                ? { data: part.data }
+                : { text: truncateOutboundAttachment(part.data) }),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -309,6 +331,13 @@ function extractAttachmentsFromMessage(message: {
   return attachments;
 }
 
+function shouldPreserveFileDataUrl(args: {
+  name?: string;
+  contentType?: string;
+}): boolean {
+  return isSvgAttachment(args);
+}
+
 function truncateHistoryAttachment(text: string): string {
   if (text.length <= MAX_HISTORY_ATTACHMENT_CHARS) return text;
   const omitted = text.length - MAX_HISTORY_ATTACHMENT_CHARS;
@@ -324,6 +353,14 @@ function truncateOutboundAttachment(text: string): string {
 function attachmentHistoryText(
   attachment: AgentChatAdapterAttachment,
 ): string | null {
+  if (isSvgAttachment(attachment)) {
+    const label = attachment.name || "SVG attachment";
+    const contentType = attachment.contentType
+      ? ` (${attachment.contentType})`
+      : "";
+    return `[Attached ${attachment.type || "file"}: ${label}${contentType}; SVG reference-only, raw markup omitted from prior chat history.]`;
+  }
+
   if (typeof attachment.text === "string" && attachment.text.length > 0) {
     const attrs = [
       `name="${escapeAttachmentAttribute(attachment.name || "attachment")}"`,
@@ -414,8 +451,39 @@ function isToolCallContentPart(
   );
 }
 
-function toolResultContent(result: unknown): string {
+function isSuccessOnlyToolResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function toolResultContent(result: unknown, toolName?: string): string {
   if (typeof result === "string") return result;
+  const completed = toolName?.trim()
+    ? `${toolName.trim()} completed.`
+    : "Tool completed.";
+  if (result === true || result == null) return completed;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) return message.trim();
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      return `${title.trim()} is ready.`;
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    if (typeof id === "string" && id.trim() && toolName?.trim()) {
+      return `${toolName.trim()} completed for ${id.trim()}.`;
+    }
+    if (isSuccessOnlyToolResult(record)) return completed;
+  }
   try {
     return JSON.stringify(result);
   } catch {
@@ -480,11 +548,11 @@ function contentToStructuredMessages(
           toolInput: JSON.stringify(part.args ?? {}),
           content: truncate
             ? truncateForHistory(
-                toolResultContent(part.result),
+                toolResultContent(part.result, part.toolName),
                 MAX_HISTORY_TOOL_RESULT_CHARS,
                 "Tool result",
               )
-            : toolResultContent(part.result),
+            : toolResultContent(part.result, part.toolName),
         });
       } else {
         pendingToolResults.push({
@@ -561,7 +629,7 @@ function assistantUiMessagesToStructuredHistory(
               ? part.args
               : {},
           ...(part.result !== undefined
-            ? { result: toolResultContent(part.result) }
+            ? { result: toolResultContent(part.result, toolName) }
             : {}),
         });
       }
@@ -786,7 +854,7 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
     cutoffPreparingAction && tool
       ? `\n\nThe previous run was cut off while preparing the \`${tool}\` action input before the action could finish. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
       : "";
-  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}${actionInputNote}`;
+  return `${AUTO_CONTINUE_PROMPT}\n\n${AUTO_CONTINUE_COMPLETION_GUARD}\n\nInternal note: ${reason}${actionInputNote}`;
 }
 
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
@@ -1123,6 +1191,23 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
+      // the user approves a paused tool call, the turn is re-issued with the
+      // approval key so the server lets that specific call run.
+      const approvedToolCalls = (() => {
+        const raw =
+          runConfig?.custom &&
+          typeof runConfig.custom === "object" &&
+          "approvedToolCalls" in runConfig.custom
+            ? (runConfig.custom as { approvedToolCalls?: unknown })
+                .approvedToolCalls
+            : undefined;
+        if (!Array.isArray(raw)) return undefined;
+        const keys = raw.filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        );
+        return keys.length > 0 ? keys : undefined;
+      })();
       const requestMode =
         runConfigRequestMode === "act" || runConfigRequestMode === "plan"
           ? runConfigRequestMode
@@ -1201,6 +1286,7 @@ export function createAgentChatAdapter(
       let includeReferences = Boolean(runConfig?.custom?.references);
       let internalContinuationRequest = false;
       let startupRecoveryAttempts = 0;
+      let queuedConflictRetries = 0;
       let staleRunContinuationAttempts = 0;
       let stalledTransientContinuationAttempts = 0;
       let emptyTransientContinuationAttempts = 0;
@@ -1787,6 +1873,7 @@ export function createAgentChatAdapter(
                   ...(includeReferences && runConfig?.custom?.references
                     ? { references: runConfig.custom.references }
                     : {}),
+                  ...(approvedToolCalls ? { approvedToolCalls } : {}),
                 }),
               },
               STARTUP_RESPONSE_TIMEOUT_MS,
@@ -1818,12 +1905,66 @@ export function createAgentChatAdapter(
 
             if (!res.ok) {
               if (res.status === 409) {
-                let handledConflict = false;
+                let activeRunId: string | null = null;
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    handledConflict = true;
-                    runId = String(body.activeRunId);
+                    activeRunId = String(body.activeRunId);
+                  }
+                } catch {
+                  // Fall through to the generic response handling below.
+                }
+                // A 409 means the server still has an active run for this
+                // thread. For a fresh user turn — a queued follow-up OR a normal
+                // send fired shortly after the previous run finished (the server
+                // can report a just-finished run as active for up to
+                // RUN_STALE_MS while its terminal status write lands) — adopting
+                // `activeRunId` below would reconnect to that prior run, replay
+                // its final answer, and silently drop this turn. Wait for the
+                // run to clear and retry THIS prompt instead. Only genuine
+                // internal continuations (deliberate resumes of the active run)
+                // fall through to the reconnect path.
+                if (!internalContinuationRequest && activeRunId) {
+                  queuedConflictRetries += 1;
+                  if (queuedConflictRetries <= MAX_QUEUED_CONFLICT_RETRIES) {
+                    await delay(500, abortSignal);
+                    if (abortSignal.aborted) return;
+                    continue;
+                  }
+                  const message =
+                    "The previous response is still finishing and the new message could not start yet. Please try again.";
+                  const runError = {
+                    message,
+                    details: `The server kept reporting active run ${activeRunId} for this thread after ${MAX_QUEUED_CONFLICT_RETRIES} retries.`,
+                    errorCode: "active_run_conflict",
+                    recoverable: true,
+                    runId: activeRunId,
+                  };
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:run-error", {
+                        detail: { ...runError, tabId },
+                      }),
+                    );
+                  }
+                  content.push({
+                    type: "text",
+                    text: `Something went wrong: ${message}`,
+                  });
+                  yield {
+                    content: [...content],
+                    status: {
+                      type: "incomplete" as const,
+                      reason: "error" as const,
+                    },
+                    metadata: { custom: { runError } },
+                  } as ChatModelRunResult;
+                  clearActiveRun();
+                  return;
+                }
+                if (activeRunId) {
+                  try {
+                    runId = activeRunId;
                     if (!attemptedRunIds.includes(runId)) {
                       attemptedRunIds.push(runId);
                     }
@@ -1833,14 +1974,12 @@ export function createAgentChatAdapter(
                     }
                     const reconnected = yield* reconnectCurrentRun();
                     if (reconnected) return;
+                    await delay(1000, abortSignal);
+                    if (abortSignal.aborted) return;
+                    continue;
+                  } catch {
+                    // Fall through to the generic response handling below.
                   }
-                } catch {
-                  // Fall through to the generic response handling below.
-                }
-                if (handledConflict) {
-                  await delay(1000, abortSignal);
-                  if (abortSignal.aborted) return;
-                  continue;
                 }
               }
 

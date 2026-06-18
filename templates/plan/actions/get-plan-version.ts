@@ -38,6 +38,9 @@ export default defineAction({
       resolvePlanAccessContext(currentAccess()),
     );
     if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${planId} not found`);
+    }
 
     const ownerEmail = access.resource.ownerEmail as string;
     const [version] = await getDb()

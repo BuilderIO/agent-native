@@ -15,7 +15,7 @@ Every agent-native app automatically exposes a remote MCP (Model Context Protoco
 | Make your app callable over MCP (server setup, auth, tools) | This page                                |
 | Give your app's agent more tools from external MCP servers  | [MCP Clients](/docs/mcp-clients)         |
 | App-to-app delegation via JSON-RPC                          | [A2A Protocol](/docs/a2a-protocol)       |
-| Build or embed interactive MCP App UIs                      | [MCP Apps](/docs/mcp-apps)               |
+| Build or embed interactive MCP App resources                | [MCP Apps](/docs/mcp-apps)               |
 
 If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to hosted agent-native apps, start with [External Agents](/docs/external-agents). It documents the recommended single Dispatch connector at `https://dispatch.agent-native.com/_agent-native/mcp`, direct per-app URLs for isolated app access, standard remote MCP OAuth, fallback config for older clients, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
@@ -29,7 +29,7 @@ Key concepts:
 - **Streamable HTTP** — uses the modern MCP transport over standard HTTP (POST + SSE)
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
-- **MCP Apps** — actions can advertise inline HTML UIs through the official `io.modelcontextprotocol/ui` extension
+- **MCP Apps** — actions can advertise interactive UI resources through the official `io.modelcontextprotocol/ui` extension
 - **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
 - **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
@@ -103,17 +103,22 @@ See [MCP Apps](/docs/mcp-apps#mcp-app-bridge) for the full embed bridge details 
 
 ## Tools {#tools}
 
-Stdio/code developer clients can see all connected app actions as MCP tools
-when they explicitly request the full catalog. Chat-style app hosts, including
-OAuth callers that request `mcp:apps` and generic authenticated remote
-HTTP/static-token callers, get a compact app-host catalog by default:
-app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only
-`create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`.
-Their `resources/list` is compact too, normally advertising only the generic
-`open_app` embed resource. `publicAgent.expose` remains the opt-in for safe
-read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude
-app-host discovery small while preserving the full developer surface for local
-agents.
+Every caller gets a compact app-host catalog by default — chat-style app hosts
+(OAuth callers that request `mcp:apps` and generic authenticated remote
+HTTP/static-token callers), code/stdio developer clients, and the local CLI
+proxy alike: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and
+app-only `create_embed_session`), the template-declared app actions, and rare
+actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact
+too, normally advertising only the generic `open_app` embed resource. The
+catalog is never inferred from the client name or user-agent. The full action
+surface is served only on explicit opt-in — a token minted with `--full-catalog`
+(`catalog_scope: "full"`) or the deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1`
+override. `tool-search` is always available, including in the compact catalog:
+call it with no query for the full menu of tool names and one-line descriptions,
+or with a query for ranked matches with parameter summaries, to reach any tool
+on demand. `publicAgent.expose` remains the opt-in for safe read/ingest tools
+outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery
+small while keeping every tool reachable.
 
 The mapping is direct:
 

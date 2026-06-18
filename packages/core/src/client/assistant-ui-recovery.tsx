@@ -91,22 +91,26 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
         ? this.state.recovery.retryCount + 1
         : 1;
 
-    captureError(error, {
-      tags: {
-        component: this.props.componentName ?? "AssistantChat",
-        recoverable,
-      },
-      extra: {
-        resetKey: this.props.resetKey,
-        retryCount,
-        componentStack: info.componentStack,
-      },
-    });
+    const retryBudgetExceeded =
+      retryCount > MAX_ASSISTANT_UI_RECOVERABLE_RETRIES;
+    if (retryBudgetExceeded) {
+      captureError(error, {
+        tags: {
+          component: this.props.componentName ?? "AssistantChat",
+          recoverable,
+        },
+        extra: {
+          resetKey: this.props.resetKey,
+          retryCount,
+          componentStack: info.componentStack,
+        },
+      });
+    }
 
     this.setState({
       recovery: { signature, retryCount },
     });
-    if (retryCount > MAX_ASSISTANT_UI_RECOVERABLE_RETRIES) return;
+    if (retryBudgetExceeded) return;
 
     if (this.retryTimer) return;
     this.retryTimer = setTimeout(() => {

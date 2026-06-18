@@ -22,8 +22,8 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
 | **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
+| **`AUTH_DISABLED=true`** | Skip login/signup entirely — every request runs as `dev@local.test`. For local dev, cloud previews, and internal demos only; not for production with real users. |
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
-| **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
 > **Never** use `local@localhost` as a fallback identity in app code

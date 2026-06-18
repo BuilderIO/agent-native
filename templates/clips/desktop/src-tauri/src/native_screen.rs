@@ -28,9 +28,14 @@ const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
+// Master switch for native transcoding/compression.
+const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
-const SERVER_STAGING_LIMIT_BYTES: u64 = 30 * 1024 * 1024;
+// Mirror of the shared `MAX_UPLOAD_BYTES` limit (see
+// `templates/clips/shared/upload-limits.ts`). Same default (256 MB) and same
+// env var (CLIPS_MAX_UPLOAD_BYTES) so desktop and web stay in lockstep.
+const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
@@ -90,6 +95,7 @@ struct NativeFullscreenSession {
 struct RestartInfo {
     safe_id: String,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     /// Monotonic counter feeding the per-segment filename suffix.
@@ -325,6 +331,7 @@ pub async fn native_fullscreen_recording_start(
     state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
 ) -> Result<NativeFullscreenStartInfo, String> {
@@ -335,6 +342,7 @@ pub async fn native_fullscreen_recording_start(
             state,
             recording_id,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
         );
@@ -354,6 +362,7 @@ pub async fn native_fullscreen_recording_start(
             &app,
             &safe_id,
             include_audio,
+            capture_system_audio,
             mic_device_id.as_deref(),
             mic_device_label.as_deref(),
         ) {
@@ -367,7 +376,7 @@ pub async fn native_fullscreen_recording_start(
                 eprintln!(
                     "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
                 );
-                start_screencapture_recording(&app, &safe_id, include_audio).map_err(|fallback_err| {
+                start_screencapture_recording(&app, &safe_id, include_audio, capture_system_audio).map_err(|fallback_err| {
                     format!(
                         "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
                     )
@@ -409,13 +418,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    emit_native_upload_progress(
-        &app,
-        "finalizing",
-        "Finalizing the recording",
-        Some("Clips is closing the screen capture and saving a local backup.".into()),
-        None,
-    );
+    emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
     let StoppedSession {
         session,
         duration_ms,
@@ -446,13 +449,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
-    emit_native_upload_progress(
-        &app,
-        "preparing",
-        "Preparing the upload",
-        Some("A local copy is saved. Clips can retry from the menu if upload fails.".into()),
-        None,
-    );
+    emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
     if let Err(stop_err) = stop_outcome {
         return Err(format!(
             "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
@@ -489,13 +486,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             saved.last_error = Some(err.clone());
             saved.retry_count = saved.retry_count.saturating_add(1);
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(
-                &app,
-                "failed",
-                "Upload paused",
-                Some("The clip was saved locally and can be retried from the Clips menu.".into()),
-                None,
-            );
+            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
             Err(format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             ))
@@ -632,6 +623,7 @@ pub async fn native_fullscreen_recording_resume(
         &app,
         &restart.safe_id,
         restart.include_audio,
+        restart.capture_system_audio,
         restart.mic_device_id.as_deref(),
         restart.mic_device_label.as_deref(),
         &segment_path,
@@ -684,6 +676,11 @@ fn take_and_finalize_active_session(
     // playable. The caller persists recovery metadata so a finalize
     // failure doesn't orphan the file.
     let stop_outcome = finalize_active_backend(&mut session, true);
+    println!(
+        "[clips-tray] finalize backend done (ok={}); {}",
+        stop_outcome.is_ok(),
+        describe_recording_path(&session.path)
+    );
     // With one segment this is a cheap rename. With multiple segments a
     // failure would silently lose everything after the first pause, so
     // callers check `multi_segment` and surface the merge error.
@@ -692,6 +689,12 @@ fn take_and_finalize_active_session(
     if let Err(err) = &consolidate_outcome {
         eprintln!("[clips-tray] segment consolidation failed: {err}");
     }
+    println!(
+        "[clips-tray] consolidate done (ok={}, segments={}, multi={multi_segment}); {}",
+        consolidate_outcome.is_ok(),
+        session.segments.len(),
+        describe_recording_path(&session.path)
+    );
     let duration_ms = session
         .started_at
         .elapsed()
@@ -749,6 +752,7 @@ fn start_segment_backend(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     segment_path: &Path,
@@ -763,6 +767,7 @@ fn start_segment_backend(
         match start_screencapturekit_backend_at(
             segment_path,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
             target_display_id,
@@ -789,6 +794,7 @@ fn start_segment_backend(
             app,
             safe_id,
             include_audio,
+            capture_system_audio,
             mic_device_id,
             mic_device_label,
             segment_path,
@@ -803,6 +809,7 @@ fn start_segment_backend(
 fn start_screencapturekit_backend_at(
     output_path: &Path,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
@@ -834,7 +841,9 @@ fn start_screencapturekit_backend_at(
         .with_fps(NATIVE_CAPTURE_FPS)
         .with_queue_depth(8)
         .with_shows_cursor(true)
-        .with_captures_audio(false)
+        // Mic and system audio are independent toggles. SCK delivers them as
+        // separate inputs; SCRecordingOutput muxes them into the file.
+        .with_captures_audio(capture_system_audio)
         .with_captures_microphone(include_audio)
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
@@ -872,7 +881,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, mic={include_audio} system_audio={capture_system_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -1057,13 +1066,7 @@ pub async fn native_fullscreen_recording_retry_upload(
         }
         Err(err) => {
             persist_saved_recording_error(&app, &mut saved, &err);
-            emit_native_upload_progress(
-                &app,
-                "failed",
-                "Retry paused",
-                Some("The clip is still saved locally and can be retried again.".into()),
-                None,
-            );
+            emit_native_upload_progress(&app, "failed", "Retry paused", None, None);
             Err(format!(
                 "{err}. The local copy is still saved, so you can retry again."
             ))
@@ -1094,6 +1097,16 @@ fn sanitize_recording_id(value: &str) -> String {
 
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
+}
+
+fn describe_recording_path(path: &Path) -> String {
+    let exists = path.exists();
+    let size = std::fs::metadata(path).map(|m| m.len()).ok();
+    format!(
+        "path={} exists={exists} size={}",
+        path.display(),
+        size.map(|b| b.to_string()).unwrap_or_else(|| "n/a".into()),
+    )
 }
 
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1390,9 +1403,21 @@ fn saved_recording_from_session(
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
     let bytes = std::fs::metadata(&session.path)
-        .map_err(|e| format!("native recording file missing: {e}"))?
+        .map_err(|e| {
+            let diag = describe_recording_path(&session.path);
+            eprintln!(
+                "[clips-tray] native recording file missing at save: {e}; backend={}, segments={}, {diag}",
+                session.mime_type,
+                session.segments.len(),
+            );
+            format!("native recording file missing: {e}")
+        })?
         .len();
     if bytes == 0 {
+        eprintln!(
+            "[clips-tray] native recording empty at save: {}",
+            describe_recording_path(&session.path)
+        );
         return Err("Native recording produced an empty file.".into());
     }
 
@@ -1530,15 +1555,21 @@ fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
 ) -> Result<NativeFullscreenSession, String> {
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
+    eprintln!(
+        "[clips-tray] starting ScreenCaptureKit recording -> {}",
+        path.display()
+    );
     let (backend, width, height) = start_screencapturekit_backend_at(
         &path,
         include_audio,
+        capture_system_audio,
         mic_device_id,
         mic_device_label,
         target_display_id,
@@ -1553,6 +1584,7 @@ fn start_screencapturekit_recording(
         RestartInfo {
             safe_id: safe_id.to_string(),
             include_audio,
+            capture_system_audio,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -1566,10 +1598,15 @@ fn start_screencapture_recording(
     app: &AppHandle,
     safe_id: &str,
     include_audio: bool,
+    capture_system_audio: bool,
 ) -> Result<NativeFullscreenSession, String> {
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
+    eprintln!(
+        "[clips-tray] starting screencapture (fallback) recording -> {}",
+        path.display()
+    );
     let (backend, _w, _h) =
         start_screencapture_backend_at(&path, include_audio, target_display_id)?;
     let (width, height) = primary_monitor_size(app);
@@ -1582,6 +1619,9 @@ fn start_screencapture_recording(
         RestartInfo {
             safe_id: safe_id.to_string(),
             include_audio,
+            // screencapture (fallback) can't capture system audio; tracked
+            // for parity but only `-g` mic is honored by that backend.
+            capture_system_audio,
             mic_device_id: None,
             mic_device_label: None,
             segment_counter: 0,
@@ -1869,13 +1909,7 @@ async fn upload_prepared_recording_file(
     let total_bytes = prepared.bytes;
     let total_chunks = ((total_bytes as usize) + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
     let total_posts = total_chunks + 1;
-    emit_native_upload_progress(
-        app,
-        "uploading",
-        "Uploading the recording",
-        Some(format!("{} prepared for upload.", format_mb(total_bytes))),
-        Some(0.0),
-    );
+    emit_native_upload_progress(app, "uploading", "Uploading clip", None, Some(0.0));
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
         .build()
@@ -1910,16 +1944,11 @@ async fn upload_prepared_recording_file(
             buffer,
         )
         .await?;
-        let uploaded_bytes = std::cmp::min(total_bytes, ((index + 1) * UPLOAD_CHUNK_BYTES) as u64);
         emit_native_upload_progress(
             app,
             "uploading",
-            "Uploading the recording",
-            Some(format!(
-                "{} of {} uploaded.",
-                format_mb(uploaded_bytes),
-                format_mb(total_bytes)
-            )),
+            "Uploading clip",
+            None,
             Some((index + 1) as f32 / total_posts as f32),
         );
     }
@@ -1927,8 +1956,8 @@ async fn upload_prepared_recording_file(
     emit_native_upload_progress(
         app,
         "processing",
-        "Processing the clip",
-        Some("Upload complete. Clips is assembling and saving the recording.".into()),
+        "Uploading clip",
+        None,
         Some(total_chunks as f32 / total_posts as f32),
     );
     send_upload_post(
@@ -1950,13 +1979,7 @@ async fn upload_prepared_recording_file(
     )
     .await?;
 
-    emit_native_upload_progress(
-        app,
-        "opening",
-        "Opening the clip",
-        Some("Your browser will open as soon as Clips finishes the handoff.".into()),
-        Some(1.0),
-    );
+    emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
     Ok(NativeFullscreenUploadResult {
         recording_id,
         duration_ms,
@@ -2162,19 +2185,20 @@ fn prepare_recording_file(
     height: Option<u32>,
     duration_ms: Option<u128>,
 ) -> Result<PreparedRecordingFile, String> {
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("native recording file missing: {e}"))?;
+    let metadata = std::fs::metadata(path).map_err(|e| {
+        let diag = describe_recording_path(path);
+        eprintln!("[clips-tray] native recording file missing at prepare: {e}; {diag}");
+        format!("native recording file missing: {e}")
+    })?;
     let source_bytes = metadata.len();
     if source_bytes == 0 {
+        eprintln!(
+            "[clips-tray] native recording empty at prepare: {}",
+            describe_recording_path(path)
+        );
         return Err("Native recording produced an empty file.".into());
     }
-    emit_native_upload_progress(
-        app,
-        "preparing",
-        "Preparing the recording",
-        Some(format!("Source size is {}.", format_mb(source_bytes))),
-        None,
-    );
+    emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
 
     let original = PreparedRecordingFile {
         path: path.to_path_buf(),
@@ -2183,7 +2207,7 @@ fn prepare_recording_file(
         temporary: false,
     };
 
-    if source_bytes < TRANSCODE_THRESHOLD_BYTES {
+    if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         return Ok(original);
     }
 
@@ -2195,16 +2219,8 @@ fn prepare_recording_file(
             emit_native_upload_progress(
                 app,
                 "compressing",
-                format!(
-                    "Compressing the recording ({}/{})",
-                    index + 1,
-                    presets.len()
-                ),
-                Some(format!(
-                    "Trying {} for a {} source. This can take a few minutes.",
-                    preset.label,
-                    format_mb(source_bytes)
-                )),
+                "Optimizing clip",
+                None,
                 Some(index as f32 / presets.len() as f32),
             );
             let compressed_path = compressed_recording_path(path);
@@ -2243,7 +2259,7 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
-                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                    if compressed_bytes > max_upload_bytes() {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] ffmpeg {} still above server staging limit ({} bytes)",
@@ -2262,13 +2278,8 @@ fn prepare_recording_file(
                     emit_native_upload_progress(
                         app,
                         "compressing",
-                        "Compression finished",
-                        Some(format!(
-                            "{} -> {} using ffmpeg {}.",
-                            format_mb(source_bytes),
-                            format_mb(compressed_bytes),
-                            preset.label
-                        )),
+                        "Optimizing clip",
+                        None,
                         Some(1.0),
                     );
                     eprintln!(
@@ -2301,16 +2312,8 @@ fn prepare_recording_file(
             emit_native_upload_progress(
                 app,
                 "compressing",
-                format!(
-                    "Compressing the recording ({}/{})",
-                    index + 1,
-                    presets.len()
-                ),
-                Some(format!(
-                    "Trying {} for a {} source. This can take a few minutes.",
-                    native_preset_label(preset),
-                    format_mb(source_bytes)
-                )),
+                "Optimizing clip",
+                None,
                 Some(index as f32 / presets.len() as f32),
             );
             let compressed_path = compressed_recording_path(path);
@@ -2338,7 +2341,7 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
-                    if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                    if compressed_bytes > max_upload_bytes() {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
@@ -2357,13 +2360,8 @@ fn prepare_recording_file(
                     emit_native_upload_progress(
                         app,
                         "compressing",
-                        "Compression finished",
-                        Some(format!(
-                            "{} -> {} using {}.",
-                            format_mb(source_bytes),
-                            format_mb(compressed_bytes),
-                            native_preset_label(preset)
-                        )),
+                        "Optimizing clip",
+                        None,
                         Some(1.0),
                     );
                     eprintln!(
@@ -2386,14 +2384,14 @@ fn prepare_recording_file(
     } else {
         eprintln!("[clips-tray] avconvert unavailable");
     }
-    if source_bytes > SERVER_STAGING_LIMIT_BYTES {
+    if source_bytes > max_upload_bytes() {
         let attempt_detail = smallest_attempt_bytes
             .map(|bytes| format!(", smallest compressed result was {}", format_mb(bytes)))
             .unwrap_or_default();
         return Err(format!(
             "Native recording is too large to upload after automatic compression (source {}, limit is {}{}). Try a shorter recording.",
             format_mb(source_bytes),
-            format_mb(SERVER_STAGING_LIMIT_BYTES),
+            format_mb(max_upload_bytes()),
             attempt_detail
         ));
     }
@@ -2419,6 +2417,16 @@ struct FfmpegTranscodePreset {
     encoder_preset: &'static str,
     audio_bitrate_kbps: u32,
     max_video_rate_kbps: u32,
+}
+
+/// Maximum total bytes a recording upload may be. Overridable per-deployment
+/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to 256 MB.
+fn max_upload_bytes() -> u64 {
+    std::env::var("CLIPS_MAX_UPLOAD_BYTES")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|&bytes| bytes > 0)
+        .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES)
 }
 
 fn resolve_ffmpeg_path() -> Option<String> {

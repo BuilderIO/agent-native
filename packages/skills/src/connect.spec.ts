@@ -104,6 +104,54 @@ describe("registerMcpServer", () => {
     expect(result.guidance.join("\n")).toMatch(/Authenticate/i);
   });
 
+  it("writes URL-only OAuth entries for Cursor, OpenCode, and GitHub Copilot / VS Code", async () => {
+    isolateHome();
+    const baseDir = tmpDir();
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "oauth",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["cursor", "opencode", "github-copilot"],
+      scope: "project",
+      baseDir,
+      interactive: true,
+    });
+
+    const cursorConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, ".cursor", "mcp.json"), "utf-8"),
+    );
+    expect(cursorConfig.mcpServers.plan).toEqual({
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+
+    const opencodeConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, "opencode.json"), "utf-8"),
+    );
+    expect(opencodeConfig.mcp.plan).toEqual({
+      type: "remote",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+      enabled: true,
+    });
+
+    const copilotConfig = JSON.parse(
+      fs.readFileSync(path.join(baseDir, ".vscode", "mcp.json"), "utf-8"),
+    );
+    expect(copilotConfig.servers.plan).toEqual({
+      type: "http",
+      url: "https://plan.agent-native.com/_agent-native/mcp",
+    });
+
+    expect(result.authenticated).toBe(false);
+    expect(result.guidance.join("\n")).toMatch(/Cursor/);
+    expect(result.guidance.join("\n")).toMatch(/OpenCode/);
+    expect(result.guidance.join("\n")).toMatch(/GitHub Copilot/);
+  });
+
   it("writes a codex bearer entry after an approved device-flow poll", async () => {
     const { codexHome } = isolateHome();
     const baseDir = tmpDir();
@@ -154,6 +202,112 @@ describe("registerMcpServer", () => {
     );
     expect(toml).toContain("Bearer minted-bearer-token");
     expect(result.authenticated).toBe(true);
+  });
+
+  it("writes Codex and Cowork bearer entries from one approved device flow", async () => {
+    const { codexHome, home } = isolateHome();
+    const baseDir = tmpDir();
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "device",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const fetchImpl = mockFetch([
+      {
+        match: "/device/start",
+        json: {
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://plan.agent-native.com/connect",
+          verification_uri_complete:
+            "https://plan.agent-native.com/connect?code=ABCD-EFGH",
+          interval: 1,
+          expires_in: 600,
+        },
+      },
+      {
+        match: "/device/poll",
+        json: {
+          status: "approved",
+          token: "minted-bearer-token",
+          mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+          serverName: "plan",
+        },
+      },
+    ]);
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["codex", "cowork"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      deps: { fetchImpl, sleep: noSleep, now: () => 0 },
+    });
+
+    const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
+    expect(toml).toContain('[mcp_servers."plan"]');
+    expect(toml).toContain("Bearer minted-bearer-token");
+
+    const coworkConfig = JSON.parse(
+      fs.readFileSync(path.join(home, ".cowork", "mcp.json"), "utf-8"),
+    );
+    expect(coworkConfig.mcpServers.plan.headers.Authorization).toBe(
+      "Bearer minted-bearer-token",
+    );
+    expect(result.written.map((entry) => entry.client).sort()).toEqual([
+      "codex",
+      "cowork",
+    ]);
+    expect(result.authenticated).toBe(true);
+  });
+
+  it("uses a structured not_found poll body even when the HTTP status is 404", async () => {
+    isolateHome();
+    const baseDir = tmpDir();
+    const logs: string[] = [];
+    const descriptor: McpDescriptor = {
+      serverName: "plan",
+      mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+      authMode: "device",
+      hostedUrl: "https://plan.agent-native.com",
+    };
+
+    const fetchImpl = mockFetch([
+      {
+        match: "/device/start",
+        json: {
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://plan.agent-native.com/connect",
+          verification_uri_complete:
+            "https://plan.agent-native.com/connect?code=ABCD-EFGH",
+          interval: 1,
+          expires_in: 600,
+        },
+      },
+      {
+        match: "/device/poll",
+        status: 404,
+        json: { status: "not_found", message: "unknown code" },
+      },
+    ]);
+
+    const result = await registerMcpServer({
+      descriptor,
+      clients: ["codex"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      log: (message) => logs.push(message),
+      deps: { fetchImpl, sleep: noSleep, now: () => 0 },
+    });
+
+    expect(result.written).toHaveLength(0);
+    expect(logs.join("\n")).toContain("unknown code");
+    expect(logs.join("\n")).not.toContain("HTTP 404");
   });
 
   it("stops device polling at the configured timeout without oversleeping", async () => {
@@ -302,7 +456,7 @@ describe("registerMcpServer", () => {
 
     const guidance = result.guidance.join("\n");
     expect(guidance).toContain(
-      "codex: skipped MCP config because this client needs a bearer token.",
+      "Codex: skipped MCP config because this client needs a bearer token.",
     );
     expect(guidance).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope user",

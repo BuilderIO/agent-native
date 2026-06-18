@@ -7,6 +7,7 @@ const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const getAccessToken = vi.fn();
 const signRs256Jwt = vi.fn();
+const stagingExecuteRequest = vi.fn();
 
 vi.mock("../server/lib/credentials", () => ({
   resolveCredential,
@@ -17,6 +18,7 @@ vi.mock("../server/lib/credentials-context", () => ({
 }));
 
 vi.mock("../server/lib/provider-credentials", () => ({
+  ANALYTICS_APP_ID: "analytics",
   resolveAnalyticsProviderCredential,
 }));
 
@@ -33,6 +35,10 @@ vi.mock("../server/lib/sign-jwt", () => ({
   signRs256Jwt,
 }));
 
+vi.mock("@agent-native/core/provider-api/staging", () => ({
+  stagingExecuteRequest,
+}));
+
 const { default: providerApiCatalog } = await import("./provider-api-catalog");
 const { default: providerApiRequest } = await import("./provider-api-request");
 
@@ -46,6 +52,7 @@ describe("provider API escape hatch", () => {
     createSsrfSafeDispatcher.mockReset();
     getAccessToken.mockReset();
     signRs256Jwt.mockReset();
+    stagingExecuteRequest.mockReset();
 
     requireRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
@@ -69,6 +76,34 @@ describe("provider API escape hatch", () => {
       credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     });
     expect(result.providers[0].docsUrls[0]).toContain("hubspot");
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("returns reusable corpus recipes for providers that define raw body search patterns", async () => {
+    const result = (await providerApiCatalog.run({
+      provider: "gong",
+    })) as Record<string, any>;
+
+    expect(result.providers[0].corpusRecipes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: expect.stringContaining("Batch-search Gong call transcripts"),
+          request: {
+            method: "POST",
+            path: "/calls/transcript",
+            body: { filter: { callIds: [] } },
+          },
+          batch: expect.objectContaining({
+            itemBodyPath: "filter.callIds",
+            responseItemsPath: "callTranscripts",
+          }),
+          search: expect.objectContaining({
+            textPaths: expect.arrayContaining(["transcript"]),
+            idPaths: ["callId"],
+          }),
+        }),
+      ]),
+    );
     expect(JSON.stringify(result)).not.toContain("secret-token");
   });
 
@@ -143,5 +178,60 @@ describe("provider API escape hatch", () => {
         path: "https://example.com/crm/v3/objects/deals",
       }),
     ).rejects.toThrow(/provider host/i);
+  });
+
+  it("accepts Gong POST-body cursor pagination for staged corpus reads", async () => {
+    stagingExecuteRequest.mockResolvedValue({
+      dataset: {
+        id: "ds_analytics_ada_gong_calls",
+        name: "gong_calls",
+        rowCount: 2,
+        columns: ["id", "title"],
+        sampleRows: [],
+      },
+      pages: 2,
+      rows: 2,
+      truncated: false,
+    });
+
+    const result = (await providerApiRequest.run({
+      provider: "gong",
+      method: "POST",
+      path: "/calls/extensive",
+      body: {
+        filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
+        contentSelector: { exposedFields: { parties: true } },
+      },
+      stageAs: "gong_calls",
+      itemsPath: "calls",
+      pagination: {
+        nextCursorPath: "records.cursor",
+        cursorBodyPath: "cursor",
+        maxPages: 10,
+      },
+      fetchAllPages: {
+        cursorPath: "records.cursor",
+        cursorBodyPath: "cursor",
+        itemsPath: "calls",
+      },
+    })) as Record<string, any>;
+
+    expect(result.dataset.name).toBe("gong_calls");
+    expect(stagingExecuteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "gong",
+        method: "POST",
+        path: "/calls/extensive",
+        stageAs: "gong_calls",
+        itemsPath: "calls",
+        pagination: {
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 10,
+        },
+      }),
+      expect.any(Function),
+      { appId: "analytics", ownerEmail: "ada@example.com" },
+    );
   });
 });

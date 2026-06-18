@@ -52,14 +52,6 @@ When you open the studio:
 
 If you select a track in the timeline and hit Cmd+I, the agent picks up that selection — "make this one snappier" just works.
 
-## Why it's interesting
-
-Three things make the Video template a good showcase of the framework:
-
-1. **Code as the authoring format.** Each composition is a React component, so the agent can write entirely new animation types — not just adjust parameters. The template demonstrates that an agent-native app can treat source code as a first-class editable artifact rather than a fixed runtime.
-2. **Track-based animation as structured data.** Animations are `AnimationTrack` rows (start, end, easing, animated props) rather than hardcoded frame checks. This makes AI edits ("shift this track 10 frames later") reliable and composable without touching render logic.
-3. **SQL + localStorage fusion.** User-created compositions persist in SQL; per-session tweaks (easing experiments, parameter knobs) persist in localStorage and deep-merge on load. This two-layer approach shows how to keep the agent's durable state separate from ephemeral in-session exploration.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Video template or extending it. This template is more code-forward than the others — every composition is a React component and every animation is data on a track.

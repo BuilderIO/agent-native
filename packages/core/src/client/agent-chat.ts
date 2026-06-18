@@ -26,6 +26,8 @@ import {
 } from "./builder-frame.js";
 import { agentNativePath } from "./api-path.js";
 
+export type AgentChatRequestMode = "act" | "plan";
+
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
   message: string;
@@ -62,6 +64,13 @@ export interface AgentChatMessage {
   engine?: string;
   /** Reasoning effort preference paired with model. */
   effort?: ReasoningEffort;
+  /**
+   * Execution mode for this submitted turn. When omitted, sendToAgentChat
+   * snapshots the current AgentPanel mode from localStorage when available.
+   */
+  mode?: AgentChatRequestMode;
+  /** @deprecated Use `mode` instead. */
+  requestMode?: AgentChatRequestMode;
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
   /**
@@ -123,6 +132,7 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
+const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";
 export const AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
@@ -163,6 +173,67 @@ if (typeof window !== "undefined") {
 /** Generate a unique tab ID */
 export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Unique id for one submitted message, used to dedup live + replayed sends. */
+function generateSubmitMessageId(): string {
+  return `submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Self-submit buffer: same-window sends post to `window` itself, but the
+// receiver is lazy-loaded and may not be listening yet. Buffer each submit so
+// the panel can replay it on mount; claimAgentChatSubmit dedups by id so a
+// submit received both live and replayed is delivered exactly once.
+interface BufferedSelfSubmit {
+  id: string;
+  data: Record<string, unknown>;
+  at: number;
+}
+
+const SELF_SUBMIT_BUFFER_TTL_MS = 8000;
+const bufferedSelfSubmits: BufferedSelfSubmit[] = [];
+const claimedSubmitIds = new Set<string>();
+
+function pruneSelfSubmitBuffer(now: number): void {
+  for (let i = bufferedSelfSubmits.length - 1; i >= 0; i -= 1) {
+    if (now - bufferedSelfSubmits[i].at > SELF_SUBMIT_BUFFER_TTL_MS) {
+      const [removed] = bufferedSelfSubmits.splice(i, 1);
+      if (removed) claimedSubmitIds.delete(removed.id);
+    }
+  }
+}
+
+function bufferSelfSubmit(data: Record<string, unknown>): void {
+  const id =
+    typeof data.submitMessageId === "string" ? data.submitMessageId : undefined;
+  if (!id) return;
+  const now = Date.now();
+  pruneSelfSubmitBuffer(now);
+  bufferedSelfSubmits.push({ id, data, at: now });
+}
+
+/** Unclaimed self-submit payloads, for the panel to replay once it mounts. */
+export function drainBufferedAgentChatSubmits(): Array<
+  Record<string, unknown>
+> {
+  pruneSelfSubmitBuffer(Date.now());
+  return bufferedSelfSubmits
+    .filter((entry) => !claimedSubmitIds.has(entry.id))
+    .map((entry) => entry.data);
+}
+
+/** Claim a submit; false if already handled. Idless submits always pass. */
+export function claimAgentChatSubmit(id: string | undefined): boolean {
+  if (!id) return true;
+  if (claimedSubmitIds.has(id)) return false;
+  claimedSubmitIds.add(id);
+  return true;
+}
+
+/** Test-only: reset the self-submit buffer and claim set. */
+export function _resetAgentChatSubmitBufferForTests(): void {
+  bufferedSelfSubmits.length = 0;
+  claimedSubmitIds.clear();
 }
 
 export function normalizeAgentChatContextItem(
@@ -396,6 +467,104 @@ function dispatchAgentChatRunning(isRunning: boolean): void {
   );
 }
 
+function normalizeAgentChatRequestMode(
+  value: unknown,
+): AgentChatRequestMode | undefined {
+  return value === "act" || value === "plan" ? value : undefined;
+}
+
+/** A normalized `agentNative.submitChat` payload — decode via {@link parseSubmitChatMessage}. */
+export interface ParsedSubmitChat {
+  /** Visible prompt text (non-empty). */
+  message: string;
+  context?: string;
+  /** Submit (true) or prefill only (false); defaults to true. */
+  submit: boolean;
+  openSidebar?: boolean;
+  model?: string;
+  /** Raw effort hint; the receiver validates it against the model. */
+  effort?: unknown;
+  newTab?: boolean;
+  background?: boolean;
+  tabId?: string;
+  images?: string[];
+  /** Mode as sent; the receiver falls back to its exec mode when undefined. */
+  requestMode?: AgentChatRequestMode;
+  /** Id used to dedup the live post against a cold-start replay. */
+  submitMessageId?: string;
+}
+
+/** Decode a `message` event into a submit payload, or null if it isn't one / has no text. */
+export function parseSubmitChatMessage(
+  event: MessageEvent,
+): ParsedSubmitChat | null {
+  const envelope =
+    event.data && typeof event.data === "object"
+      ? (event.data as { type?: unknown; data?: unknown })
+      : null;
+  if (!envelope || envelope.type !== AGENT_CHAT_MESSAGE_TYPE) return null;
+  const raw =
+    envelope.data && typeof envelope.data === "object"
+      ? (envelope.data as Record<string, unknown>)
+      : null;
+  if (!raw) return null;
+  const message = typeof raw.message === "string" ? raw.message : "";
+  if (!message) return null;
+  const images = Array.isArray(raw.images)
+    ? raw.images.filter(
+        (image): image is string =>
+          typeof image === "string" && image.length > 0,
+      )
+    : undefined;
+  return {
+    message,
+    context: typeof raw.context === "string" ? raw.context : undefined,
+    submit: raw.submit !== false,
+    openSidebar:
+      typeof raw.openSidebar === "boolean" ? raw.openSidebar : undefined,
+    model: typeof raw.model === "string" ? raw.model : undefined,
+    effort: raw.effort,
+    newTab: typeof raw.newTab === "boolean" ? raw.newTab : undefined,
+    background:
+      typeof raw.background === "boolean" ? raw.background : undefined,
+    tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
+    images,
+    requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
+    submitMessageId:
+      typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
+  };
+}
+
+function normalizeStoredAgentChatExecMode(
+  value: string | null,
+): AgentChatRequestMode | undefined {
+  if (value === "plan") return "plan";
+  if (value === "build" || value === "act") return "act";
+  return undefined;
+}
+
+function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const storage = window.localStorage;
+    const saved = normalizeStoredAgentChatExecMode(
+      storage.getItem(AGENT_CHAT_EXEC_MODE_KEY),
+    );
+    if (saved) return saved;
+    const scopedModes: AgentChatRequestMode[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key?.startsWith(`${AGENT_CHAT_EXEC_MODE_KEY}:`)) continue;
+      const scopedSaved = normalizeStoredAgentChatExecMode(
+        storage.getItem(key),
+      );
+      if (scopedSaved) scopedModes.push(scopedSaved);
+    }
+    if (scopedModes.length === 1) return scopedModes[0];
+  } catch {}
+  return undefined;
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
@@ -403,24 +572,35 @@ function dispatchAgentChatRunning(isRunning: boolean): void {
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  const requestMode =
+    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
+    readStoredAgentChatRequestMode();
   if (isCodeRequest && isInBuilderFrame()) {
     sendToBuilderChat({
       message: opts.message,
       context: opts.context,
       submit: opts.submit,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });
     return tabId;
   }
 
+  const submitMessageId = generateSubmitMessageId();
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
-    data: { ...opts, tabId },
+    data: {
+      ...opts,
+      tabId,
+      submitMessageId,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
+    },
   };
 
   if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)
@@ -469,10 +649,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
 
   const postToTarget = () => target.postMessage(payload, targetOrigin);
 
-  // When the local app owns the chat surface, opening/preparing the sidebar
-  // may mount the MessageEvent listener that receives this payload. Defer the
-  // post one tick so a closed sidebar cannot drop the prompt while mounting.
+  // Same-window: defer one tick so a sidebar mounting now can attach its
+  // listener, and buffer the submit so the lazy panel can replay it if it
+  // mounts later. The live post and the replay dedup by submitMessageId.
   if (!isCodeRequest && target === window) {
+    bufferSelfSubmit(payload.data);
     setTimeout(postToTarget, 0);
   } else {
     postToTarget();

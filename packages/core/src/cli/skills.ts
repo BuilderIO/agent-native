@@ -36,9 +36,9 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
@@ -47,6 +47,8 @@ Examples:
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
   npx @agent-native/core@latest skills add visual-recap --with-github-action
+  npx @agent-native/core@latest skills add visual-plan --mode local-files
+  npx @agent-native/core@latest skills add visual-plan --mode self-hosted --mcp-url https://my-plan-app.example.com
   npx @agent-native/core@latest skills status visual-plan
   npx @agent-native/core@latest skills update visual-plan
   npx @agent-native/core@latest skills add visual-plan --no-connect
@@ -59,27 +61,37 @@ Examples:
 
 The add command installs the SKILL.md instructions, registers the app-backed
 MCP connector, and then authenticates it in one step so you do not hit an OAuth
-wall on the first tool call. By default, add targets every supported local
-client this CLI can configure (Claude Code, Claude Code CLI, Codex, and Cowork);
-pass --client to narrow it. Authentication reuses "npx @agent-native/core@latest connect":
-OAuth-capable clients (Claude Code) get a URL-only entry and a /mcp authenticate
-prompt, while Codex / Cowork run the browser device-code flow. In a
+wall on the first tool call. Hosted installs can configure Claude Code, Codex,
+Claude Cowork, Cursor, OpenCode, and GitHub Copilot / VS Code; local-files
+instruction installs target the shared .agents skill path used by Codex, Pi,
+Cursor, OpenCode, Copilot, and similar agents, plus Claude Code's native skill
+path when selected. Pass --client to narrow it. Authentication reuses
+"npx @agent-native/core@latest connect": OAuth-capable clients (Claude Code,
+Cursor, OpenCode, GitHub Copilot / VS Code) get URL-only entries and authenticate
+inside that host, while Codex / Cowork run the browser device-code flow. In a
 non-interactive shell or CI the auth step is skipped and the exact
 "npx @agent-native/core@latest connect <url> --client all" command is printed instead.
 
-Running "npx @agent-native/skills@latest add ..." directly installs instructions only;
-use this Agent Native CLI path when you want MCP setup and auth too. Pass --no-connect to
-register the connector without authenticating (leave auth to the host or run
+Running "npx @agent-native/skills@latest add ..." uses this same shared install
+flow with the broader BuilderIO skills catalog enabled. Pass --no-connect to
+register MCP where possible without authenticating (leave auth to the host or run
 "npx @agent-native/core@latest connect" later). Pass --mcp-url to register that connector against
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
 
+When installing visual-plan or visual-recap interactively, the CLI asks where
+plans and recaps should live: hosted Plans for shareable links/comments, local
+files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
+Pass --mode to choose directly. Local-files mode skips MCP registration and
+auth and installs instructions that default to a no-auth block catalog fetch,
+MDX folders, and the localhost bridge viewer.
+
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
 run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest recap doctor" to configure and
-verify GitHub Actions.
+verify GitHub Actions. Docs: https://www.agent-native.com/docs/pr-visual-recap.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
 their instruction files from the current @agent-native/core package.`;
@@ -272,6 +284,23 @@ the connector without authenticating, then run
 whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
 loading are per client config/session.
 
+**Local-only / text installs.** If the user wants no sharing and all local files,
+install with \`--mode local-files\`:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add visual-plan --mode local-files
+\`\`\`
+
+This mode does not register the Plan MCP connector. Before authoring structured
+MDX, fetch the no-auth, schema-only block catalog with
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\`, read that file,
+write the MDX folder locally, run \`plan local check\`, then run \`plan local serve\`.
+Plain text skill
+installs (Vercel Skills CLI, copied GitHub files, etc.) can follow that same
+local flow if \`@agent-native/core\` is available. Text alone cannot register
+MCP tools; hosted/shareable Plans still need the Agent-Native CLI
+install/reconnect step above.
+
 **Browser (people you share with).** Open the Plans editor and create & edit
 with no sign-up — you work as a guest. Sign in only when you want to save or
 share; signing in claims the plans you made as a guest into your account.
@@ -279,9 +308,10 @@ share; signing in claims the plans you made as a guest into your account.
 Sharing and commenting require an account: public/shared plans are viewable by
 anyone with the link, but commenting on them needs an agent-native account.
 
-For fully offline, no-account use, run the Plans app locally and sync plans to
-your repo as MDX. This local mode is a separate advanced path, not the default
-hosted flow.
+For no-account, no-DB plan storage, use local-files mode and the local bridge
+command. The optional \`plan blocks\` lookup reads only public schema metadata.
+If network access is unavailable, use the bundled references and a local Plan
+app/runtime for validation.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
 do not keep retrying the tool. Stop and give the user the reconnect step for the
@@ -343,6 +373,13 @@ are auto-themed — no classes needed. Helper classes carry the rest:
 - \`button.primary\` or any element with \`[data-primary]\` — the accent-filled
   primary button.
 
+**No decorative shadows around mockups.** Do not put \`box-shadow\`, \`filter:
+drop-shadow(...)\`, Tailwind \`shadow-*\` classes, or other fake depth effects on a
+wireframe frame, root container, \`.wf-card\` / \`.wf-box\`, or canvas artboard.
+Mockups should read as flat, bordered surfaces; use spacing, borders, labels,
+and annotations for separation. Only show a shadow when the real product UI
+already has that shadow and it is essential to the change being reviewed.
+
 **Use renderer icons, not visible icon words.** For icon-only buttons or leading
 icons inside fields, chips, menu items, and toolbars, write an empty marker such
 as \`<span data-icon="mail" aria-label="Email"></span>\` or
@@ -360,7 +397,7 @@ these on light/dark, so reading them is what keeps a mockup correct in both
 themes. For any inline border, background, or text color, reference a token:
 \`style="border:1.4px solid var(--wf-line)"\`. The tokens are \`--wf-ink\` (text),
 \`--wf-muted\` (secondary text), \`--wf-line\` (borders/dividers), \`--wf-paper\`
-(page background), \`--wf-card\` (raised surface), \`--wf-accent\` /
+(page background), \`--wf-card\` (container surface), \`--wf-accent\` /
 \`--wf-accent-fg\` / \`--wf-accent-soft\` (brand action), \`--wf-warn\`, \`--wf-ok\`,
 and \`--wf-radius\`. Never hard-code a hex color and never set \`font-family\` — the
 renderer owns the sketch/clean font.
@@ -1000,19 +1037,25 @@ surface from it instead of starting over.
 
 ## When To Use
 
-Create or adapt a visual plan when work is multi-file, ambiguous, long-running,
-risky, or UI-heavy, when architecture / data flow / UI direction / options /
-open questions would benefit from inline diagrams or structured blocks, when the
-user needs to react to a direction before you implement, or when an existing text
-plan needs a richer review surface.
+Create or adapt a visual plan whenever the plan would be better as a reviewable
+artifact than a chat paragraph. This includes modest work such as a single UI
+surface with states, a small workflow, a before/after product change, or a
+component/API/data-shape decision that needs alignment, plus larger multi-file,
+ambiguous, long-running, risky, or UI-heavy work. Use it when architecture /
+data flow / UI direction / options / open questions would benefit from inline
+diagrams or structured blocks, when the user needs to react to a direction
+before you implement, or when an existing text plan needs a richer review
+surface.
 
 ## Plan Discipline
 
-- **Gate hard.** A polished visual plan is the most expensive plan form; only
-  invest when a wrong direction is costly. Skip it for trivial, unambiguous work
-  — typos, one-line fixes, a single well-specified function, anything whose diff
-  you could describe in one sentence — and just make the change. Never pad a plan
-  with filler and never ship a single-step plan.
+- **Gate thoughtfully.** A visual plan is a richer review surface, not only a
+  tool for giant projects. Use it when the user needs to see, compare, comment
+  on, or approve a direction before code, even for a modest UI/state/workflow
+  change. Skip it for truly trivial, unambiguous work — typos, one-line fixes, a
+  single well-specified function, anything whose diff you could describe in one
+  sentence — and just make the change. Never pad a plan with filler and never
+  ship a single-step plan.
 - **Research before you draft.** Read the real files, actions, schema, and
   patterns first; name actual files, symbols, and data shapes instead of
   inventing them. Check existing \`actions/\` before proposing endpoints and prefer
@@ -1070,23 +1113,32 @@ plan needs a richer review surface.
   a correction to an earlier draft inside the plan itself. Re-read the approved
   plan before major steps.
 
-## Always Publish As An Agent-Native Plan — Never Inline
+## Create A Structured Agent-Native Plan — Never Inline
 
-The deliverable is ALWAYS a published Agent-Native Plan created via the Plan
-MCP connector (\`plan\` server, or legacy \`agent-native-plans\`). NEVER hand the
-plan over as inline chat content — no Markdown prose, ASCII sketch, table, or
-fenced wireframe. If the connector's tools are missing, do NOT fall back to
-inline output: the usual cause is a connector that did not finish connecting
-this session (it registers zero tools), not auth. Stop and give the user the
-exact restore step for their current client: in Codex/Codex Desktop run
+The deliverable is ALWAYS a structured Agent-Native Plan, not a chat-only plan.
+The hosted Plan MCP connector (\`plan\` server, or legacy \`agent-native-plans\`) is
+the default collaboration and commenting surface; it is not a reason to reject
+the planning pattern as an external dependency or rented layer. Plans are
+portable source artifacts (\`plan.mdx\`, optional \`canvas.mdx\` /
+\`prototype.mdx\`, JSON, and HTML export), and ownership-sensitive workflows can
+use local-files mode or a self-hosted/custom Plan app URL without abandoning the
+skill's review discipline. Do not advise the user to skip \`/visual-plan\` because
+the default surface is hosted; choose the right Plan mode for the user's
+ownership, privacy, sharing, and branding needs.
+
+By default, create the plan via the Plan MCP connector. NEVER hand the plan over
+as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
+wireframe. If the connector's tools are missing, do NOT fall back to inline
+output: the usual cause is a connector that did not finish connecting this
+session (it registers zero tools), not auth. Stop and give the user the exact
+restore step for their current client: in Codex/Codex Desktop run
 \`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
 and start a new Codex session; in Claude Code run \`/mcp\` and choose
 Authenticate/Reconnect (or run the same reconnect command with
 \`--client claude-code\` and restart Claude). Auth is stored per client
 config/session, so one client's reconnect does not make another running client
 load tools. Never reinstall from scratch just to fix auth. Publish once the tool
-is reachable. Local-files privacy mode (after Tool Guidance) is the only
-exception.
+is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
 
 ## Core Workflow
 
@@ -1298,26 +1350,58 @@ skill — never hand-edit one stored plan. Turn feedback into better guidance.
 ## Local-Files Privacy Mode
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
-planning, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. In this mode the
-plan data must never be sent to the Plan MCP server or Plan app action surface.
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
+planning, repo-owned/source-controlled planning artifacts, or when
+\`AGENT_NATIVE_PLANS_MODE=local-files\` is set. Also use it when a user or repo
+policy says a plan must stay under their own brand, domain, source control, or
+infrastructure. In this mode the plan data must never be sent to the Plan MCP
+server or Plan app action surface. Schema-only block catalog lookup is allowed
+because it sends no plan content: use the MCP \`get-plan-blocks\` tool if it is
+already available, or run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
+file before authoring MDX.
 
 The local-files contract is:
 
 - Read source context from local files and shell commands only.
-- Write the plan as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
-  \`.plan-state.json\`.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan\` after
-  writing or updating the folder. Report the returned local URL or the
-  \`/local-plans/<slug>\` route if the local Plan app is running with the same
-  \`PLAN_LOCAL_DIR\`.
+- Fetch/read the block catalog before writing structured MDX. The
+  \`plan blocks\` command calls the public no-auth \`get-plan-blocks\` route and
+  writes only registry metadata to disk; use \`--format schema\` if exact nested
+  fields are needed. If network access is unavailable, use the bundled
+  references and rely on \`plan local check\` / \`plan local serve\` to catch
+  invalid tags. For \`checklist\` and \`question-form\`, copy the catalog examples
+  verbatim: checklist items need \`id\` and \`label\`; question-form questions need
+  \`id\`, \`title\`, and \`mode\`; and each option needs \`id\` and \`label\`. \`plan local
+  check\` validates these required fields against the renderer schema.
+- Write the plan as a local MDX folder: use \`plans/<slug>/\` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
+  when it should not be checked in. The folder contains \`plan.mdx\`, optional
+  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`.
+- Run \`npx @agent-native/core@latest plan local check --dir plans/<slug>\`
+  before serving, then run
+  \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open\`.
+  Report the returned local bridge URL from stdout or \`plans/<slug>/.plan-url\`.
+  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
+  is also valid.
+- For headless verification, run
+  \`npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan\`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
   \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
   \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
-  \`export-visual-plan\`, or any hosted Plan tool for that plan.
+  \`export-visual-plan\`, or any hosted Plan tool for that plan except the
+  schema-only block catalog lookup above.
 - Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local preview command, and summarize the new local URL/path. Hosted
+  the local bridge command, and summarize the new local bridge URL. Hosted
   comments, sharing, history, and publish/export receipts are unavailable until
   the user explicitly opts into publishing.
 
@@ -1437,7 +1521,7 @@ before spending attention on the literal lines.
 ## Local-Files Privacy Mode Exception
 
 Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
+no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
 recaps, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. This is the only
 exception to the hosted publish rule below.
 
@@ -1447,20 +1531,47 @@ In local-files mode:
   The existing \`npx @agent-native/core@latest recap collect-diff\`, \`scan\`, and
   \`build-prompt --local-files\` helpers are safe to use because they operate on
   local files and do not write to the Plan database.
-- Write the recap as a local MDX folder under \`plans/<slug>/\`: \`plan.mdx\`,
-  optional \`canvas.mdx\`, optional \`prototype.mdx\`, and optional
-  \`.plan-state.json\`. Set \`kind: "recap"\` and \`localOnly: true\` in
-  frontmatter/state when authoring the source.
-- Run \`npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap\` after
-  writing or updating the folder. Report the returned local URL or the
-  \`/local-plans/<slug>\` route if the local Plan app is running with the same
-  \`PLAN_LOCAL_DIR\`.
+- Fetch/read the block catalog before writing structured MDX. Use
+  \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` when the Plan
+  MCP connector is not registered; it calls the public no-auth
+  \`get-plan-blocks\` route and sends no recap content. If network access is
+  unavailable, use the bundled references and validate with
+  \`plan local check\` / \`plan local serve\`. For \`checklist\` and \`question-form\`,
+  copy the catalog examples verbatim: checklist items need \`id\` and \`label\`;
+  question-form questions need \`id\`, \`title\`, and \`mode\`; and each option needs
+  \`id\` and \`label\`. \`plan local check\` validates these required fields against
+  the renderer schema.
+- Write the recap as a local MDX folder: use \`plans/<slug>/\` when the user
+  wants the artifact checked into the repo, or use a repo-ignored/temporary
+  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
+  when it should not be checked in. The folder contains \`plan.mdx\`, optional
+  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`. Set
+  \`kind: "recap"\` and \`localOnly: true\` in frontmatter/state when authoring
+  the source.
+- Run \`npx @agent-native/core@latest plan local check --dir plans/<slug>\`
+  before serving, then run
+  \`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`.
+  Report the returned local bridge URL from stdout or \`plans/<slug>/.plan-url\`.
+  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
+  the hosted Plan UI but reads from the localhost bridge on this machine, so it
+  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
+  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
+  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
+  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
+  is also valid.
+- For headless verification, run
+  \`npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind recap\`.
+  It starts the bridge, checks the private-network preflight and JSON payload,
+  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
+  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
+  error.
 - Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
   \`import-visual-plan-source\`, \`update-visual-plan\`,
   \`patch-visual-plan-source\`, \`get-plan-feedback\`, \`export-visual-plan\`,
-  \`set-resource-visibility\`, or any hosted Plan tool for that recap.
+  \`set-resource-visibility\`, or any hosted Plan tool for that recap except the
+  schema-only block catalog lookup above.
 - Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun the local preview command, and summarize the new local URL/path.
+  rerun the local bridge command, and summarize the new local bridge URL.
   Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
   publishing are unavailable until the user explicitly opts into publishing.
 
@@ -1671,10 +1782,14 @@ a headless CI agent), state that in the recap handoff instead.
 
 ## Open And Report The Recap
 
-In local-files privacy mode, report the local preview URL/path from
-\`npx @agent-native/core@latest plan local preview\` or the \`/local-plans/<slug>\` route for a local
-Plan app using the same \`PLAN_LOCAL_DIR\`. Do not invent a hosted URL and do not
-publish just to get an absolute Plan link.
+In local-files privacy mode, run \`plan local check\` first, then report the local
+bridge URL from
+\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open\`
+or from \`plans/<slug>/.plan-url\`. It opens the hosted Plan UI but reads from the
+localhost bridge on this machine, so it is not shareable across machines. If the
+Plan app itself is running locally with the same \`PLAN_LOCAL_DIR\`, the
+\`/local-plans/<slug>\` route is also valid. Do not invent a hosted database URL
+and do not publish just to get an absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That
@@ -1821,12 +1936,19 @@ memorized tags — they drift and silently produce a wrong tag (\`ApiEndpoint\`
 instead of \`Endpoint\`, \`JsonExplorer\` instead of \`Json\`, \`Tabs\` instead of
 \`TabsBlock\`) that errors on import.
 
-**Before writing any structured plan content, call \`get-plan-blocks\` on the Plan
-MCP connector (\`plan\` or legacy \`agent-native-plans\`).** It returns the
-authoritative, always-current block
-vocabulary generated live from the app's own block registry — the same config
-the renderer and MDX round-trip use — so it can never be stale even if this
-SKILL.md is an old installed copy:
+**Before writing any structured plan content, fetch/read the block catalog.** In
+hosted or self-hosted mode, call \`get-plan-blocks\` on the Plan MCP connector
+(\`plan\` or legacy \`agent-native-plans\`). In local-files mode, or when the skill
+was installed as plain text and no MCP tools are registered, run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
+file first. The CLI command calls the public no-auth \`get-plan-blocks\` route and
+sends no plan/recap content. If network access is unavailable, use the bundled
+references and validate with \`plan local check\` / \`plan local serve\`.
+
+The catalog returns the authoritative, always-current block vocabulary generated
+live from the app's own block registry — the same config the renderer and MDX
+round-trip use — so it can never be stale even if this SKILL.md is an old
+installed copy:
 
 - \`get-plan-blocks\` (default \`format: "reference"\`) → a compact table of every
   block's runtime \`type\`, exact MDX \`<Tag>\`, placement, and key data fields.
@@ -1849,6 +1971,10 @@ A few recap-specific authoring rules the registry table cannot encode:
   shared optional \`summary\` / \`editable\` envelope; give a block a heading by
   placing a \`rich-text\` block with a Markdown \`###\` heading directly above it
   (blocks no longer take a \`title\`).
+- Every capitalized block component must be self-closing (\`<RichText ... />\`) or
+  explicitly closed around children (\`<RichText ...>...</RichText>\`). Never
+  leave a bare opening tag like \`<RichText ...>\` in a paragraph; MDX treats it
+  as unclosed JSX and import fails before the recap can render.
 - \`Endpoint\`: prose \`description\` is the MDX **children** (body between the
   tags), not an attribute; for a WebSocket upgrade use \`method="GET"\`. Each
   request/response \`example\` is a JSON **string** (the renderer parses it into
@@ -2074,7 +2200,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Authenticate only for hosted/account-backed sharing.",
+          "The marketplace plugin uses hosted Agent-Native Plans by default. To choose local-files or self-hosted mode, install with the Agent-Native CLI. Authenticate only for hosted/account-backed sharing.",
       },
       surfaces: [
         {
@@ -2226,6 +2352,9 @@ const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code-cli": "Claude Code CLI",
   codex: "Codex",
   cowork: "Claude Cowork",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot / VS Code",
 };
 
 const CLIENT_HINTS: Record<ClientId, string> = {
@@ -2233,16 +2362,73 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code-cli": ".mcp.json or ~/.claude.json",
   codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
+  cursor: ".cursor/mcp.json or ~/.cursor/mcp.json",
+  opencode: "opencode.json or ~/.config/opencode/opencode.json",
+  "github-copilot": ".vscode/mcp.json or VS Code user mcp.json",
 };
 
+type SkillInstructionClientId = ClientId | "pi";
+
+const SKILLS_CLIENTS: ClientId[] = [
+  "claude-code",
+  "codex",
+  "cowork",
+  "cursor",
+  "opencode",
+  "github-copilot",
+];
+const SKILL_INSTRUCTION_CLIENTS: SkillInstructionClientId[] = [
+  "codex",
+  "claude-code",
+  "pi",
+];
+const SKILL_INSTRUCTION_PROMPT_CLIENTS: SkillInstructionClientId[] = [
+  "codex",
+  "claude-code",
+];
+// Clients that don't write their own instruction files but READ the shared
+// `.agents/skills` path the codex install writes. In instructions/local-files
+// mode they resolve to that shared-agents install instead of being dropped, so
+// `--client cursor --mode local-files` (etc.) installs the skills they read
+// rather than failing with an empty client set.
+const SHARED_AGENTS_READER_CLIENTS = new Set<SkillInstructionClientId>([
+  "cursor",
+  "opencode",
+  "github-copilot",
+  "cowork",
+]);
+const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
+  SkillInstructionClientId,
+  string
+> = {
+  "claude-code": "Claude Code",
+  "claude-code-cli": "Claude Code",
+  codex: "Shared .agents skills",
+  cowork: "MCP only",
+  pi: "Pi",
+};
+const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
+  {
+    "claude-code":
+      "Also write Claude Code's native .claude/skills and commands files.",
+    "claude-code-cli":
+      "Also write Claude Code's native .claude/skills and commands files.",
+    codex:
+      "Project scope writes .agents skills/commands for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents; user scope writes Codex's ~/.codex skills/commands.",
+    cowork: "MCP only",
+    pi: "Project scope writes .agents/skills plus .pi/prompts; user scope writes ~/.agents/skills plus ~/.pi/agent/prompts.",
+  };
+
 type SkillsCommand = "list" | "add" | "status" | "update" | "help";
+type PlanInstallMode = "hosted" | "local-files" | "self-hosted";
 
 export interface ParsedSkillsArgs {
   command: SkillsCommand;
   target?: string;
+  baseDir?: string;
   client: string;
   clientExplicit: boolean;
-  clients?: ClientId[];
+  clients?: SkillInstructionClientId[];
   plainSkillNames?: string[];
   scope: string;
   scopeExplicit: boolean;
@@ -2264,6 +2450,12 @@ export interface ParsedSkillsArgs {
    * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
    */
   mcpUrl?: string;
+  /**
+   * Storage/backend mode for the Plans skills. Hosted is the existing default;
+   * local-files installs instructions that default to DB-free MDX + local
+   * preview and skips MCP registration/auth.
+   */
+  planMode?: PlanInstallMode;
   /**
    * When installing the visual-plan skill, also write the PR Visual Recap
    * GitHub Action workflow into `.github/workflows/` so PRs get automatic
@@ -2323,6 +2515,7 @@ export interface SkillsAddResult {
   githubActionPath?: string;
   githubActionExisted?: boolean;
   githubActionSuggestedCommand?: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillInstallMetadata {
@@ -2335,6 +2528,7 @@ interface SkillInstallMetadata {
   mcpUrl: string;
   installedAt: string;
   updateCommand: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillFolderBundle {
@@ -2344,6 +2538,7 @@ interface SkillFolderBundle {
   mcpUrl: string;
   files: Record<string, string>;
   contentHash: string;
+  planMode?: PlanInstallMode;
 }
 
 interface SkillInstallState {
@@ -2357,6 +2552,8 @@ interface SkillInstallState {
   latestHash: string;
   installedHash: string | null;
   metadataHash?: string;
+  planMode?: PlanInstallMode;
+  mcpUrl?: string;
   current: boolean;
   managed: boolean;
 }
@@ -2374,13 +2571,57 @@ interface RunCommandOptions {
   stdio?: "inherit" | "stderr" | "silent";
 }
 
-interface RunSkillsOptions {
+export type SkillsCatalogMode = "agent-native" | "all";
+
+export interface PublicSkillCatalogEntry {
+  name: string;
+  description?: string;
+}
+
+interface ConnectSpinner {
+  start(message?: string): void;
+  clear(): void;
+}
+
+export interface RunSkillsOptions {
   baseDir?: string;
+  /**
+   * Which skills appear in the shared add/list picker. `agent-native` is the
+   * core CLI surface; `all` is used by @agent-native/skills to append public
+   * skill-repo entries while keeping every prompt and install decision here.
+   */
+  catalogMode?: SkillsCatalogMode;
+  /**
+   * The plain skills repo/source to install when a public catalog entry is
+   * selected. @agent-native/skills usually passes the materialized source root.
+   */
+  publicSkillSource?: string;
+  /**
+   * Public skill-repo entries discovered by @agent-native/skills. Core owns the
+   * user-facing flow; the wrapper owns materializing the broader catalog.
+   */
+  publicSkillEntries?: PublicSkillCatalogEntry[];
+  /**
+   * Built-in Agent Native skill prompt/list entries to hide for wrapper CLIs.
+   * Direct installs by explicit name still work; this only controls discovery.
+   */
+  hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
+  /**
+   * Optional output hook for the embedded `agent-native connect` transcript.
+   * Defaults to `log`; the clack-based CLI uses this to render the multi-line
+   * auth details as one continuous guide block instead of separate status logs.
+   */
+  connectLog?: (message: string) => void;
+  /**
+   * Optional spinner factory for the embedded connect flow. The default CLI only
+   * enables this for real TTYs so captured/test output stays deterministic.
+   */
+  createConnectSpinner?: () => ConnectSpinner | undefined;
   promptClients?: (
     context: SkillsClientPromptContext,
-  ) => Promise<ClientId[] | null>;
+  ) => Promise<SkillInstructionClientId[] | null>;
   promptSkills?: (
     context: SkillsTargetPromptContext,
   ) => Promise<string[] | null>;
@@ -2390,6 +2631,11 @@ interface RunSkillsOptions {
   promptScope?: (
     context: SkillsScopePromptContext,
   ) => Promise<"project" | "user" | null>;
+  promptPlanMode?: (
+    context: SkillsPlanModePromptContext,
+  ) => Promise<PlanInstallMode | null>;
+  promptPlanMcpUrl?: () => Promise<string | null>;
+  promptUpdateInstructions?: () => Promise<boolean | null>;
   runCommand?: (
     cmd: string,
     args: string[],
@@ -2411,8 +2657,13 @@ interface RunSkillsOptions {
 }
 
 interface SkillsClientPromptContext {
-  initialClients: ClientId[];
-  options: Array<{ value: ClientId; label: string; hint: string }>;
+  initialClients: SkillInstructionClientId[];
+  options: Array<{
+    value: SkillInstructionClientId;
+    label: string;
+    hint: string;
+  }>;
+  installsMcp: boolean;
 }
 
 interface SkillsTargetPromptContext {
@@ -2423,10 +2674,15 @@ interface SkillsTargetPromptContext {
 interface SkillsGithubActionPromptContext {
   workflowPath: string;
   setupCommand: string;
+  docsUrl: string;
 }
 
 interface SkillsScopePromptContext {
   initialScope: "project" | "user";
+}
+
+interface SkillsPlanModePromptContext {
+  initialMode: PlanInstallMode;
 }
 
 function normalizeKnownSkillTarget(
@@ -2496,14 +2752,84 @@ function stableSkillHash(files: Record<string, string>): string {
   return hash.digest("hex").slice(0, 16);
 }
 
+function insertAfterFrontmatter(markdown: string, block: string): string {
+  if (!block.trim()) return markdown;
+  const match = markdown.match(/^---\n[\s\S]*?\n---\n/);
+  if (!match) return `${block}\n\n${markdown}`;
+  return `${match[0]}\n${block.trim()}\n\n${markdown.slice(match[0].length)}`;
+}
+
+function planModeInstructionBlock(input: {
+  mode: PlanInstallMode | undefined;
+  mcpUrl?: string;
+}): string {
+  if (input.mode === "local-files") {
+    return `## Installed Mode
+
+Default storage for this installation: local files. Create and update plans and
+recaps as MDX folders under \`plans/<slug>/\` when they should be checked in, or
+under a repo-ignored/temp folder when they should stay private scratch. Before
+authoring structured MDX, run
+\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read the
+no-auth block catalog; it sends no plan content. Then run
+\`npx @agent-native/core@latest plan local check --dir plans/<slug>\`, then
+\`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan|recap --open\`,
+and report the local bridge URL from stdout or \`plans/<slug>/.plan-url\`. Treat
+\`.plan-url\` as a local token file and do not commit it. It opens the hosted Plan
+UI but reads from the localhost bridge on this machine, so it is not shareable
+across machines. On macOS, use Chrome/Chromium if Safari blocks the localhost
+bridge; run \`plan local verify --dir plans/<slug> --kind plan|recap\` for
+headless diagnostics. No sharing, all local. Use a hosted or self-hosted Plan MCP
+connector only if the user explicitly asks to publish or share.`;
+  }
+  if (input.mode === "self-hosted") {
+    return `## Installed Mode
+
+Default storage for this installation: the configured self-hosted/custom Plan
+app${input.mcpUrl ? ` at \`${input.mcpUrl}\`` : ""}. Use that Plan MCP connector
+for plans and recaps instead of assuming \`https://plan.agent-native.com\`.`;
+  }
+  return "";
+}
+
+function applyPlanModeToSkillMarkdown(
+  markdown: string,
+  input: {
+    appSkillId: BuiltInAppSkillId;
+    mode?: PlanInstallMode;
+    mcpUrl?: string;
+  },
+): string {
+  if (input.appSkillId !== "visual-plans") return markdown;
+  const block = planModeInstructionBlock({
+    mode: input.mode,
+    mcpUrl: input.mcpUrl,
+  });
+  return insertAfterFrontmatter(markdown, block);
+}
+
 function skillFilesForBuiltIn(
   appSkillId: BuiltInAppSkillId,
+  options: { planMode?: PlanInstallMode; mcpUrl?: string } = {},
 ): Record<string, SkillFolderBundle> {
   const entry = BUILT_IN_APP_SKILLS[appSkillId];
   const skills: Record<string, string> = {
-    [entry.skillName]: entry.skillMarkdown,
+    [entry.skillName]: applyPlanModeToSkillMarkdown(entry.skillMarkdown, {
+      appSkillId,
+      mode: options.planMode,
+      mcpUrl: options.mcpUrl,
+    }),
     ...builtInExtraSkills(entry),
   };
+  for (const [skillName, skillMarkdown] of Object.entries(
+    builtInExtraSkills(entry),
+  )) {
+    skills[skillName] = applyPlanModeToSkillMarkdown(skillMarkdown, {
+      appSkillId,
+      mode: options.planMode,
+      mcpUrl: options.mcpUrl,
+    });
+  }
   const extraFiles = builtInExtraFiles(entry);
   const out: Record<string, SkillFolderBundle> = {};
   for (const [skillName, skillMarkdown] of Object.entries(skills)) {
@@ -2515,11 +2841,13 @@ function skillFilesForBuiltIn(
       appSkillId,
       displayName: entry.manifest.displayName,
       skillName,
-      mcpUrl: isLocalOnlyBuiltInSkill(entry)
-        ? ""
-        : entry.manifest.hosted.mcpUrl,
+      mcpUrl:
+        isLocalOnlyBuiltInSkill(entry) || options.planMode === "local-files"
+          ? ""
+          : (options.mcpUrl ?? entry.manifest.hosted.mcpUrl),
       files,
       contentHash: stableSkillHash(files),
+      planMode: options.planMode,
     };
   }
   return out;
@@ -2557,6 +2885,7 @@ function writeSkillFolder(
     mcpUrl: bundle.mcpUrl,
     installedAt,
     updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
   };
   fs.writeFileSync(
     path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
@@ -2577,16 +2906,70 @@ function builtInSkillsRootForAgent(
 ): string {
   const home = homeDir() ?? baseDir;
   if (scope === "project") {
-    return agent === "codex"
-      ? path.join(baseDir, ".agents", "skills")
-      : path.join(baseDir, ".claude", "skills");
+    if (agent === "codex") return path.join(baseDir, ".agents", "skills");
+    if (agent === "pi") return path.join(baseDir, ".agents", "skills");
+    return path.join(baseDir, ".claude", "skills");
   }
   if (agent === "codex") {
     return process.env.CODEX_HOME
       ? path.join(process.env.CODEX_HOME, "skills")
       : path.join(home, ".codex", "skills");
   }
+  if (agent === "pi") {
+    return path.join(home, ".agents", "skills");
+  }
   return path.join(home, ".claude", "skills");
+}
+
+function builtInCommandsRootForAgent(
+  agent: string,
+  scope: "project" | "user",
+  baseDir: string,
+): string {
+  const home = homeDir() ?? baseDir;
+  if (scope === "project") {
+    if (agent === "codex") return path.join(baseDir, ".agents", "commands");
+    if (agent === "pi") return path.join(baseDir, ".pi", "prompts");
+    return path.join(baseDir, ".claude", "commands");
+  }
+  if (agent === "codex") {
+    return process.env.CODEX_HOME
+      ? path.join(process.env.CODEX_HOME, "commands")
+      : path.join(home, ".codex", "commands");
+  }
+  if (agent === "pi") {
+    const piHome =
+      process.env.PI_CODING_AGENT_DIR || path.join(home, ".pi", "agent");
+    return path.join(piHome, "prompts");
+  }
+  return path.join(home, ".claude", "commands");
+}
+
+function slashCommandForBuiltInSkill(skillName: string): string | null {
+  if (skillName === "visual-plan") {
+    return `---
+description: Create an interactive Agent-Native visual plan for the current task.
+argument-hint: [optional request or scope]
+---
+
+Use the visual-plan skill for this task. Treat any arguments as the user's
+requested plan scope or focus:
+
+$ARGUMENTS
+`;
+  }
+  if (skillName === "visual-recap") {
+    return `---
+description: Create an interactive Agent-Native visual recap for a PR, branch, commit, or diff.
+argument-hint: [PR, branch, commit, diff, or scope]
+---
+
+Use the visual-recap skill. Treat any arguments as the recap target or focus:
+
+$ARGUMENTS
+`;
+  }
+  return null;
 }
 
 /**
@@ -2602,18 +2985,39 @@ function installBuiltInInstructions(input: {
   scope: "project" | "user";
   baseDir: string;
   dryRun?: boolean;
+  planMode?: PlanInstallMode;
+  mcpUrl?: string;
 }): string[] {
-  const bundles = Object.values(skillFilesForBuiltIn(input.appSkillId)).filter(
+  const bundles = Object.values(
+    skillFilesForBuiltIn(input.appSkillId, {
+      planMode: input.planMode,
+      mcpUrl: input.mcpUrl,
+    }),
+  ).filter(
     (bundle) =>
       !input.onlySkillNames || input.onlySkillNames.includes(bundle.skillName),
   );
   const written: string[] = [];
   for (const agent of input.skillsAgents) {
     const root = builtInSkillsRootForAgent(agent, input.scope, input.baseDir);
+    const commandsRoot = builtInCommandsRootForAgent(
+      agent,
+      input.scope,
+      input.baseDir,
+    );
     for (const bundle of bundles) {
       const dir = path.join(root, bundle.skillName);
       if (!input.dryRun) writeSkillFolder(dir, bundle);
       written.push(dir);
+      const command = slashCommandForBuiltInSkill(bundle.skillName);
+      if (command) {
+        const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
+        if (!input.dryRun) {
+          fs.mkdirSync(path.dirname(commandPath), { recursive: true });
+          fs.writeFileSync(commandPath, command, "utf-8");
+        }
+        written.push(commandPath);
+      }
     }
   }
   return written;
@@ -2662,7 +3066,7 @@ function homeDir(): string | undefined {
 
 function skillSearchRoots(input: {
   baseDir: string;
-  clients: ClientId[];
+  clients: SkillInstructionClientId[];
   scopes: Array<"project" | "user">;
 }): Array<{
   root: string;
@@ -2674,9 +3078,10 @@ function skillSearchRoots(input: {
     scope: "project" | "user";
     client: string;
   }> = [];
-  const clientSet = new Set(input.clients);
+  const clientSet = new Set<SkillInstructionClientId>(input.clients);
   const includeAll = input.clients.length === 0;
-  const hasClient = (client: ClientId) => includeAll || clientSet.has(client);
+  const hasClient = (client: SkillInstructionClientId) =>
+    includeAll || clientSet.has(client);
   const add = (
     root: string | undefined,
     scope: "project" | "user",
@@ -2695,6 +3100,10 @@ function skillSearchRoots(input: {
         "project",
         "claude-code",
       );
+    }
+    if (hasClient("pi")) {
+      add(path.join(input.baseDir, ".agents", "skills"), "project", "pi");
+      add(path.join(input.baseDir, ".pi", "skills"), "project", "pi");
     }
     if (includeAll) add(path.join(input.baseDir, "skills"), "project", "repo");
   }
@@ -2721,6 +3130,17 @@ function skillSearchRoots(input: {
         "user",
         "claude-code",
       );
+    }
+    if (hasClient("pi")) {
+      const piHome =
+        process.env.PI_CODING_AGENT_DIR ||
+        (home ? path.join(home, ".pi", "agent") : undefined);
+      add(
+        home ? path.join(home, ".agents", "skills") : undefined,
+        "user",
+        "pi",
+      );
+      add(piHome ? path.join(piHome, "skills") : undefined, "user", "pi");
     }
   }
 
@@ -2761,8 +3181,10 @@ function scopeFilterForStatus(
     : ["project", "user"];
 }
 
-function clientFilterForStatus(parsed: ParsedSkillsArgs): ClientId[] {
-  return parsed.clientExplicit ? resolveClients(parsed.client) : [];
+function clientFilterForStatus(
+  parsed: ParsedSkillsArgs,
+): SkillInstructionClientId[] {
+  return parsed.clientExplicit ? resolveSkillsClientArg(parsed.client) : [];
 }
 
 function collectSkillInstallStates(
@@ -2770,7 +3192,7 @@ function collectSkillInstallStates(
   options: RunSkillsOptions,
 ): SkillInstallState[] {
   const appSkillIds = targetIdsForStatus(parsed);
-  const latest = latestSkillBundlesForTargets(appSkillIds);
+  const defaultLatest = latestSkillBundlesForTargets(appSkillIds);
   const roots = skillSearchRoots({
     baseDir: options.baseDir ?? process.cwd(),
     clients: clientFilterForStatus(parsed),
@@ -2780,29 +3202,36 @@ function collectSkillInstallStates(
   const seenDirs = new Set<string>();
 
   for (const root of roots) {
-    for (const bundle of Object.values(latest)) {
+    for (const bundle of Object.values(defaultLatest)) {
       const dir = path.join(root.root, bundle.skillName);
       const resolvedDir = path.resolve(dir);
       if (seenDirs.has(resolvedDir) || !fs.existsSync(dir)) continue;
       if (!fs.existsSync(path.join(dir, "SKILL.md"))) continue;
       seenDirs.add(resolvedDir);
       const files = listSkillFolderFiles(dir);
+      const metadata = readSkillInstallMetadata(dir);
+      const stateBundle =
+        skillFilesForBuiltIn(bundle.appSkillId, {
+          planMode: metadata?.planMode,
+          mcpUrl: metadata?.mcpUrl,
+        })[bundle.skillName] ?? bundle;
       const installedHash =
         Object.keys(files).length > 0 ? stableSkillHash(files) : null;
-      const metadata = readSkillInstallMetadata(dir);
       states.push({
-        appSkillId: bundle.appSkillId,
-        displayName: bundle.displayName,
-        skillName: bundle.skillName,
+        appSkillId: stateBundle.appSkillId,
+        displayName: stateBundle.displayName,
+        skillName: stateBundle.skillName,
         path: dir,
         root: root.root,
         scope: root.scope,
         client: root.client,
-        latestHash: bundle.contentHash,
+        latestHash: stateBundle.contentHash,
         installedHash,
         metadataHash: metadata?.contentHash,
-        current: installedHash === bundle.contentHash,
+        current: installedHash === stateBundle.contentHash,
         managed: metadata?.source === "agent-native",
+        planMode: metadata?.planMode,
+        mcpUrl: metadata?.mcpUrl,
       });
     }
   }
@@ -2816,13 +3245,13 @@ function updateSkillInstallStates(
   states: SkillInstallState[],
   dryRun: boolean,
 ): SkillInstallState[] {
-  const latest = latestSkillBundlesForTargets([
-    ...new Set(states.map((state) => state.appSkillId)),
-  ]);
   const updated: SkillInstallState[] = [];
   for (const state of states) {
     if (state.current && state.managed) continue;
-    const bundle = latest[state.skillName];
+    const bundle = skillFilesForBuiltIn(state.appSkillId, {
+      planMode: state.planMode,
+      mcpUrl: state.mcpUrl,
+    })[state.skillName];
     if (!bundle) continue;
     if (!dryRun) writeSkillFolder(state.path, bundle);
     updated.push({
@@ -2851,20 +3280,100 @@ function normalizeClientIds(values: unknown): ClientId[] {
   return out;
 }
 
-function clientPromptOptions(): SkillsClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+function isMcpClientId(value: SkillInstructionClientId): value is ClientId {
+  return (CLIENTS as string[]).includes(value);
+}
+
+function normalizeSkillInstructionClientIds(
+  values: unknown,
+): SkillInstructionClientId[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<SkillInstructionClientId>();
+  const out: SkillInstructionClientId[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const id = value.toLowerCase();
+    let normalized: SkillInstructionClientId | null = null;
+    if (id === "pi") {
+      normalized = "pi";
+    } else if ((CLIENTS as string[]).includes(id)) {
+      const client = id as ClientId;
+      normalized = client === "claude-code-cli" ? "claude-code" : client;
+    }
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function resolveSkillsClientArg(
+  client: string,
+  installsMcp = false,
+): SkillInstructionClientId[] {
+  if (installsMcp)
+    return normalizeSkillInstructionClientIds(resolveClients(client));
+  const values = client.split(",").flatMap((raw) => {
+    const id = raw.trim().toLowerCase();
+    if (!id) return [];
+    if (id === "all") return SKILL_INSTRUCTION_CLIENTS;
+    if (id === "pi") return ["pi" as const];
+    return resolveClients(id);
+  });
+  return normalizeSkillInstructionClientIds(values);
+}
+
+function skillsClients(installsMcp: boolean): SkillInstructionClientId[] {
+  return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_PROMPT_CLIENTS;
+}
+
+function filterSkillsClients(
+  clients: SkillInstructionClientId[],
+  installsMcp: boolean,
+): SkillInstructionClientId[] {
+  if (installsMcp) {
+    return clients.filter(
+      (client): client is ClientId =>
+        isMcpClientId(client) && SKILLS_CLIENTS.includes(client),
+    );
+  }
+  // Instructions/local-files mode: keep the first-class instruction writers, and
+  // map shared-`.agents` readers (cursor/opencode/github-copilot/cowork) onto
+  // the shared-agents install (codex) so they install the skills they read
+  // rather than being silently dropped to an empty set.
+  const out: SkillInstructionClientId[] = [];
+  for (const client of clients) {
+    const resolved = SKILL_INSTRUCTION_CLIENTS.includes(client)
+      ? client
+      : SHARED_AGENTS_READER_CLIENTS.has(client)
+        ? "codex"
+        : undefined;
+    if (resolved && !out.includes(resolved)) out.push(resolved);
+  }
+  return out;
+}
+
+function clientPromptOptions(
+  installsMcp: boolean,
+): SkillsClientPromptContext["options"] {
+  return skillsClients(installsMcp).map((client) => ({
     value: client,
-    label: CLIENT_LABELS[client],
-    hint: CLIENT_HINTS[client],
+    label:
+      installsMcp && isMcpClientId(client)
+        ? CLIENT_LABELS[client]
+        : SKILL_INSTRUCTION_CLIENT_LABELS[client],
+    hint:
+      installsMcp && isMcpClientId(client)
+        ? CLIENT_HINTS[client]
+        : SKILL_INSTRUCTION_CLIENT_HINTS[client],
   }));
 }
 
-// For now the interactive installer offers only the two plan skills, each as
-// an independently selectable entry (uncheck one to install just the other).
-// The other built-in skills stay installable via `agent-native skills add
-// <name>` but are hidden from the default checklist. The values are the real
-// slash-command names so users see exactly what they are installing.
-const PLAN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
+const DEFAULT_PUBLIC_SKILLS_SOURCE = "BuilderIO/skills";
+const PUBLIC_SKILL_TARGET_PREFIX = "public-skills:";
+
+const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
   {
     value: "visual-plan",
     label: "visual-plan",
@@ -2875,10 +3384,104 @@ const PLAN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     label: "visual-recap",
     hint: "Interactive visual recap that maps PRs/diffs with diagrams, annotated diffs, API/schema summaries, and review notes.",
   },
+  {
+    value: "assets",
+    label: "assets",
+    hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
+  },
+  {
+    value: "design-exploration",
+    label: "design-exploration",
+    hint: BUILT_IN_APP_SKILLS.design.manifest.description,
+  },
+  {
+    value: "context-xray",
+    label: "context-xray",
+    hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
+  },
 ];
 
-function skillPromptOptions(): SkillsTargetPromptContext["options"] {
-  return PLAN_SKILL_PROMPT_OPTIONS;
+const DEFAULT_SKILL_PROMPT_TARGETS = ["visual-plan", "visual-recap"];
+
+function hiddenBuiltInSkillTargets(options: RunSkillsOptions): Set<string> {
+  return new Set(
+    (options.hiddenBuiltInSkillTargets ?? []).map((target) =>
+      target.trim().toLowerCase(),
+    ),
+  );
+}
+
+function builtInSkillPromptOptions(
+  options: RunSkillsOptions,
+): SkillsTargetPromptContext["options"] {
+  const hidden = hiddenBuiltInSkillTargets(options);
+  return BUILT_IN_SKILL_PROMPT_OPTIONS.filter(
+    (entry) => !hidden.has(entry.value),
+  );
+}
+
+function publicSkillEntries(
+  options: RunSkillsOptions,
+): PublicSkillCatalogEntry[] {
+  if (options.catalogMode !== "all") return [];
+  const seen = new Set<string>();
+  return (options.publicSkillEntries ?? [])
+    .map((entry) => ({
+      name: entry.name.trim().toLowerCase(),
+      description: entry.description,
+    }))
+    .filter((entry) => {
+      if (!entry.name || isKnownSkill(entry.name) || seen.has(entry.name)) {
+        return false;
+      }
+      seen.add(entry.name);
+      return true;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function publicSkillNames(options: RunSkillsOptions): Set<string> {
+  return new Set(publicSkillEntries(options).map((entry) => entry.name));
+}
+
+function publicSkillPromptOptions(
+  options: RunSkillsOptions,
+): SkillsTargetPromptContext["options"] {
+  return publicSkillEntries(options).map((entry) => ({
+    value: entry.name,
+    label: entry.name,
+    hint:
+      entry.description ?? "Public skill from the BuilderIO skills catalog.",
+  }));
+}
+
+function skillPromptOptions(
+  options: RunSkillsOptions = {},
+): SkillsTargetPromptContext["options"] {
+  return [
+    ...builtInSkillPromptOptions(options),
+    ...publicSkillPromptOptions(options),
+  ];
+}
+
+function defaultSkillPromptTargets(options: RunSkillsOptions): string[] {
+  const available = new Set(
+    skillPromptOptions(options).map((entry) => entry.value),
+  );
+  return DEFAULT_SKILL_PROMPT_TARGETS.filter((target) => available.has(target));
+}
+
+function publicSkillSelectionTarget(skillNames: string[]): string {
+  return `${PUBLIC_SKILL_TARGET_PREFIX}${skillNames.join(",")}`;
+}
+
+function publicSkillSelectionNames(target: string): string[] | null {
+  if (!target.startsWith(PUBLIC_SKILL_TARGET_PREFIX)) return null;
+  return target
+    .slice(PUBLIC_SKILL_TARGET_PREFIX.length)
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function prVisualRecapWorkflowPath(baseDir: string): string {
@@ -2888,6 +3491,9 @@ function prVisualRecapWorkflowPath(baseDir: string): string {
 function prVisualRecapWorkflowDisplayPath(): string {
   return path.join(".github", "workflows", "pr-visual-recap.yml");
 }
+
+const PR_VISUAL_RECAP_DOCS_URL =
+  "https://www.agent-native.com/docs/pr-visual-recap";
 
 function prVisualRecapInstallCommand(): string {
   return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
@@ -2907,6 +3513,7 @@ async function promptForGithubAction(
       "  Posts a human-friendly recap on every pull request — a high-altitude\n" +
       "  overview of what the PR does, with annotated code, diagrams, and\n" +
       "  before/after notes instead of a raw diff.\n" +
+      `  Learn more: ${PR_VISUAL_RECAP_DOCS_URL}\n` +
       `  Writes ${context.workflowPath}; ${context.setupCommand} finishes the GitHub secrets.`,
     initialValue: false,
   });
@@ -2927,12 +3534,15 @@ function shouldPrompt(parsed: ParsedSkillsArgs, options: RunSkillsOptions) {
 
 async function promptForClients(
   context: SkillsClientPromptContext,
-): Promise<ClientId[] | null> {
+): Promise<SkillInstructionClientId[] | null> {
   const clack = await import("@clack/prompts");
+  const message = context.installsMcp
+    ? "Install the MCP connector for which clients?\n" +
+      "  (space toggles, enter confirms; saved for next time)"
+    : "Where should the skill instructions be written?\n" +
+      "  (space toggles, enter confirms; saved for next time)";
   const result = await clack.multiselect({
-    message:
-      "Install the MCP connector for which local agents?\n" +
-      "  (space toggles, enter confirms; saved for next time)",
+    message,
     options: context.options,
     initialValues: context.initialClients,
     required: true,
@@ -2941,7 +3551,7 @@ async function promptForClients(
     clack.cancel("Cancelled.");
     return null;
   }
-  return normalizeClientIds(result);
+  return normalizeSkillInstructionClientIds(result);
 }
 
 async function promptForScope(
@@ -2971,6 +3581,73 @@ async function promptForScope(
   return result === "project" ? "project" : "user";
 }
 
+async function promptForPlanMode(
+  context: SkillsPlanModePromptContext,
+): Promise<PlanInstallMode | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.select({
+    message: "Where should visual plans and recaps live?",
+    options: [
+      {
+        value: "hosted",
+        label: "Hosted plans, shareable links",
+        hint: "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor. Requires one-time browser sign-in.",
+      },
+      {
+        value: "local-files",
+        label: "Local files only",
+        hint: "Writes local MDX, starts a localhost bridge, and opens the hosted Plan UI. No sharing, all local.",
+      },
+      {
+        value: "self-hosted",
+        label: "Self-hosted/custom URL",
+        hint: "Connect to your own Plan app or local dev tunnel.",
+      },
+    ],
+    initialValue: context.initialMode,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return normalizePlanInstallMode(String(result));
+}
+
+async function promptForPlanMcpUrl(): Promise<string | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.text({
+    message: "Plan app URL or MCP URL",
+    placeholder: "https://my-plan-app.example.com",
+    validate(value) {
+      try {
+        resolveMcpUrlOverride(value);
+        return undefined;
+      } catch (err: any) {
+        return err?.message ?? "Enter a valid http:// or https:// URL.";
+      }
+    },
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Cancelled.");
+    return null;
+  }
+  return String(result).trim();
+}
+
+async function promptForUpdateInstructions(): Promise<boolean | null> {
+  const clack = await import("@clack/prompts");
+  const result = await clack.confirm({
+    message:
+      "Add managed AGENTS.md / CLAUDE.md instructions for always-on skill behavior?",
+    initialValue: true,
+  });
+  if (clack.isCancel(result)) {
+    clack.cancel("Skipped managed instruction updates.");
+    return null;
+  }
+  return Boolean(result);
+}
+
 async function promptForSkills(
   context: SkillsTargetPromptContext,
 ): Promise<string[] | null> {
@@ -2994,36 +3671,163 @@ async function promptForSkills(
 async function resolveSkillsClients(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions,
-): Promise<ClientId[] | null> {
+  installsMcp: boolean,
+): Promise<SkillInstructionClientId[] | null> {
   if (parsed.clientExplicit || !shouldPrompt(parsed, options)) {
-    return resolveClients(parsed.client);
+    const clients = filterSkillsClients(
+      resolveSkillsClientArg(parsed.client, installsMcp),
+      installsMcp,
+    );
+    if (clients.length === 0) {
+      throw new Error(
+        installsMcp
+          ? "MCP setup supports Claude Code, Codex, Claude Cowork, Cursor, OpenCode, or GitHub Copilot / VS Code clients. Use --mode local-files or --no-mcp for Pi."
+          : "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files.",
+      );
+    }
+    return clients;
   }
-  const initialClients = resolveClients("all");
+  const initialClients = skillsClients(installsMcp);
   const prompt = options.promptClients ?? promptForClients;
-  const selected = normalizeClientIds(
+  const selected = normalizeSkillInstructionClientIds(
     await prompt({
       initialClients,
-      options: clientPromptOptions(),
+      options: clientPromptOptions(installsMcp),
+      installsMcp,
     }),
   );
   if (selected.length === 0) return null;
   if (!parsed.dryRun) {
     try {
-      writeConnectClientPreferences(selected);
+      writeConnectClientPreferences(selected.filter(isMcpClientId));
     } catch {}
   }
   return selected;
+}
+
+function normalizePlanInstallMode(value: string | undefined): PlanInstallMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "hosted") return "hosted";
+  if (
+    normalized === "local" ||
+    normalized === "local-file" ||
+    normalized === "local-files" ||
+    normalized === "files"
+  ) {
+    return "local-files";
+  }
+  if (
+    normalized === "self-hosted" ||
+    normalized === "selfhosted" ||
+    normalized === "custom" ||
+    normalized === "custom-url"
+  ) {
+    return "self-hosted";
+  }
+  throw new Error(
+    '--mode must be one of "hosted", "local-files", or "self-hosted".',
+  );
+}
+
+function targetIncludesPlans(target: string): boolean {
+  return normalizeKnownSkillTarget(target) === "visual-plans";
+}
+
+function targetsIncludePlans(targets: string[]): boolean {
+  return targets.some(targetIncludesPlans);
+}
+
+function planSkillNamesSelected(skillNames: string[] | undefined): boolean {
+  return Boolean(
+    skillNames?.some(
+      (name) => normalizeKnownSkillTarget(name) === "visual-plans",
+    ),
+  );
+}
+
+function shouldForwardPlanModeFlag(
+  target: string,
+  skillNames: string[] | undefined,
+): boolean {
+  return targetIncludesPlans(target) || planSkillNamesSelected(skillNames);
+}
+
+function recapSkillNamesSelected(skillNames: string[] | undefined): boolean {
+  return Boolean(
+    skillNames?.some((name) => {
+      const normalized = name.trim().toLowerCase();
+      return (
+        normalized === "visual-recap" ||
+        normalized === "visual-recaps" ||
+        normalizeKnownSkillTarget(normalized) === "visual-plans"
+      );
+    }),
+  );
+}
+
+function resolveSelectedSkillTargets(
+  selected: string[],
+  options: RunSkillsOptions,
+): string[] {
+  const publicNames = publicSkillNames(options);
+  const builtInSelections: string[] = [];
+  const publicSelections: string[] = [];
+
+  for (const raw of selected) {
+    const skill = raw.trim().toLowerCase();
+    if (!skill) continue;
+    if (isKnownSkill(skill)) {
+      builtInSelections.push(skill);
+      continue;
+    }
+    if (publicNames.has(skill)) {
+      publicSelections.push(skill);
+      continue;
+    }
+    throw new Error(
+      `Unknown skill: ${raw}. Run "npx @agent-native/core@latest skills list".`,
+    );
+  }
+
+  const out: string[] = [];
+  const planSubskills = ["visual-plan", "visual-recap"];
+  const selectedPlanSubskills = planSubskills.filter((skill) =>
+    builtInSelections.includes(skill),
+  );
+  if (selectedPlanSubskills.length === planSubskills.length) {
+    out.push("visual-plans");
+  } else {
+    out.push(...selectedPlanSubskills);
+  }
+  out.push(
+    ...builtInSelections.filter(
+      (skill) => !planSubskills.includes(skill) && !out.includes(skill),
+    ),
+  );
+  if (publicSelections.length > 0) {
+    out.push(publicSkillSelectionTarget([...new Set(publicSelections)]));
+  }
+  return out;
 }
 
 async function resolveSkillTargets(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions,
 ): Promise<string[] | null> {
+  if (!parsed.target && parsed.plainSkillNames?.length) {
+    return resolveSelectedSkillTargets(parsed.plainSkillNames, options);
+  }
   if (parsed.target || !shouldPrompt(parsed, options)) {
-    return [parsed.target ?? "assets"];
+    const target = parsed.target ?? "assets";
+    if (!parsed.target) return [target];
+    const normalizedTarget = target.trim().toLowerCase();
+    if (publicSkillNames(options).has(normalizedTarget)) {
+      return [publicSkillSelectionTarget([normalizedTarget])];
+    }
+    return [target];
   }
   const prompt = options.promptSkills ?? promptForSkills;
-  const promptOptions = skillPromptOptions();
+  const promptOptions = skillPromptOptions(options);
   // The interactive multiselect skill picker is about to be shown (no --skill /
   // target passed and we are interactive) — record the funnel "prompted" step.
   options.telemetry?.track("skills_cli skills prompted", {
@@ -3031,21 +3835,11 @@ async function resolveSkillTargets(
     available: promptOptions.map((option) => option.value).join(","),
   });
   const selected = await prompt({
-    initialTargets: ["visual-plan", "visual-recap"],
+    initialTargets: defaultSkillPromptTargets(options),
     options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
-  // Both plan skills share one MCP connector, so when both are selected install
-  // them through the bundle target — that registers/authenticates the connector
-  // once instead of twice.
-  const planSubskills = ["visual-plan", "visual-recap"];
-  if (planSubskills.every((skill) => selected.includes(skill))) {
-    return [
-      "visual-plans",
-      ...selected.filter((s) => !planSubskills.includes(s)),
-    ];
-  }
-  return selected;
+  return resolveSelectedSkillTargets(selected, options);
 }
 
 export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
@@ -3102,6 +3896,12 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     if ((value = eat("--client")) !== undefined) {
       out.client = value;
       out.clientExplicit = true;
+    } else if ((value = eat("--agent")) !== undefined) {
+      out.client = value;
+      out.clientExplicit = true;
+    } else if ((value = eat("-a")) !== undefined) {
+      out.client = value;
+      out.clientExplicit = true;
     } else if ((value = eat("--skill")) !== undefined) {
       out.plainSkillNames = [...(out.plainSkillNames ?? []), value];
     } else if ((value = eat("-s")) !== undefined) {
@@ -3109,11 +3909,28 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     } else if ((value = eat("--scope")) !== undefined) {
       out.scope = value;
       out.scopeExplicit = true;
-    } else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    } else if ((value = eat("--cwd")) !== undefined) out.baseDir = value;
+    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
+    else if ((value = eat("--mode")) !== undefined)
+      out.planMode = normalizePlanInstallMode(value);
+    else if (arg === "--hosted") out.planMode = "hosted";
+    else if (arg === "--local" || arg === "--local-files")
+      out.planMode = "local-files";
+    else if (arg === "--self-hosted" || arg === "--custom-url")
+      out.planMode = "self-hosted";
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
-    else if (arg === "--mcp-only") out.instructions = false;
+    else if (arg === "-g" || arg === "--global") {
+      out.scope = "user";
+      out.scopeExplicit = true;
+    } else if (arg === "--project") {
+      out.scope = "project";
+      out.scopeExplicit = true;
+    } else if (arg === "--copy") {
+      // Compatibility with @agent-native/skills. Core always copies skill
+      // instructions instead of linking to the source repo.
+    } else if (arg === "--mcp-only") out.instructions = false;
     else if (arg === "--instructions-only" || arg === "--no-mcp")
       out.mcp = false;
     else if (arg === "--no-connect" || arg === "--skip-connect")
@@ -3130,6 +3947,9 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
 
   if (out.scope !== "user" && out.scope !== "project") {
     throw new Error("--scope must be either user or project.");
+  }
+  if (out.planMode === "local-files" && out.mcpUrl) {
+    throw new Error("--mode local-files cannot be combined with --mcp-url.");
   }
   return out;
 }
@@ -3196,13 +4016,16 @@ function loadSkillTarget(
   };
 }
 
-function skillsAgentsForClients(clients: ClientId[]): string[] {
-  const agents = new Set<string>();
+function skillsAgentsForClients(
+  clients: SkillInstructionClientId[],
+): SkillInstructionClientId[] {
+  const agents = new Set<SkillInstructionClientId>();
   for (const client of clients) {
     if (client === "codex") agents.add("codex");
     if (client === "claude-code" || client === "claude-code-cli") {
       agents.add("claude-code");
     }
+    if (client === "pi") agents.add("pi");
   }
   return [...agents];
 }
@@ -3216,8 +4039,9 @@ function commandString(cmd: string, args: string[]): string {
   return [cmd, ...args].map(shellArg).join(" ");
 }
 
-function clientArgForClients(clients: ClientId[]): string {
-  if (clients.length === CLIENTS.length) return "all";
+function clientArgForClients(clients: SkillInstructionClientId[]): string {
+  if (clients.length === CLIENTS.length && clients.every(isMcpClientId))
+    return "all";
   if (clients.length === 1) return clients[0];
   return clients.join(",");
 }
@@ -3255,7 +4079,9 @@ function dryRunInstallCommand(
   parsed: ParsedSkillsArgs,
   target: string,
 ): string {
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients =
+    parsed.clients ??
+    resolveSkillsClientArg(parsed.client, targetInstallsMcp(target, parsed));
   const args = [
     "@agent-native/core@latest",
     "skills",
@@ -3266,6 +4092,12 @@ function dryRunInstallCommand(
     "--scope",
     parsed.scope,
   ];
+  const forwardsPlanFlags = shouldForwardPlanModeFlag(
+    target,
+    parsed.plainSkillNames,
+  );
+  if (forwardsPlanFlags && parsed.planMode)
+    args.push("--mode", parsed.planMode);
   if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
@@ -3398,20 +4230,32 @@ function isPlainSkillRepoTarget(target: string): boolean {
 function agentNativeSkillsInstallArgs(
   parsed: ParsedSkillsArgs,
   target: string,
-  clients: ClientId[],
+  clients: SkillInstructionClientId[],
+  baseDir: string | undefined,
 ): string[] {
   const args = [
     "--yes",
     "@agent-native/skills@latest",
     "add",
+    "--quiet",
+    "--copy",
     target,
     "--client",
     clientArgForClients(clients),
     "--scope",
     parsed.scope,
   ];
+  if (baseDir) args.push("--cwd", baseDir);
   if (parsed.withGithubAction) args.push("--with-github-action");
   if (parsed.force) args.push("--force");
+  const forwardsPlanFlags = shouldForwardPlanModeFlag(
+    target,
+    parsed.plainSkillNames,
+  );
+  if (forwardsPlanFlags && parsed.planMode)
+    args.push("--mode", parsed.planMode);
+  if (forwardsPlanFlags && parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
+  if (!parsed.mcp) args.push("--no-mcp");
   if (!parsed.connect) args.push("--no-connect");
   for (const skill of parsed.plainSkillNames ?? []) {
     args.push("--skill", skill);
@@ -3420,6 +4264,7 @@ function agentNativeSkillsInstallArgs(
   if (parsed.updateInstructions === false)
     args.push("--no-update-instructions");
   if (parsed.yes) args.push("--yes");
+  if (parsed.dryRun) args.push("--dry-run");
   return args;
 }
 
@@ -3433,23 +4278,29 @@ async function addPlainSkillRepo(
       "Plain skill repositories only install skill instructions. Run without --mcp-only.",
     );
   }
-  if (parsed.mcpUrl) {
+  if (parsed.mcpUrl && !planSkillNamesSelected(parsed.plainSkillNames)) {
     throw new Error(
       "--mcp-url only applies to app-backed Agent Native skills.",
     );
   }
 
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients = parsed.clients ?? resolveSkillsClientArg(parsed.client);
   const skillsAgents = skillsAgentsForClients(clients);
+  const selectedSkillNames = parsed.plainSkillNames ?? [];
   if (skillsAgents.length === 0) {
     throw new Error(
-      "Plain skill repositories can only install instructions for Codex or Claude Code clients.",
+      "Plain skill repositories install through shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files.",
     );
   }
-  const args = agentNativeSkillsInstallArgs(parsed, target, clients);
+  const args = agentNativeSkillsInstallArgs(
+    parsed,
+    target,
+    skillsAgents,
+    options.baseDir,
+  );
   if (!parsed.dryRun) {
     const code = await (options.runCommand ?? runCommand)("npx", args, {
-      stdio: parsed.yes ? "silent" : "inherit",
+      stdio: "silent",
     });
     if (code !== 0)
       throw new Error(
@@ -3457,15 +4308,17 @@ async function addPlainSkillRepo(
       );
   }
   options.telemetry?.track("skills_cli install completed", {
-    skills: target,
+    skills: selectedSkillNames.length ? selectedSkillNames.join(",") : target,
     clients: clients.join(","),
     scope: parsed.scope,
     dryRun: Boolean(parsed.dryRun),
   });
   return {
     id: target,
-    displayName: target,
-    skillNames: [],
+    displayName: selectedSkillNames.length
+      ? selectedSkillNames.join(", ")
+      : target,
+    skillNames: selectedSkillNames,
     skillsAgents,
     mcpUrl: "",
     mcpClients: [],
@@ -3485,6 +4338,40 @@ function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
   if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
   if (process.env.CI === "true") return false;
   return !!process.stdin.isTTY && !!process.stdout.isTTY;
+}
+
+function normalizeConnectLogMessage(message: string): string {
+  return message
+    .split("\n")
+    .map((line) => (line.startsWith("  ") ? line.slice(2) : line))
+    .join("\n");
+}
+
+function createClackConnectLog(
+  clack: typeof import("@clack/prompts"),
+): (message: string) => void {
+  return (message) => {
+    clack.log.message(normalizeConnectLogMessage(message), {
+      symbol: clack.S_BAR,
+      secondarySymbol: clack.S_BAR,
+      spacing: 0,
+    });
+  };
+}
+
+async function runWithConnectSpinner<T>(
+  options: RunSkillsOptions,
+  message: string,
+  task: () => T | Promise<T>,
+): Promise<T> {
+  const spinner = options.createConnectSpinner?.();
+  if (!spinner) return await task();
+  spinner.start(message);
+  try {
+    return await task();
+  } finally {
+    spinner.clear();
+  }
 }
 
 /** Build the `npx @agent-native/core@latest connect <url> --client … --scope …` command. */
@@ -3537,24 +4424,64 @@ async function connectAfterEnsure(
     return { connected: false, connectCommand };
   }
 
-  options.log?.(`Authenticating ${installTarget.displayName}…`);
+  const authMessage = `Authenticating ${installTarget.displayName}…`;
+  const connectLog = options.connectLog ?? options.log;
+  const spinner = options.createConnectSpinner?.();
+  let spinnerActive = false;
+  let wroteAuthMessage = false;
+  const clearSpinner = () => {
+    if (!spinnerActive) return;
+    spinner.clear();
+    spinnerActive = false;
+  };
+  const writeAuthMessage = () => {
+    if (wroteAuthMessage) return;
+    connectLog?.(authMessage);
+    wroteAuthMessage = true;
+  };
+  const writeConnectLog = (message: string) => {
+    clearSpinner();
+    writeAuthMessage();
+    connectLog?.(message);
+  };
+  if (spinner) {
+    spinner.start(authMessage);
+    spinnerActive = true;
+  } else {
+    writeAuthMessage();
+  }
   options.telemetry?.track("skills_cli connect started");
   try {
-    await (options.runConnect ?? runConnect)([
+    const connectArgs = [
       hostedUrl,
       "--client",
       clientArgForClients(clients),
       "--scope",
       parsed.scope,
-    ]);
+    ];
+    if (options.runConnect) {
+      await options.runConnect(connectArgs);
+    } else {
+      await runConnect(connectArgs, {
+        isInteractive: options.isInteractive,
+        logOut: writeConnectLog,
+        logErr: writeConnectLog,
+        withBrowserOpenSpinner: (message, openBrowser) =>
+          runWithConnectSpinner(options, message, openBrowser),
+      });
+    }
+    clearSpinner();
+    writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    clearSpinner();
+    writeAuthMessage();
     // Non-fatal: the MCP connector is registered. Surface the manual command.
     options.telemetry?.track("skills_cli connect failed", {
       error: err?.message ?? String(err),
     });
-    options.log?.(
+    connectLog?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
         `Run it later with: ${connectCommand}`,
     );
@@ -3567,7 +4494,34 @@ export async function addAgentNativeSkill(
   options: RunSkillsOptions = {},
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
+  const publicSelection = publicSkillSelectionNames(target);
+  if (publicSelection) {
+    return addPlainSkillRepo(
+      {
+        ...parsed,
+        target: options.publicSkillSource ?? DEFAULT_PUBLIC_SKILLS_SOURCE,
+        plainSkillNames: publicSelection,
+      },
+      options,
+    );
+  }
   const knownTarget = normalizeKnownSkillTarget(target);
+  const planMode =
+    knownTarget === "visual-plans"
+      ? (parsed.planMode ?? (parsed.mcpUrl ? "self-hosted" : "hosted"))
+      : undefined;
+  if (parsed.planMode && knownTarget !== "visual-plans") {
+    throw new Error("--mode only applies to visual-plan / visual-recap.");
+  }
+  if (planMode === "local-files" && parsed.mcpUrl) {
+    throw new Error("--mode local-files cannot be combined with --mcp-url.");
+  }
+  if (planMode === "self-hosted" && !parsed.mcpUrl) {
+    throw new Error("--mode self-hosted requires --mcp-url <url>.");
+  }
+  const shouldRegisterMcp =
+    parsed.mcp &&
+    !(knownTarget === "visual-plans" && planMode === "local-files");
   // For multi-skill bundles (the plan bundle), a single-skill target installs
   // only that skill. `installsRecap` controls the PR Visual Recap github-action
   // offer, which is only relevant when the recap skill is part of the install.
@@ -3597,7 +4551,9 @@ export async function addAgentNativeSkill(
         "Context X-Ray does not need MCP config yet. Run without --mcp-only.",
       );
     }
-    const clients = parsed.clients ?? resolveClients(parsed.client);
+    const clients = (
+      parsed.clients ?? resolveSkillsClientArg(parsed.client)
+    ).filter(isMcpClientId);
     const skillsAgents = skillsAgentsForClients(clients);
     if (parsed.dryRun) {
       const githubActionPath =
@@ -3653,7 +4609,14 @@ export async function addAgentNativeSkill(
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
   }
-  const clients = parsed.clients ?? resolveClients(parsed.client);
+  const clients =
+    parsed.clients ?? resolveSkillsClientArg(parsed.client, shouldRegisterMcp);
+  const mcpClients = clients.filter(isMcpClientId);
+  if (shouldRegisterMcp && mcpClients.length === 0) {
+    throw new Error(
+      "MCP setup supports Claude Code, Codex, Claude Cowork, Cursor, OpenCode, or GitHub Copilot / VS Code clients. Use --mode local-files or --no-mcp for Pi.",
+    );
+  }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
@@ -3677,12 +4640,16 @@ export async function addAgentNativeSkill(
         displayName: installTarget.displayName,
         skillNames: installTarget.skillNames,
         skillsAgents,
-        mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-        mcpClients: clients,
+        mcpUrl:
+          knownTarget === "visual-plans" && planMode === "local-files"
+            ? ""
+            : installTarget.loaded.manifest.hosted.mcpUrl,
+        mcpClients: shouldRegisterMcp ? mcpClients : [],
         dryRun: true,
         commands: [dryRunInstallCommand(parsed, target)],
         githubActionPath,
         githubActionSuggestedCommand,
+        planMode,
       };
     } finally {
       installTarget.cleanup?.();
@@ -3694,13 +4661,14 @@ export async function addAgentNativeSkill(
   let instructionsWritten: string[] | undefined;
   let connected = false;
   let connectCommand: string | undefined;
+  let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
 
   try {
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
-        if (!parsed.mcp) {
+        if (!shouldRegisterMcp) {
           throw new Error(
-            "Skill instructions can only be installed for Codex or Claude Code clients. Use an MCP-capable client or omit --instructions-only.",
+            "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files. Use an MCP-capable client or omit --instructions-only.",
           );
         }
       } else if (knownTarget) {
@@ -3715,6 +4683,8 @@ export async function addAgentNativeSkill(
           scope: parsed.scope as "project" | "user",
           baseDir: options.baseDir ?? process.cwd(),
           dryRun: parsed.dryRun,
+          planMode,
+          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
         });
         instructionSource = instructionsWritten[0];
         commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
@@ -3727,6 +4697,7 @@ export async function addAgentNativeSkill(
           "--yes",
           "@agent-native/skills@latest",
           "add",
+          "--quiet",
           instructionSource,
           "--copy",
           ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
@@ -3756,19 +4727,22 @@ export async function addAgentNativeSkill(
       dryRun: Boolean(parsed.dryRun),
     });
 
-    if (parsed.mcp) {
+    if (shouldRegisterMcp) {
       commands.push(
         `npx @agent-native/core@latest app-skill ensure --manifest ${installTarget.loaded.file} --client ${parsed.client} --scope ${parsed.scope} --yes`,
       );
       if (!parsed.dryRun) {
-        await ensureAppSkill(installTarget.loaded, {
-          clients,
+        const ensureResult = await ensureAppSkill(installTarget.loaded, {
+          clients: mcpClients,
           scope: parsed.scope,
           baseDir: options.baseDir,
           yes: parsed.yes || Boolean(knownTarget),
           confirm: true,
           log: options.log,
         });
+        registeredMcpClients = ensureResult.written.map(
+          (written) => written.client,
+        );
         options.telemetry?.track("skills_cli mcp registered", {
           skills: installTarget.skillNames.join(","),
         });
@@ -3780,13 +4754,26 @@ export async function addAgentNativeSkill(
         if (parsed.connect) {
           const result = await connectAfterEnsure(
             installTarget,
-            clients,
+            mcpClients,
             parsed,
             options,
           );
           connected = result.connected;
           connectCommand = result.connectCommand || undefined;
+          if (connected) registeredMcpClients = mcpClients;
           if (connectCommand) commands.push(connectCommand);
+        } else {
+          const pendingClients = mcpClients.filter(
+            (client) => !registeredMcpClients.includes(client),
+          );
+          if (pendingClients.length > 0) {
+            connectCommand = connectCommandFor(
+              installTarget.loaded.manifest.hosted.url,
+              pendingClients,
+              parsed.scope,
+            );
+            commands.push(connectCommand);
+          }
         }
       }
     }
@@ -3811,6 +4798,7 @@ export async function addAgentNativeSkill(
         const choice = await prompt({
           workflowPath: prVisualRecapWorkflowDisplayPath(),
           setupCommand: prVisualRecapSetupCommand(),
+          docsUrl: PR_VISUAL_RECAP_DOCS_URL,
         });
         if (choice === null) {
           options.telemetry?.track("skills_cli cancelled", {
@@ -3850,13 +4838,17 @@ export async function addAgentNativeSkill(
       instructionSource,
       skillNames: installTarget.skillNames,
       skillsAgents,
-      mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-      mcpClients: clients,
+      mcpUrl:
+        knownTarget === "visual-plans" && planMode === "local-files"
+          ? ""
+          : installTarget.loaded.manifest.hosted.mcpUrl,
+      mcpClients: registeredMcpClients,
       dryRun: parsed.dryRun,
       commands,
       written: instructionsWritten,
       connected,
       connectCommand,
+      planMode,
       githubActionPath,
       githubActionExisted,
       githubActionSuggestedCommand,
@@ -3867,18 +4859,36 @@ export async function addAgentNativeSkill(
   }
 }
 
-function listSkills() {
-  return Object.values(BUILT_IN_APP_SKILLS).map((entry) => ({
-    id: entry.manifest.id,
-    aliases:
-      BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
-        entry.manifest.id as BuiltInAppSkillId
-      ] ?? [],
-    name: entry.manifest.displayName,
-    description: entry.manifest.description,
-    mcpUrl: isLocalOnlyBuiltInSkill(entry) ? "" : entry.manifest.hosted.mcpUrl,
-    local: isLocalOnlyBuiltInSkill(entry),
-  }));
+function listSkills(options: RunSkillsOptions = {}) {
+  const hidden = hiddenBuiltInSkillTargets(options);
+  return [
+    ...Object.values(BUILT_IN_APP_SKILLS)
+      .filter((entry) => !hidden.has(entry.skillName))
+      .map((entry) => ({
+        id: entry.manifest.id,
+        aliases:
+          BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
+            entry.manifest.id as BuiltInAppSkillId
+          ] ?? [],
+        name: entry.manifest.displayName,
+        description: entry.manifest.description,
+        mcpUrl: isLocalOnlyBuiltInSkill(entry)
+          ? ""
+          : entry.manifest.hosted.mcpUrl,
+        local: isLocalOnlyBuiltInSkill(entry),
+        source: "agent-native",
+      })),
+    ...publicSkillEntries(options).map((entry) => ({
+      id: entry.name,
+      aliases: [] as string[],
+      name: entry.name,
+      description:
+        entry.description ?? "Public skill from the BuilderIO skills catalog.",
+      mcpUrl: "",
+      local: true,
+      source: options.publicSkillSource ?? DEFAULT_PUBLIC_SKILLS_SOURCE,
+    })),
+  ];
 }
 
 function skillStateJson(state: SkillInstallState) {
@@ -3894,6 +4904,7 @@ function skillStateJson(state: SkillInstallState) {
     installedHash: state.installedHash,
     latestHash: state.latestHash,
     metadataHash: state.metadataHash,
+    planMode: state.planMode,
   };
 }
 
@@ -3905,6 +4916,80 @@ function formatSkillState(state: SkillInstallState): string {
       ? ` (${state.installedHash} -> ${state.latestHash})`
       : "";
   return `${state.skillName.padEnd(22)} ${status.padEnd(7)} ${state.scope}/${state.client} ${managed}${hashes}\n  ${state.path}`;
+}
+
+function planModeSummary(mode: PlanInstallMode): string {
+  if (mode === "local-files") return "Local files - No sharing, all local.";
+  if (mode === "self-hosted") return "Self-hosted/custom Plan app";
+  return "Hosted Plans - shareable links and comments";
+}
+
+function skillInstructionAgentLabel(agent: string): string {
+  if (agent === "codex") return SKILL_INSTRUCTION_CLIENT_LABELS.codex;
+  if (agent === "claude-code")
+    return SKILL_INSTRUCTION_CLIENT_LABELS["claude-code"];
+  if (agent === "pi") return SKILL_INSTRUCTION_CLIENT_LABELS.pi;
+  return agent;
+}
+
+function targetInstallsMcp(
+  target: string,
+  parsed: Pick<ParsedSkillsArgs, "mcp" | "planMode">,
+): boolean {
+  if (!parsed.mcp) return false;
+  if (publicSkillSelectionNames(target)) return false;
+  const knownTarget = normalizeKnownSkillTarget(target);
+  if (knownTarget === "visual-plans") return parsed.planMode !== "local-files";
+  if (knownTarget) {
+    return !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[knownTarget]);
+  }
+  return true;
+}
+
+function targetsInstallMcp(
+  targets: string[],
+  parsed: ParsedSkillsArgs,
+): boolean {
+  return targets.some((target) => targetInstallsMcp(target, parsed));
+}
+
+function instructionContentForSkill(skillName: string): string | null {
+  if (skillName === "quick-recap") {
+    return "When writing final response status indicators, use the /quick-recap skill always.";
+  }
+  if (skillName === "efficient-fable") {
+    return "When operating as Claude Fable, use the /efficient-fable skill always.";
+  }
+  if (skillName === "efficient-frontier") {
+    return "When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.";
+  }
+  if (skillName === "stay-within-limits") {
+    return "When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.";
+  }
+  if (skillName === "visual-plan") {
+    return "When work needs an interactive visual plan before implementation, use the /visual-plan skill always.";
+  }
+  if (skillName === "visual-recap") {
+    return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
+  }
+  return null;
+}
+
+function selectedPlainSkillNamesForInstructionPrompt(
+  targets: string[],
+  parsed: ParsedSkillsArgs,
+): string[] {
+  const names = new Set<string>(parsed.plainSkillNames ?? []);
+  for (const target of targets) {
+    for (const name of publicSkillSelectionNames(target) ?? []) {
+      names.add(name);
+    }
+  }
+  return [...names];
+}
+
+function hasManagedInstructionBlock(skillNames: string[]): boolean {
+  return skillNames.some((name) => Boolean(instructionContentForSkill(name)));
 }
 
 function runSkillsStatusOrUpdate(
@@ -3989,9 +5074,26 @@ export async function runSkills(
   options: RunSkillsOptions = {},
 ): Promise<void> {
   const parsed = parseSkillsArgs(argv);
+  if (parsed.baseDir) {
+    options = { ...options, baseDir: path.resolve(parsed.baseDir) };
+  }
+  const clackForLog = parsed.printJson
+    ? undefined
+    : await import("@clack/prompts");
   const log = parsed.printJson
     ? undefined
-    : (message: string) => process.stdout.write(`${message}\n`);
+    : (message: string) => {
+        if (!message.trim()) return;
+        clackForLog?.log.info(message);
+      };
+  const connectLog =
+    !parsed.printJson && clackForLog
+      ? createClackConnectLog(clackForLog)
+      : undefined;
+  const createConnectSpinner =
+    !parsed.printJson && clackForLog && process.stdout.isTTY
+      ? () => clackForLog.spinner({ indicator: "timer" })
+      : undefined;
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);
@@ -4003,6 +5105,7 @@ export async function runSkills(
   // `npx @agent-native/skills@latest add …`; this env guard tells that child process
   // to run its OWN headless installer instead of bouncing back into core,
   // which would otherwise be an infinite skills → core → skills loop.
+  const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
   process.env.AGENT_NATIVE_SKILLS_DIRECT = "1";
 
   // Best-effort install-funnel telemetry. Created once per run and flushed in a
@@ -4017,13 +5120,18 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
-  const optionsWithTelemetry: RunSkillsOptions = { ...options, telemetry };
+  const optionsWithTelemetry: RunSkillsOptions = {
+    ...options,
+    telemetry,
+    connectLog: options.connectLog ?? connectLog,
+    createConnectSpinner: options.createConnectSpinner ?? createConnectSpinner,
+  };
 
   try {
     telemetry.track("skills_cli started");
 
     if (parsed.command === "list") {
-      const skills = listSkills();
+      const skills = listSkills(optionsWithTelemetry);
       telemetry.track("skills_cli skills listed", {
         availableCount: skills.length,
         available: skills.map((skill) => skill.id).join(","),
@@ -4062,11 +5170,58 @@ export async function runSkills(
       // Best-effort "took everything offered" signal: compare against the
       // interactive picker's option count (the plan sub-skills collapse into a
       // single bundle target, so this is approximate, like the standalone CLI).
-      selectedAll: targets.length === skillPromptOptions().length,
+      selectedAll: targets.length === skillPromptOptions(options).length,
       preselected,
     });
 
-    const clients = await resolveSkillsClients(parsed, optionsWithTelemetry);
+    const includesPlans =
+      targetsIncludePlans(targets) ||
+      planSkillNamesSelected(parsed.plainSkillNames);
+    if (parsed.planMode && !includesPlans) {
+      throw new Error("--mode only applies to visual-plan / visual-recap.");
+    }
+    if (includesPlans) {
+      if (!parsed.planMode && parsed.mcpUrl) {
+        parsed.planMode = "self-hosted";
+      }
+      if (!parsed.planMode && shouldPrompt(parsed, options)) {
+        const prompt = options.promptPlanMode ?? promptForPlanMode;
+        const mode = await prompt({ initialMode: "hosted" });
+        if (!mode) {
+          telemetry.track("skills_cli cancelled", { step: "plan-mode" });
+          return;
+        }
+        parsed.planMode = mode;
+      }
+      if (!parsed.planMode) parsed.planMode = "hosted";
+      if (parsed.planMode === "self-hosted" && !parsed.mcpUrl) {
+        if (shouldPrompt(parsed, options)) {
+          const prompt = options.promptPlanMcpUrl ?? promptForPlanMcpUrl;
+          const mcpUrl = await prompt();
+          if (!mcpUrl) {
+            telemetry.track("skills_cli cancelled", {
+              step: "plan-mcp-url",
+            });
+            return;
+          }
+          parsed.mcpUrl = mcpUrl;
+        } else {
+          throw new Error(
+            "--mode self-hosted requires --mcp-url <url> in non-interactive mode.",
+          );
+        }
+      }
+      telemetry.track("skills_cli plan mode selected", {
+        mode: parsed.planMode,
+      });
+    }
+
+    const installsMcp = targetsInstallMcp(targets, parsed);
+    const clients = await resolveSkillsClients(
+      parsed,
+      optionsWithTelemetry,
+      installsMcp,
+    );
     if (!clients) {
       telemetry.track("skills_cli cancelled", { step: "clients" });
       return;
@@ -4089,16 +5244,38 @@ export async function runSkills(
     }
     telemetry.track("skills_cli scope selected", { scope: parsed.scope });
 
+    const instructionSkillNames = selectedPlainSkillNamesForInstructionPrompt(
+      targets,
+      parsed,
+    );
+    if (
+      parsed.updateInstructions === undefined &&
+      hasManagedInstructionBlock(instructionSkillNames) &&
+      shouldPrompt(parsed, options)
+    ) {
+      const prompt =
+        options.promptUpdateInstructions ?? promptForUpdateInstructions;
+      const choice = await prompt();
+      if (choice === null) {
+        telemetry.track("skills_cli cancelled", {
+          step: "managed-instructions",
+        });
+        return;
+      }
+      parsed.updateInstructions = choice === true;
+    }
+
     // Decide the optional PR Visual Recap GitHub Action UP FRONT — before any
     // install or MCP registration — so every prompt is answered before we touch
     // disk. The choice is threaded into each install via `withGithubAction` +
     // `githubActionResolved` (so addAgentNativeSkill doesn't re-prompt mid-flow).
     const recapBaseDir = options.baseDir ?? process.cwd();
-    const anyRecapTarget = targets.some((target) => {
-      if (normalizeKnownSkillTarget(target) !== "visual-plans") return false;
-      const only = builtInOnlySkillNames(target);
-      return !only || only.includes("visual-recap");
-    });
+    const anyRecapTarget =
+      targets.some((target) => {
+        if (normalizeKnownSkillTarget(target) !== "visual-plans") return false;
+        const only = builtInOnlySkillNames(target);
+        return !only || only.includes("visual-recap");
+      }) || recapSkillNamesSelected(parsed.plainSkillNames);
     if (
       anyRecapTarget &&
       !parsed.withGithubAction &&
@@ -4109,6 +5286,7 @@ export async function runSkills(
       const choice = await prompt({
         workflowPath: prVisualRecapWorkflowDisplayPath(),
         setupCommand: prVisualRecapSetupCommand(),
+        docsUrl: PR_VISUAL_RECAP_DOCS_URL,
       });
       if (choice === null) {
         telemetry.track("skills_cli cancelled", { step: "github-action" });
@@ -4179,8 +5357,15 @@ export async function runSkills(
     const localCommands = [
       ...new Set(
         results
-          .filter((result) => result.local)
+          .filter((result) => result.local && result.scriptPath)
           .flatMap((result) => result.commands),
+      ),
+    ];
+    const planModes = [
+      ...new Set(
+        results
+          .map((result) => result.planMode)
+          .filter((mode): mode is PlanInstallMode => Boolean(mode)),
       ),
     ];
     const authConnected = results.some((result) => result.connected);
@@ -4221,12 +5406,15 @@ export async function runSkills(
     const clack = await import("@clack/prompts");
     const summary = [
       skillsAgents.length
-        ? `Skill instructions   ${skillsAgents.join(", ")}`
+        ? `Skill instructions   ${skillsAgents.map(skillInstructionAgentLabel).join(", ")}`
         : "Skill instructions   skipped",
       mcpClients.length
-        ? `MCP config           ${mcpClients.join(", ")}`
+        ? `MCP config           ${mcpClients.map((client) => CLIENT_LABELS[client]).join(", ")}`
         : "MCP config           not required",
       mcpUrls.length ? `MCP URL              ${mcpUrls.join(", ")}` : "",
+      planModes.length
+        ? `Plan mode            ${planModes.map(planModeSummary).join(", ")}`
+        : "",
       authConnected
         ? "Authentication       completed"
         : pendingConnectCommands.length
@@ -4241,23 +5429,41 @@ export async function runSkills(
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}`,
     );
 
+    // OAuth clients (Claude Code) can finish auth in-host via /mcp, not only by
+    // running the connect command — surface that on the no-connect/pending path
+    // so a hosted install isn't left looking "done but unauthenticated".
+    if (
+      !authConnected &&
+      mcpClients.some(
+        (client) => client === "claude-code" || client === "claude-code-cli",
+      )
+    ) {
+      clack.log.info(
+        "Claude Code: reload the client, then open /mcp and choose Authenticate to finish connecting" +
+          (pendingConnectCommands.length
+            ? " (or run the connect command above)."
+            : "."),
+      );
+    }
+
     // GitHub Action follow-ups — kept as exact, copy-pasteable command lines.
     for (const line of [githubActionLine, githubActionSuggestionLine].filter(
       Boolean,
     )) {
-      process.stdout.write(`${line}\n`);
+      clack.log.info(line);
     }
 
     const slashCommands = completedSkills.map((name) => `/${name}`).join("  ");
-    const configuredEveryClient = CLIENTS.every((client) =>
+    const configuredEveryClient = SKILLS_CLIENTS.every((client) =>
       clients.includes(client),
     );
     const clientHint = configuredEveryClient
       ? ""
       : "\n   Add another client later with --client <client> (e.g. --client claude-code).";
+    const reloadTarget = mcpClients.length > 0 ? "skill + MCP server" : "skill";
     clack.outro(
       `✅ All set! Start using ${slashCommands || "your new skills"} in your agent client.` +
-        `\n   You may need to reload the client for the skill + MCP server to appear.` +
+        `\n   You may need to reload the client for the ${reloadTarget} to appear.` +
         clientHint,
     );
   } catch (error) {
@@ -4269,5 +5475,10 @@ export async function runSkills(
     throw error;
   } finally {
     await telemetry.flush();
+    if (previousDirect === undefined) {
+      delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    } else {
+      process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
   }
 }

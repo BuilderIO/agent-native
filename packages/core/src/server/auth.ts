@@ -1783,6 +1783,24 @@ const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // permanently disable auto-create) and the post-logout guard still fires.
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
+let authDisabledWarningLogged = false;
+
+function isAuthDisabled(): boolean {
+  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function getAuthDisabledSession(): AuthSession | null {
+  if (!isAuthDisabled()) return null;
+  if (!authDisabledWarningLogged) {
+    authDisabledWarningLogged = true;
+    console.warn(
+      `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${AUTO_DEV_ACCOUNT_EMAIL}`,
+    );
+  }
+  return { email: AUTO_DEV_ACCOUNT_EMAIL };
+}
+
 async function hasAutoDevAccountUser(
   db: ReturnType<typeof getDbExec>,
 ): Promise<boolean> {
@@ -2112,6 +2130,12 @@ async function resolveSessionUncached(
   // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
+
+  // 9. AUTH_DISABLED fallback — only when no session resolved above.
+  // Must run after BYOA customGetSession so infrastructure/custom auth keeps
+  // caller identity instead of collapsing to the shared preview user.
+  const authDisabledSession = getAuthDisabledSession();
+  if (authDisabledSession) return authDisabledSession;
 
   return null;
 }

@@ -1,5 +1,24 @@
 # @agent-native/dispatch
 
+## 0.11.1
+
+### Patch Changes
+
+- f16980e: Expose agent-chat plugin options for skipping first-turn workspace inventory and sending a compact starter tool catalog that expands from tool-search results.
+
+## 0.11.0
+
+### Minor Changes
+
+- f81e032: Add token-efficient web content fetching for agents. `web-request` and `provider-api-docs` can now return extracted markdown, plain text, metadata, links, or bounded search matches instead of raw HTML, and `run-code` exposes `webRead()` plus pass-through options on `webFetch()` for compact web/document reduction.
+
+## 0.10.4
+
+### Patch Changes
+
+- 1d0f069: Add staged provider API responses for Dispatch so broad provider searches can save bounded corpora and reduce them outside chat context.
+- 8726f38: Teach all app agents that provider shortcut actions are not capability limits and that broad provider searches, joins, classifications, and absence claims should use provider API staging, saved responses, staged-dataset queries, or sandboxed code with explicit coverage reporting. Ensure lean, A2A, and MCP ask-agent registries include run-code when code execution is enabled, and give sandboxed code generic providerRequest/providerFetchAll helpers for broad paginated provider corpus work.
+
 ## 0.10.3
 
 ### Patch Changes

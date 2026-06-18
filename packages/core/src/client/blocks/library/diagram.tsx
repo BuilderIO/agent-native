@@ -175,102 +175,124 @@ function PositionedDiagram({
     y: clampDiagramPercent(node.y ?? 50),
   }));
   const edges = data.edges ?? [];
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const arrowId = `${markerId}-diagram-arrow`;
   const nodeWidth = compact ? 150 : 190;
-  const canvasHeight = compact ? 280 : 430;
+  const rows = diagramRows(nodes, compact);
+  const canvasHeight = diagramCanvasHeight(rows.length, compact);
+  const canvasMinWidth = compact ? 560 : 720;
+  const nodeWidthPct = compact ? 20 : 18;
+  const nodeHeightPct = compact ? 14 : 18;
+  const paddedViewBox = diagramViewBox(nodes, nodeWidthPct, nodeHeightPct);
+  const xMargin = compact ? 13 : 14;
+  const yMargin = compact ? 15 : 18;
+  const displayNodes = nodes.map((node) => ({
+    ...node,
+    displayX: diagramPointPercent(
+      node.x,
+      paddedViewBox.x,
+      paddedViewBox.width,
+      xMargin,
+    ),
+    displayY: diagramRowPointPercent(node.y, rows, paddedViewBox, yMargin),
+  }));
+  const nodeById = new Map(displayNodes.map((node) => [node.id, node]));
 
   return (
     <div className="plan-sketch rounded-[16px] border border-border bg-muted p-5">
       <div
-        className="relative overflow-hidden rounded-xl border border-border bg-background"
+        className="overflow-auto rounded-xl border border-border bg-background"
         style={{ minHeight: canvasHeight }}
       >
-        <svg
-          className="pointer-events-none absolute inset-0 z-0 h-full w-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
+        <div
+          className="relative"
+          style={{ minHeight: canvasHeight, minWidth: canvasMinWidth }}
         >
-          <defs>
-            <marker
-              id={arrowId}
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
-              <path
-                d="M 0 0 L 10 5 L 0 10 z"
-                className="fill-muted-foreground"
-              />
-            </marker>
-          </defs>
-          {edges.map((edge, index) => {
-            const from = nodeById.get(edge.from);
-            const to = nodeById.get(edge.to);
-            if (!from || !to) return null;
-            return (
-              <line
-                key={`${edge.from}-${edge.to}-${index}`}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                markerEnd={`url(#${arrowId})`}
-                vectorEffect="non-scaling-stroke"
-                className="stroke-border"
-                strokeWidth={2}
-                strokeDasharray={edge.label ? "0" : "6 5"}
-              />
-            );
-          })}
-        </svg>
-
-        {!compact &&
-          edges.map((edge, index) => {
-            const from = nodeById.get(edge.from);
-            const to = nodeById.get(edge.to);
-            if (!edge.label || !from || !to) return null;
-            return (
-              <span
-                key={`${edge.from}-${edge.to}-${index}-label`}
-                className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm"
-                style={{
-                  left: `${(from.x + to.x) / 2}%`,
-                  top: `${(from.y + to.y) / 2}%`,
-                }}
-              >
-                {edge.label}
-              </span>
-            );
-          })}
-
-        {nodes.map((node, index) => (
-          <article
-            key={node.id}
-            className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
-            style={{
-              left: `${node.x}%`,
-              top: `${node.y}%`,
-              width: nodeWidth,
-            }}
+          <svg
+            className="pointer-events-none absolute inset-0 z-0 h-full w-full"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
           >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {index + 1}
-            </p>
-            <h3 className="mt-2 text-base font-semibold leading-tight">
-              {node.label}
-            </h3>
-            {node.detail && !compact && (
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {node.detail}
+            <defs>
+              <marker
+                id={arrowId}
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
+              >
+                <path
+                  d="M 0 0 L 10 5 L 0 10 z"
+                  className="fill-muted-foreground"
+                />
+              </marker>
+            </defs>
+            {edges.map((edge, index) => {
+              const from = nodeById.get(edge.from);
+              const to = nodeById.get(edge.to);
+              if (!from || !to) return null;
+              return (
+                <line
+                  key={`${edge.from}-${edge.to}-${index}`}
+                  x1={from.displayX}
+                  y1={from.displayY}
+                  x2={to.displayX}
+                  y2={to.displayY}
+                  markerEnd={`url(#${arrowId})`}
+                  vectorEffect="non-scaling-stroke"
+                  className="stroke-border"
+                  strokeWidth={2}
+                  strokeDasharray={edge.label ? "0" : "6 5"}
+                />
+              );
+            })}
+          </svg>
+
+          {!compact &&
+            edges.map((edge, index) => {
+              const from = nodeById.get(edge.from);
+              const to = nodeById.get(edge.to);
+              if (!edge.label || !from || !to) return null;
+              return (
+                <span
+                  key={`${edge.from}-${edge.to}-${index}-label`}
+                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm"
+                  style={{
+                    left: `${(from.displayX + to.displayX) / 2}%`,
+                    top: `${(from.displayY + to.displayY) / 2}%`,
+                  }}
+                >
+                  {edge.label}
+                </span>
+              );
+            })}
+
+          {displayNodes.map((node, index) => (
+            <article
+              key={node.id}
+              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
+              style={{
+                left: `${node.displayX}%`,
+                top: `${node.displayY}%`,
+                width: nodeWidth,
+              }}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {index + 1}
               </p>
-            )}
-          </article>
-        ))}
+              <h3 className="mt-2 text-base font-semibold leading-tight">
+                {node.label}
+              </h3>
+              {node.detail && !compact && (
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {node.detail}
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
       </div>
       {data.notes && data.notes.length > 0 && !compact && (
         <div className="mt-4 grid gap-2 border-t border-border pt-4 text-sm text-muted-foreground md:grid-cols-2">
@@ -281,6 +303,90 @@ function PositionedDiagram({
       )}
     </div>
   );
+}
+
+type DiagramViewBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function diagramViewBox(
+  nodes: Array<Pick<DiagramNode, "x" | "y">>,
+  nodeWidthPct: number,
+  nodeHeightPct: number,
+): DiagramViewBox {
+  if (nodes.length === 0) return { x: 0, y: 0, width: 100, height: 100 };
+
+  const halfWidth = nodeWidthPct / 2;
+  const halfHeight = nodeHeightPct / 2;
+  const left = Math.min(...nodes.map((node) => (node.x ?? 50) - halfWidth));
+  const right = Math.max(...nodes.map((node) => (node.x ?? 50) + halfWidth));
+  const top = Math.min(...nodes.map((node) => (node.y ?? 50) - halfHeight));
+  const bottom = Math.max(...nodes.map((node) => (node.y ?? 50) + halfHeight));
+
+  const x = Math.min(0, left);
+  const y = Math.min(0, top);
+  const width = Math.max(100, right) - x;
+  const height = Math.max(100, bottom) - y;
+
+  return { x, y, width, height };
+}
+
+function diagramPointPercent(
+  value: number,
+  viewBoxStart: number,
+  viewBoxSize: number,
+  margin = 0,
+): number {
+  if (
+    !Number.isFinite(value) ||
+    !Number.isFinite(viewBoxSize) ||
+    !viewBoxSize
+  ) {
+    return 50;
+  }
+  const percent = ((value - viewBoxStart) / viewBoxSize) * 100;
+  return Math.min(100 - margin, Math.max(margin, percent));
+}
+
+function diagramRows(
+  nodes: Array<Pick<DiagramNode, "y">>,
+  compact?: boolean,
+): number[] {
+  const rowGap = compact ? 8 : 10;
+  return [...nodes]
+    .sort((a, b) => (a.y ?? 50) - (b.y ?? 50))
+    .reduce<number[]>((acc, node) => {
+      const y = node.y ?? 50;
+      const last = acc[acc.length - 1];
+      if (last == null || Math.abs(y - last) >= rowGap) acc.push(y);
+      return acc;
+    }, []);
+}
+
+function diagramRowPointPercent(
+  value: number,
+  rows: number[],
+  viewBox: DiagramViewBox,
+  margin: number,
+): number {
+  if (rows.length <= 2) {
+    return diagramPointPercent(value, viewBox.y, viewBox.height, margin);
+  }
+  const closestIndex = rows.reduce((bestIndex, row, index) => {
+    const bestDistance = Math.abs((rows[bestIndex] ?? 50) - value);
+    return Math.abs(row - value) < bestDistance ? index : bestIndex;
+  }, 0);
+  const span = 100 - margin * 2;
+  return margin + (span * closestIndex) / Math.max(1, rows.length - 1);
+}
+
+function diagramCanvasHeight(rows: number, compact?: boolean): number {
+  const base = compact ? 280 : 430;
+  if (rows <= 2) return base;
+  return Math.max(base, rows * (compact ? 140 : 190) + (compact ? 80 : 120));
 }
 
 function SequenceDiagram({

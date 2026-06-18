@@ -4,7 +4,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -102,6 +102,9 @@ export default defineAction({
       resolvePlanAccessContext(currentAccess()),
     );
     if (!access) throw new Error(`Plan ${args.planId} not found`);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
 
     const db = getDb();
     const now = nowIso();
@@ -123,6 +126,7 @@ export default defineAction({
         and(
           eq(schema.planComments.id, args.commentId),
           eq(schema.planComments.planId, args.planId),
+          isNull(schema.planComments.deletedAt),
         ),
       );
 

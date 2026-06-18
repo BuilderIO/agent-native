@@ -24,34 +24,59 @@ function firstNameForTitle(value: string): string {
   return value.trim().split(/\s+/)[0] ?? value.trim();
 }
 
+function uniqueEmails(emails: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const email of emails) {
+    const normalized = stripCrlf(email).toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
 export function buildBookingEventTitle({
   explicitTitle,
   hostEmail,
+  hostEmails,
   attendeeName,
 }: {
   explicitTitle?: unknown;
   hostEmail: string;
+  hostEmails?: string[];
   attendeeName: unknown;
 }) {
   const explicit = stripCrlf(explicitTitle);
   if (explicit) return explicit;
 
-  const hostName = firstNameForTitle(displayNameFromEmail(hostEmail));
+  const hostNames = uniqueEmails([hostEmail, ...(hostEmails ?? [])]).map(
+    (email) => firstNameForTitle(displayNameFromEmail(email)),
+  );
   const guestName = firstNameForTitle(stripCrlf(attendeeName)) || "Guest";
-  return `${hostName} + ${guestName}`;
+  return `${hostNames.join(" + ")} + ${guestName}`;
 }
 
 export function buildBookingEventAttendees({
   attendeeEmail,
   attendeeName,
+  hostEmails = [],
 }: {
   attendeeEmail: string;
   attendeeName: string;
+  hostEmails?: string[];
 }) {
+  const attendee = stripCrlf(attendeeEmail).toLowerCase();
   return [
     {
-      email: attendeeEmail,
+      email: attendee,
       displayName: attendeeName,
     },
+    ...uniqueEmails(hostEmails)
+      .filter((email) => email !== attendee)
+      .map((email) => ({
+        email,
+        displayName: displayNameFromEmail(email),
+      })),
   ];
 }

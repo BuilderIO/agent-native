@@ -440,7 +440,7 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
-  it("does not use deploy-level Builder keys for signed-in hosted workspace users", async () => {
+  it("does not use deploy-level LLM keys for signed-in hosted workspace users", async () => {
     process.env.NODE_ENV = "development";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
@@ -457,8 +457,8 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveBuilderCredentialSource()).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(true);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {

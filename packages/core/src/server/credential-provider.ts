@@ -85,6 +85,7 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 
 export function canUseDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
+  if (email && isHostedWorkspaceRuntime()) return false;
   if (!email) return true;
   return isDeployCredentialFallbackAllowed();
 }

@@ -83,12 +83,6 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
 
 4. **Apply to code.** The chosen Media URL and `assetId` come back to the agent, which uses the URL directly in the code it writes (an `<img>` src, a download) or calls `export-asset`.
 
-## Why it's interesting
-
-Most AI media tools treat brand consistency as a prompt-writing problem. Assets treats it as application state: references, folders, collections, style briefs, run history, descriptions, and saved assets live in SQL, while binary media lives in object storage or the local file-upload fallback during development.
-
-Because generation and library management are actions and chat workflows, the UI and the agent share the same operations. A user can start from the big prompt box, a library detail page, another app's chat, or an A2A request from Slides, and the same audit and lineage model is preserved. Once enabled, the provider path prefers Builder-managed image generation so teams do not need to paste model-provider keys into every app.
-
 ## For developers
 
 The rest of this doc is for anyone forking the Assets template or extending it.

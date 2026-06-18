@@ -1,14 +1,13 @@
 /**
  * Connector-catalog tier tests.
  *
- * Verifies that when AGENT_NATIVE_CONNECTOR_CATALOG=1 is set and a template
- * declares a `connectorCatalog`, the MCP server:
+ * Verifies that when a template declares a `connectorCatalog`, the MCP server:
  *
  *   1. Only advertises the declared tools (+ builtin cross-app tools) in tools/list.
  *   2. Rejects tools/call for any tool NOT in the catalog.
  *   3. Serves the full surface when the caller opted up with catalog_scope: "full"
  *      (both A2A JWT and OAuth token paths).
- *   4. Is unaffected (full surface) when AGENT_NATIVE_CONNECTOR_CATALOG is not set.
+ *   4. Applies the connector catalog without requiring an env flag.
  *   5. ask-agent is excluded from the connector tier.
  */
 
@@ -47,6 +46,21 @@ vi.mock("./builtin-tools.js", () => ({
         },
       },
       run: async () => ({ response: "ok" }),
+    },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: async () => ({ status: "completed", response: "ok" }),
     },
     create_embed_session: {
       tool: {
@@ -359,19 +373,60 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name).sort();
 
-      // The exact set: catalog tools + the 4 core builtin cross-app tools.
+      // The exact set: catalog tools + the 5 core builtin cross-app tools.
       // create_workspace_app and list_templates are NOT in COMPACT_MCP_APP_CATALOG_BUILTINS
       // so they are excluded by isActionInConnectorCatalog unless explicitly listed in the
-      // connectorCatalog. Only the 4 core cross-app builtins are always included.
+      // connectorCatalog. Only the 5 core cross-app builtins are always included.
       const expected = [
         ...CONNECTOR_CATALOG,
         "list_apps",
         "open_app",
         "ask_app",
+        "ask_app_status",
         "create_embed_session",
       ].sort();
 
       expect(names).toEqual(expected);
+    });
+
+    it("serves the connector catalog with NO env flag set (AGENT_NATIVE_CONNECTOR_CATALOG deleted)", async () => {
+      // Regression guard: the connector-catalog tier is now driven purely by a
+      // declared `connectorCatalog` — it must NOT depend on the legacy
+      // `AGENT_NATIVE_CONNECTOR_CATALOG=1` env flag (which build-server.ts no
+      // longer reads). The suite's beforeEach sets it to "1"; delete it here so
+      // this test proves the tier still activates without it.
+      delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+
+      const token = await signA2AToken("alice@example.com");
+      const rpc = { jsonrpc: "2.0", id: 14, method: "tools/list", params: {} };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+
+      // Advertised tools equal the declared connector allow-list + the core
+      // builtin cross-app tools — and nothing else.
+      expect([...names].sort()).toEqual(
+        [
+          ...CONNECTOR_CATALOG,
+          "list_apps",
+          "open_app",
+          "ask_app",
+          "ask_app_status",
+          "create_embed_session",
+        ].sort(),
+      );
+
+      // Every declared catalog tool is present.
+      for (const tool of CONNECTOR_CATALOG) {
+        expect(names).toContain(tool);
+      }
+
+      // Excluded / non-catalog tools are NOT advertised even without the flag.
+      expect(names).not.toContain("db-exec");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).not.toContain("manage-extensions");
+      expect(names).not.toContain("ask-agent");
     });
   });
 
@@ -511,16 +566,13 @@ describe("connector-catalog tier", () => {
   });
 });
 
-describe("connector-catalog tier — env flag NOT set", () => {
+describe("connector-catalog tier — env flag not required", () => {
   beforeEach(() => {
     process.env.A2A_SECRET = A2A_SECRET;
     delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    // Force full catalog so compact-catalog default for A2A callers doesn't
-    // hide template actions — we only want to verify the connector-catalog
-    // restriction is absent, not test compact-catalog behavior here.
-    process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
   });
 
   afterEach(() => {
@@ -532,21 +584,29 @@ describe("connector-catalog tier — env flag NOT set", () => {
     vi.clearAllMocks();
   });
 
-  it("serves full catalog when env flag is absent (local/dev unchanged)", async () => {
+  it("still serves the declared connector catalog when env flag is absent", async () => {
     const token = await signA2AToken("alice@example.com");
     const rpc = { jsonrpc: "2.0", id: 10, method: "tools/list", params: {} };
     const out = await call(rpc, {
       headers: { authorization: `Bearer ${token}` },
     });
-    const names: string[] = out.result.tools.map((t: any) => t.name);
+    const names: string[] = out.result.tools.map((t: any) => t.name).sort();
 
-    // All actions including excluded ones are present
-    expect(names).toContain("create-plan");
-    expect(names).toContain("db-exec");
-    expect(names).toContain("seed-kitchen-sink");
+    expect(names).toEqual(
+      [
+        ...CONNECTOR_CATALOG,
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "ask_app_status",
+        "create_embed_session",
+      ].sort(),
+    );
+    expect(names).not.toContain("db-exec");
+    expect(names).not.toContain("seed-kitchen-sink");
   });
 
-  it("allows calling non-catalog tools when env flag is absent", async () => {
+  it("rejects non-catalog tools when env flag is absent", async () => {
     const token = await signA2AToken("alice@example.com");
     const rpc = {
       jsonrpc: "2.0",
@@ -557,7 +617,8 @@ describe("connector-catalog tier — env flag NOT set", () => {
     const out = await call(rpc, {
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(out.result?.content?.[0]?.text ?? "").not.toMatch(/Unknown tool/);
+    expect(out.result.isError).toBe(true);
+    expect(out.result?.content?.[0]?.text ?? "").toMatch(/Unknown tool/);
   });
 });
 
@@ -567,10 +628,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     process.env.AGENT_NATIVE_CONNECTOR_CATALOG = "1";
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    // Force full catalog so compact-catalog default for A2A callers doesn't
-    // hide template actions — we only want to verify the connector-catalog
-    // restriction is absent when connectorCatalog is undeclared.
-    process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
   });
 
   afterEach(() => {
@@ -582,13 +640,37 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     vi.clearAllMocks();
   });
 
-  it("falls back to full surface when connectorCatalog is not declared", async () => {
+  it("falls back to the compact surface when connectorCatalog is not declared", async () => {
     const configWithoutCatalog = {
       ...connectorConfig,
       connectorCatalog: undefined,
     };
     const token = await signA2AToken("alice@example.com");
     const rpc = { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} };
+    const out = await call(rpc, {
+      headers: { authorization: `Bearer ${token}` },
+      mcpConfig: configWithoutCatalog,
+    });
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual([
+      "list_apps",
+      "open_app",
+      "ask_app",
+      "ask_app_status",
+      "create_embed_session",
+    ]);
+    expect(names).not.toContain("db-exec");
+    expect(names).not.toContain("seed-kitchen-sink");
+  });
+
+  it("serves the full surface when connectorCatalog is undeclared and full catalog is explicit", async () => {
+    process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+    const configWithoutCatalog = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+    };
+    const token = await signA2AToken("alice@example.com");
+    const rpc = { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} };
     const out = await call(rpc, {
       headers: { authorization: `Bearer ${token}` },
       mcpConfig: configWithoutCatalog,

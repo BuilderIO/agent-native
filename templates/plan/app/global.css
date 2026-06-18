@@ -13,6 +13,15 @@
 
 @source "./**/*.{ts,tsx}";
 
+.plan-chat-composer-area [data-agent-composer-slot="root"],
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  box-shadow: none;
+}
+
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  outline: 1px solid hsl(var(--ring) / 0.35);
+}
+
 :root {
   --background: 40 23% 97%;
   --foreground: 30 5% 10%;
@@ -123,7 +132,7 @@
 
   .dark .plan-content-surface {
     --plan-document: hsl(32 3% 13%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 80%, black);
     --plan-block: hsl(32 3% 15.5%);
     --plan-chrome: hsl(32 3% 15.5% / 0.92);
     --plan-line: hsl(34 4% 24%);
@@ -146,6 +155,15 @@
   .plan-content-surface[data-recap-screenshot-theme="dark"] {
     --plan-document: #0d1117;
     --plan-canvas: #0d1117;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-shell {
+    padding: 10px;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-body {
+    margin-inline: 0;
+    padding-inline: 0;
   }
 
   .bg-plan-document {
@@ -267,6 +285,11 @@
  * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
   margin-top: 1rem;
+}
+
+.plan-document-flow .plan-questions-block > .sticky {
+  border-top-color: var(--plan-line);
+  background-color: var(--plan-document);
 }
 
 /* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
@@ -738,6 +761,10 @@
   color: var(--plan-text);
 }
 
+.plan-rich-markdown-editor .an-rich-md-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
+}
+
 /* Block code is rendered by the shared `.an-code-block` node view (editor) and
    `.plan-code-surface` (read view); both follow the plan's light/dark palette
    below. Any stray bare <pre> falls back to the same surface. */
@@ -877,6 +904,10 @@
   color: var(--plan-text);
 }
 
+.plan-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
+}
+
 .plan-prose table {
   margin: 1.1rem 0;
   width: 100%;
@@ -910,6 +941,8 @@
 
 /* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
 .plan-code-surface {
+  max-width: 100%;
+  min-width: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--plan-line);
@@ -934,6 +967,8 @@
 
 .plan-code-surface-scroll {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
   font-size: var(--plan-code-size);
   line-height: 1.55;
@@ -976,9 +1011,12 @@
 
 .plan-code-surface .plan-shiki,
 .plan-code-surface pre {
+  box-sizing: border-box;
+  min-width: 100%;
+  width: max-content;
   margin: 0;
   padding: 0.85rem 1.1rem;
-  background: var(--shiki-light-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--plan-code-size);
@@ -993,16 +1031,17 @@
 
 .plan-code-surface .plan-shiki pre,
 .plan-code-surface .plan-shiki code {
-  background: var(--shiki-light-bg, transparent) !important;
+  background: transparent !important;
 }
 
 .plan-code-surface .plan-shiki pre span {
+  background: transparent !important;
   color: var(--shiki-light);
 }
 
 .dark .plan-code-surface .plan-shiki,
 .dark .plan-code-surface .plan-shiki pre {
-  background: var(--shiki-dark-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-dark, var(--plan-code-text));
 }
 
@@ -1041,9 +1080,13 @@
    surface that auto-grows (no drag-to-resize) with a hover language switcher. */
 .plan-code {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .plan-code-head {
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1055,6 +1098,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  overflow: hidden;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: max(0.75rem, calc(var(--plan-code-size) - 0.0625rem));
@@ -1159,6 +1203,8 @@
 
 .plan-code-editor-body {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
 }
 

@@ -20,10 +20,12 @@ export default function BrandKitsIndexPage() {
   const { data, isLoading } = useActionQuery("list-libraries", {});
   const { data: presetData } = useActionQuery("list-library-presets", {});
   const createFromPreset = useActionMutation("create-library-from-preset");
+  const duplicateLibrary = useActionMutation("duplicate-library");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ImageLibrarySummary | null>(null);
   const [creatingPresetId, setCreatingPresetId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
 
   const libraries = useMemo(() => {
@@ -55,6 +57,25 @@ export default function BrandKitsIndexPage() {
         onError: (error: Error) => {
           setCreatingPresetId(null);
           toast.error(error.message || "Could not create preset brand kit.");
+        },
+      },
+    );
+  }
+
+  function duplicateBrandKit(library: ImageLibrarySummary) {
+    if (duplicatingId) return;
+    setDuplicatingId(library.id);
+    duplicateLibrary.mutate(
+      { id: library.id },
+      {
+        onSuccess: (copy: any) => {
+          setDuplicatingId(null);
+          toast.success("Private brand kit copy created");
+          navigate(`/brand-kits/${copy.id}`);
+        },
+        onError: (error: Error) => {
+          setDuplicatingId(null);
+          toast.error(error.message || "Could not duplicate brand kit.");
         },
       },
     );
@@ -113,6 +134,8 @@ export default function BrandKitsIndexPage() {
                 library={library}
                 to={`/brand-kits/${library.id}`}
                 onEdit={() => setEditing(library)}
+                onDuplicate={() => duplicateBrandKit(library)}
+                duplicatePending={duplicatingId === library.id}
                 showInstructions={false}
               />
             ))}

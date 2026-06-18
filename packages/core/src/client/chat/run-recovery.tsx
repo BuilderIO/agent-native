@@ -21,7 +21,6 @@ import {
   IconExternalLink,
   IconKey,
   IconGitFork,
-  IconMessage,
   IconGauge,
   IconSettings,
   IconArrowRight,
@@ -192,10 +191,45 @@ export function BuilderConnectCta({
       onConnected,
     });
 
+  if (variant === "compact") {
+    if (configured) {
+      return (
+        <span className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
+          <IconCheck size={11} className="text-emerald-500" />
+          {orgName ? `Connected to ${orgName}` : "Connected"}
+        </span>
+      );
+    }
+
+    return (
+      <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+        <button
+          type="button"
+          onClick={() => start()}
+          disabled={connecting}
+          className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          aria-busy={connecting}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2 size={10} className="animate-spin" />
+              Waiting…
+            </>
+          ) : (
+            "Connect Builder.io"
+          )}
+        </button>
+        {error && (
+          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-right">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const containerClass =
-    variant === "compact"
-      ? "rounded-md border border-border px-3 py-2.5"
-      : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
+    "flex items-center gap-3 rounded-md border border-border px-3 py-3";
 
   if (configured) {
     return (
@@ -288,7 +322,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
         Use your own API key
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored locally for this app only — no account required.
+        Stored securely for this app only.
       </p>
       <div
         role="tablist"
@@ -366,14 +400,14 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  fullWidth,
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  fullWidth?: boolean;
 }) {
-  // Progressive disclosure: the card leads with the one-click Builder connect.
-  // The bring-your-own-key path stays tucked behind a single link so the chat
-  // stays clean for people who connect Builder or never use the side chat at
-  // all (they can keep driving the plan from their own coding agent).
+  // Progressive disclosure: the card leads with one-click Builder connect while
+  // keeping the bring-your-own-key path close by.
   const [keyOpen, setKeyOpen] = useState(false);
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -392,44 +426,40 @@ export function BuilderSetupCard({
   return (
     <div
       ref={cardRef}
-      className="mx-4 my-6 rounded-lg border border-border bg-card p-5"
+      className={
+        fullWidth
+          ? "w-full pb-2"
+          : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit"
+      }
     >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">
-            Turn on the side chat
-          </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            One click to connect Builder for free hosted access — no API key or
-            account needed.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <BuilderConnectCta onConnected={onConnected} />
-
-        {keyOpen ? (
-          <ApiKeyConnect onConnected={onConnected} />
-        ) : (
-          <div className="text-center">
+      <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-medium text-foreground">
+              Connect AI
+            </h3>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              Use Builder.io (free credits), or add an Anthropic/OpenAI key.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            <BuilderConnectCta variant="compact" onConnected={onConnected} />
             <button
               type="button"
-              onClick={() => setKeyOpen(true)}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => setKeyOpen((open) => !open)}
+              className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground hover:bg-accent"
+              aria-expanded={keyOpen}
             >
-              Or paste your own Anthropic or OpenAI key
+              Use API key
             </button>
           </div>
-        )}
+        </div>
 
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          You can skip this and keep editing the plan with your own coding
-          agent.
-        </p>
+        {keyOpen ? (
+          <div className="mt-3">
+            <ApiKeyConnect onConnected={onConnected} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

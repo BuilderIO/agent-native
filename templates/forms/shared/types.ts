@@ -1,3 +1,11 @@
+import type {
+  DataChartWidget,
+  DataInsightsWidgetResult,
+  DataTableColumn,
+  DataTableWidget,
+  DataWidgetDisplay,
+} from "@agent-native/core/data-widgets";
+
 // ---------------------------------------------------------------------------
 // Form field types
 // ---------------------------------------------------------------------------
@@ -140,3 +148,80 @@ export interface FormResponse {
   /** Email of the submitter when known (claimed by the client; not verified). */
   submitterEmail?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Response insight widgets
+// ---------------------------------------------------------------------------
+
+export type ResponseInsightsTableColumn = DataTableColumn;
+
+export type ResponseInsightsTable = Omit<
+  DataTableWidget,
+  "title" | "columns" | "rows" | "totalRows" | "sampledRows" | "truncated"
+> & {
+  title: string;
+  columns: ResponseInsightsTableColumn[];
+  rows: Array<Record<string, string | number | boolean | null>>;
+  totalRows: number;
+  sampledRows: number;
+  truncated: boolean;
+};
+
+export type ResponseInsightsChartSeries = Omit<
+  DataChartWidget,
+  "type" | "title" | "xKey" | "series" | "data" | "sampled"
+> & {
+  type: "bar";
+  title: string;
+  xKey: "date";
+  series: Array<{ key: "submissions"; label: string }>;
+  data: Array<{ date: string; submissions: number }>;
+  sampled: boolean;
+};
+
+export type ResponseInsightsDisplay = DataWidgetDisplay & {
+  title: string;
+  route: string;
+  primaryAction: { label: string; href: string };
+};
+
+type ResponseInsightsWidgetResultBase = DataInsightsWidgetResult<{
+  widgetId: "forms.responseInsights.v1";
+  scope: {
+    formId?: string;
+    title: string;
+    days: number;
+    sampledLimit: number;
+    formLimit: number;
+  };
+  summary: {
+    forms: number;
+    responses: number;
+    sampledResponses: number;
+    truncated: boolean;
+    rangeStart: string;
+    rangeEnd: string;
+    scopeCapped: boolean;
+  };
+  forms: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    responseCount: number;
+    url: string;
+  }>;
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: ResponseInsightsDisplay;
+}>;
+
+export type ResponseInsightsWidgetResult = Omit<
+  ResponseInsightsWidgetResultBase,
+  "widgetId" | "chartSeries" | "table" | "display"
+> & {
+  widgetId: "forms.responseInsights.v1";
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: ResponseInsightsDisplay;
+};

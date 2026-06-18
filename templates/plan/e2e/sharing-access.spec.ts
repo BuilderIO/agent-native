@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type BrowserContext,
 } from "@playwright/test";
+import { planE2eAuthStatePath } from "./auth-state";
 
 function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
@@ -606,7 +607,7 @@ test.describe("sharing + publish + access control", () => {
     // browser context to drive the UI, so create the fixture with a fresh
     // owner context built from the saved storageState.
     const ownerCtx = await reviewer.context.browser()!.newContext({
-      storageState: "e2e/.auth/state.json",
+      storageState: planE2eAuthStatePath(),
     });
     const ownerPage = await ownerCtx.newPage();
     const planId = await createOwnerPlan(

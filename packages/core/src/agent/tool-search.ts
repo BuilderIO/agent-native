@@ -43,18 +43,18 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Search the live registry of callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Use this when you need a capability but are not sure which tool to call, especially after users connect new MCP servers. Returns exact tool names and parameter summaries so you can call the matching tool directly.",
+        "Discover callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Call it with NO query to list every available tool by name with a one-line description (cheap — no input schemas) so you can see the full menu of what exists; pass a `query` to find specific tools and get their parameter summaries. Use this whenever you need a capability but aren't sure which tool to call — most tools are not loaded into context up front, so this is how you find and then call them.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`.",
+              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`. Omit to list every available tool name (the full menu) with one-line descriptions.",
           },
           limit: {
             type: "number",
-            description: `Maximum results to return. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}.`,
+            description: `Maximum results to return for a query. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}. Ignored when listing the full menu (no query).`,
           },
           includeSchemas: {
             type: "boolean",
@@ -62,7 +62,6 @@ export function createToolSearchEntry(
               "When true, include each matching tool's full input schema. Default false.",
           },
         },
-        required: ["query"],
       },
     },
     http: false,
@@ -94,7 +93,13 @@ export function searchToolRegistry(
   results: ToolSearchResult[];
 } {
   const query = String(args.query ?? "").trim();
-  const includeSchemas = parseBoolean(args.includeSchemas);
+  // No query → "menu" mode: list every available tool by name + a terse
+  // description, with no parameter summaries or input schemas. This is the
+  // cheap, non-opaque counterpart to the compact catalog: the agent can see
+  // the full set of tools for a small token cost, then search/load the few it
+  // actually needs. A query switches to ranked search with parameter details.
+  const listAll = query.length === 0;
+  const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
   const limit = parseLimit(
     args.limit,
     options.defaultLimit ?? DEFAULT_LIMIT,
@@ -113,10 +118,23 @@ export function searchToolRegistry(
 
     totalTools++;
     const description = normalizeWhitespace(entry.tool.description ?? "");
-    const parameters = summarizeParameters(entry.tool.parameters);
     const parsedMcp = parseMcpToolName(name);
     const kind = parsedMcp ? "mcp" : "action";
     const source = parsedMcp?.serverId;
+
+    if (listAll) {
+      candidates.push({
+        name,
+        kind,
+        ...(source ? { source } : {}),
+        description: truncate(description, 140),
+        score: 0,
+        parameters: [],
+      });
+      continue;
+    }
+
+    const parameters = summarizeParameters(entry.tool.parameters);
     const score = scoreTool({
       query,
       queryTokens,
@@ -127,7 +145,7 @@ export function searchToolRegistry(
       kind,
     });
 
-    if (queryTokens.length > 0 && score <= 0) continue;
+    if (score <= 0) continue;
 
     candidates.push({
       name,
@@ -138,6 +156,11 @@ export function searchToolRegistry(
       parameters,
       ...(includeSchemas ? { inputSchema: entry.tool.parameters ?? {} } : {}),
     });
+  }
+
+  if (listAll) {
+    candidates.sort((a, b) => a.name.localeCompare(b.name));
+    return { query, totalTools, count: candidates.length, results: candidates };
   }
 
   candidates.sort((a, b) => {
@@ -151,6 +174,11 @@ export function searchToolRegistry(
     count: Math.min(candidates.length, limit),
     results: candidates.slice(0, limit),
   };
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1).trimEnd()}…`;
 }
 
 function parseLimit(value: unknown, fallback: number, max: number): number {

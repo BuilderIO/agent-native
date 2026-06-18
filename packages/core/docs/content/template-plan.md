@@ -97,6 +97,22 @@ connector, so use the Agent-Native CLI path when you want the one-command setup.
 > Plan skills _and_ the connector in one install and auto-updates as the skills
 > improve — see [Plan plugin & marketplace](/docs/plan-plugin).
 
+### Open Plans inside VS Code {#vscode-extension}
+
+If you live in VS Code, the Agent Native VS Code extension can open the same
+Plan review surface in a side panel instead of sending you to a separate browser
+tab. Plans tools still return the normal web link, and the MCP metadata also
+includes a VS Code handoff URL:
+
+```text
+vscode://builderio.agent-native/open?url=<encoded-plan-url>
+```
+
+The extension handles that URI, opens the decoded Plan URL in a VS Code webview,
+and includes a command to run the existing Agent Native MCP connect flow for VS
+Code / GitHub Copilot. This is especially useful from Claude Code or another
+coding-agent workflow where the plan should stay next to the files being edited.
+
 ## Use it from your coding agent
 
 After installation, ask your agent for the command that fits the work:
@@ -110,9 +126,9 @@ After installation, ask your agent for the command that fits the work:
   before/after blocks instead of a wall of raw diff.
 
 The agent should inspect the codebase first, then create the visual plan when a
-wrong direction would be costly. The returned Plans link opens the review UI so
-you can annotate, correct, choose options, and ask for updates before code
-changes begin.
+wrong direction would be costly. The returned Plans link opens the review UI in
+the browser or VS Code, so you can annotate, correct, choose options, and ask for
+updates before code changes begin.
 
 When a Codex, Claude Code, Markdown, or pasted plan already exists, use
 `/visual-plan`; the agent preserves that source plan and builds the richer review
@@ -180,34 +196,87 @@ or set the convention for your agent environment:
 export AGENT_NATIVE_PLANS_MODE=local-files
 ```
 
-In this mode the agent writes a local MDX folder under `plans/<slug>/` and must
-not call the hosted Plan MCP tools. The durable files are:
+In this mode the agent writes a local MDX folder and must not call the hosted
+Plan MCP tools. Use a repo folder such as `plans/<slug>/` when you want the plan
+checked in with the code. Use a temp or ignored folder, such as
+`/tmp/agent-native-plans/<slug>/` or `.agent-native/plans/<slug>/`, when the
+plan should stay out of git. The folder contains:
 
 - `plan.mdx`
 - optional `canvas.mdx`
 - optional `prototype.mdx`
 - optional `.plan-state.json`
 
-After writing the folder, the agent validates and previews it locally:
+After writing the folder, the agent starts a tiny localhost bridge and opens the
+hosted Plan UI against that local-only source:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
 ```
 
-If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can open the
-read-only app route:
+The bridge URL looks like
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+The page is the normal Plan viewer, but the browser fetches `plan.mdx`,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json`, and local image assets from
+the localhost bridge. Plan content is not written to the hosted database and is
+not sent through hosted Plan actions. Keep the bridge process running while you
+review; the URL is local to your machine and is not a shareable team link. The
+serve command writes the open URL to `.plan-url` by default so coding agents can
+capture it without scraping long-running stdout; treat that file as local-only
+because the URL contains the bridge token, and do not commit it.
+
+On macOS, `--open` prefers Chrome/Chromium because Safari can block the hosted
+HTTPS Plan page from fetching an HTTP localhost bridge. For headless
+troubleshooting, run:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` starts the bridge, checks the private-network preflight and JSON
+payload, prints diagnostics, and exits.
+
+If you run the Plan app locally with the same `PLAN_LOCAL_DIR`, you can also
+open the editable app route:
 
 ```text
 http://localhost:<port>/local-plans/<slug>
 ```
+
+For repo-backed folders, the direct local route can carry the repo-relative
+folder path so browser edits keep writing to that folder:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+The Plan app uses `apps.plan.roots[0].path` in `agent-native.json` as the
+default repo location for promoted local plans, falling back to `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+Direct local Plan routes include a menu action to save a temporary local folder
+into that repo location. After promotion, the page reopens with `?path=...` and
+continues autosaving MDX edits to the repo folder.
 
 Local-files mode prevents plan or recap content from going to the Agent-Native
 Plan database. It also disables hosted sharing, browser comments, plan history,
 and publish/export receipts until you explicitly opt into publishing. To move a
 local plan into the hosted database, call `publish-visual-plan` with the local
 MDX folder path; this uploads the plan, assigns it a hosted ID, enables sharing
-and commenting, and returns the hosted URL. It does
-not automatically make your coding agent's LLM local; choose a local or approved
+and commenting, and returns the hosted URL. Local-files mode does not
+automatically make your coding agent's LLM local; choose a local or approved
 model if that privacy boundary matters too.
 
 ## Desktop local file sync {#desktop-local-sync}
@@ -231,6 +300,27 @@ then:
 This path does not require cloning the Plan app or running a CLI. It is for
 file-first review/editing around a hosted plan, not for keeping plan content out
 of the hosted database.
+
+## Deleting hosted plan data {#delete-data}
+
+Signed-in owners can delete their hosted plans and recaps from the Plans list or
+the plan action menu.
+
+- **Soft delete** moves the plan to the **Deleted** tab, makes normal plan
+  views/direct links stop working, and removes public access by making the row
+  private. The SQL rows are retained so the owner can restore the plan later.
+- **Restore** is available from the **Deleted** tab for soft-deleted plans.
+- **Permanent delete** removes the hosted plan row and plan-scoped comments,
+  sections, activity events, version snapshots, share grants, abuse reports, and
+  SQL asset records. The UI requires typing `DELETE <plan-id>` before the final
+  button enables.
+
+Permanent delete removes the Plan app's database records and SQL-backed asset
+bytes/references. If a deployment uses an external upload provider, provider
+object retention follows that provider's lifecycle because the shared upload
+abstraction does not currently expose object deletion. Local-files privacy mode
+keeps the source in your local MDX folder instead; deleting hosted data does not
+touch local files.
 
 ## Useful prompts
 
@@ -275,16 +365,16 @@ The local template is useful when you are developing Plans itself, testing local
 
 Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
 
-| Table              | What it holds                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url` |
-| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                 |
-| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                               |
-| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                    |
-| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                  |
-| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                         |
-| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                |
-| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                      |
+| Table              | What it holds                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
+| `plan_comments`    | Threaded comments — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
+| `plan_events`      | Audit log of agent/human events on a plan                                                                                                                                               |
+| `plan_versions`    | Point-in-time snapshots for version history                                                                                                                                             |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                    |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                           |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                 |
 
 ### Key actions
 
@@ -292,11 +382,192 @@ Actions in `templates/plan/actions/`:
 
 - **Creation** — `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
 - **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Lifecycle** — `delete-visual-plan` for owner-only soft delete, restore, and typed-confirmation permanent delete
 - **Publishing & sharing** — `publish-visual-plan`
 - **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
-- **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`
+- **Comments & feedback** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
 - **Prototype** — `convert-visual-plan-to-prototype`, `create-prototype-plan`
 - **Context & navigation** — `view-screen`, `navigate`
+
+### Custom MDX blocks {#custom-mdx-blocks}
+
+Plans source files are MDX, but the app does not render arbitrary imported JSX
+components. A custom MDX tag must be registered as a Plan block so the server can
+parse and serialize it, the browser can render and edit it, and the agent can
+see it in the block vocabulary returned by `get-plan-blocks`.
+
+A registered block has three surfaces:
+
+- A React-free schema and MDX config, safe for server and agent code.
+- A normalized runtime type/schema entry in `shared/plan-content.ts`.
+- A browser block spec with `Read` and optional `Edit` React components.
+
+Keep the block `type` and MDX `tag` stable. The `type` is stored in normalized
+plan JSON; the `tag` is the component name in `plan.mdx`. The registry handles
+the base MDX attributes `id`, `title`, `summary`, and `editable`, so do not
+repeat them in `toAttrs`.
+
+1. Add a shared config for the data shape and MDX round trip.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. Extend the normalized Plan content model in
+   `templates/plan/shared/plan-content.ts`.
+
+Add the new `type` to `PlanBlockType`, add a matching block interface to the
+`PlanBlock` union, and add the same data shape to `planBlockSchema`. This keeps
+database saves, source imports, and `update-block` patches validating the custom
+block instead of rejecting it as an unknown type.
+
+3. Register the React-free server spec in
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. Register the browser spec in
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+With that in place, Plan MDX can use:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+The server registry makes this source importable/exportable, and the client
+registry makes it render in `PlanBlockView`. If the block should be generated by
+agents, keep `label`, `description`, `placement`, and `empty` precise; those
+fields flow into the live block vocabulary.
+
+When overriding an existing block, register the override after the shared
+library registration. Last registration wins for both `type` and MDX `tag`.
+
+After adding a block, run focused Plan tests:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
 
 ### Route map
 

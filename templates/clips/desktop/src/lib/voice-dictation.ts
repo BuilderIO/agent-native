@@ -7,6 +7,11 @@ import {
   loadVocabulary,
   recordPasteForLearn,
 } from "./personal-vocabulary";
+import {
+  onFinalTranscript,
+  onPartialTranscript,
+  onSpeechError,
+} from "./transcription-engine";
 
 export type VoiceShortcutPreference =
   | "fn"
@@ -1569,15 +1574,15 @@ export function installDesktopVoiceDictation(
   // session, so subscribing on non-native sessions is harmless. The
   // flow-bar listens to `voice:partial-transcript` independently so we
   // don't re-emit it here.
-  listen<{ text: string }>("voice:partial-transcript", (ev) => {
+  onPartialTranscript(({ text }) => {
     const current = session;
     if (!current || current.kind !== "native") return;
     if (current.cancelled || current.stopping) return;
-    current.browserTranscript = (ev.payload.text || "").trim();
+    current.browserTranscript = text.trim();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
-  listen<{ text: string }>("voice:final-transcript", (ev) => {
+  onFinalTranscript(({ text }) => {
     // Final transcripts are ONLY emitted by Rust after `endAudio()`,
     // which we call in stop(). At that point the session has been
     // moved from `session` to `lingeringSession`, so route there
@@ -1592,16 +1597,16 @@ export function installDesktopVoiceDictation(
     if (current.cancelled) return;
     // Final beats partial — overwrite so a `complete_voice_dictation`
     // from a late stop() picks up the better text.
-    current.browserTranscript = (ev.payload.text || "").trim();
+    current.browserTranscript = text.trim();
     // If stop() is waiting on this event before lingering, trigger the
     // finalize sequence now (paste → 1s linger → dismiss).
     current.onNativeFinalize?.();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
-  listen<{ error: string }>("voice:speech-error", (ev) => {
+  onSpeechError(({ error }) => {
     const current = session;
-    console.error("[voice-dictation] native speech error:", ev.payload.error);
+    console.error("[voice-dictation] native speech error:", error);
     if (!current || current.kind !== "native") return;
     setFlowState("error");
     window.setTimeout(() => {

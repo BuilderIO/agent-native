@@ -477,13 +477,18 @@ describe("DiffBlock annotations", () => {
         after: "const a = 1\nconst b = 2",
         mode: "unified",
         annotations: [
-          { lines: "2", label: "Changed", note: "Visible without hover." },
+          { lines: "1", label: "First", note: "Visible without hover." },
+          { lines: "2", label: "Second", note: "Still only a marker." },
         ],
       },
       { showCodeAnnotationOverlays: true },
     );
 
-    const overlay = document.querySelector("[data-annotation-inline-overlay]");
+    const overlays = document.querySelectorAll(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlays).toHaveLength(1);
+    const overlay = overlays[0];
     expect(overlay).toBeTruthy();
     expect(
       container.querySelector("[data-annotation-inline-overlay]"),
@@ -492,6 +497,7 @@ describe("DiffBlock annotations", () => {
       container.querySelector("[data-annotation-inline-overlay-anchor]"),
     ).toBeTruthy();
     expect(overlay?.textContent).toContain("Visible without hover.");
+    expect(overlay?.textContent).not.toContain("Still only a marker.");
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 

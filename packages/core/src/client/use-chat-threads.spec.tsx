@@ -154,6 +154,54 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
+  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms",
+      "empty-sidebar-tab",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms:seen",
+      String(Date.now()),
+    );
+    const existingThread: ChatThreadSummary = {
+      id: "real-thread",
+      title: "Previous form work",
+      preview: "add a rating field",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "forms");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "empty-sidebar-tab",
+      "real-thread",
+    ]);
+  });
+
   it("can ignore a saved active thread and start fresh immediately", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:brain",
@@ -616,6 +664,72 @@ describe("useChatThreads", () => {
       preview: "What should the demo answer cite?",
       messageCount: 2,
     });
+  });
+
+  it("moves a saved thread to the top of the local recency order", async () => {
+    const olderThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Older thread",
+      preview: "old",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const newerThread: ChatThreadSummary = {
+      id: "thread-2",
+      title: "Newer thread",
+      preview: "new",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [newerThread, olderThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "recency-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-2",
+      "thread-1",
+    ]);
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "{}",
+        title: "Older thread",
+        preview: "now active",
+        messageCount: 2,
+      });
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
   });
 
   it("renames a thread optimistically", async () => {

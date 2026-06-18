@@ -8,6 +8,13 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  processWebContent,
+  type WebContentSearchOptions,
+  type WebExtractMode,
+  type WebResponseMode,
+} from "../extensions/web-content.js";
+import {
+  deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
@@ -18,6 +25,13 @@ import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
 } from "./custom-registry.js";
+import {
+  createProviderQuotaIdentity,
+  createProviderRequestDedupeKey,
+  executeWithProviderQuota,
+  type ProviderQuotaIdentity,
+  type ProviderQuotaExhaustedDetail,
+} from "./quota-governor.js";
 
 export type {
   CustomProviderConfig,
@@ -82,7 +96,12 @@ export interface FetchAllPagesConfig {
    * Query parameter name to pass the cursor on the next request,
    * e.g. "cursor" or "page_token".
    */
-  cursorParam: string;
+  cursorParam?: string;
+  /**
+   * Dot-path in the JSON request body to set to the cursor on the next request.
+   * Use this for POST-body pagination, e.g. Gong's top-level `cursor`.
+   */
+  cursorBodyPath?: string;
   /**
    * Dot-path to the items array in each response body.
    * When omitted, the whole response body is appended to the items array.
@@ -118,6 +137,17 @@ export interface ProviderApiRequestArgs {
    * across all pages. Combine with saveToFile to write the full dataset.
    */
   fetchAllPages?: FetchAllPagesConfig;
+}
+
+export interface ProviderApiDocsOptions {
+  provider: ProviderApiId | string;
+  url?: string;
+  maxBytes?: number;
+  maxChars?: number;
+  responseMode?: WebResponseMode;
+  extract?: WebExtractMode;
+  includeLinks?: boolean;
+  search?: WebContentSearchOptions;
 }
 
 export type ProviderApiAuthKind =
@@ -171,6 +201,7 @@ export interface ProviderApiConfig {
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
   notes?: readonly string[];
+  corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
 }
 
@@ -185,6 +216,40 @@ export interface ProviderApiExample {
   method: ProviderApiMethod;
   path: string;
   body?: unknown;
+}
+
+export interface ProviderApiCorpusRecipe {
+  label: string;
+  useWhen: string;
+  workflow: readonly string[];
+  request: {
+    method: ProviderApiMethod;
+    path: string;
+    body?: unknown;
+    query?: unknown;
+  };
+  pagination?: {
+    itemsPath?: string;
+    nextCursorPath?: string;
+    cursorParam?: string;
+    cursorBodyPath?: string;
+    pageParam?: string;
+    offsetParam?: string;
+    pageSize?: number;
+    maxPages?: number;
+  };
+  batch?: {
+    inputValuePath?: string;
+    itemBodyPath?: string;
+    itemQueryParam?: string;
+    responseItemsPath?: string;
+    batchSize?: number;
+  };
+  search?: {
+    textPaths?: readonly string[];
+    idPaths?: readonly string[];
+    metadataPaths?: readonly string[];
+  };
 }
 
 export interface ProviderApiResolvedCredential {
@@ -220,6 +285,12 @@ export interface ProviderApiRuntimeOptions {
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
   /**
+   * Template-specific OAuth token provider overrides for built-in provider API
+   * configs. Use when an app stores a provider's OAuth grant under a narrower
+   * local provider id, e.g. Google Drive scoped to a "google-docs" connection.
+   */
+  oauthProviderOverrides?: Record<string, string>;
+  /**
    * Optional loader for custom providers registered at runtime. When provided,
    * custom providers are merged with the static built-in registry for catalog,
    * docs, and request operations. Custom providers cannot shadow built-in ids.
@@ -232,11 +303,7 @@ interface ProviderApiRuntime {
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
-  fetchDocs(options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  }): Promise<unknown>;
+  fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
 }
 
@@ -244,6 +311,33 @@ interface ResolvedAuth {
   headers: Record<string, string>;
   credentialSources: Array<Omit<ProviderApiResolvedCredential, "value">>;
   secretValues: string[];
+}
+
+interface ProviderApiHttpResponse {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  elapsedMs: number;
+  headers: Record<string, string>;
+  contentType: string | null;
+  size: number;
+  truncated: boolean;
+  text?: string;
+  json?: unknown;
+  quota?: {
+    exhausted: boolean;
+    providerId: string;
+    retryAfterMs: number;
+    retryAt: string;
+    reason: string;
+  };
+}
+
+interface ProviderApiFetchQuotaOptions {
+  identity: ProviderQuotaIdentity;
+  method: ProviderApiMethod;
+  target: string;
+  requestKey?: string;
 }
 
 interface OAuthTokens {
@@ -257,6 +351,12 @@ interface OAuthTokens {
   token_type?: string;
   scope?: string;
 }
+
+const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+]);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -321,7 +421,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["APOLLO_API_KEY"],
     docsUrls: ["https://docs.apollo.io/reference/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       {
         label: "Search people",
@@ -497,7 +597,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    templateUses: ["analytics", "brain", "dispatch"],
+    templateUses: ["analytics", "brain", "design", "dispatch"],
     examples: [
       { label: "Authenticated user", method: "GET", path: "/user" },
       { label: "Search issues", method: "GET", path: "/search/issues" },
@@ -546,7 +646,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -554,6 +654,77 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         method: "POST",
         path: "/calls/transcript",
         body: { filter: { callIds: ["<call-id>"] } },
+      },
+      {
+        label: "Calls with parties/content",
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: { fromDateTime: "<iso-date-time>" },
+          contentSelector: {
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+    ],
+    notes: [
+      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
+      "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Batch-search Gong call transcripts from staged call ids",
+        useWhen:
+          "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
+        workflow: [
+          "Stage or otherwise collect the exact call ids in scope first.",
+          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
+          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
+          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/transcript",
+          body: { filter: { callIds: [] } },
+        },
+        batch: {
+          inputValuePath: "id",
+          itemBodyPath: "filter.callIds",
+          responseItemsPath: "callTranscripts",
+          batchSize: 20,
+        },
+        search: {
+          textPaths: ["transcript.sentences.text", "transcript"],
+          idPaths: ["callId"],
+          metadataPaths: ["callId"],
+        },
+      },
+      {
+        label: "Stage Gong calls with parties/content",
+        useWhen:
+          "Use when the user needs a complete Gong call cohort before a transcript/message join or coverage-sensitive search.",
+        workflow: [
+          "Call provider-api-request with stageAs and pagination.",
+          "Use /calls/extensive when party fields or content summaries are needed; use /calls for lightweight metadata.",
+          "Do not treat staged call metadata as transcript text.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: { exposedFields: { parties: true } },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
       },
     ],
   },
@@ -570,7 +741,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/calendar/api/v3/reference"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "calendar", "dispatch"],
+    templateUses: ["brain", "calendar", "dispatch", "mail"],
     examples: [
       {
         label: "List calendars",
@@ -653,7 +824,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     docsUrls: ["https://developers.hubspot.com/docs/api/overview"],
-    templateUses: ["analytics", "brain", "mail", "dispatch"],
+    templateUses: ["analytics", "brain", "calendar", "mail", "dispatch"],
     examples: [
       {
         label: "Search deals with any HubSpot CRM filter",
@@ -812,7 +983,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["PYLON_API_KEY"],
     docsUrls: ["https://docs.usepylon.com/pylon-docs/developer/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [{ label: "List issues", method: "GET", path: "/issues" }],
   },
   sentry: {
@@ -948,6 +1119,7 @@ export function listProviderApiCatalog(
     defaultHeaders: config.defaultHeaders ?? {},
     examples: config.examples ?? [],
     notes: config.notes ?? [],
+    corpusRecipes: config.corpusRecipes ?? [],
     templateUses: config.templateUses ?? [],
   }));
 }
@@ -979,11 +1151,7 @@ export function createProviderApiRuntime(
 }
 
 export async function fetchProviderApiDocs(
-  options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  },
+  options: ProviderApiDocsOptions,
   runtime: ProviderApiRuntimeOptions = { appId: "app" },
 ) {
   await assertProviderAllowedAsync(options.provider, runtime);
@@ -1035,11 +1203,42 @@ export async function fetchProviderApiDocs(
     method: "GET",
     maxBytes: clampMaxBytes(options.maxBytes),
   });
+
+  const responseBody =
+    response.text ??
+    (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
+  const content = processWebContent({
+    url: url.href,
+    body: responseBody,
+    contentType: response.contentType,
+    responseMode: options.responseMode ?? "auto",
+    extract: options.extract ?? "readability",
+    includeLinks: options.includeLinks ?? true,
+    search: options.search,
+    maxChars: options.maxChars,
+  });
+  const responseForOutput =
+    content.mode === "raw" ? response : compactProviderDocsResponse(response);
+
   return {
     provider: options.provider,
     catalog,
     request: { url: url.href },
-    response,
+    response: responseForOutput,
+    ...(content.mode === "raw" ? {} : { content }),
+  };
+}
+
+function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    elapsedMs: response.elapsedMs,
+    headers: response.headers,
+    contentType: response.contentType,
+    size: response.size,
+    truncated: response.truncated,
   };
 }
 
@@ -1102,16 +1301,24 @@ export async function executeProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: config.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
+      await fetchAllPages(pageCfg, async (extra) => {
+        const queryWithCursor = extra?.query
           ? mergeQueryObjects(
               substituteUnknown(args.query, placeholders),
-              extraQuery,
+              extra.query,
             )
           : substituteUnknown(args.query, placeholders);
         const pageUrl = buildProviderUrl({
@@ -1120,10 +1327,20 @@ export async function executeProviderApiRequest(
           rawPath: substituteString(args.path, placeholders),
           query: queryWithCursor,
         });
-        const pageBody = prepareBody(
-          substituteUnknown(args.body, placeholders),
-          { ...headers },
-        );
+        const bodyWithCursor = extra?.bodyCursor
+          ? setValueAtPath(
+              substituteUnknown(args.body, placeholders),
+              extra.bodyCursor.path,
+              extra.bodyCursor.value,
+            )
+          : substituteUnknown(args.body, placeholders);
+        const pageBody = prepareBody(bodyWithCursor, { ...headers });
+        const requestKey = createProviderRequestDedupeKey({
+          method,
+          url: pageUrl.href,
+          body: pageBody,
+          headers,
+        });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -1131,6 +1348,15 @@ export async function executeProviderApiRequest(
           maxBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           secretValues: auth.secretValues,
+          quota: {
+            identity: quotaIdentity,
+            method,
+            target: describeProviderRequestTarget(
+              pageUrl.href,
+              auth.secretValues,
+            ),
+            requestKey,
+          },
         });
         return {
           text:
@@ -1165,6 +1391,12 @@ export async function executeProviderApiRequest(
 
   // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    body,
+    headers,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
@@ -1172,6 +1404,12 @@ export async function executeProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey,
+    },
   });
 
   // saveToFile: write full body to workspace file and return compact summary.
@@ -1277,14 +1515,22 @@ async function executeCustomProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: customConfig.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
-          ? mergeQueryObjects(args.query, extraQuery)
+      await fetchAllPages(pageCfg, async (extra) => {
+        const queryWithCursor = extra?.query
+          ? mergeQueryObjects(args.query, extra.query)
           : args.query;
         const pageUrl = buildProviderUrl({
           config: syntheticConfig,
@@ -1292,7 +1538,20 @@ async function executeCustomProviderApiRequest(
           rawPath: args.path,
           query: queryWithCursor,
         });
-        const pageBody = prepareBody(args.body, { ...headers });
+        const bodyWithCursor = extra?.bodyCursor
+          ? setValueAtPath(
+              args.body,
+              extra.bodyCursor.path,
+              extra.bodyCursor.value,
+            )
+          : args.body;
+        const pageBody = prepareBody(bodyWithCursor, { ...headers });
+        const requestKey = createProviderRequestDedupeKey({
+          method,
+          url: pageUrl.href,
+          body: pageBody,
+          headers,
+        });
         const resp = await fetchWithTimeout(pageUrl.href, {
           method,
           headers,
@@ -1300,6 +1559,15 @@ async function executeCustomProviderApiRequest(
           maxBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           secretValues: auth.secretValues,
+          quota: {
+            identity: quotaIdentity,
+            method,
+            target: describeProviderRequestTarget(
+              pageUrl.href,
+              auth.secretValues,
+            ),
+            requestKey,
+          },
         });
         return {
           text:
@@ -1343,6 +1611,17 @@ async function executeCustomProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey: createProviderRequestDedupeKey({
+        method,
+        url: url.href,
+        body,
+        headers,
+      }),
+    },
   });
 
   if (args.saveToFile) {
@@ -1534,6 +1813,7 @@ function customProviderToCatalogEntry(config: CustomProviderConfig) {
     defaultHeaders: config.defaultHeaders,
     examples: [] as unknown[],
     notes: config.notes ? [config.notes] : ([] as string[]),
+    corpusRecipes: [] as unknown[],
     templateUses: [] as string[],
     custom: true,
   };
@@ -1833,7 +2113,7 @@ function buildProviderUrl(options: {
   const rawPath = options.rawPath.trim();
   const url = /^https?:\/\//i.test(rawPath)
     ? new URL(rawPath)
-    : new URL(rawPath.startsWith("/") ? rawPath : `/${rawPath}`, base);
+    : new URL(joinProviderUrlPath(base, rawPath), base.origin);
 
   if (!isAllowedProviderUrl(url, base, options.config)) {
     throw new Error(
@@ -1846,6 +2126,22 @@ function buildProviderUrl(options: {
   }
 
   return url;
+}
+
+function joinProviderUrlPath(base: URL, rawPath: string): string {
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const providerPath = rawPath.replace(/^\/+/, "");
+  if (!providerPath) return basePath || "/";
+  const baseSegments = basePath.split("/").filter(Boolean);
+  const providerSegments = providerPath.split("/").filter(Boolean);
+  if (
+    baseSegments.length > 0 &&
+    providerSegments.length >= baseSegments.length &&
+    baseSegments.every((segment, index) => segment === providerSegments[index])
+  ) {
+    return `/${providerPath}`;
+  }
+  return `${basePath}/${providerPath}`;
 }
 
 function isAllowedProviderUrl(
@@ -1984,8 +2280,10 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer") {
+    const oauthProvider =
+      runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
     const credential = await resolveOAuthBearerToken({
-      auth,
+      auth: { ...auth, oauthProvider },
       ctx,
       accountId: args.accountId,
     });
@@ -2266,7 +2564,10 @@ async function getValidOAuthAccessToken(options: {
   const refreshToken =
     options.tokens.refresh_token ?? options.tokens.refreshToken;
   if (!refreshToken) return accessToken;
-  if (options.oauthProvider === "google") {
+  if (
+    options.oauthProvider === "google" ||
+    options.oauthProvider === "google-docs"
+  ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }
   throw new Error(
@@ -2309,6 +2610,9 @@ async function refreshGoogleOAuthToken(
     error_description?: string;
   };
   if (!res.ok || !data.access_token) {
+    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+    }
     const detail = data.error_description ?? data.error ?? res.statusText;
     throw new Error(`Google OAuth refresh failed: ${detail}`);
   }
@@ -2374,6 +2678,10 @@ function prepareBody(
   return JSON.stringify(body);
 }
 
+function runtimeOptionsAppId(runtime: ProviderApiRuntimeOptions): string {
+  return runtime.appId || "app";
+}
+
 async function fetchWithTimeout(
   optionsUrl: string,
   options: {
@@ -2383,47 +2691,213 @@ async function fetchWithTimeout(
     timeoutMs?: number;
     maxBytes?: number;
     secretValues?: string[];
+    quota?: ProviderApiFetchQuotaOptions;
   },
-) {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    clampTimeout(options.timeoutMs),
-  );
-  try {
-    const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      method: options.method ?? "GET",
-      headers: options.headers,
-      body: options.body,
-      signal: controller.signal,
-      redirect: "manual",
-    };
-    if (dispatcher) fetchOptions.dispatcher = dispatcher;
-    const startedAt = Date.now();
-    const res = await fetch(optionsUrl, fetchOptions);
-    const elapsedMs = Date.now() - startedAt;
-    const rawText = await readResponseTextWithLimit(
-      res,
-      clampMaxBytes(options.maxBytes),
-    );
+): Promise<ProviderApiHttpResponse> {
+  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+    const controller = new AbortController();
+    const timeoutMs = clampTimeout(options.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const method = options.method ?? "GET";
     const secretValues = options.secretValues ?? [];
-    const redactedText = redactString(rawText.text, secretValues);
-    const parsed = tryParseJson(redactedText);
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      elapsedMs,
-      headers: redactSecrets(headersToObject(res.headers), secretValues),
-      contentType: res.headers.get("content-type") ?? null,
-      size: rawText.size,
-      truncated: rawText.truncated,
-      text: parsed === undefined ? redactedText : undefined,
-      json: parsed,
-    };
-  } finally {
-    clearTimeout(timeout);
+    try {
+      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+        method,
+        headers: options.headers,
+        body: options.body,
+        signal: controller.signal,
+        redirect: "manual",
+      };
+      if (dispatcher) fetchOptions.dispatcher = dispatcher;
+      try {
+        return await fetchProviderResponse(optionsUrl, fetchOptions, {
+          maxBytes: options.maxBytes,
+          secretValues,
+        });
+      } catch (error) {
+        if (dispatcher && isDispatcherCompatibilityError(error)) {
+          const fallbackOptions = { ...fetchOptions };
+          delete fallbackOptions.dispatcher;
+          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+            maxBytes: options.maxBytes,
+            secretValues,
+          });
+        }
+        throw error;
+      }
+    } catch (error) {
+      throw normalizeFetchError(error, {
+        method,
+        url: optionsUrl,
+        timeoutMs,
+        secretValues,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  if (options.quota) {
+    return executeWithProviderQuota({
+      request: {
+        identity: options.quota.identity,
+        method: options.quota.method,
+        target: options.quota.target,
+        requestKey: options.quota.requestKey,
+      },
+      execute: runOnce,
+      inspect: (result) => ({
+        status: result.status,
+        headers: result.headers,
+      }),
+      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
+    });
+  }
+
+  return runOnce();
+}
+
+function providerQuotaExhaustedResponse(
+  detail: ProviderQuotaExhaustedDetail,
+): ProviderApiHttpResponse {
+  const retryAfterSeconds = Math.max(0, Math.ceil(detail.retryAfterMs / 1000));
+  return {
+    status: 429,
+    statusText: "Provider quota cooldown",
+    ok: false,
+    elapsedMs: 0,
+    headers: {
+      "retry-after": String(retryAfterSeconds),
+      "x-agent-native-provider-quota": "exhausted",
+    },
+    contentType: "application/json",
+    size: 0,
+    truncated: false,
+    json: {
+      error: "provider_quota_exhausted",
+      provider: detail.providerId,
+      message:
+        `Provider API quota is cooling down for ${detail.providerId}. ` +
+        `Retry after ${detail.retryAt}.`,
+      retryAt: detail.retryAt,
+      retryAfterMs: detail.retryAfterMs,
+      reason: detail.reason,
+      method: detail.method,
+      target: detail.target,
+    },
+    quota: {
+      exhausted: true,
+      providerId: detail.providerId,
+      retryAfterMs: detail.retryAfterMs,
+      retryAt: detail.retryAt,
+      reason: detail.reason,
+    },
+  };
+}
+
+async function fetchProviderResponse(
+  url: string,
+  fetchOptions: RequestInit & { dispatcher?: unknown },
+  options: {
+    maxBytes?: number;
+    secretValues: string[];
+  },
+): Promise<ProviderApiHttpResponse> {
+  const startedAt = Date.now();
+  const res = await fetch(url, fetchOptions);
+  const elapsedMs = Date.now() - startedAt;
+  const rawText = await readResponseTextWithLimit(
+    res,
+    clampMaxBytes(options.maxBytes),
+  );
+  const redactedText = redactString(rawText.text, options.secretValues);
+  const parsed = tryParseJson(redactedText);
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    ok: res.ok,
+    elapsedMs,
+    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    contentType: res.headers.get("content-type") ?? null,
+    size: rawText.size,
+    truncated: rawText.truncated,
+    text: parsed === undefined ? redactedText : undefined,
+    json: parsed,
+  };
+}
+
+function isDispatcherCompatibilityError(error: unknown): boolean {
+  const err = error as {
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
+  const detail = [
+    typeof err?.message === "string" ? err.message : "",
+    typeof err?.cause?.message === "string" ? err.cause.message : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    code === "UND_ERR_INVALID_ARG" &&
+    detail.includes("invalid onrequeststart method")
+  );
+}
+
+function normalizeFetchError(
+  error: unknown,
+  options: {
+    method: ProviderApiMethod;
+    url: string;
+    timeoutMs: number;
+    secretValues: string[];
+  },
+): Error {
+  const target = describeProviderRequestTarget(
+    options.url,
+    options.secretValues,
+  );
+  const err = error as {
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  if (err?.name === "AbortError") {
+    return new Error(
+      `Provider API request timed out after ${options.timeoutMs}ms: ${options.method} ${target}`,
+      { cause: error },
+    );
+  }
+
+  const causeCode =
+    typeof err?.cause?.code === "string" && err.cause.code
+      ? ` (${err.cause.code})`
+      : "";
+  const detail =
+    typeof err?.cause?.message === "string" && err.cause.message
+      ? err.cause.message
+      : typeof err?.message === "string" && err.message
+        ? err.message
+        : String(error);
+  return new Error(
+    `Provider API request failed${causeCode}: ${options.method} ${target}: ${redactString(detail, options.secretValues)}`,
+    { cause: error },
+  );
+}
+
+function describeProviderRequestTarget(
+  rawUrl: string,
+  secretValues: string[],
+): string {
+  try {
+    const url = new URL(rawUrl);
+    return redactString(
+      `${url.host}${url.pathname}${url.search}`,
+      secretValues,
+    );
+  } catch {
+    return redactString(rawUrl, secretValues);
   }
 }
 
@@ -2514,6 +2988,28 @@ function mergeQueryObjects(
   return extra;
 }
 
+function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
+  const root =
+    base && typeof base === "object" && !Array.isArray(base)
+      ? { ...(base as Record<string, unknown>) }
+      : {};
+  const parts = path.split(".").filter(Boolean);
+  if (!parts.length) return root;
+
+  let current: Record<string, unknown> = root;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    const next =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    current[part] = next;
+    current = next;
+  }
+  current[parts[parts.length - 1]!] = value;
+  return root;
+}
+
 function clampTimeout(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
@@ -2586,7 +3082,10 @@ async function handleSaveToFile(
  */
 async function fetchAllPages(
   config: FetchAllPagesConfig,
-  executeOnePage: (extraQuery?: Record<string, string>) => Promise<{
+  executeOnePage: (extra?: {
+    query?: Record<string, string>;
+    bodyCursor?: { path: string; value: string };
+  }) => Promise<{
     text: string;
     contentType: string | null;
     status: number;
@@ -2611,14 +3110,42 @@ async function fetchAllPages(
   let lastStatus = 0;
   let lastContentType: string | null = null;
 
-  while (pageCount < maxPages) {
-    const extraQuery: Record<string, string> = {};
-    if (cursor) extraQuery[config.cursorParam] = cursor;
+  if (!config.cursorParam && !config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages requires cursorParam or cursorBodyPath to send the next cursor.",
+    );
+  }
+  if (config.cursorParam && config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages accepts exactly one cursor method: cursorParam or cursorBodyPath.",
+    );
+  }
 
-    const page = await executeOnePage(pageCount > 0 ? extraQuery : undefined);
+  while (pageCount < maxPages) {
+    const extra: {
+      query?: Record<string, string>;
+      bodyCursor?: { path: string; value: string };
+    } = {};
+    if (cursor) {
+      if (config.cursorParam) extra.query = { [config.cursorParam]: cursor };
+      if (config.cursorBodyPath) {
+        extra.bodyCursor = { path: config.cursorBodyPath, value: cursor };
+      }
+    }
+
+    const page = await executeOnePage(pageCount > 0 ? extra : undefined);
     lastStatus = page.status;
     lastContentType = page.contentType;
     pageCount++;
+
+    if (!page.ok) {
+      const preview = page.text.replace(/\s+/g, " ").trim().slice(0, 500);
+      throw new Error(
+        `fetchAllPages request failed with HTTP ${page.status}${
+          preview ? `: ${preview}` : ""
+        }`,
+      );
+    }
 
     let body: unknown;
     try {

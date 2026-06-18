@@ -79,6 +79,32 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).toContain("https://cdn.example.com/photo.png");
   });
 
+  it("uses the serialized data URL MIME type when it differs from the original file type", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/logo.png",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "logo.svg",
+        mimeType: "image/png",
+      }),
+    );
+    expect(result.uploaded[0].contentType).toBe("image/png");
+    expect(result.injectedText).toContain('contentType="image/png"');
+  });
+
   it("uploads file attachments when includeFiles=true", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/report.pdf",
@@ -98,6 +124,70 @@ describe("preUploadAttachments", () => {
     );
     expect((att as any).url).toBe("https://cdn.example.com/report.pdf");
     expect(result.injectedText).toContain("chat-file-attachment");
+  });
+
+  it("uploads SVG file attachments as files, not vision images", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/logo.svg",
+      provider: "builder",
+    });
+
+    const att = makeFileAtt({
+      name: "logo.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles).toHaveLength(1);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      referenceOnly: true,
+      securityNote: expect.stringContaining("active markup"),
+    });
+    expect(result.injectedText).toContain("chat-file-attachment");
+    expect(result.injectedText).not.toContain("chat-image-attachment");
+    expect(result.injectedText).toContain('contentType="image/svg+xml"');
+    expect(result.injectedText).toContain('referenceOnly="true"');
+    expect(result.injectedText).toContain("unsanitized vector source");
+    expect(result.injectedText).not.toContain(
+      "use the url attribute when embedding",
+    );
+  });
+
+  it("treats image-typed SVG payloads as reference-only file uploads", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/icon.svg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "icon.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles).toHaveLength(1);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      contentType: "image/svg+xml",
+      referenceOnly: true,
+    });
+    expect(att.type).toBe("file");
+    expect(att.contentType).toBe("image/svg+xml");
+    expect((att as any).referenceOnly).toBe(true);
+    expect((att as any).securityNote).toContain("active markup");
+    expect(result.injectedText).toContain("chat-file-attachment");
+    expect(result.injectedText).not.toContain("chat-image-attachment");
+    expect(result.injectedText).toContain("unsanitized vector source");
   });
 
   it("does NOT upload file attachments when includeFiles=false (legacy behaviour)", async () => {
@@ -131,6 +221,30 @@ describe("preUploadAttachments", () => {
     expect(result.uploaded[0].url).toBe(
       "https://cdn.example.com/already-uploaded.png",
     );
+  });
+
+  it("normalizes existing image-typed SVG URLs as reference-only file uploads", async () => {
+    const att = makeImageAtt({
+      name: "already.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    (att as any).url = "https://cdn.example.com/already.svg";
+    (att as any).uploadProvider = "builder";
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).not.toHaveBeenCalled();
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      url: "https://cdn.example.com/already.svg",
+      referenceOnly: true,
+    });
+    expect(att.type).toBe("file");
+    expect((att as any).referenceOnly).toBe(true);
   });
 
   it("sets providerMissing=true and injects an error hint when uploadFile returns null for image", async () => {

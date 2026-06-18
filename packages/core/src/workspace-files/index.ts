@@ -16,7 +16,3 @@ export {
 } from "./store.js";
 
 export { createWorkspaceFilesTool } from "./tool.js";
-export {
-  WORKSPACE_FILES_CREATE_SQL,
-  WORKSPACE_FILES_INDEX_SQL,
-} from "./schema.js";

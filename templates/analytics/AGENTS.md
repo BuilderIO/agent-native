@@ -164,6 +164,34 @@ For analyses spanning 30+ accounts, deals, or calls:
 
 Do not try to hold 30+ full records in one context pass.
 
+### Corpus-First Provider Analysis
+
+For broad provider searches, cross-source joins, mention counts, classifications,
+or questions where absence matters:
+
+1. Inspect the provider catalog/docs when a canned action cannot express the
+   exact endpoint, filter, body, or pagination needed.
+2. Fetch the full relevant cohort, or an explicit bounded cohort, using
+   `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
+   the payload is large.
+3. Use `run-code` with `providerSearchAll` for broad mention/phrase/term/regex
+   searches across transcripts, messages, tickets, issues, notes, events, or
+   documents; it preserves provider item IDs, snippets, paths, page/item counts,
+   and pagination status. Use `providerFetch`, `appAction`, and
+   Resources-backed workspace helpers to join, classify, count, and aggregate
+   without flooding chat context. Write temporary files under `scratch/`; write
+   durable, user-facing files under a descriptive Resources folder only when
+   they should remain visible after the analysis.
+   Give durable corpus jobs descriptive, source-neutral names and preserve the
+   `jobId`; completed, quota-waiting, and failed jobs are surfaced in the app
+   with their coverage counts so the user can resume or inspect the exact run.
+4. Report coverage: source, filters, time window, row/record counts, joins,
+   failed/aborted pages, truncation, and any remaining gaps.
+
+Never turn sampled records, default limits, truncated excerpts, or aborted tool
+calls into a confident "none found", "all records", or exhaustive conclusion.
+Recover coverage first, or answer as explicitly partial.
+
 ### Learnings Flywheel
 
 After completing any significant analysis, record discoveries to `LEARNINGS.md`
@@ -198,9 +226,10 @@ Read the relevant skill before deeper work:
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
-- `analysis-workspace` for large-scale fusion analyses: durable scratch files,
-  chunked batch processing with per-item memos, `run-code` aggregation,
-  `saveToFile`/`fetchAllPages` for large API pulls, and multi-turn synthesis.
+- `analysis-workspace` for large-scale multi-source analyses: Resources-backed
+  files, `scratch/` temporary staging, chunked batch processing with per-item
+  memos, `run-code` aggregation, `saveToFile`/`fetchAllPages` for large API
+  pulls, and multi-turn synthesis.
   Read this before any analysis spanning 30+ items or requiring data larger
   than one context window.
 - `storing-data`, `real-time-sync`, `security`, `actions`, and

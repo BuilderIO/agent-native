@@ -228,9 +228,21 @@ export async function getCallDetail(
   };
 }
 
+export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
+  const ids = Array.from(
+    new Set(
+      callIds
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!ids.length) return { callTranscripts: [] };
+  const body = { filter: { callIds: ids } };
+  return apiPost("/calls/transcript", body, `transcripts:${ids.join(",")}`);
+}
+
 export async function getCallTranscript(callId: string): Promise<unknown> {
-  const body = { filter: { callIds: [callId] } };
-  return apiPost("/calls/transcript", body, `transcript:${callId}`);
+  return getCallTranscripts([callId]);
 }
 
 export async function getEnrichedTranscript(
@@ -440,6 +452,12 @@ export interface GongCallSearchResult {
   coverageTruncated: boolean;
 }
 
+export interface GongCallSearchOptions {
+  fromDateTime?: string;
+  toDateTime?: string;
+  exhaustive?: boolean;
+}
+
 function normalizedSearchQueries(queries: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -473,10 +491,11 @@ export async function searchCallsForQueries(
   queries: string[],
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<GongCallSearchResult> {
-  const fromDateTime = new Date(
-    Date.now() - days * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const fromDateTime =
+    options.fromDateTime ??
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const normalizedLimit = normalizeGongCallLimit(limit);
   const normalizedQueries = normalizedSearchQueries(queries);
 
@@ -497,6 +516,7 @@ export async function searchCallsForQueries(
   let cursor: string | undefined;
   do {
     const params = new URLSearchParams({ fromDateTime });
+    if (options.toDateTime) params.set("toDateTime", options.toDateTime);
     if (cursor) params.set("cursor", cursor);
     const data = await apiGet<{
       calls?: GongCall[];
@@ -521,7 +541,7 @@ export async function searchCallsForQueries(
     }
 
     for (let i = 0; i < remainingForExtensive.length; i += 100) {
-      if (matches.size >= normalizedLimit) break;
+      if (!options.exhaustive && matches.size >= normalizedLimit) break;
       const batch = remainingForExtensive.slice(i, i + 100);
       const uncached = batch.filter(
         (call) => !extensivePartyCache.has(call.id),
@@ -555,7 +575,7 @@ export async function searchCallsForQueries(
       }
 
       for (const call of batch) {
-        if (matches.size >= normalizedLimit) break;
+        if (!options.exhaustive && matches.size >= normalizedLimit) break;
         const parties = extensivePartyCache.get(call.id) ?? [];
         if (!parties.length) continue;
         for (const query of normalizedQueries) {
@@ -565,17 +585,59 @@ export async function searchCallsForQueries(
         }
       }
     }
-  } while (cursor && matches.size < normalizedLimit);
+  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
 
   const matchedCalls = Array.from(matches.values());
+  return buildGongSearchResult(matchedCalls, normalizedLimit, {
+    searchedCallCount,
+    queryCount: normalizedQueries.length,
+    cursor,
+    exhaustive: Boolean(options.exhaustive),
+  });
+}
+
+/**
+ * Assemble the final search result from the matched calls. In `exhaustive` mode
+ * EVERY match is returned (newest-first, untruncated) — the caller has already
+ * bounded the set with a date window / cohort queries, so re-capping here would
+ * silently drop matches and reintroduce the "only captured a subset" failure.
+ * Otherwise the newest `normalizedLimit` are returned and truncation reflects
+ * the cap or a remaining cursor. Exported for unit testing.
+ */
+export function buildGongSearchResult(
+  matchedCalls: (GongCall & { matchedQueries?: string[] })[],
+  normalizedLimit: number,
+  meta: {
+    searchedCallCount: number;
+    queryCount: number;
+    cursor: string | undefined;
+    exhaustive: boolean;
+  },
+): GongCallSearchResult {
+  if (meta.exhaustive) {
+    const sorted = [...matchedCalls].sort(
+      (a, b) =>
+        (b.started ? Date.parse(b.started) : 0) -
+        (a.started ? Date.parse(a.started) : 0),
+    );
+    return {
+      calls: sorted,
+      limit: sorted.length,
+      truncated: false,
+      searchedCallCount: meta.searchedCallCount,
+      matchedCallCount: matchedCalls.length,
+      queryCount: meta.queryCount,
+      coverageTruncated: false,
+    };
+  }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
   return {
     ...limited,
-    truncated: limited.truncated || Boolean(cursor),
-    searchedCallCount,
+    truncated: limited.truncated || Boolean(meta.cursor),
+    searchedCallCount: meta.searchedCallCount,
     matchedCallCount: matchedCalls.length,
-    queryCount: normalizedQueries.length,
-    coverageTruncated: Boolean(cursor),
+    queryCount: meta.queryCount,
+    coverageTruncated: Boolean(meta.cursor),
   };
 }
 
@@ -583,6 +645,7 @@ export async function searchCalls(
   query: string,
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
-  return searchCallsForQueries([query], days, limit);
+  return searchCallsForQueries([query], days, limit, options);
 }

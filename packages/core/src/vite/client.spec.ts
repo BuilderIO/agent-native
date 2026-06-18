@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
+  _getDefaultOptimizeDeps,
   _getReactRouterAliases,
   defineConfig,
   isFrameworkDevPath,
@@ -586,6 +587,66 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("pre-optimizes core client deps when core is source-aliased", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
+    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(coreRoot).href,
+          "react-router": "^7.16.0",
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).toContain("@assistant-ui/react");
+    expect(deps).toContain("@tiptap/react");
+    expect(deps).toContain("@xterm/xterm");
+    expect(deps).toContain("shiki/core");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not pre-optimize packages that are only optional core peers", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-optimize-peer-"),
+    );
+    const fakeCore = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-fake-core-"),
+    );
+    fs.mkdirSync(path.join(fakeCore, "src"));
+    fs.writeFileSync(path.join(fakeCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(fakeCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        peerDependencies: {
+          sonner: "^2.0.0",
+        },
+        peerDependenciesMeta: {
+          sonner: { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": pathToFileURL(fakeCore).href,
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).not.toContain("sonner");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(fakeCore, { recursive: true, force: true });
+  });
+
   it("keeps react-router inside the dev SSR graph so dedupe applies", () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-ssr-"));
@@ -620,6 +681,34 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
       expect(external).not.toContain("react-router-dom");
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows workspace-root node_modules for monorepo template assets", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-fs-allow-"));
+    const appDir = path.join(tmpDir, "templates", "forms");
+    const nodeModulesDir = path.join(tmpDir, "node_modules");
+    const coreDir = path.join(tmpDir, "packages", "core");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(nodeModulesDir, { recursive: true });
+    fs.mkdirSync(coreDir, { recursive: true });
+    fs.writeFileSync(path.join(coreDir, "package.json"), "{}");
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const fsAllow =
+        (config.server as { fs?: { allow?: string[] } } | undefined)?.fs
+          ?.allow ?? [];
+
+      expect(fsAllow).toContain(
+        fs.realpathSync(path.join(tmpDir, "packages", "core")),
+      );
+      expect(fsAllow).toContain(fs.realpathSync(nodeModulesDir));
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

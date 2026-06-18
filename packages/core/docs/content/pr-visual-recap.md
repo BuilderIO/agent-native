@@ -36,7 +36,7 @@ explicitly at any time:
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** through `npx @agent-native/core@latest recap <subcommand>` — including `gate`, `collect-diff`, `mcp-config`, `scan`, `build-prompt`, `shot`, `comment`, `check`, and `usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
+This installs the `visual-plan` skill (which includes the `visual-recap` skill the action runs) and writes `.github/workflows/pr-visual-recap.yml` into your repo. The workflow calls **published CLI subcommands** through `npx @agent-native/core@latest recap <subcommand>` — including `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check`, and `usage` — so nothing is copied into your repo as helper scripts. `setup` and `doctor` are the interactive helpers you run locally; `gate` is the security-gate step the workflow runs before every recap.
 
 Then run the guided setup helper:
 
@@ -216,13 +216,17 @@ the prompt instructs the agent to write `plans/pr-123-visual-recap/plan.mdx`
 plus optional visual files and then run:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/pr-123-visual-recap --kind recap
+npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap --kind recap --open
 ```
 
-The returned `file://` preview, or `/local-plans/pr-123-visual-recap` in a local
-Plan app using the same `PLAN_LOCAL_DIR`, is the review link. This mode disables
-the hosted sticky PR comment, inline screenshot upload, usage attachment, and
-browser comments until you explicitly publish.
+The returned URL opens the hosted Plan UI while the browser reads the recap MDX
+from a localhost bridge. Recap content is not written to the hosted Plan
+database, and the URL only works on the machine running the bridge. If you run
+the Plan app locally with the same `PLAN_LOCAL_DIR`, the
+`/local-plans/pr-123-visual-recap` route is also valid. Repo-backed folders can
+open as `/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap`.
+This mode disables the hosted sticky PR comment, inline screenshot upload,
+usage attachment, and browser comments until you explicitly publish.
 
 ## It's informational, not a gate
 
@@ -304,7 +308,7 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
 
 jobs:
   visual-recap:
@@ -356,7 +360,7 @@ The `cli-version` input controls which `@agent-native/core` CLI version runs ins
 
 ### workflow_call event context
 
-`workflow_call` workflows inherit the **caller's** event context. The reusable workflow uses `github.event.pull_request.*` expressions to read the PR number, head SHA, base SHA, and PR metadata — these work correctly only when the caller triggers on `pull_request`. The caller snippet above already includes the correct event types.
+`workflow_call` workflows inherit the **caller's** event context. The reusable workflow uses `github.event.pull_request.*` expressions to read the PR number, head SHA, base SHA, merge timestamp, and PR metadata — these work correctly only when the caller triggers on `pull_request`. The caller snippet above already includes the correct event types. The `closed` event is included so merged PR recaps can be stamped with `merged_at` and later searched as shipped work.
 
 Do not trigger the caller on `workflow_dispatch` or `push` — those events do not carry a `pull_request` payload, and the gate will skip the recap with "no pull_request payload".
 

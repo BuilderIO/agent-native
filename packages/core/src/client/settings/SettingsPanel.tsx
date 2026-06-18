@@ -54,6 +54,7 @@ import {
 import { useSession } from "../use-session.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { callAction } from "../use-action.js";
+import { saveAgentEngineApiKey } from "../agent-engine-key.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -733,20 +734,12 @@ function LLMSectionInner({
     if (!apiKey.trim() || !envVar) return;
     setSaving(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vars: [{ key: envVar, value: apiKey.trim() }],
-        }),
-      });
-      if (res.ok) {
-        setSaved(true);
-        setApiKey("");
-        refreshSettingsStatus();
-        notifyConfigChanged();
-        setTimeout(() => setSaved(false), 2000);
-      }
+      await saveAgentEngineApiKey({ key: envVar, apiKey });
+      setSaved(true);
+      setApiKey("");
+      refreshSettingsStatus();
+      notifyConfigChanged();
+      setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
     }

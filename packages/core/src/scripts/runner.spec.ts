@@ -148,4 +148,27 @@ describe("runScript package actions", () => {
       limit: "8",
     });
   }, 20_000);
+
+  it("preserves empty package action arguments", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-action", "--label", ""],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({ label: "" });
+  }, 20_000);
 });

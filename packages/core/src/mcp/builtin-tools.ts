@@ -14,7 +14,8 @@
  * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
  * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
  * | `create_embed_session`| ticket mint  | `{ startUrl }` for MCP App iframes       |
- * | `ask_app`             | agent loop   | `{ app, routedVia, response }`           |
+ * | `ask_app`             | agent loop   | `{ app, routedVia, response }` or task   |
+ * | `ask_app_status`      | none         | poll a durable `ask_app` task            |
  * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
  *
  * `open_app` / `create_workspace_app` return an **absolute** URL on the
@@ -39,6 +40,7 @@ import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 import { embedApp } from "./embed-app.js";
 
 import type { ActionTool } from "../agent/types.js";
+import type { Task } from "../a2a/types.js";
 
 /** Flat map of param name → JSON-schema property. */
 type Params = Record<
@@ -78,6 +80,39 @@ function currentAppId(config: MCPConfig): string {
 }
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
+const ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+const ASK_APP_POLL_INTERVAL_MS = 1_500;
+const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
+const ASK_APP_TERMINAL_STATES = new Set<string>([
+  "completed",
+  "failed",
+  "canceled",
+]);
+
+type AskAppRequestMeta = { origin?: string; basePath?: string };
+
+interface AskAppRoute {
+  app: string;
+  origin: string;
+  routedVia: "local" | "a2a";
+  note?: string;
+}
+
+interface AskAppTaskResult {
+  app: string;
+  routedVia: "local" | "a2a";
+  taskId: string;
+  status: string;
+  response?: string;
+  error?: string;
+  note?: string;
+  poll?: {
+    tool: "ask_app_status";
+    arguments: { app: string; taskId: string };
+  };
+  message?: string;
+}
 
 function safeAppPath(raw: unknown): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
@@ -121,6 +156,171 @@ function withMcpChatBridgeParam(path: string): string {
   } catch {
     return path;
   }
+}
+
+function agentNativeA2AEndpoint(urlOrOrigin: string): string {
+  const value = urlOrOrigin.replace(/\/+$/, "");
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    if (pathname.endsWith("/_agent-native/a2a") || pathname.endsWith("/a2a")) {
+      return value;
+    }
+  } catch {
+    // Fall through and append the conventional Agent Native endpoint.
+  }
+  return `${value}/_agent-native/a2a`;
+}
+
+function selfA2AEndpointUrl(requestMeta?: AskAppRequestMeta): string | null {
+  const origin = requestMeta?.origin?.replace(/\/+$/, "");
+  if (!origin) return null;
+  const basePath = requestMeta?.basePath || getConfiguredAppBasePath();
+  return agentNativeA2AEndpoint(`${origin}${basePath}`);
+}
+
+function boundedAskAppWaitMs(raw: unknown): number {
+  if (raw == null || raw === "") return ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  return Math.max(0, Math.min(ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)));
+}
+
+function isExplicitAsyncAsk(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+function taskState(task: Task): string {
+  return String(task.status?.state ?? "unknown");
+}
+
+function isTerminalTask(task: Task): boolean {
+  return ASK_APP_TERMINAL_STATES.has(taskState(task));
+}
+
+function taskText(task: Task): string {
+  return (
+    task.status.message?.parts
+      ?.filter(
+        (part): part is { type: "text"; text: string } => part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function askAppTaskResult(route: AskAppRoute, task: Task): AskAppTaskResult {
+  const status = taskState(task);
+  const response = taskText(task);
+  const base = {
+    app: route.app,
+    routedVia: route.routedVia,
+    taskId: task.id,
+    status,
+    ...(route.note ? { note: route.note } : {}),
+  };
+
+  if (status === "completed") {
+    return {
+      ...base,
+      response: response || "(no response)",
+    };
+  }
+
+  if (status === "failed" || status === "canceled") {
+    return {
+      ...base,
+      ...(response ? { response } : {}),
+      error: response || `ask_app task ${status}.`,
+    };
+  }
+
+  return {
+    ...base,
+    poll: {
+      tool: "ask_app_status",
+      arguments: { app: route.app, taskId: task.id },
+    },
+    message:
+      `ask_app is still ${status}. Call ask_app_status with ` +
+      `taskId "${task.id}" to retrieve the final response.`,
+  };
+}
+
+async function createA2AClientForAskApp(origin: string): Promise<{
+  client: import("../a2a/client.js").A2AClient;
+  metadata: Record<string, unknown>;
+}> {
+  const { A2AClient } = await import("../a2a/client.js");
+  const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
+  const auth = await resolveA2ACallerAuth();
+  const metadata: Record<string, unknown> = {};
+  if (auth.userEmail) metadata.userEmail = auth.userEmail;
+  if (auth.orgDomain) metadata.orgDomain = auth.orgDomain;
+  return {
+    client: new A2AClient(origin, auth.apiKey, {
+      requestTimeoutMs: ASK_APP_A2A_REQUEST_TIMEOUT_MS,
+    }),
+    metadata,
+  };
+}
+
+async function waitForA2ATask(
+  client: import("../a2a/client.js").A2AClient,
+  initialTask: Task,
+  maxWaitMs: number,
+): Promise<Task> {
+  if (maxWaitMs <= 0 || isTerminalTask(initialTask)) return initialTask;
+  const deadline = Date.now() + maxWaitMs;
+  let current = initialTask;
+
+  while (!isTerminalTask(current)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return current;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(ASK_APP_POLL_INTERVAL_MS, remaining)),
+    );
+    try {
+      current = await client.getTask(initialTask.id);
+    } catch {
+      // Transient status fetch failures should not turn a successfully
+      // submitted durable task into a failed MCP call.
+      if (Date.now() >= deadline) return current;
+      continue;
+    }
+  }
+
+  return current;
+}
+
+async function submitAskAppA2ATask(
+  route: AskAppRoute,
+  message: string,
+  maxWaitMs: number,
+): Promise<AskAppTaskResult> {
+  const { client, metadata } = await createA2AClientForAskApp(route.origin);
+  const task = await client.send(
+    {
+      role: "user",
+      parts: [{ type: "text", text: message }],
+    },
+    {
+      async: true,
+      metadata,
+    },
+  );
+  const finalOrRunning = await waitForA2ATask(client, task, maxWaitMs);
+  return askAppTaskResult(route, finalOrRunning);
+}
+
+async function fetchAskAppA2ATask(
+  route: AskAppRoute,
+  taskId: string,
+): Promise<AskAppTaskResult> {
+  const { client } = await createA2AClientForAskApp(route.origin);
+  const task = await client.getTask(taskId);
+  return askAppTaskResult(route, task);
 }
 
 /**
@@ -549,7 +749,17 @@ async function routeAskOverA2A(
   origin: string,
   id: string,
   message: string,
-): Promise<{ app: string; routedVia: "a2a"; response: string }> {
+  options?: { durable?: boolean; maxWaitMs?: number },
+): Promise<
+  { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
+> {
+  if (options?.durable) {
+    return submitAskAppA2ATask(
+      { app: id, origin: agentNativeA2AEndpoint(origin), routedVia: "a2a" },
+      message,
+      options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
+    );
+  }
   const { callAgent } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
   // The MCP handler runs inside `runWithRequestContext`, so this is the
@@ -568,11 +778,54 @@ async function routeAskOverA2A(
   return { app: id, routedVia: "a2a", response };
 }
 
+async function resolveAskAppStatusRoute(
+  config: MCPConfig,
+  requestedApp: string,
+  requestMeta?: AskAppRequestMeta,
+): Promise<AskAppRoute> {
+  const selfId = currentAppId(config);
+  const normalized = requestedApp.trim().toLowerCase();
+  const selfEndpointUrl = selfA2AEndpointUrl(requestMeta);
+
+  if (!normalized || normalized === selfId) {
+    if (!selfEndpointUrl) {
+      throw new Error(
+        "ask_app_status requires a running app origin for local tasks.",
+      );
+    }
+    return { app: selfId, origin: selfEndpointUrl, routedVia: "local" };
+  }
+
+  const targetApp = await resolveTargetAppOrigin(config, requestedApp);
+  if (targetApp) {
+    return {
+      app: targetApp.id,
+      origin: agentNativeA2AEndpoint(targetApp.origin),
+      routedVia: "a2a",
+    };
+  }
+
+  const orgApps = await fetchOrgApps({ selfId }).catch(() => [] as OrgApp[]);
+  const dirMatch = orgApps.find((a) => a.id === normalized);
+  if (dirMatch) {
+    return {
+      app: dirMatch.id,
+      origin: agentNativeA2AEndpoint(dirMatch.a2aUrl),
+      routedVia: "a2a",
+    };
+  }
+
+  throw new Error(`No reachable ask_app task route for app "${requestedApp}".`);
+}
+
 // ---------------------------------------------------------------------------
 // ask_app
 // ---------------------------------------------------------------------------
 
-function askAppTool(config: MCPConfig): ActionEntry {
+function askAppTool(
+  config: MCPConfig,
+  requestMeta?: AskAppRequestMeta,
+): ActionEntry {
   return {
     tool: tool(
       "Send a natural-language message to an app's AI agent and get its " +
@@ -580,7 +833,9 @@ function askAppTool(config: MCPConfig): ActionEntry {
         "reasoning and full app context. In a single-app project the 'app' " +
         "param is optional (defaults to this app). When 'app' names a " +
         "different workspace app it is routed there over A2A; the result's " +
-        "'routedVia' field reports whether it ran cross-app or locally.",
+        "'routedVia' field reports whether it ran cross-app or locally. " +
+        "On hosted MCP, long tasks may return a durable taskId instead of a " +
+        "final response; call ask_app_status with that taskId until completed.",
       {
         app: {
           type: "string",
@@ -590,6 +845,16 @@ function askAppTool(config: MCPConfig): ActionEntry {
           type: "string",
           description: "The message to send to the app's agent",
         },
+        async: {
+          type: "boolean",
+          description:
+            "When true, start a durable task and return immediately with a taskId.",
+        },
+        maxWaitMs: {
+          type: "number",
+          description:
+            "Maximum time to wait inline before returning a taskId. Hosted MCP clamps this to 25000ms.",
+        },
       },
       ["message"],
     ),
@@ -598,6 +863,10 @@ function askAppTool(config: MCPConfig): ActionEntry {
       if (!message) throw new Error("ask_app requires a 'message'.");
       const requestedApp = String(args.app ?? "").trim();
       const selfId = currentAppId(config);
+      const useDurableA2A = Boolean(requestMeta?.origin);
+      const maxWaitMs = isExplicitAsyncAsk(args.async)
+        ? 0
+        : boundedAskAppWaitMs(args.maxWaitMs);
 
       // Cross-app: the caller named a *different* workspace app. Route the
       // message to THAT app's agent over A2A (its `/_agent-native/a2a`
@@ -606,7 +875,15 @@ function askAppTool(config: MCPConfig): ActionEntry {
       const targetApp = await resolveTargetAppOrigin(config, requestedApp);
       if (targetApp) {
         try {
-          return await routeAskOverA2A(targetApp.origin, targetApp.id, message);
+          return await routeAskOverA2A(
+            targetApp.origin,
+            targetApp.id,
+            message,
+            {
+              durable: useDurableA2A,
+              maxWaitMs,
+            },
+          );
         } catch (err: any) {
           // Be honest: routing was attempted and failed — do NOT fall back to
           // this app's agent and pretend it was the target.
@@ -631,7 +908,15 @@ function askAppTool(config: MCPConfig): ActionEntry {
         );
         if (dirMatch) {
           try {
-            return await routeAskOverA2A(dirMatch.a2aUrl, dirMatch.id, message);
+            return await routeAskOverA2A(
+              dirMatch.a2aUrl,
+              dirMatch.id,
+              message,
+              {
+                durable: useDurableA2A,
+                maxWaitMs,
+              },
+            );
           } catch (err: any) {
             throw new Error(
               `Failed to route ask_app to "${dirMatch.id}" via A2A ` +
@@ -654,19 +939,73 @@ function askAppTool(config: MCPConfig): ActionEntry {
       // workspace), say so honestly instead of claiming we reached it.
       const unresolved =
         !!requestedApp && requestedApp.toLowerCase() !== selfId;
+      const note = unresolved
+        ? `Requested app "${requestedApp}" is not a reachable workspace ` +
+          `app; answered with this app ("${selfId}") instead.`
+        : undefined;
+
+      // Hosted MCP cannot safely keep a JSON request/response open for a full
+      // agent loop: serverless gateways can return an inactivity 504 before
+      // the result body exists. When we know the running app origin, submit the
+      // local ask through the app's durable A2A task path and only wait a
+      // short bounded window for fast completions.
+      const localA2AEndpointUrl = selfA2AEndpointUrl(requestMeta);
+      if (localA2AEndpointUrl) {
+        return submitAskAppA2ATask(
+          {
+            app: selfId,
+            origin: localA2AEndpointUrl,
+            routedVia: "local",
+            ...(note ? { note } : {}),
+          },
+          message,
+          maxWaitMs,
+        );
+      }
+
       const response = await config.askAgent(message);
       return {
         app: selfId,
         routedVia: "local",
-        ...(unresolved
-          ? {
-              note:
-                `Requested app "${requestedApp}" is not a reachable workspace ` +
-                `app; answered with this app ("${selfId}") instead.`,
-            }
-          : {}),
+        ...(note ? { note } : {}),
         response,
       };
+    },
+  };
+}
+
+function askAppStatusTool(
+  config: MCPConfig,
+  requestMeta?: AskAppRequestMeta,
+): ActionEntry {
+  return {
+    tool: tool(
+      "Poll a durable ask_app task and return its current status or final response.",
+      {
+        app: {
+          type: "string",
+          description:
+            "App id returned by ask_app. Optional for same-app local tasks.",
+        },
+        taskId: {
+          type: "string",
+          description: "The durable task id returned by ask_app.",
+        },
+      },
+      ["taskId"],
+    ),
+    readOnly: true,
+    parallelSafe: true,
+    run: async (args: Record<string, any>) => {
+      const taskId = String(args.taskId ?? "").trim();
+      if (!taskId) throw new Error("ask_app_status requires 'taskId'.");
+      const requestedApp = String(args.app ?? "").trim();
+      const route = await resolveAskAppStatusRoute(
+        config,
+        requestedApp,
+        requestMeta,
+      );
+      return fetchAskAppA2ATask(route, taskId);
     },
   };
 }
@@ -828,13 +1167,14 @@ function createWorkspaceAppTool(): ActionEntry {
  */
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
-  requestMeta?: { origin?: string },
+  requestMeta?: AskAppRequestMeta,
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
     open_app: openAppTool(config, requestMeta),
     create_embed_session: createEmbedSessionTool(requestMeta),
-    ask_app: askAppTool(config),
+    ask_app: askAppTool(config, requestMeta),
+    ask_app_status: askAppStatusTool(config, requestMeta),
     create_workspace_app: createWorkspaceAppTool(),
     list_templates: listTemplatesTool(),
   };

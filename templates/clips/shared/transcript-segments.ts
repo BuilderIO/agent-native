@@ -2,6 +2,7 @@ export interface TranscriptSegment {
   startMs: number;
   endMs: number;
   text: string;
+  source?: "mic" | "system";
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -13,6 +14,7 @@ export function parseTranscriptSegments(
   raw: string | null | undefined,
 ): TranscriptSegment[] {
   if (!raw) return [];
+
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -21,6 +23,10 @@ export function parseTranscriptSegments(
         startMs: Number(segment?.startMs),
         endMs: Number(segment?.endMs),
         text: typeof segment?.text === "string" ? segment.text.trim() : "",
+        source:
+          segment?.source === "mic" || segment?.source === "system"
+            ? segment.source
+            : undefined,
       }))
       .filter(
         (segment) =>

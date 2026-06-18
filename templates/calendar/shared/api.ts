@@ -245,6 +245,11 @@ export interface ConferencingConfig {
   url?: string;
 }
 
+export interface BookingHost {
+  email: string;
+  displayName?: string;
+}
+
 export interface Booking {
   id: string;
   name: string;
@@ -274,6 +279,8 @@ export interface BookingLink {
   duration: number;
   /** Additional duration options the booker can choose from */
   durations?: number[];
+  /** Required co-hosts in addition to the booking link owner */
+  hosts?: BookingHost[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
   /** Video conferencing configuration */

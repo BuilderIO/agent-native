@@ -1,7 +1,7 @@
 {
   "name": "Agent Native Content",
   "short_name": "Content",
-  "description": "Notion-like content workspace",
+  "description": "Open-source Obsidian for MDX",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",

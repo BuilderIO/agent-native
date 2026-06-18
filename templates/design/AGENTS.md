@@ -12,12 +12,25 @@ patterns live in `.agents/skills/`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
+- Treat repository import actions as shortcuts, not capability limits. When the
+  exact GitHub endpoint, search query, request body, pagination mode, metadata
+  field, or API version matters, use `provider-api-catalog`,
+  `provider-api-docs`, and `provider-api-request` against the real GitHub API.
+  The provider API resolves auth from the saved `GITHUB_TOKEN` secret and never
+  exposes the token value. For large scans, stage results with `stageAs` and
+  analyze them with `query-staged-dataset`.
 - In dev, call actions with `pnpm action <name>`; in production, call the native
   tool. The action schema is the source of truth for parameters.
 - Call `view-screen` before editing a specific design if the current design or
   selected file is not already clear from context.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
+- For raster image generation, restyling, or editing existing screenshots/photos,
+  use the first-party Assets app via `call-agent` with agent `"assets"` when
+  available instead of claiming Design has no image tools. If the user attached
+  an image, use its hosted chat-attachment URL or call `upload-image` to create
+  one before delegating. If no image/upload provider is configured, say that
+  specific setup is needed and continue any non-image Design work separately.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a

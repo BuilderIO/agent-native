@@ -10,11 +10,16 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
-import { desc } from "drizzle-orm";
+import { and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
+import {
+  isLocalPlanRuntime,
+  resolvePlanAccessContext,
+} from "../server/lib/local-identity.js";
+import { readPlanLocalFolder } from "../server/lib/local-plan-files.js";
 import { loadPlanBundle, summarizePlans } from "../server/plans.js";
+import type { PlanContent } from "../shared/plan-content.js";
 
 export default defineAction({
   description:
@@ -27,9 +32,60 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    const nav = navigation as { planId?: string; view?: string } | null;
+    const nav = navigation as {
+      planId?: string;
+      localPlanSlug?: string;
+      localPlanPath?: string;
+      view?: string;
+    } | null;
 
-    if (nav?.planId) {
+    if (nav?.view === "chat") {
+      screen.productKnowledgeChat = {
+        defaultScope: "merged pull request visual recaps",
+        workflows: [
+          "Use search-pr-recaps first for shipped-last-week, historical API changes, and UI-from-recap questions.",
+          "Use visual-answer for live code questions that need the bridge, GitHub, or explicit code context, then publish the answer as a structured visual plan.",
+          "Use get-plan-blocks or list-plan-components before generating diagrams, wireframes, API specs, or custom registered block components.",
+        ],
+      };
+    }
+
+    if (nav?.localPlanSlug && isLocalPlanRuntime()) {
+      try {
+        const local = await readPlanLocalFolder({
+          slug: nav.localPlanSlug,
+          path: nav.localPlanPath,
+        });
+        screen.visualPlan = {
+          localOnly: true,
+          slug: local.slug,
+          folder: local.folder,
+          repoPath: local.repoPath,
+          plan: {
+            id: `local-${local.slug}`,
+            title: local.content.title ?? local.slug,
+            brief: local.content.brief ?? "Local files preview.",
+            repoPath: local.folder,
+            currentFocus: "local-files editing",
+            content: local.content,
+            markdown: local.mdx["plan.mdx"],
+          },
+          summary: {
+            sectionCounts: countLocalPlanBlocks(local.content.blocks),
+            commentCount: 0,
+            openCommentCount: 0,
+          },
+          contentBlockCount: local.content.blocks.length,
+          hasCanvas: Boolean(local.content.canvas),
+          hasPrototype: Boolean(local.content.prototype),
+          files: Object.keys(local.mdx),
+          agentWorkflow:
+            "This is a DB-free local MDX folder. Read it with get-local-plan-folder and edit it with update-local-plan-folder contentPatches; pass localPlanPath/path when present so writes go back to this repo folder without touching SQL.",
+        };
+      } catch {
+        screen.visualPlanError = `Could not load local plan ${nav.localPlanSlug}`;
+      }
+    } else if (nav?.planId) {
       try {
         const bundle = await loadPlanBundle(nav.planId);
         screen.visualPlan = {
@@ -64,14 +120,14 @@ export default defineAction({
             (comment) => comment.status === "open",
           ),
           agentWorkflow:
-            "For fast visual/prototype plan iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
+            "For fast visual plan prototype iteration, call get-visual-plan with this plan ID to read structured content, exported HTML, comments, and sections. Prefer update-visual-plan contentPatches for targeted edits by blockId, prototype screenId, or canvas id; use full content only for broad restructuring, and html only for legacy imported artifacts. For rollback, list-plan-versions and get-plan-version inspect saved snapshots; restore-plan-version only when the user asks to restore.",
         };
       } catch {
         screen.visualPlanError = `Could not load visual plan ${nav.planId}`;
       }
     }
 
-    if (!nav?.planId || nav.view === "plans") {
+    if (!nav?.planId || nav.view === "plans" || nav.view === "chat") {
       try {
         // Only the summary columns — never the large html/markdown/content
         // blobs — so the agent's screen context stays lean.
@@ -91,13 +147,19 @@ export default defineAction({
             createdAt: schema.plans.createdAt,
             updatedAt: schema.plans.updatedAt,
             approvedAt: schema.plans.approvedAt,
+            deletedAt: schema.plans.deletedAt,
+            deletedBy: schema.plans.deletedBy,
+            ownerEmail: schema.plans.ownerEmail,
           })
           .from(schema.plans)
           .where(
-            accessFilter(
-              schema.plans,
-              schema.planShares,
-              resolvePlanAccessContext(currentAccess()),
+            and(
+              accessFilter(
+                schema.plans,
+                schema.planShares,
+                resolvePlanAccessContext(currentAccess()),
+              ),
+              isNull(schema.plans.deletedAt),
             ),
           )
           .orderBy(desc(schema.plans.updatedAt))
@@ -114,3 +176,19 @@ export default defineAction({
     return screen;
   },
 });
+
+function countLocalPlanBlocks(blocks: PlanContent["blocks"]) {
+  const counts: Record<string, number> = {};
+  const visitBlocks = (items: PlanContent["blocks"]) => {
+    for (const block of items) {
+      counts[block.type] = (counts[block.type] ?? 0) + 1;
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
+      } else if (block.type === "columns") {
+        for (const column of block.data.columns) visitBlocks(column.blocks);
+      }
+    }
+  };
+  visitBlocks(blocks);
+  return counts;
+}

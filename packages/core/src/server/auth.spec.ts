@@ -79,6 +79,48 @@ describe("server/auth", () => {
     });
   });
 
+  describe("resolveSignupTrackingIdentity", () => {
+    it("uses explicit app and template environment values", async () => {
+      vi.stubEnv("AGENT_NATIVE_APP", "agent-native-mail");
+      vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+      const { resolveSignupTrackingIdentity, resolveSignupTrackingProperties } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "agent-native-mail",
+        template: "mail",
+      });
+      expect(resolveSignupTrackingProperties()).toEqual({
+        app: "agent-native-mail",
+        template: "mail",
+        agent_native_app: "agent-native-mail",
+        agent_native_template: "mail",
+      });
+    });
+
+    it("infers first-party template identity from agent-native production URLs", async () => {
+      vi.stubEnv("APP_URL", "https://content.agent-native.com");
+      vi.stubEnv("npm_package_name", "@agent-native/framework");
+      const { resolveSignupTrackingIdentity } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "content",
+        template: "content",
+      });
+    });
+
+    it("keeps custom app ids without inventing a built-in template", async () => {
+      vi.stubEnv("npm_package_name", "customer-crm");
+      const { resolveSignupTrackingIdentity } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveSignupTrackingIdentity()).toEqual({
+        app: "customer-crm",
+      });
+    });
+  });
+
   describe("autoMountAuth", () => {
     it("throws when app is null/undefined in production mode", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -1845,6 +1887,105 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it("returns a shared session when AUTH_DISABLED=1", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent();
+
+      expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+    });
+
+    it("returns a shared session when AUTH_DISABLED=true", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "true");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent();
+
+      expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+    });
+
+    it("prefers custom getSession over AUTH_DISABLED", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const authModule = await import("./auth.js");
+      const app = createMockApp();
+      await authModule.autoMountAuth(app, {
+        getSession: async () => ({ email: "custom@auth.com" }),
+      });
+
+      const event = createMockEvent();
+      expect(await authModule.getSession(event)).toEqual({
+        email: "custom@auth.com",
+      });
+    });
+
+    it("falls back to AUTH_DISABLED when custom getSession returns null", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const authModule = await import("./auth.js");
+      const app = createMockApp();
+      await authModule.autoMountAuth(app, {
+        getSession: async () => null,
+      });
+
+      const event = createMockEvent();
+      expect(await authModule.getSession(event)).toEqual({
+        email: "dev@local.test",
+      });
+    });
+
     it("resolves bearer legacy session tokens for desktop clients", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

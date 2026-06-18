@@ -386,6 +386,101 @@ describe("ask_app — honest routing metadata", () => {
     expect(result.note).toBeUndefined();
   });
 
+  it("submits hosted same-app asks as durable A2A tasks", async () => {
+    const askAgent = vi.fn(async () => "local-answer");
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const sendSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue({
+        id: "task-1",
+        status: {
+          state: "working",
+          timestamp: "2026-06-15T00:00:00.000Z",
+        },
+        history: [],
+        artifacts: [],
+      } as any);
+
+    const tools = getBuiltinCrossAppTools(baseConfig({ askAgent }), {
+      origin: "https://mail.example.com",
+    });
+    const result: any = await tools.ask_app.run({
+      app: "mail",
+      message: "hello",
+      async: true,
+    });
+
+    expect(askAgent).not.toHaveBeenCalled();
+    expect(sendSpy).toHaveBeenCalledWith(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      {
+        async: true,
+        metadata: { userEmail: "caller@acme.com", orgDomain: "acme.com" },
+      },
+    );
+    expect(result).toMatchObject({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "working",
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+  });
+
+  it("polls hosted ask_app tasks by task id", async () => {
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockResolvedValue({
+        id: "task-1",
+        status: {
+          state: "completed",
+          timestamp: "2026-06-15T00:00:01.000Z",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "local answer" }],
+          },
+        },
+        history: [],
+        artifacts: [],
+      } as any);
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+    const result: any = await tools.ask_app_status.run({
+      app: "mail",
+      taskId: "task-1",
+    });
+
+    expect(getTaskSpy).toHaveBeenCalledWith("task-1");
+    expect(result).toMatchObject({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "completed",
+      response: "local answer",
+    });
+  });
+
   it("does not falsely claim delegation when the target is unreachable", async () => {
     const tools = getBuiltinCrossAppTools(
       baseConfig({

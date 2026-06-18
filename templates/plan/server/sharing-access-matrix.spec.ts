@@ -97,6 +97,7 @@ async function resetTables() {
     DELETE FROM plan_sections;
     DELETE FROM plan_shares;
     DELETE FROM plans;
+    DELETE FROM organizations;
   `);
 }
 
@@ -125,6 +126,13 @@ async function createPlanAs(
     }),
   );
   return result.planId as string;
+}
+
+async function seedOrg(id: string, name: string) {
+  await client.execute({
+    sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
+    args: [id, name, OWNER, Date.now()],
+  });
 }
 
 async function setVisibility(
@@ -200,6 +208,13 @@ beforeAll(async () => {
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
       source_url TEXT,
+      source_type TEXT,
+      source_repo TEXT,
+      source_pr_number INTEGER,
+      source_pr_state TEXT,
+      source_pr_merged_at TEXT,
+      recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -233,6 +248,8 @@ beforeAll(async () => {
       resolved_by TEXT,
       resolved_at TEXT,
       consumed_at TEXT,
+      deleted_at TEXT,
+      deleted_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -272,6 +289,14 @@ beforeAll(async () => {
       data TEXT NOT NULL,
       byte_size INTEGER NOT NULL,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      allowed_domain TEXT,
+      a2a_secret TEXT
     );
   `);
 
@@ -444,7 +469,8 @@ describe("non-owner on a private plan (deny)", () => {
 // ===========================================================================
 describe("private plan access status and requests", () => {
   it("reveals a real private plan URL without revealing the plan content", async () => {
-    const planId = await createPlanAs(OWNER, undefined, {
+    await seedOrg(ORG, "Acme Planning");
+    const planId = await createPlanAs(OWNER, ORG, {
       brief: "PRIVATE-PLAN-SECRET",
     });
 
@@ -457,9 +483,12 @@ describe("private plan access status and requests", () => {
       signedIn: true,
       viewerEmail: OTHER,
       role: null,
+      orgId: null,
+      orgName: null,
       visibility: "private",
     });
     expect(JSON.stringify(status)).not.toContain("PRIVATE-PLAN-SECRET");
+    expect(JSON.stringify(status)).not.toContain("Acme Planning");
 
     await expect(
       asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
@@ -479,6 +508,30 @@ describe("private plan access status and requests", () => {
       role: null,
       visibility: null,
     });
+  });
+
+  it("includes the org name for inaccessible org-visible plans", async () => {
+    await seedOrg(ORG, "Acme Planning");
+    const planId = await createPlanAs(OWNER, ORG, {
+      brief: "ORG-ONLY-PLAN-SECRET",
+    });
+    await setVisibility(OWNER, ORG, planId, "org");
+
+    const status = await asUser({ userEmail: OTHER, orgId: OTHER_ORG }, () =>
+      getPlanAccessStatus.run({ planId }),
+    );
+
+    expect(status).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      orgId: ORG,
+      orgName: "Acme Planning",
+      visibility: "org",
+    });
+    expect(JSON.stringify(status)).not.toContain("ORG-ONLY-PLAN-SECRET");
   });
 
   it("records a signed-in request for access without granting access", async () => {

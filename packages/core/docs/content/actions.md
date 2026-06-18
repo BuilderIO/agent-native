@@ -16,6 +16,8 @@ Actions are the single source of truth for anything your app does. Define an act
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
 One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
+If you are deciding whether to expose an operation headlessly, in chat, in an
+embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
 ## Defining an action {#defining}
 
@@ -48,6 +50,35 @@ That's it. The framework auto-discovers every file in `actions/` and mounts them
 - **ArkType** — if you like the syntax.
 
 The schema is converted to JSON Schema for the Claude API tool definition, _and_ used at runtime to validate inputs before `run()` fires. Invalid inputs never reach your handler.
+
+### Validating the return value {#output-schema}
+
+`schema` validates _inputs_. To also validate what an action **returns**, pass an `outputSchema` (any Standard Schema-compatible schema — Zod, Valibot, ArkType, same surface as `schema`). The framework validates the result _after_ `run()` resolves, composing with input validation: input validated before `run`, output validated after.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` controls what happens on a mismatch:
+
+| Strategy     | Behavior on mismatch                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
+| `"strict"`   | Throw a clear error so a buggy action surfaces loudly.                                             |
+| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
+
+On success, the **validated** value is returned, so any coercion or defaults defined on the `outputSchema` take effect (mirroring the input path). When no `outputSchema` is supplied, behavior is byte-for-byte unchanged — there is no wrapping. This is borrowed from Mastra/Flue structured-output and kept dependency-free on the action layer.
 
 ### HTTP config {#http}
 
@@ -221,6 +252,26 @@ export default defineAction({
 
 For list and read actions, use `accessFilter` to scope the query to the current user and org. For actions that update or delete a specific row, use `assertAccess` to confirm the caller is allowed before writing. See [Security](/docs/security#access-guards) and [Sharing](/docs/sharing) for the full helper API.
 
+### Human-in-the-loop approval {#needs-approval}
+
+A handful of actions are too consequential to let the agent run autonomously — sending an email, charging a card, deleting an account. For those, set `needsApproval` to pause the loop and require a human to approve the specific call before `run()` executes:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // pause; a human must approve this specific send
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+`needsApproval` accepts a boolean or a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold). The predicate **fails closed**: a throw is treated as "approval required". When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and stops the turn — the side effect never happens — and the action runs only once a human approves via the chat UI's Approve affordance.
+
+> [!WARNING]
+> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the full flow.
+
 ## Calling it from the UI {#ui}
 
 Two hooks, both in `@agent-native/core/client`. Types are inferred from your `defineAction` schemas — no manual type declarations.
@@ -256,6 +307,60 @@ const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
 The query is cached under `["action", "get-lead", { leadId }]` and auto-invalidated on any mutating action that completes.
 
+## Rendering native chat UI {#native-chat-ui}
+
+Actions can return structured widget data that the in-app chat renders
+natively. This is the first-party chat path for reusable tables, charts, setup
+summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
+external MCP hosts.
+
+```ts
+import {
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  dataInsightsWidgetResultSchema,
+  defineAction,
+} from "@agent-native/core";
+import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER },
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+      table: {
+        columns: [
+          { key: "day", label: "Day" },
+          { key: "responses", label: "Responses", align: "right" },
+        ],
+        rows: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+The built-in discriminants are `"data-table"`, `"data-chart"`, and
+`"data-insights"`. Their server-safe builders and schemas are exported from
+`@agent-native/core/data-widgets`, and native renderer ids are exported from
+`@agent-native/core`. See [Native Chat UI](/docs/native-chat-ui) for the full
+result contract and BYO runtime guidance, or [Agent Surfaces](/docs/agent-surfaces)
+for how this same action can stay headless, render in chat, or grow into a full
+screen.
+
 ## Calling it from the CLI {#cli}
 
 Every action is runnable via `pnpm action`:
@@ -272,7 +377,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/code developer clients can see the full connected action surface. Chat-style app hosts, including OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers, get a compact catalog containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers); action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — code/stdio developer clients, the local CLI proxy, and chat-style app hosts (OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers) alike — containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers) plus the template-declared app actions; action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `tool-search` is always present (call it with no query for the full tool menu, or with a query for ranked matches), so any tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`). `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
 
 For UI-capable MCP hosts, an action can also declare an optional MCP Apps resource via the `mcpApp` field (and a matching `link`) so capable hosts render the result inline. The pattern mirrors the focused link we already return for external agents: the action exposes the operation, `link` points at the route with the right URL or deep-link params, and the embed helper uses that same target as the inline app. When an action's `link` and `mcpApp` should point at the same route, use `embedRoute()` to build both from one pure path builder.
 
@@ -390,6 +495,7 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## What's next
 
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — the `needsApproval` gate in depth
 - [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` in React
 - [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth
 - [**A2A Protocol**](/docs/a2a-protocol) — how other agents discover and call your actions

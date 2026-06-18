@@ -59,7 +59,13 @@ For provider-backed analysis/query/reporting integrations, do not turn every
 provider endpoint or filter into a rigid action. Prefer the shared
 `provider-api-catalog` / `provider-api-docs` / `provider-api-request` pattern
 from `@agent-native/core/provider-api`, then add narrow convenience actions only
-for workflows that truly deserve a first-class shortcut.
+for workflows that truly deserve a first-class shortcut. Treat this as a
+capability requirement, not a nice-to-have: convenience actions must not become
+the ceiling of what the agent can ask the provider to do. Pair broad provider
+access with staging or sandboxed code execution when responses may be too large
+for chat context. If provider credentials live on resource/share rows, add the
+scoped resolver first so broad access preserves the same ownership boundary as
+the app UI.
 
 If the feature needs credentials, design the credential path in the same change.
 Never hardcode API keys, tokens, webhook URLs, signing secrets, private

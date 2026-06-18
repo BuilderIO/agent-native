@@ -53,14 +53,14 @@ they already have.
 For UI-first work where the plan leads with product screens, use `/visual-plan`
 and call `create-ui-plan`.
 
-For prototype-first work — when the user needs to click through states or review
-the feel of an interaction before implementation — use `/visual-plan` and call
-`create-prototype-plan`. Call `convert-visual-plan-to-prototype` when an
-existing visual plan has HTML canvas wireframes that should become a live
-prototype. Prototype plans keep static mocks in the document and use the top
-viewer for clickable review, comments, rough/clean mode, dark/light mode, and
-prototype popout. (`create-prototype-plan` and `convert-visual-plan-to-prototype`
-are MCP tools reached from `/visual-plan`, not separate slash commands.)
+For prototype-first work — when the user needs to operate the behavior before
+implementation — use `/visual-plan` and call `create-prototype-plan`. Prototype
+plans must be functional review surfaces with local state and realistic controls;
+do not pass off static screen-to-screen navigation as a prototype. Keep static
+mocks in the document and use the top viewer for functional review, comments,
+rough/clean mode, dark/light mode, and prototype popout.
+(`create-prototype-plan` is an MCP tool reached from `/visual-plan`, not a
+separate slash command.)
 
 For full-fidelity branded UI design before implementation, use `/visual-plan` and
 call `create-plan-design`. Research the real app shell, `design.md` if present,
@@ -124,6 +124,23 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 
 - Use `export-visual-plan` or `read-visual-plan-source` when a user or external
   agent wants plan files to check into a repo.
+- Use `get-local-plan-folder` to read a DB-free local MDX folder from
+  `PLAN_LOCAL_DIR` or from a repo-relative `path`, and
+  `update-local-plan-folder` to apply structured `contentPatches` back to that
+  same folder. Pass `path` whenever the user is viewing a
+  `/local-plans/:slug?path=...` URL. These local-folder actions do not read or
+  write SQL.
+- Use `update-local-plan-comments` to add, reply to, resolve, or delete review
+  comments on a local plan. They persist to a `comments.json` sidecar beside
+  `plan.mdx` (committed with the plan, no SQL), are always addressed to the
+  agent (`resolutionTarget: "agent"`), and are surfaced by `get-local-plan-folder`.
+  Local comments are a one-way handoff to the coding agent — delivery is the
+  composer's "Send to agent" copy-to-clipboard, not notifications or sharing.
+  In bridge mode the read-only bridge serves no comments, so the colocated
+  folder's `comments.json` is merged in for display and persistence.
+- Use `promote-local-plan-folder` when a temporary local plan should be saved
+  into the repo. Its default target is `apps.plan.roots[0].path/<slug>` from
+  `agent-native.json`, falling back to `plans/<slug>`.
 - Use `import-visual-plan-source` to create or replace a plan from an MDX folder.
 - Use `patch-visual-plan-source` for small source edits by stable semantic IDs.
   It patches the MDX AST, runs formatting, parses back to normalized JSON, and
@@ -158,6 +175,11 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Prose in `rich-text` blocks is edited inline with the shared
   `RichMarkdownEditor`, autosaved through `update-visual-plan` with
   `contentPatches: [{ op: "update-rich-text", blockId, markdown }]`.
+- Local `/local-plans/:slug` folders opened from `PLAN_LOCAL_DIR` or a
+  repo-relative `?path=...` use the same Notion-style browser editor, but
+  autosave through `update-local-plan-folder` so changes are written to
+  `plan.mdx`, `canvas.mdx`, and `prototype.mdx` without touching the Plan
+  database.
 - Review annotation mode makes prose temporarily read-only so clicks can pin
   feedback. Leaving review mode restores inline prose editing.
 - Canvas, artboard, wireframe, diagram, and custom visual edits remain driven by
@@ -175,6 +197,19 @@ elementId, styles }]`. Elements must have `data-design-id` or
   existing comment thread. Text feedback should anchor to the nearest prose
   block, and visual/canvas feedback should include target coordinates plus
   concise surrounding context.
+- Use `delete-plan-comment` only when the user explicitly asks to remove a
+  comment, undo an accidental comment, or clean up an obsolete thread. Deleting
+  is a soft delete: normal comment views hide the comment while the database row
+  remains for audit/debugging. Deleting a thread root also deletes its replies.
+  When feedback has merely been handled, prefer `resolve-plan-comment` and
+  `consume-plan-feedback` so review history remains visible.
+- Use `delete-visual-plan` only when the owner explicitly asks to delete or
+  restore their hosted plan/recap data. `mode=soft` moves the resource to the
+  Deleted tab and makes normal reads/direct links stop working; `mode=restore`
+  undeletes it; `mode=hard` permanently removes the plan row plus plan-scoped
+  comments, sections, events, versions, shares, reports, SQL asset records, and
+  collab snapshots. Hard delete requires the exact confirmation phrase
+  `DELETE <planId>`.
 - `get-plan-feedback` returns flat comments, grouped threads, anchor summaries,
   detailed anchor lines, and recent review events that describe the edit/comment
   delta. Use those fields before changing code or updating the plan, especially

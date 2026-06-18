@@ -25,6 +25,7 @@ import {
 import * as planSchema from "../server/db/schema.js";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 
 let client: Client;
 let db: LibSQLDatabase<typeof planSchema>;
@@ -43,6 +44,14 @@ vi.mock("../server/lib/local-plan-files.js", () => ({
   localPlansDir: () => "/tmp/plans-test",
   localPlanFolder: (id: string) => `/tmp/plans-test/${id}`,
 }));
+vi.mock("@agent-native/core/org", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/org")>();
+  return {
+    ...actual,
+    resolveOrgIdForEmail: vi.fn(async () => null),
+  };
+});
 
 type AnyAction = { run: (args: any) => Promise<any> };
 let createVisualRecap: AnyAction;
@@ -119,14 +128,19 @@ beforeAll(async () => {
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT,
+      source_url TEXT, source_type TEXT, source_repo TEXT, source_pr_number INTEGER,
+      source_pr_state TEXT, source_pr_merged_at TEXT, recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE UNIQUE INDEX plans_recap_idempotency_key_unique_idx
+      ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
+      WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL;
   `);
 
   registerShareableResource({
@@ -149,6 +163,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  vi.mocked(resolveOrgIdForEmail).mockResolvedValue(null);
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
@@ -168,6 +183,73 @@ describe("create-visual-recap: sourceUrl", () => {
     expect(result.planId).toBeTruthy();
     const row = await rawPlan(result.planId as string);
     expect(row?.sourceUrl).toBe(PR_URL);
+  });
+
+  it("reuses a recap with the same idempotency key", async () => {
+    const idempotencyKey = "visual-recap-test-key";
+    const first = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+    const planId = first.planId as string;
+
+    const second = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: {
+          "plan.mdx":
+            "---\ntitle: Retried Recap\nbrief: Reused by idempotency.\n---\n\n# Retried\n",
+        },
+        visibility: "org",
+        sourceUrl: PR_URL,
+        idempotencyKey,
+      }),
+    );
+
+    expect(second.planId).toBe(planId);
+    const rows = await db
+      .select({
+        id: planSchema.plans.id,
+        title: planSchema.plans.title,
+        recapIdempotencyKey: planSchema.plans.recapIdempotencyKey,
+      })
+      .from(planSchema.plans);
+    expect(rows).toEqual([
+      {
+        id: planId,
+        title: "Retried Recap",
+        recapIdempotencyKey: idempotencyKey,
+      },
+    ]);
+
+    await expect(
+      client.execute({
+        sql: `
+          INSERT INTO plans (
+            id, title, brief, kind, status, source, created_at, updated_at,
+            owner_email, org_id, visibility, recap_idempotency_key
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          "duplicate-recap",
+          "Duplicate Recap",
+          "Duplicate key should be rejected.",
+          "recap",
+          "review",
+          "imported",
+          new Date().toISOString(),
+          new Date().toISOString(),
+          OWNER,
+          ORG,
+          "private",
+          idempotencyKey,
+        ],
+      }),
+    ).rejects.toThrow();
   });
 
   it("leaves sourceUrl null when not provided on create", async () => {
@@ -204,6 +286,40 @@ describe("create-visual-recap: sourceUrl", () => {
     const after = await rawPlan(planId);
     expect(after?.visibility).toBe("org");
     expect(after?.orgId).toBe(ORG);
+  });
+
+  it("uses the owner's active org when an org-visible recap request has no org context", async () => {
+    vi.mocked(resolveOrgIdForEmail).mockResolvedValueOnce(ORG);
+
+    const result = await asOwnerWithoutOrg(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+      }),
+    );
+
+    expect(resolveOrgIdForEmail).toHaveBeenCalledWith(OWNER);
+    const row = await rawPlan(result.planId as string);
+    expect(row?.visibility).toBe("org");
+    expect(row?.orgId).toBe(ORG);
+  });
+
+  it("rejects org-visible recap requests when no org can be resolved", async () => {
+    await expect(
+      asOwnerWithoutOrg(() =>
+        createVisualRecap.run({
+          mdx: MINIMAL_MDX,
+          visibility: "org",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    const rows = await db
+      .select({ id: planSchema.plans.id })
+      .from(planSchema.plans);
+    expect(rows).toHaveLength(0);
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {
@@ -253,14 +369,21 @@ describe("create-visual-recap: sourceUrl", () => {
   });
 
   it("rejects nested recap wireframes that would render as empty frames", async () => {
-    await expect(
-      asOwner(() =>
-        createVisualRecap.run({
-          mdx: EMPTY_WIREFRAME_RECAP_MDX,
-          visibility: "org",
-        }),
-      ),
-    ).rejects.toThrow(/empty wireframes[\s\S]*empty-before/i);
+    const error = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: EMPTY_WIREFRAME_RECAP_MDX,
+        visibility: "org",
+      }),
+    ).then(
+      () => null,
+      (err) => err,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toMatch(/empty wireframes[\s\S]*empty-before/i);
+    // Malformed source is a CLIENT error: it must surface as a 422 (so the
+    // action route echoes the real message and the recap publisher does not
+    // retry a deterministic authoring error), NOT a generic 500.
+    expect(error.statusCode).toBe(422);
 
     // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.
     const rows = await db

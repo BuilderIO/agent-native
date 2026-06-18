@@ -104,24 +104,61 @@ Do not build an umbrella REST API to make actions "easier" to call. Actions are 
 
 For provider integrations used in ad hoc analysis, querying, reporting, or
 cross-source research, do not hardcode every provider endpoint as a separate
-rigid action. Expose the shared provider API action trio instead:
+rigid action and do not encode one lookback window, filter shape, or pagination
+strategy as the only path the agent can take. Expose the shared provider API
+action trio instead:
 
 - `provider-api-catalog`: lists provider base URLs, auth style, credential keys,
   docs/spec URLs, placeholders, and examples without exposing secrets.
-- `provider-api-docs`: fetches registered provider docs/spec URLs when the
-  exact endpoint, filter operator, payload shape, or pagination contract is
-  uncertain.
+- `provider-api-docs`: fetches public provider docs/spec/changelog URLs when
+  the exact endpoint, filter operator, payload shape, or pagination contract is
+  uncertain. Registered docs URLs are curated starting points. Use
+  `responseMode: "markdown"` for clean readable docs, or
+  `responseMode: "matches"` with `search: { query | terms | regex }` for
+  compact snippets instead of flooding context with raw HTML.
 - `provider-api-request`: makes a constrained authenticated HTTP request to the
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
 
 Use `@agent-native/core/provider-api` as the shared substrate. A template should
 only add a thin credential adapter when it has app-specific credential lookup
-rules. Keep `provider-api-request` `http: false` unless you have a separate UI
-permission model for arbitrary provider writes. Specific actions such as
-`hubspot-deals`, `search-emails`, or `sync-source` are convenience shortcuts,
-not capability limits; agents should fall back to the provider API trio when a
-question requires an endpoint or filter that the shortcut does not model.
+rules. If the app stores a built-in provider's OAuth grant under a narrower
+local provider id, use the runtime's `oauthProviderOverrides` instead of
+duplicating the provider config. If credentials are stored on shareable/resource
+rows rather than in the shared credential or OAuth-token stores, build a resolver
+that enforces those access checks before exposing raw provider requests. Keep
+`provider-api-request` `http: false` unless you have a separate UI permission
+model for arbitrary provider writes. Specific actions such as `search-records`,
+`search-emails`, or `sync-source` are convenience shortcuts, not capability
+limits; agents should fall back to the provider API trio when a question
+requires an endpoint or filter that the shortcut does not model.
+
+This is a framework tenet. The safety boundary should be provider host
+allow-listing, credential scoping, auth injection, private-network blocking,
+secret redaction, and user/org access checks, not an artificially small set of
+hand-authored read actions. If the upstream provider API supports a capability,
+the agent should normally be able to reach it through `provider-api-request`
+with the user's configured credentials. For large responses, expose staging
+(`stageAs`, `itemsPath`, pagination, and `query-staged-dataset`) or sandboxed
+code execution so the agent can reduce data without flooding context.
+
+For broad provider questions, cross-source joins, corpus-wide mention/search
+work, classification, or any answer where absence matters, design the action
+surface for full coverage instead of convenience-only samples. The agent should
+be able to fetch every relevant page or an explicitly bounded cohort, stage or
+save the raw provider response outside chat, and then use
+`query-staged-dataset`, `run-code`, or provider-side search to count, join,
+grep, classify, and aggregate. Tool descriptions and AGENTS.md guidance should
+teach agents to report source, filters, time window, row/record counts,
+pagination status, truncation, failed pages, and uncovered gaps. They must not
+turn default limits, sampled rows, truncated excerpts, or aborted calls into a
+confident "none found", "all records", or exhaustive conclusion.
+
+For public web pages and docs, prefer the token-efficient path: `web-search`
+to find likely URLs, `web-request` or `provider-api-docs` with clean
+`responseMode` output to read a page, and `run-code` with `webRead()` /
+`webFetch()` when you need to grep, aggregate, or compare many pages before
+returning a small result.
 
 ### The `http` Option
 
@@ -166,6 +203,48 @@ run: async (args) => {
   return JSON.stringify(events, null, 2);
 }
 ```
+
+### Validating Return Values (`outputSchema`)
+
+`schema` validates inputs; `outputSchema` validates what the action **returns**. Pass any Standard Schema-compatible schema (Zod, Valibot, ArkType) and the framework validates the result _after_ `run()` resolves — input validated before `run`, output after.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ summary: z.string(), messageCount: z.number() }),
+  outputErrorStrategy: "warn", // default; "strict" | "fallback"
+  // outputFallback: { summary: "", messageCount: 0 }, // used only by "fallback"
+  run: async ({ threadId }) => {
+    /* ... */
+  },
+});
+```
+
+- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking.
+- `"strict"` — throw a clear error so a buggy action surfaces loudly.
+- `"fallback"` — return `outputFallback` in place of the invalid result.
+
+On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
+
+### Human-in-the-Loop Approval (`needsApproval`)
+
+For high-consequence, outward-facing, hard-to-undo actions (sending an email, charging a card, deleting an account), set `needsApproval` so the agent **cannot** run the action without a human approving the specific call:
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // boolean, or (args, ctx) => boolean | Promise<boolean>
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. A predicate gates conditionally (e.g. only external recipients) and **fails closed**: a throw is treated as "approval required". The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's `approvalKey`, and only then does the action run.
+
+**Keep approvals rare** — the default is off and almost every action should leave it off. The canonical example is Mail's `send-email` (`needsApproval: true`). See the `security` skill and the Human Approval doc.
 
 ## Frontend Hooks
 

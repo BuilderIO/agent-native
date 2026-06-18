@@ -3,6 +3,9 @@ import { z } from "zod";
 import { getAllTopBlogKeywords } from "../server/lib/dataforseo";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Get top ranked blog keywords across all blog pages, sorted by ETV.",
   schema: z.object({

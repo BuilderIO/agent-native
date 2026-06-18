@@ -234,11 +234,16 @@ export function useNavigationState() {
       selectedId: searchParams.get("id"),
     }),
     getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
   });
 }
 ```
 
 Keep shareable filters in URL query params. The framework exposes them to the agent as `<current-url>` and the built-in agent can change them with `set-search-params`; `navigation` should hold semantic IDs and aliases, not a second copy of the full query string.
+
+For app navigation, prefer one `navigate` command that includes a same-origin
+`path` when the URL is known. Do not also write `__set_url__` for the same move;
+that key is reserved for the framework URL tools and URL-only filter changes.
 
 ```ts
 // actions/navigate.ts
@@ -251,6 +256,7 @@ export default defineAction({
   schema: z.object({
     view: z.enum(["home", "project"]),
     projectId: z.string().optional(),
+    path: z.string().optional(),
   }),
   run: async (args) => {
     await writeAppState("navigate", args);

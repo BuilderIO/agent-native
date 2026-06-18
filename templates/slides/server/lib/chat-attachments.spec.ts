@@ -51,16 +51,49 @@ describe("prepareSlidesChatAttachments", () => {
     expect(result?.message).toContain("PDF/PPTX/DOCX/FIG/image");
   });
 
-  it("keeps unsupported attachments out of the slides upload context", async () => {
+  it("saves SVG attachments from chat as slide reference uploads", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "data/uploads/user/vector.svg",
+      originalName: "vector.svg",
+      filename: "stored.svg",
+      type: "image/svg+xml",
+      size: 6,
+    });
+
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",
-      message: "use this file",
+      message: "use this logo",
       attachments: [
         {
           type: "image",
           name: "vector.svg",
           contentType: "image/svg+xml",
           data: "data:image/svg+xml;base64,PHN2Zy8+",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledWith({
+      email: "adam@builder.io",
+      originalName: "vector.svg",
+      data: Buffer.from("<svg/>"),
+      type: "image/svg+xml",
+    });
+    expect(result?.message).toContain("vector.svg");
+    expect(result?.message).toContain("data/uploads/user/vector.svg");
+  });
+
+  it("keeps unsupported attachments out of the slides upload context", async () => {
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "use this file",
+      attachments: [
+        {
+          type: "file",
+          name: "clip.mov",
+          contentType: "video/quicktime",
+          data: "data:video/quicktime;base64,AAAA",
         },
       ],
     });

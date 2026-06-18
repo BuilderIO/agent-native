@@ -11,6 +11,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import { getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../server/db/index.js";
+import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -243,6 +244,24 @@ async function listLocalBookingEvents(
   });
 }
 
+function shouldShowLocalBookingEvent({
+  event,
+  googleEventIds,
+  googleReadAuthoritative,
+}: {
+  event: CalendarEvent;
+  googleEventIds: Set<string>;
+  googleReadAuthoritative: boolean;
+}): boolean {
+  if (!event.googleEventId) return true;
+  if (googleEventIds.has(event.googleEventId)) return false;
+
+  // A linked booking's Google event is the visible calendar source of truth.
+  // Keep the local fallback only when Google did not provide an authoritative
+  // answer, such as an auth or fetch error.
+  return !googleReadAuthoritative;
+}
+
 export async function listCalendarEvents(
   args: ListCalendarEventsArgs = {},
 ): Promise<CalendarEventsResult> {
@@ -304,34 +323,26 @@ export async function listCalendarEvents(
   );
 
   const googleEventIds = new Set(
-    googleEvents.map((event) => event.googleEventId).filter(Boolean),
+    googleEvents
+      .map((event) => event.googleEventId)
+      .filter((id): id is string => Boolean(id)),
   );
+  const googleReadAuthoritative = connected && errors.length === 0;
   const bookingEvents = (
     await listLocalBookingEvents(range.from, range.to)
-  ).filter(
-    (event) => !event.googleEventId || !googleEventIds.has(event.googleEventId),
+  ).filter((event) =>
+    shouldShowLocalBookingEvent({
+      event,
+      googleEventIds,
+      googleReadAuthoritative,
+    }),
   );
 
   let events = [...googleEvents, ...icalEvents, ...bookingEvents];
   if (args.query) {
-    const query = args.query.toLowerCase();
-    events = events.filter((event) => {
-      const haystack = [
-        event.title,
-        event.description,
-        event.location,
-        event.organizer?.email,
-        event.organizer?.displayName,
-        ...(event.attendees ?? []).flatMap((attendee) => [
-          attendee.email,
-          attendee.displayName,
-        ]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
+    events = events.filter((event) =>
+      calendarEventMatchesQuery(event, args.query!),
+    );
   }
   const fromDate = new Date(range.from);
   events = events.filter((e) => new Date(e.end) >= fromDate);

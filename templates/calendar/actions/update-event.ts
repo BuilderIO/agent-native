@@ -23,6 +23,59 @@ import {
   visibilityInput,
 } from "./event-action-helpers.js";
 
+const attendeeInput = z.object({
+  email: z.string(),
+  displayName: z.string().optional(),
+});
+
+const attendeesInput = z.union([z.array(attendeeInput), z.string()]);
+
+function normalizeAttendees(
+  input: z.infer<typeof attendeesInput> | undefined,
+): CalendarEvent["attendees"] | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input === "string") {
+    const emails = input
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes("@"));
+    return emails.map((email) => ({ email }));
+  }
+  return input.filter((a) => a.email && a.email.includes("@"));
+}
+
+function mergeAttendees(
+  existing: CalendarEvent["attendees"] | undefined,
+  additions: CalendarEvent["attendees"] | undefined,
+): CalendarEvent["attendees"] | undefined {
+  if (!additions || additions.length === 0) return existing;
+  const merged = new Map<
+    string,
+    NonNullable<CalendarEvent["attendees"]>[number]
+  >();
+
+  for (const attendee of existing ?? []) {
+    const email = attendee.email?.trim();
+    if (!email) continue;
+    merged.set(email.toLowerCase(), { ...attendee, email });
+  }
+
+  for (const attendee of additions) {
+    const email = attendee.email?.trim();
+    if (!email || !email.includes("@")) continue;
+    const key = email.toLowerCase();
+    const current = merged.get(key);
+    merged.set(key, {
+      ...current,
+      email,
+      displayName: attendee.displayName ?? current?.displayName,
+      photoUrl: attendee.photoUrl ?? current?.photoUrl,
+    });
+  }
+
+  return Array.from(merged.values());
+}
+
 export default defineAction({
   description:
     "Update a Google Calendar event. Supports title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
@@ -100,19 +153,15 @@ export default defineAction({
       .describe(
         "For recurring events, use single for just this occurrence or all for the entire series.",
       ),
-    attendees: z
-      .union([
-        z.array(
-          z.object({
-            email: z.string(),
-            displayName: z.string().optional(),
-          }),
-        ),
-        z.string(),
-      ])
+    attendees: attendeesInput
       .optional()
       .describe(
         "Replace the event's attendee list. Accepts an array of {email, displayName?} or a comma-separated string of emails. Pass an empty array to clear all attendees.",
+      ),
+    addAttendees: attendeesInput
+      .optional()
+      .describe(
+        "Add invitees without dropping or resetting existing attendees. Accepts an array of {email, displayName?} or a comma-separated string of emails.",
       ),
     sendUpdates: z
       .enum(["all", "none"])
@@ -130,6 +179,9 @@ export default defineAction({
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
+    }
+    if (args.attendees !== undefined && args.addAttendees !== undefined) {
+      throw new Error("Use either attendees or addAttendees, not both.");
     }
 
     if (!(await googleCalendar.isConnected(ownerEmail))) {
@@ -154,20 +206,8 @@ export default defineAction({
       useDefaultReminders: args.remindersUseDefault,
     });
 
-    let attendees: CalendarEvent["attendees"] | undefined;
-    if (args.attendees !== undefined) {
-      if (typeof args.attendees === "string") {
-        const emails = args.attendees
-          .split(/[\s,;]+/)
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0 && s.includes("@"));
-        attendees = emails.map((email) => ({ email }));
-      } else {
-        attendees = args.attendees.filter(
-          (a) => a.email && a.email.includes("@"),
-        );
-      }
-    }
+    const attendeesToAdd = normalizeAttendees(args.addAttendees);
+    let attendees = normalizeAttendees(args.attendees);
 
     const hasPatch =
       args.title !== undefined ||
@@ -185,6 +225,7 @@ export default defineAction({
       args.status !== undefined ||
       recurrence !== undefined ||
       attendees !== undefined ||
+      attendeesToAdd !== undefined ||
       Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
       args.addZoom === true;
@@ -223,6 +264,12 @@ export default defineAction({
       );
       return existingEvent;
     };
+
+    if (attendeesToAdd !== undefined) {
+      const existingEvent = await loadExistingEvent();
+      attendees = mergeAttendees(existingEvent.attendees, attendeesToAdd);
+      updates.attendees = attendees;
+    }
 
     let zoomMeetingLink: string | undefined;
     let zoomAlreadyPresent = false;
@@ -263,10 +310,25 @@ export default defineAction({
 
     const result = await googleCalendar.updateEvent(googleEventId, updates, {
       sendUpdates:
-        args.sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
+        args.sendUpdates ??
+        (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
+          ? "all"
+          : undefined),
       addGoogleMeet: args.addGoogleMeet,
       scope: args.scope,
     });
+
+    const returnedPatch: Partial<CalendarEvent> = {};
+    if (result.htmlLink) returnedPatch.htmlLink = result.htmlLink;
+    if (result.meetLink) returnedPatch.hangoutLink = result.meetLink;
+    if (result.conferenceData) {
+      returnedPatch.conferenceData = result.conferenceData;
+    }
+    if (result.attendees !== undefined) {
+      returnedPatch.attendees = result.attendees;
+    } else if (attendees !== undefined) {
+      returnedPatch.attendees = attendees;
+    }
 
     const guestNotification =
       guestNotificationMessage && eventForNotification
@@ -296,6 +358,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...returnedPatch,
       ...(guestNotification ? { guestNotification } : {}),
     };
   },

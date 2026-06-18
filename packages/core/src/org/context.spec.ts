@@ -162,6 +162,7 @@ describe("getOrgContext", () => {
     expect(ctx.orgId).toBe("second");
     expect(ctx.role).toBe("member");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to first membership when active-org-id points to a non-membership", async () => {
@@ -181,11 +182,28 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx.orgId).toBe("only");
     expect(mockGetUserSetting).not.toHaveBeenCalled();
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run domain auto-join for a single non-personal org", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@builder.io" });
+    queueSelect([{ orgId: "builder", role: "member", orgName: "Builder.io" }]);
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "member@builder.io",
+      orgId: "builder",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
   it("returns null org for an authenticated user with zero memberships (no auto-create)", async () => {
     mockGetSession.mockResolvedValue({ email: "loner@b.com" });
-    queueSelect([]);
+    queueSelect([], []); // memberships, domain auto-join lookup
     const ctx = await getOrgContext(EVENT);
     expect(ctx).toEqual({
       email: "loner@b.com",
@@ -194,6 +212,127 @@ describe("getOrgContext", () => {
       role: null,
     });
     expect(mockPutUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("auto-joins an existing zero-membership user into their domain org", async () => {
+    mockGetSession.mockResolvedValue({ email: "existing@Builder.IO" });
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "builder_io" }],
+    }); // domain auto-join lookup
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "builder_io", role: "member", orgName: "Builder.io" }],
+    }); // refreshed memberships
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "existing@Builder.IO",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "existing@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+
+    const calls = mockExecute.mock.calls.map((c) => c[0]);
+    expect(calls[1].sql).toContain("LOWER(o.allowed_domain)");
+    expect(calls[1].args).toEqual(["builder.io", "existing@builder.io"]);
+    expect(calls[2].sql).toContain("INSERT INTO org_members");
+    expect(calls.some((c) => c.sql.includes("INSERT INTO organizations"))).toBe(
+      false,
+    );
+  });
+
+  it("activates a newly joined domain org over an existing personal org", async () => {
+    mockGetSession.mockResolvedValue({ email: "teammate@builder.io" });
+    mockGetUserSetting.mockResolvedValueOnce({ orgId: "personal_org" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "builder_io" }],
+    }); // domain auto-join lookup
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+        { orgId: "builder_io", role: "member", orgName: "Builder.io" },
+      ],
+    }); // refreshed memberships
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "teammate@builder.io",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "teammate@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+  });
+
+  it("prefers a newly joined domain org over a backfilled session org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "teammate@builder.io",
+      orgId: "personal_org",
+    });
+    mockGetUserSetting.mockResolvedValueOnce({ orgId: "personal_org" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "builder_io" }],
+    }); // domain auto-join lookup
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Teammate's workspace",
+        },
+        { orgId: "builder_io", role: "member", orgName: "Builder.io" },
+      ],
+    }); // refreshed memberships
+
+    const ctx = await getOrgContext(EVENT);
+
+    expect(ctx).toEqual({
+      email: "teammate@builder.io",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "teammate@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
   });
 
   describe("membership-lookup failure (tables missing before migrations)", () => {
@@ -246,7 +385,8 @@ describe("getOrgContext", () => {
 
       // Both calls return the same resolved value.
       expect(ctx1).toBe(ctx2); // identical reference, not just deep-equal
-      // Only one DB round trip, not two.
+      // Only one membership lookup, with no request-time domain scan for an
+      // existing non-personal org.
       expect(mockExecute).toHaveBeenCalledTimes(1);
     });
 
@@ -285,13 +425,15 @@ describe("getOrgContext", () => {
         name: "Jane Doe",
       });
       // 1) memberships lookup -> empty
-      // 2) acquireClaim INSERT into settings -> succeeds (no throw)
-      // 3) hasPendingInvitation -> none
-      // 4) hasDomainMatch -> none
-      // 5) INSERT organizations
-      // 6) INSERT org_members
+      // 2) domain auto-join lookup -> no matching org
+      // 3) acquireClaim INSERT into settings -> succeeds (no throw)
+      // 4) hasPendingInvitation -> none
+      // 5) hasDomainMatch -> none
+      // 6) INSERT organizations
+      // 7) INSERT org_members
       queueSelect(
         [], // memberships
+        [], // domain auto-join lookup
         [], // acquireClaim INSERT settings (resolves -> claim acquired)
         [], // hasPendingInvitation
         [], // hasDomainMatch
@@ -313,7 +455,7 @@ describe("getOrgContext", () => {
     it("derives the workspace name from the email local-part when session has no name", async () => {
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({ email: "john.q-public@startup.dev" });
-      queueSelect([], [], [], [], [], []);
+      queueSelect([], [], [], [], [], [], []);
       const ctx = await getOrgContext(EVENT);
       expect(ctx.orgName).toBe("John Q Public's workspace");
     });
@@ -323,6 +465,7 @@ describe("getOrgContext", () => {
       mockGetSession.mockResolvedValue({ email: "invited@startup.dev" });
       queueSelect(
         [], // memberships
+        [], // domain auto-join lookup
         [], // acquireClaim INSERT settings
         [{ "1": 1 }], // hasPendingInvitation -> has one
       );
@@ -339,19 +482,31 @@ describe("getOrgContext", () => {
       );
     });
 
-    it("does NOT auto-create when the email domain already matches an org", async () => {
+    it("joins instead of auto-creating when the email domain already matches an org", async () => {
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({ email: "new@builder.io" });
       queueSelect(
         [], // memberships
-        [], // acquireClaim INSERT settings
-        [], // hasPendingInvitation -> none
-        [{ "1": 1 }], // hasDomainMatch -> match
+        [{ orgId: "builder_io" }], // domain auto-join lookup
+        [], // INSERT org_members
+        [{ orgId: "builder_io", role: "member", orgName: "Builder.io" }],
       );
-      mockExecute.mockResolvedValueOnce({ rows: [] }); // releaseClaim DELETE
       const ctx = await getOrgContext(EVENT);
-      expect(ctx.orgId).toBeNull();
-      expect(mockPutUserSetting).not.toHaveBeenCalled();
+      expect(ctx).toMatchObject({
+        email: "new@builder.io",
+        orgId: "builder_io",
+        orgName: "Builder.io",
+        role: "member",
+      });
+      expect(mockPutUserSetting).toHaveBeenCalledWith(
+        "new@builder.io",
+        "active-org-id",
+        { orgId: "builder_io" },
+      );
+      const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
+      expect(sqls.some((s) => s.includes("INSERT INTO organizations"))).toBe(
+        false,
+      );
     });
 
     it("bails (null org) when the auto-create claim is lost to a concurrent request", async () => {
@@ -360,6 +515,7 @@ describe("getOrgContext", () => {
       // memberships empty, then acquireClaim INSERT throws (key exists), then
       // the stale-takeover UPDATE matches zero rows -> claim NOT acquired.
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
+      mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
         new Error("UNIQUE constraint failed: settings.key"),
       );
@@ -380,6 +536,7 @@ describe("getOrgContext", () => {
         name: "Stuck User",
       });
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
+      mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
         new Error("UNIQUE constraint failed: settings.key"),
       ); // acquireClaim INSERT conflicts
@@ -405,6 +562,7 @@ describe("getOrgContext", () => {
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({ email: "maybe-invited@startup.dev" });
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
+      mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockResolvedValueOnce({ rows: [] }); // acquireClaim INSERT
       mockExecute.mockRejectedValueOnce(
         new Error("no such table: org_invitations"),
@@ -421,7 +579,7 @@ describe("getOrgContext", () => {
 
     it("does NOT auto-create when the flag is unset, even for a zero-membership user", async () => {
       mockGetSession.mockResolvedValue({ email: "loner@startup.dev" });
-      queueSelect([]); // memberships only
+      queueSelect([], []); // memberships, domain auto-join lookup
       const ctx = await getOrgContext(EVENT);
       expect(ctx.orgId).toBeNull();
       expect(mockGetSetting).not.toHaveBeenCalled();

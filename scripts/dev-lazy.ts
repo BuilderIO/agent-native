@@ -12,6 +12,11 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import {
+  escapeHtml,
+  normalizeOrigin,
+  rewriteRedirectLocation,
+} from "../packages/core/src/cli/gateway-helpers.ts";
 
 interface TemplateApp {
   id: string;
@@ -36,6 +41,7 @@ interface TemplateApp {
 
 const argv = process.argv.slice(2);
 const ROOT = path.resolve(".");
+loadRootEnvFile(path.join(ROOT, ".env"));
 const TEMPLATES_DIR = path.join(ROOT, "templates");
 const CONFIG_PATH = path.join(ROOT, "packages/shared-app-config/templates.ts");
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
@@ -67,6 +73,51 @@ function flagValue(name: string): string | null {
   return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith("-")
     ? argv[i + 1]
     : null;
+}
+
+function parseEnv(contents: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const rawLine of contents.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("export ")) line = line.slice("export ".length).trim();
+
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    let value = line.slice(eq + 1).trim();
+    const quote = value[0];
+    if (
+      (quote === `"` || quote === `'`) &&
+      value.length >= 2 &&
+      value[value.length - 1] === quote
+    ) {
+      value = value.slice(1, -1);
+      if (quote === `"`) {
+        value = value
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, `"`)
+          .replace(/\\\\/g, "\\");
+      }
+    } else {
+      value = value.replace(/\s+#.*$/, "").trim();
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function loadRootEnvFile(envPath: string): void {
+  if (!fs.existsSync(envPath)) return;
+  const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
+  for (const [key, value] of Object.entries(parsed)) {
+    process.env[key] ??= value;
+  }
 }
 
 function printHelp(): void {
@@ -322,15 +373,6 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
-function normalizeOrigin(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
   gatewayUrl: string,
@@ -415,34 +457,6 @@ function appendAppOutputTail(app: TemplateApp, output: string): void {
       : next;
 }
 
-/**
- * When a template app returns a redirect to a root-relative path that doesn't
- * already include the app prefix, prepend it. This handles the common case
- * where a framework server-side redirect uses a plain path like "/" or
- * "/login" without knowing it's mounted at "/{app.id}" by the gateway.
- *
- * Only rewrites path-only locations (starting with "/") to avoid touching
- * absolute URLs (e.g. redirects to Google OAuth or external sites).
- */
-function rewriteRedirectLocation(
-  app: TemplateApp,
-  location: string | undefined,
-): string | undefined {
-  // Leave absolute URLs and protocol-relative URLs (//host/path) untouched.
-  if (!location || !location.startsWith("/") || location.startsWith("//"))
-    return location;
-  const prefix = `/${app.id}`;
-  // Strip query/hash before checking the prefix so "/clips?preview=1" and
-  // "/clips#section" are correctly identified as already-prefixed.
-  const suffixStart = location.search(/[?#]/);
-  const pathname =
-    suffixStart === -1 ? location : location.slice(0, suffixStart);
-  const suffix = suffixStart === -1 ? "" : location.slice(suffixStart);
-  if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return location;
-  // Avoid double-slash when the pathname is exactly "/" (e.g. "/?foo=1").
-  return pathname === "/" ? `${prefix}${suffix}` : `${prefix}${location}`;
-}
-
 function firstHeaderValue(
   value: string | string[] | number | undefined,
 ): string | undefined {
@@ -456,23 +470,6 @@ function wantsHtml(req: http.IncomingMessage): boolean {
   const accept = firstHeaderValue(req.headers.accept);
   if (!accept) return false;
   return accept.includes("text/html");
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }
 
 function renderStartingApp(app: TemplateApp): string {

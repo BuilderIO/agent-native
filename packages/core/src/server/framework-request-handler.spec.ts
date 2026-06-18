@@ -20,6 +20,9 @@ async function dispatch(nitroApp: any, pathname: string) {
     url: new URL(`http://example.test${pathname}`),
     path: pathname,
     context: {},
+    // Minimal h3-v2 response shape so handlers that call setResponseStatus /
+    // setResponseHeader (e.g. the init-failure 503 fallback) work under test.
+    res: { status: 200, headers: new Headers() },
   };
   let index = 0;
   const next = async (): Promise<unknown> => {
@@ -334,6 +337,132 @@ describe("framework request handler", () => {
 
     expect(settled).toBe(false);
     release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("returns a retryable 503 instead of a bare 404 when tracked plugin init fails", async () => {
+    // Reproduces the recurring hosted MCP 404: on a cold/propagating instance
+    // the async plugin init can reject (e.g. DB unreachable) before it ever
+    // registers /_agent-native/mcp. Without the failure fallback the readiness
+    // gate would release into a bare "Cannot find any route matching" 404 that
+    // external MCP clients (pi/codex) can't recover from.
+    const nitroApp = createNitroApp();
+    let fail!: (err: Error) => void;
+    const ready = new Promise<void>((_resolve, reject) => {
+      fail = reject;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/mcp"],
+    });
+
+    fail(new Error("db unreachable"));
+    // Let the tracked-init catch record the failure.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await dispatch(nitroApp, "/_agent-native/mcp");
+
+    // Must not fall through to a bare 404; returns a meaningful, retryable body.
+    expect(result).not.toEqual({ fellThrough: true });
+    expect(JSON.stringify(result)).toContain("initializing or unavailable");
+  });
+
+  // Models production-dispatcher ordering: h3 snapshots middleware once at the
+  // start of `handler()`, but awaits the `request` hook (onRequest) before that.
+  // The default `dispatch` helper re-reads `~middleware` per step, so only this
+  // harness can expose the snapshot race.
+  function createHookableNitroApp() {
+    const requestHooks: Array<(event: any) => unknown> = [];
+    return {
+      h3: { "~middleware": [] as any[] },
+      hooks: {
+        hook: (name: string, fn: (event: any) => unknown) => {
+          if (name === "request") requestHooks.push(fn);
+        },
+      },
+      __requestHooks: requestHooks,
+    };
+  }
+
+  async function dispatchProductionOrder(
+    nitroApp: any,
+    pathname: string,
+    opts: { runRequestHooks: boolean },
+  ) {
+    const event = {
+      method: "GET",
+      url: new URL(`http://example.test${pathname}`),
+      path: pathname,
+      context: {},
+      res: { status: 200, headers: new Headers() },
+    };
+    // Nitro bridges the `request` hook to h3's `config.onRequest`, which h3
+    // awaits before `handler()`. When disabled we model the broken path: no
+    // pre-routing wait, so the snapshot is taken with whatever exists now.
+    if (opts.runRequestHooks) {
+      for (const fn of nitroApp.__requestHooks) await fn(event);
+    }
+    // handler(): snapshot the middleware list ONCE, then run that snapshot.
+    const snapshot = [...nitroApp.h3["~middleware"]];
+    let index = 0;
+    const next = async (): Promise<unknown> => {
+      const mw = snapshot[index++];
+      if (!mw) return { fellThrough: true };
+      return mw(event, next);
+    };
+    return next();
+  }
+
+  it("(bug) middleware-only gate falls through to 404 when the route registers after the snapshot", async () => {
+    const nitroApp = createHookableNitroApp();
+    let registerRoute!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      registerRoute = () => {
+        getH3App(nitroApp).use(
+          "/_agent-native/actions/update-visual-plan",
+          () => ({ ok: true }),
+        );
+        resolve();
+      };
+    });
+    trackPluginInit(nitroApp, ready, { paths: ["/_agent-native/actions"] });
+
+    // Snapshot is taken before the route exists; init completes mid-flight.
+    const pending = dispatchProductionOrder(
+      nitroApp,
+      "/_agent-native/actions/update-visual-plan",
+      { runRequestHooks: false },
+    );
+    await Promise.resolve();
+    registerRoute();
+
+    await expect(pending).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("delivers a route registered during async init by waiting in the request hook (before the snapshot)", async () => {
+    const nitroApp = createHookableNitroApp();
+    let registerRoute!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      registerRoute = () => {
+        getH3App(nitroApp).use(
+          "/_agent-native/actions/update-visual-plan",
+          () => ({ ok: true }),
+        );
+        resolve();
+      };
+    });
+    trackPluginInit(nitroApp, ready, { paths: ["/_agent-native/actions"] });
+
+    const pending = dispatchProductionOrder(
+      nitroApp,
+      "/_agent-native/actions/update-visual-plan",
+      { runRequestHooks: true },
+    );
+    // Init completes while the request hook is awaiting readiness, before the
+    // middleware snapshot is taken.
+    await Promise.resolve();
+    registerRoute();
 
     await expect(pending).resolves.toEqual({ ok: true });
   });

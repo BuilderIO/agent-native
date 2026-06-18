@@ -149,6 +149,30 @@ export type UpdatePlanInput = {
   note?: string;
 };
 
+export type UpdateLocalPlanInput = {
+  slug: string;
+  path?: string;
+  title?: string;
+  brief?: string;
+  content?: PlanContent;
+  contentPatches?: PlanContentPatch[];
+  note?: string;
+};
+
+export type UpdateLocalPlanCommentsInput = {
+  slug: string;
+  path?: string;
+  comments?: PlanCommentInput[];
+  deletedCommentIds?: string[];
+};
+
+export type PromoteLocalPlanInput = {
+  slug: string;
+  path?: string;
+  targetPath?: string;
+  overwrite?: boolean;
+};
+
 export type ConvertVisualPlanToPrototypeInput = {
   planId: string;
   title?: string;
@@ -170,11 +194,82 @@ export type ReportVisualPlanResult = {
   message: string;
 };
 
+export type DeletePlanCommentInput = {
+  planId: string;
+  commentId: string;
+};
+
+export type DeletePlanCommentResult = {
+  planId: string;
+  commentId: string;
+  deletedCommentIds: string[];
+  deletedCount: number;
+  deletedAt: string;
+};
+
+export type ListPlansInput = {
+  status?: PlanStatus;
+  limit?: number;
+  deleted?: "active" | "deleted" | "all";
+};
+
+export const ACTIVE_PLANS_QUERY_ARGS = {};
+export const ACTIVE_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ACTIVE_PLANS_QUERY_ARGS,
+] as const;
+export const ALL_PLANS_QUERY_ARGS = { deleted: "all" as const };
+export const ALL_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ALL_PLANS_QUERY_ARGS,
+] as const;
+
+export type DeletePlanInput = {
+  planId: string;
+  mode?: "soft" | "restore" | "hard";
+  confirmation?: string;
+};
+
+export type DeletePlanResult =
+  | {
+      planId: string;
+      mode: "soft";
+      deletedAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "restore";
+      restoredAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "hard";
+      deletedAt: string;
+      hardDeleted: true;
+      deletedCounts: {
+        comments: number;
+        sections: number;
+        events: number;
+        reports: number;
+        versions: number;
+        shares: number;
+        assets: number;
+        plans: number;
+      };
+    };
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
     void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
+    void qc.invalidateQueries({
+      queryKey: ["action", "get-local-plan-folder"],
+    });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
     void qc.invalidateQueries({ queryKey: ["action", "list-plan-versions"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-version"] });
@@ -196,8 +291,49 @@ type UsePlansOptions = Omit<
   "queryKey" | "queryFn"
 >;
 
-export function usePlans(options?: UsePlansOptions) {
-  return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
+function isListPlansInput(value: unknown): value is ListPlansInput {
+  if (!value || typeof value !== "object") return false;
+  return "status" in value || "limit" in value || "deleted" in value;
+}
+
+export function usePlans(
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  args: ListPlansInput,
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  argsOrOptions?: ListPlansInput | UsePlansOptions,
+  options?: UsePlansOptions,
+) {
+  const args = isListPlansInput(argsOrOptions)
+    ? argsOrOptions
+    : ACTIVE_PLANS_QUERY_ARGS;
+  const queryOptions = isListPlansInput(argsOrOptions)
+    ? options
+    : (argsOrOptions as UsePlansOptions | undefined);
+  return useActionQuery<PlanSummary[]>("list-visual-plans", args, queryOptions);
+}
+
+export function planBundleQueryParams(id: string) {
+  return { id, includeMdx: false, includeHtml: true } as const;
+}
+
+export function planBundleQueryKey(id: string) {
+  return ["action", "get-visual-plan", planBundleQueryParams(id)] as const;
+}
+
+export function localPlanBundleQueryParams(slug: string, path?: string | null) {
+  return path ? ({ slug, path } as const) : ({ slug } as const);
+}
+
+export function localPlanBundleQueryKey(slug: string, path?: string | null) {
+  return [
+    "action",
+    "get-local-plan-folder",
+    localPlanBundleQueryParams(slug, path),
+  ] as const;
 }
 
 export function usePlan(
@@ -206,7 +342,7 @@ export function usePlan(
 ) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
-    { id: id ?? "" },
+    planBundleQueryParams(id ?? ""),
     {
       enabled: !!id,
       // Pause the 3-second poll while a comment mutation is in-flight so
@@ -228,6 +364,8 @@ export type PlanAccessStatusResponse = {
   viewerEmail: string | null;
   viewerName: string | null;
   role: "owner" | "viewer" | "editor" | "admin" | null;
+  orgId: string | null;
+  orgName: string | null;
   visibility: "private" | "org" | "public" | null;
 };
 
@@ -288,7 +426,7 @@ export function useCreatePrototypePlan() {
     CreatePrototypePlanInput
   >("create-prototype-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to create prototype plan"),
+    onError: showActionError("Failed to create visual plan"),
   });
 }
 
@@ -336,6 +474,102 @@ export function useUpdatePlan() {
   );
 }
 
+export function useUpdateLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    UpdateLocalPlanInput
+  >("update-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan files"),
+  });
+}
+
+// Like useUpdatePlanComments, but persists to the local folder's comments.json
+// (DB-free) so comments survive a refresh in /local-plans/:slug.
+export function useUpdateLocalPlanComments() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+    },
+    UpdateLocalPlanCommentsInput
+  >("update-local-plan-comments", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan comments"),
+  });
+}
+
+export function usePromoteLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      targetPath?: string;
+      alreadyPromoted?: boolean;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    PromoteLocalPlanInput
+  >("promote-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      if (data.repoPath) {
+        qc.setQueryData(
+          localPlanBundleQueryKey(data.slug, data.repoPath),
+          data,
+        );
+      }
+      invalidate();
+    },
+    onError: showActionError("Failed to save local plan to repo"),
+  });
+}
+
 /**
  * A separate mutation instance used exclusively for status changes
  * (draft / review / approved / in_progress / complete). Keeping it separate
@@ -366,6 +600,28 @@ export function useUpdatePlanComments() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to update visual plan"),
+    },
+  );
+}
+
+export function useDeletePlanComment() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanCommentResult, DeletePlanCommentInput>(
+    "delete-plan-comment",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete comment"),
+    },
+  );
+}
+
+export function useDeletePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanResult, DeletePlanInput>(
+    "delete-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete plan"),
     },
   );
 }

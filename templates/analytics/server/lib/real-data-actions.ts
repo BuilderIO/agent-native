@@ -12,16 +12,10 @@ const INJECTED_CONTEXT_BLOCKS = [
 
 export const DATA_QUERY_ACTIONS = new Set([
   "account-deep-dive",
-  "amplitude-events",
-  "apollo-search",
   "bigquery",
-  "commonroom-members",
   "content-calendar",
   "content-calendar-schema",
-  "ga4-report",
   "gcloud",
-  "github-code",
-  "github-prs",
   "gong-calls",
   "grafana",
   "hubspot-deals",
@@ -29,14 +23,10 @@ export const DATA_QUERY_ACTIONS = new Set([
   "hubspot-pipelines",
   "hubspot-records",
   "jira",
-  "jira-analytics",
   "jira-search",
-  "mixpanel-events",
-  "notion-page",
-  "onboarding-events",
-  "posthog-events",
   "provider-api-request",
-  "pylon-issues",
+  "provider-corpus-job",
+  "query-staged-dataset",
   "query-agent-native-analytics",
   "query-inbound-forms",
   "sentry",
@@ -45,9 +35,17 @@ export const DATA_QUERY_ACTIONS = new Set([
   "seo-top-keywords",
   "slack-messages",
   "stripe",
-  "top-amplitude-events",
-  "twitter-tweets",
 ]);
+
+export const CORPUS_SOURCE_ACTIONS = new Set([
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-staged-dataset",
+]);
+
+export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
+
+const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -75,6 +73,35 @@ function isMcpDataSourceTool(name: string): boolean {
   if (!name.startsWith("mcp__")) return false;
   const normalized = name.toLowerCase();
   return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
+}
+
+function isCorpusCapableMcpTool(name: string): boolean {
+  if (!isMcpDataSourceTool(name)) return false;
+  const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
+  return /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
+    normalizedMcpName,
+  );
+}
+
+function getRunCodeBridgeToolNames(content: string | undefined): string[] {
+  const match = RUN_CODE_BRIDGE_TOOLS_USED.exec(String(content ?? ""));
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name),
+  );
+}
+
+function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => CORPUS_SOURCE_ACTIONS.has(name) || isCorpusCapableMcpTool(name),
+  );
 }
 
 export function stripInjectedAnalyticsGuardContext(text: string): string {
@@ -117,6 +144,9 @@ const ANALYTICS_RESULT_TERMS =
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
+const SOURCE_SEARCH_INTENT_TERMS =
+  /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
 const ARTIFACT_DATA_INTENT =
@@ -137,14 +167,20 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
       lower,
-    )
+    ) &&
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
   if (
-    /\b(fix|bug|layout|style|component|route|code|source code|integration|connect|configure|settings)\b/.test(
-      lower,
-    )
+    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (
+    /\b(integration|connect|configure|settings)\b/.test(lower) &&
+    !ANALYTICS_RESULT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -244,6 +280,136 @@ function isProviderErrorOnlyContent(content: string | undefined): boolean {
   return !hasEvidencePayload(record);
 }
 
+function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((entry) => valueHasIncompleteDataFlag(entry, parentKey));
+  }
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, candidate]) => {
+      const normalizedKey = key.toLowerCase();
+      if (
+        [
+          "truncated",
+          "coveragetruncated",
+          "hasmore",
+          "has_more",
+          "moreavailable",
+        ].includes(normalizedKey) &&
+        candidate === true
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "ok" &&
+        candidate === false &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "status" &&
+        typeof candidate === "number" &&
+        candidate >= 400 &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        [
+          "nextoffset",
+          "nextcursor",
+          "cursor",
+          "nextpage",
+          "nexttoken",
+          "next",
+        ].includes(normalizedKey) &&
+        candidate !== null &&
+        candidate !== undefined &&
+        candidate !== "" &&
+        candidate !== false
+      ) {
+        if (
+          normalizedKey === "cursor" &&
+          !["records", "paging", "pagination", "page", "meta"].includes(
+            parentKey,
+          )
+        ) {
+          return false;
+        }
+        return true;
+      }
+      return valueHasIncompleteDataFlag(candidate, normalizedKey);
+    },
+  );
+}
+
+const INCOMPLETE_DATA_TEXT =
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|rate limit|rate-limited|too many requests|http\s*429|\b429\b|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
+
+export function hasIncompleteDataEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!result.content && !result.isError) return false;
+    const name = String(result.name ?? "");
+    if (
+      name &&
+      !DATA_QUERY_ACTIONS.has(name) &&
+      !isMcpDataSourceTool(name) &&
+      name !== "run-code" &&
+      name !== "provider-api-request"
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
+  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
+
+const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
+  /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;
+
+const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
+
+const EXPLICIT_PARTIAL_DISCLOSURE =
+  /\b(?:partial|partially|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:bounded|limited)\s+(?:coverage|sample|results?|records?|calls?|transcripts?|cohort|dataset|evidence|inspection|search|review)\b|\b(?:coverage|inspection|search|review|sample)\s+(?:was|is|remains|looks)?\s*(?:bounded|limited)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+
+const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
+  /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
+
+export function looksLikeStrongCoverageClaim(text: string): boolean {
+  return STRONG_COVERAGE_OR_ABSENCE_CLAIM.test(text);
+}
+
+export function hasExplicitPartialDisclosure(text: string): boolean {
+  return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
+export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
+  if (!looksLikeStrongCoverageClaim(text)) return false;
+  if (hasExplicitPartialDisclosure(text)) return false;
+  if (EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM.test(text)) return true;
+  return GENERIC_FULL_COVERAGE_CLAIM.test(text);
+}
+
+export function looksLikeCoverageSensitiveAnalyticsRequest(
+  text: string,
+): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  if (!looksLikeAnalyticsDataRequest(requestText)) return false;
+  return COVERAGE_SENSITIVE_ANALYTICS_REQUEST.test(requestText);
+}
+
 export function hasDataQueryAttempt(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>
@@ -253,6 +419,245 @@ export function hasDataQueryAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
+    if (name === "run-code") return hasRunCodeDataQueryAttempt(result.content);
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });
+}
+
+export function hasCorpusWorkflowAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const name = String(result.name ?? "");
+    if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
+    if (name === "run-code") {
+      return hasRunCodeCorpusWorkflowAttempt(result.content);
+    }
+
+    // Connected provider MCP tools can expose broad search/list/request
+    // primitives directly. Treat those as corpus-capable when they succeed so
+    // apps are not forced through provider-api-request if a native MCP source
+    // already provides the right general API surface.
+    return isCorpusCapableMcpTool(name);
+  });
+}
+
+export function hasFailedCorpusWorkflowEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    const name = String(result.name ?? "");
+    if (
+      !CORPUS_SOURCE_ACTIONS.has(name) &&
+      !CORPUS_REDUCTION_ACTIONS.has(name)
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+type SourceRecordKind =
+  | "transcript"
+  | "message"
+  | "ticket"
+  | "issue"
+  | "document"
+  | "note"
+  | "conversation";
+
+const SOURCE_RECORD_KINDS: Array<{
+  kind: SourceRecordKind;
+  request: RegExp;
+  evidence: RegExp;
+}> = [
+  {
+    kind: "transcript",
+    request: /\b(?:transcripts?|call transcripts?)\b/i,
+    evidence:
+      /\b(?:transcripts?|calltranscripts?|transcriptsearch)\b|\/calls\/transcript\b/i,
+  },
+  {
+    kind: "message",
+    request: /\b(?:messages?|slack messages?|chat messages?)\b/i,
+    evidence: /\b(?:messages?|message_id|messageid|search\.messages)\b/i,
+  },
+  {
+    kind: "ticket",
+    request: /\b(?:tickets?|support tickets?)\b/i,
+    evidence: /\b(?:tickets?|ticket_id|ticketid)\b/i,
+  },
+  {
+    kind: "issue",
+    request: /\b(?:issues?|jira issues?|pylon issues?)\b/i,
+    evidence: /\b(?:issues?|issue_id|issueid)\b/i,
+  },
+  {
+    kind: "document",
+    request: /\b(?:documents?|docs?|pages?)\b/i,
+    evidence: /\b(?:documents?|document_id|documentid|pages?)\b/i,
+  },
+  {
+    kind: "note",
+    request: /\b(?:notes?)\b/i,
+    evidence: /\b(?:notes?|note_id|noteid)\b/i,
+  },
+  {
+    kind: "conversation",
+    request: /\b(?:conversations?|conversation logs?)\b/i,
+    evidence: /\b(?:conversations?|conversation_id|conversationid)\b/i,
+  },
+];
+
+function requestedSourceRecordKinds(text: string): SourceRecordKind[] {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  return SOURCE_RECORD_KINDS.filter(({ request }) =>
+    request.test(requestText),
+  ).map(({ kind }) => kind);
+}
+
+function sourceRecordEvidenceRegexes(kinds: SourceRecordKind[]): RegExp[] {
+  return SOURCE_RECORD_KINDS.filter(({ kind }) => kinds.includes(kind)).map(
+    ({ evidence }) => evidence,
+  );
+}
+
+function textHasAnyEvidenceTerm(text: string, kinds: SourceRecordKind[]) {
+  return sourceRecordEvidenceRegexes(kinds).some((regex) => regex.test(text));
+}
+
+function corpusJobSourceEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    source: record.source,
+    hits: record.hits,
+    sampleHits: record.sampleHits,
+  });
+}
+
+function providerRequestEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    request: record.request,
+    responseJson:
+      (record.response as Record<string, unknown> | undefined)?.json ?? null,
+    dataset: record.dataset,
+    columns: record.columns,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function queryStagedDatasetEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    rows: record.rows,
+    columns: record.columns,
+    aggregate: record.aggregate,
+    groups: record.groups,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function actionEvidenceTextForSourceRecords(result: {
+  name?: string;
+  content?: string;
+}): string {
+  const name = String(result.name ?? "");
+  const content = String(result.content ?? "");
+  const parsed = tryParseJsonContent(content);
+
+  if (name === "provider-corpus-job") {
+    return corpusJobSourceEvidenceText(parsed);
+  }
+  if (name === "provider-api-request") {
+    return providerRequestEvidenceText(parsed);
+  }
+  if (name === "query-staged-dataset") {
+    return queryStagedDatasetEvidenceText(parsed);
+  }
+  if (name === "gong-calls") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "";
+    }
+    const record = parsed as Record<string, unknown>;
+    return JSON.stringify({
+      transcript: record.transcript,
+      transcriptText: record.transcriptText,
+      transcriptSearch: record.transcriptSearch,
+      transcripts: record.transcripts,
+    });
+  }
+  if (name === "run-code") {
+    return content;
+  }
+  if (isCorpusCapableMcpTool(name)) {
+    return `${name}\n${content}`;
+  }
+  return content;
+}
+
+export function hasRequestedSourceRecordEvidence(
+  userText: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const kinds = requestedSourceRecordKinds(userText);
+  if (!kinds.length) return true;
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const evidenceText = actionEvidenceTextForSourceRecords(result);
+    return textHasAnyEvidenceTerm(evidenceText, kinds);
+  });
+}
+
+export function needsCorpusWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!hasDataQueryAttempt(toolResults)) return false;
+  if (hasCorpusWorkflowAttempt(toolResults)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  return true;
+}
+
+export function needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!requestedSourceRecordKinds(userText).length) return false;
+  if (!looksLikeStrongCoverageClaim(finalText)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  if (!hasCorpusWorkflowAttempt(toolResults)) return false;
+  return !hasRequestedSourceRecordEvidence(userText, toolResults);
 }

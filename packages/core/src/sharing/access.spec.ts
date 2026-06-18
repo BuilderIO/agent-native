@@ -436,4 +436,54 @@ describe("shareable resource access helpers", () => {
       .where(eq(docs.id, "doc-legacy-solo"));
     expect(row).toMatchObject({ orgId, visibility: "org" });
   });
+
+  it("keeps org-normalized owner resources unscoped when making them org-visible", async () => {
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      resolveAccessContext: (ctx) =>
+        ctx.userEmail === ownerEmail ? { userEmail: ctx.userEmail } : ctx,
+    });
+    await insertDoc({ id: "doc-local-solo", orgId: null });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-local-solo",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+    });
+
+    const [row] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-local-solo"));
+    expect(row).toMatchObject({ orgId: null, visibility: "org" });
+  });
+
+  it("rejects org visibility for unscoped resources when no active org is selected", async () => {
+    await insertDoc({ id: "doc-no-active-org", orgId: null });
+
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-no-active-org",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const [row] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-no-active-org"));
+    expect(row).toMatchObject({ orgId: null, visibility: "private" });
+  });
 });

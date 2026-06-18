@@ -34,7 +34,7 @@ export default defineAction({
     "Start an async Veo video generation run from an asset library. Poll the returned run with refresh-generation-run until it completes and creates a video asset.",
   schema: z.object({
     libraryId: z.string(),
-    folderId: z.string().nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
     collectionId: z.string().optional(),
     prompt: z.string().min(1),
     title: z.string().optional(),
@@ -84,7 +84,7 @@ export default defineAction({
     if (collection && collection.libraryId !== args.libraryId) {
       throw new Error("Collection does not belong to this asset library.");
     }
-    if (args.folderId) {
+    if (args.folderId !== undefined && args.folderId !== null) {
       const [folder] = await db
         .select()
         .from(schema.assetFolders)

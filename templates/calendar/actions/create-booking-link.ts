@@ -6,47 +6,27 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
+import {
+  rowToBookingLink,
+  serializeBookingHosts,
+} from "../server/lib/booking-link-utils.js";
 
-function rowToBookingLink(
-  row: typeof schema.bookingLinks.$inferSelect,
-): BookingLink {
-  let durations: number[] | undefined;
-  if (row.durations) {
-    try {
-      durations = JSON.parse(row.durations);
-    } catch {}
-  }
-  let customFields: BookingLink["customFields"];
-  if (row.customFields) {
-    try {
-      customFields = JSON.parse(row.customFields);
-    } catch {}
-  }
-  let conferencing: BookingLink["conferencing"];
-  if (row.conferencing) {
-    try {
-      conferencing = JSON.parse(row.conferencing);
-    } catch {}
-  }
-  return {
-    id: row.id,
-    slug: row.slug,
-    title: row.title,
-    description: row.description ?? undefined,
-    duration: row.duration,
-    durations,
-    customFields,
-    conferencing,
-    color: row.color ?? undefined,
-    isActive: row.isActive,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
+const hostsSchema = z
+  .union([
+    z.array(
+      z.union([
+        z.string(),
+        z.object({
+          email: z.string(),
+          displayName: z.string().optional(),
+        }),
+      ]),
+    ),
+    z.string(),
+  ])
+  .optional();
 
 export default defineAction({
   description:
@@ -75,6 +55,9 @@ export default defineAction({
       )
       .optional()
       .describe("Optional duration choices, e.g. [30,45,60]"),
+    hosts: hostsSchema.describe(
+      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",
+    ),
     customFields: z.array(z.any()).optional().describe("Custom form fields"),
     conferencing: z.any().optional().describe("Conferencing configuration"),
     color: z.string().optional().describe("Display color"),
@@ -107,6 +90,11 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const id = nanoid();
+    const ownerEmail = (() => {
+      const e = getRequestUserEmail();
+      if (!e) throw new Error("no authenticated user");
+      return e;
+    })();
     await getDb()
       .insert(schema.bookingLinks)
       .values({
@@ -118,6 +106,7 @@ export default defineAction({
         durations: durationInput.durations
           ? JSON.stringify(durationInput.durations)
           : null,
+        hosts: serializeBookingHosts(body.hosts, ownerEmail),
         customFields: body.customFields
           ? JSON.stringify(body.customFields)
           : null,
@@ -126,11 +115,7 @@ export default defineAction({
           : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
-        ownerEmail: (() => {
-          const e = getRequestUserEmail();
-          if (!e) throw new Error("no authenticated user");
-          return e;
-        })(),
+        ownerEmail,
         orgId: getRequestOrgId(),
         createdAt: now,
         updatedAt: now,

@@ -1,6 +1,7 @@
 import { Spinner } from "@/components/ui/spinner";
 import { PlansPage } from "@/pages/PlansPage";
 import { APP_TITLE } from "@/lib/app-config";
+import { planDocumentTitle } from "@/lib/plan-document-title";
 import type { Route } from ".react-router/types/app/routes/+types/plans.$id";
 import { fetchPublicPlanMeta } from "../../server/lib/plan-meta.server";
 import { buildPlanMetaDescription } from "../../shared/plan-meta-format";
@@ -24,7 +25,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
       },
     ];
   }
-  const title = `${planMeta.title} · ${APP_TITLE}`;
+  const title = planDocumentTitle(planMeta.title, APP_TITLE);
   const description = buildPlanMetaDescription(planMeta.brief);
   return [
     { title },

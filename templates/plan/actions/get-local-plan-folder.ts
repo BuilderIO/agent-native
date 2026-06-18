@@ -1,16 +1,18 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
-import { buildPlanHtml, nowIso } from "../server/plans.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
-import { readPlanLocalFolder } from "../server/lib/local-plan-files.js";
-import type { PlanBundle, PlanKind } from "../shared/types.js";
+import {
+  readLocalPlanComments,
+  readPlanLocalFolder,
+} from "../server/lib/local-plan-files.js";
+import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
+import type { PlanKind } from "../shared/types.js";
 
 const localPlanKindSchema = z.enum(["plan", "recap"]);
 
 export default defineAction({
   description:
-    "Read a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR for privacy-focused local-files preview. This never reads schema.plans and never writes to the database.",
+    "Read a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path for privacy-focused local-files preview. This never reads schema.plans and never writes to the database.",
   schema: z.object({
     slug: z
       .string()
@@ -18,6 +20,12 @@ export default defineAction({
       .regex(/^[A-Za-z0-9._-]+$/)
       .describe(
         "Folder name under PLAN_LOCAL_DIR, for example checkout-review.",
+      ),
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Optional repo-relative folder path, for example plans/checkout-review.",
       ),
     kind: localPlanKindSchema.optional(),
   }),
@@ -29,7 +37,7 @@ export default defineAction({
     requiresAuth: false,
     title: "Get Local Plan Folder",
     description:
-      "Read a local MDX plan folder without touching the Plan app database.",
+      "Read a local MDX plan folder by slug or repo-relative path without touching the Plan app database.",
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
@@ -38,65 +46,26 @@ export default defineAction({
       );
     }
 
-    const local = await readPlanLocalFolder(args.slug);
-    const now = nowIso();
-    const title = local.content.title || args.slug;
-    const brief = local.content.brief || "Local files preview.";
-    const id = `local-${args.slug}`;
+    const local = await readPlanLocalFolder({
+      slug: args.slug,
+      path: args.path,
+    });
+    const comments = await readLocalPlanComments(local.folder);
     const kind = resolveLocalPlanKind(args.kind, local.mdx) as PlanKind;
-    const bundle: PlanBundle = {
-      plan: {
-        id,
-        title,
-        brief,
-        kind,
-        status: "review",
-        source: "imported",
-        repoPath: local.folder,
-        currentFocus: "local-files preview",
-        html: null,
-        markdown: local.mdx["plan.mdx"],
-        content: local.content,
-        createdAt: now,
-        updatedAt: now,
-        approvedAt: null,
-      },
-      access: {
-        role: "viewer",
-        ownerEmail: "local@agent-native.local",
-        orgId: null,
-        visibility: "private",
-      },
-      sections: [],
-      comments: [],
-      events: [],
-      summary: {
-        sectionCounts: {},
-        commentCount: 0,
-        openCommentCount: 0,
-      },
-    };
-
-    return {
-      ...bundle,
-      planId: id,
-      localOnly: true,
-      slug: local.slug,
-      folder: local.folder,
-      path: `/local-plans/${encodeURIComponent(local.slug)}`,
-      url: `/local-plans/${encodeURIComponent(local.slug)}`,
-      html: buildPlanHtml(bundle),
-      mdx: await exportPlanContentToMdxFolder({
-        content: bundle.plan.content,
-        title: bundle.plan.title,
-        brief: bundle.plan.brief,
-        planId: bundle.plan.id,
-        url: `/local-plans/${encodeURIComponent(local.slug)}`,
-      }),
-    };
+    return buildLocalPlanBundleResult({
+      local,
+      kind,
+      role: "viewer",
+      comments,
+      currentFocus: "local-files preview",
+    });
   },
   link: ({ args }) => ({
-    url: `/local-plans/${encodeURIComponent(args.slug)}`,
+    url: args.path
+      ? `/local-plans/${encodeURIComponent(args.slug)}?${new URLSearchParams({
+          path: args.path,
+        }).toString()}`
+      : `/local-plans/${encodeURIComponent(args.slug)}`,
     label: "Open Local Plan",
     view: "plan",
   }),

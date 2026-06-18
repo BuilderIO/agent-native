@@ -74,6 +74,8 @@ export interface TiptapComposerHandle {
 
 export type ComposerSubmitIntent = "immediate" | "queued";
 
+export const DEFAULT_VOICE_DICTATION_ENABLED = false;
+
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
 }
@@ -357,7 +359,7 @@ export interface TiptapComposerProps {
   planModeDisabled?: boolean;
   /** Explanation shown next to the disabled Plan option. */
   planModeDisabledReason?: string;
-  /** Show the microphone button for voice dictation. Default true. */
+  /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
@@ -954,7 +956,7 @@ export function TiptapComposer({
   onExecModeChange,
   planModeDisabled = false,
   planModeDisabledReason,
-  voiceEnabled = true,
+  voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEffort,
   availableModels,
@@ -1598,12 +1600,24 @@ export function TiptapComposer({
 
   const syncComposerState = useCallback(() => {
     const { text, references } = extractComposerPayload();
+    const requestMode =
+      execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
+    const custom: {
+      references?: Reference[];
+      requestMode?: "act" | "plan";
+    } = {};
+    if (references.length > 0) {
+      custom.references = references;
+    }
+    if (requestMode) {
+      custom.requestMode = requestMode;
+    }
     composerRuntime.setText(text);
     composerRuntime.setRunConfig(
-      references.length > 0 ? { custom: { references } } : {},
+      Object.keys(custom).length > 0 ? { custom } : {},
     );
     return { text, references };
-  }, [composerRuntime, extractComposerPayload]);
+  }, [composerRuntime, execMode, extractComposerPayload]);
 
   const submitComposer = useCallback(
     (intent: ComposerSubmitIntent = "immediate") => {
@@ -1661,6 +1675,12 @@ export function TiptapComposer({
           sendToAgentChat({
             message,
             context: config.getContext(modePrompt),
+            mode:
+              execMode === "plan"
+                ? "plan"
+                : execMode === "build"
+                  ? "act"
+                  : undefined,
             submit: true,
           });
         }

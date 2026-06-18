@@ -627,6 +627,22 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
+/* System-audio toggle sits below the device list, separated by a divider. */
+.row-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 10px 8px 34px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.row-menu-toggle-label {
+  font-size: 13px;
+  color: var(--fg);
+}
+
 .row-menu-check {
   width: 16px;
   display: inline-flex;
@@ -2135,14 +2151,19 @@ body[data-clips-route="recording-pill"] #root {
   transition: width 180ms ease;
 }
 
-.finalizing-sub {
-  grid-column: 1 / -1;
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.65);
-  text-align: left;
-  max-width: 100%;
-  line-height: 1.35;
+.finalizing-progress-fill-indeterminate {
+  width: 42%;
+  animation: finalizing-progress-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes finalizing-progress-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
 }
 
 /* ------------------------------------------------------------------------- */

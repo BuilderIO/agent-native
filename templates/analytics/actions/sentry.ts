@@ -13,6 +13,9 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Sentry projects, frequent issues, issue events, and organization error stats. Use this for Sentry error questions; pass statsPeriod like 7d, 30d, or 1y.",
   schema: z.object({

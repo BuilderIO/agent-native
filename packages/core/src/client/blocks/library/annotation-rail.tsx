@@ -142,8 +142,8 @@ export function AnnotationGutterMarker({
       className={cn(
         "inline-flex size-[15px] shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none tabular-nums transition-colors",
         active
-          ? "bg-amber-500 text-white dark:bg-amber-400 dark:text-amber-950"
-          : "bg-amber-400/25 text-amber-700 dark:bg-amber-300/20 dark:text-amber-300",
+          ? "bg-yellow-400 text-yellow-950 dark:bg-yellow-300 dark:text-yellow-950"
+          : "bg-yellow-300/25 text-yellow-800 dark:bg-yellow-300/16 dark:text-yellow-200",
         className,
       )}
     >
@@ -182,32 +182,32 @@ export function AnnotationCard<A extends RailAnnotation>({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-md transition-colors dark:shadow-black/40",
+        "rounded-lg border px-3.5 py-2.5 shadow-lg shadow-black/10 backdrop-blur-xl transition-colors dark:shadow-black/40",
         active
-          ? "border-amber-400/70 bg-amber-50/95 dark:border-amber-300/60 dark:bg-amber-900/70"
-          : "border-plan-line bg-plan-block hover:border-amber-400/50",
+          ? "border-yellow-300/55 bg-yellow-50/80 dark:border-yellow-200/25 dark:bg-yellow-300/[0.10]"
+          : "border-plan-line bg-plan-block hover:border-yellow-300/45",
         className,
       )}
     >
       <div
         className={cn(
-          "flex flex-wrap gap-x-2 gap-y-0.5",
+          "flex min-w-0 flex-wrap gap-x-2 gap-y-1",
           showMarker ? "items-center" : "items-baseline",
         )}
       >
         {showMarker && (
           <AnnotationGutterMarker marker={item.marker} active={active} />
         )}
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-plan-muted">
           {rangeLabel(item)}
         </span>
         {item.annotation.label && (
-          <span className="text-[13px] font-semibold text-plan-text">
+          <span className="min-w-0 max-w-full flex-1 break-words text-[13px] font-semibold leading-snug text-plan-text [overflow-wrap:anywhere]">
             {item.annotation.label}
           </span>
         )}
       </div>
-      <div className="plan-annotation-note mt-1 text-[13px] leading-relaxed text-plan-text/85">
+      <div className="plan-annotation-note mt-1 break-words text-[13px] leading-relaxed text-plan-text/85 [overflow-wrap:anywhere]">
         {ctx.renderMarkdown ? (
           ctx.renderMarkdown(item.annotation.note)
         ) : (
@@ -275,7 +275,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const portalRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<
-    | { kind: "capture"; top: number; right: number; visible: boolean }
+    | { kind: "capture"; top: number; left: number; visible: boolean }
     | {
         kind: "margin";
         top: number;
@@ -333,10 +333,14 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         setPosition({ kind: "margin", ...next });
         return;
       }
+      const scroll = {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+      };
       setPosition({
         kind: "capture",
-        visible: true,
-        ...resolveAnnotationInlineOverlayPosition(
+        visible: Boolean(portalRect && portalRect.height > 0),
+        ...resolveAnnotationCaptureOverlayPosition(
           {
             right: anchorRect.right,
             top: anchorRect.top,
@@ -344,6 +348,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
           },
           { width, height },
           { width: viewportWidth, height: viewportHeight },
+          scroll,
         ),
       });
     };
@@ -388,9 +393,9 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
         }
       : {
           top: position?.top ?? VIEWPORT_MARGIN,
-          right:
+          left:
             position && position.kind === "capture"
-              ? position.right
+              ? position.left
               : VIEWPORT_MARGIN,
           visibility:
             position?.kind === "capture" && position.visible
@@ -410,7 +415,10 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
             data-annotation-inline-overlay-side={
               position?.kind === "margin" ? position.side : "right"
             }
-            className="pointer-events-none fixed z-50 flex w-[min(20rem,45vw)] flex-col gap-2"
+            className={cn(
+              "pointer-events-none z-50 flex w-[min(20rem,45vw)] flex-col gap-2",
+              mode === "capture" ? "absolute" : "fixed",
+            )}
             style={portalStyle}
           >
             {resolved.map((item) => (
@@ -420,7 +428,7 @@ export function AnnotationInlineOverlayStack<A extends RailAnnotation>({
                 ctx={ctx}
                 active
                 showMarker={showMarker}
-                className="border-amber-400/80 bg-amber-50/95 shadow-lg shadow-black/10 backdrop-blur-md dark:border-amber-300/60 dark:bg-amber-900/70 dark:shadow-black/50"
+                className="border-yellow-300/55 bg-yellow-50/80 shadow-lg shadow-black/10 backdrop-blur-xl dark:border-yellow-200/25 dark:bg-yellow-300/[0.10] dark:shadow-black/50"
               />
             ))}
           </div>,
@@ -460,6 +468,7 @@ export type AnnotationMarginSide = AnnotationSide | "auto";
 const HOVER_CARD_WIDTH = 280;
 const INLINE_OVERLAY_WIDTH = 320;
 const HOVER_CARD_GAP = 12;
+const HOVER_CARD_OVERHANG = 40;
 const VIEWPORT_MARGIN = 8;
 const SCROLL_HOVER_SUPPRESS_MS = 260;
 
@@ -505,6 +514,16 @@ function hoverCardLeftForSide(
     : anchor.codeLeft - HOVER_CARD_GAP - cardWidth;
 }
 
+function hoverCardOverlapLeftForSide(
+  side: AnnotationSide,
+  anchor: AnnotationAnchor,
+  cardWidth: number,
+): number {
+  return side === "right"
+    ? anchor.codeRight - cardWidth + HOVER_CARD_OVERHANG
+    : anchor.codeLeft - HOVER_CARD_OVERHANG;
+}
+
 function hoverCardFitsSide(
   side: AnnotationSide,
   anchor: AnnotationAnchor,
@@ -534,6 +553,25 @@ export function resolveAnnotationInlineOverlayPosition(
       VIEWPORT_MARGIN,
       Math.min(viewport.width - anchor.right, maxRight),
     ),
+  };
+}
+
+export function resolveAnnotationCaptureOverlayPosition(
+  anchor: { right: number; top: number; height: number },
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  scroll: { x: number; y: number } = { x: 0, y: 0 },
+): { top: number; left: number } {
+  const { right } = resolveAnnotationInlineOverlayPosition(
+    anchor,
+    card,
+    viewport,
+  );
+  const left = scroll.x + viewport.width - right - card.width;
+  const rawTop = anchor.top + anchor.height / 2 - card.height / 2;
+  return {
+    top: Math.max(scroll.y + VIEWPORT_MARGIN, scroll.y + rawTop),
+    left,
   };
 }
 
@@ -589,7 +627,7 @@ export function resolveAnnotationHoverCardPosition(
   } = {},
 ): { top: number; left: number } {
   const preferredSide = options.preferredSide ?? "right";
-  const hoverFallbackSide = options.hoverFallbackSide ?? "below";
+  const hoverFallbackSide = options.hoverFallbackSide ?? "right";
   const allowOppositeSideFallback = options.allowOppositeSideFallback ?? true;
   const opposite = oppositeSide(preferredSide);
 
@@ -605,7 +643,7 @@ export function resolveAnnotationHoverCardPosition(
     left = hoverCardLeftForSide(opposite, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
   } else if (hoverFallbackSide === "left" || hoverFallbackSide === "right") {
-    left = hoverCardLeftForSide(hoverFallbackSide, anchor, card.width);
+    left = hoverCardOverlapLeftForSide(hoverFallbackSide, anchor, card.width);
     top = anchor.lineCenter - card.height / 2;
   } else {
     // No clean side gutter → drop below the line, aligned to the code's left.
@@ -697,9 +735,10 @@ export function useAnnotationMarginNotesAvailable({
  * vertically centered on the hovered line — so it never overlaps the code text.
  * If there isn't room to the right, it uses the LEFT of the code block when the
  * card can fit there without covering code. Only when neither side fits does it
- * fall back to BELOW the hovered line (left-aligned to the code block). The card
- * keeps itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so
- * it stays readable; the caller adds the small hover-intent close delay.
+ * overlap the code from the RIGHT edge with a small overhang, so the hover still
+ * reads as an attached overlay instead of a left-aligned card. The card keeps
+ * itself open while hovered (`onMouseEnter`/`onMouseLeave` forwarded) so it stays
+ * readable; the caller adds the small hover-intent close delay.
  */
 export function AnnotationHoverCard<A extends RailAnnotation>({
   item,

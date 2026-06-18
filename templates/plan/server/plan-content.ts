@@ -173,11 +173,27 @@ export function serializePlanContent(content: PlanContentInput): string {
 
 export function normalizePlanContent(
   content: PlanContentInput | undefined,
+  options: { salvageInvalidBlocks?: boolean } = {},
 ): PlanContent | null {
   if (!content) return null;
-  return sanitizePlanContent(
-    planContentSchema.parse(migratePlanContent(content)),
-  );
+  const migrated = migratePlanContent(content);
+  // Recaps degrade gracefully: rather than failing the whole import when one
+  // block the agent authored is invalid, salvage per-block — keep the valid
+  // blocks and substitute an "Unsupported block" placeholder for the bad ones
+  // (same battle-tested path the read flow uses). A few imperfect blocks must
+  // never sink an entire recap, which is informational. Plans stay strict.
+  if (options.salvageInvalidBlocks) {
+    const result = planContentSchema.safeParse(
+      preSanitizePlanContentInput(migrated),
+    );
+    if (result.success) return sanitizePlanContent(result.data);
+    console.warn(
+      "[plan-content] recap import: full parse failed; salvaging per-block so the rest publishes:",
+      result.error.issues.slice(0, 4),
+    );
+    return parsePlanContentWithSalvage(migrated);
+  }
+  return sanitizePlanContent(planContentSchema.parse(migrated));
 }
 
 export function normalizePlanDesignContent(
@@ -1179,7 +1195,7 @@ export function createPrototypePlanContent(
     {
       id: createPlanBlockId("prototype-plan-overview"),
       type: "rich-text",
-      title: "Prototype Plan",
+      title: "Visual Plan",
       editable: true,
       data: {
         markdown: [
@@ -2424,7 +2440,7 @@ export function buildPlanContentHtml(input: {
   repoPath?: string | null;
 }) {
   const planLabel = input.content.prototype
-    ? "Prototype Plan"
+    ? "Visual Plan"
     : input.content.canvas?.title === "UI Flow"
       ? "UI Plan"
       : "Visual Plan";

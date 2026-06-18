@@ -63,6 +63,21 @@ vi.mock("./builtin-tools.js", () => ({
       },
       run: async () => ({ response: "agent answer" }),
     },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: async () => ({ status: "completed", response: "agent answer" }),
+    },
     create_embed_session: {
       tool: {
         description: "Create an embed session",
@@ -629,6 +644,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("echo-thing");
@@ -827,6 +843,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           run: async () => ({ response: "ok" }),
         },
+        ask_app_status: {
+          tool: {
+            description: "Poll a granted workspace app ask",
+          },
+          readOnly: true,
+          run: async () => ({ status: "completed", response: "ok" }),
+        },
         create_embed_session: {
           tool: {
             description: "Create an embed session",
@@ -856,6 +879,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("bloated-widget");
@@ -1166,7 +1190,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for code-oriented OAuth clients unless full catalog is explicit", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-claude-code", {
       clientId: "agent-native-oauth-client-generated-claude-code",
       clientName: "Claude Code",
@@ -1191,9 +1215,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("uses the compact catalog for authenticated non-OAuth callers by default", async () => {
@@ -1213,6 +1238,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("internal-heavy");
@@ -1243,6 +1269,60 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
     );
     expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
+  });
+
+  it("advertises `tool-search` in the compact catalog when it is a registered action", async () => {
+    // Regression guard: `tool-search` is a COMPACT_MCP_APP_CATALOG_BUILTINS
+    // member, so when a template registers a `tool-search` action it must show
+    // up in the default/compact catalog (no full-catalog header). That keeps
+    // the small-by-default catalog non-opaque — the agent can always discover
+    // every other tool on demand via tool-search.
+    const toolSearchConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "tool-search": {
+          tool: {
+            description: "Search for and load app tools on demand.",
+            parameters: {
+              type: "object" as const,
+              properties: { query: { type: "string" } },
+            },
+          },
+          readOnly: true,
+          run: async () => ({ tools: [] }),
+        },
+      },
+    };
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 220,
+        method: "tools/list",
+        params: {},
+      },
+      // Default/compact caller: no full-catalog header.
+      { config: toolSearchConfig },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toContain("tool-search");
+    // It rides alongside the core compact builtins, and the bulky internal
+    // tools are still excluded by the compact catalog.
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "ask_app_status",
+        "create_embed_session",
+        "tool-search",
+      ]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("bloated-widget");
   });
 
   it("keeps the full tool catalog only for explicit code/stdio callers", async () => {
@@ -1523,6 +1603,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
           },
         },
+        "plain-success": {
+          tool: {
+            description: "Plain success",
+          },
+          run: async () => true,
+        },
       },
     };
 
@@ -1564,10 +1650,29 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       );
       expect(brokenCall.error).toBeUndefined();
-      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(brokenCall.result.content[0].text).toBe(
+        "broken-review completed.",
+      );
       expect(
         brokenCall.result._meta?.["openai/outputTemplate"],
       ).toBeUndefined();
+
+      const plainSuccessCall = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 401,
+          method: "tools/call",
+          params: { name: "plain-success", arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
+      );
+      expect(plainSuccessCall.error).toBeUndefined();
+      expect(plainSuccessCall.result.content[0].text).toBe(
+        "plain-success completed.",
+      );
 
       const resources = await callWeb(
         {
@@ -1917,8 +2022,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         label: "Open in Mail",
       },
     });
-    expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
-      "view=thing&id=thing-42",
+    const openLink = out.result._meta["agent-native/openLink"] as Record<
+      string,
+      string
+    >;
+    expect(openLink.desktopUrl).toContain("view=thing&id=thing-42");
+    expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
+      openLink.webUrl,
     );
   });
 
@@ -2028,6 +2138,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       desktopUrl:
         "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
+    expect(
+      new URL(
+        (out.result._meta["agent-native/openLink"] as Record<string, string>)
+          .vscodeUrl,
+      ).searchParams.get("url"),
+    ).toBe("https://mail.agent-native.com/inbox");
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",

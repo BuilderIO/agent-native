@@ -188,6 +188,27 @@ await putSetting("observability-config", {
 
 The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
 
+## OpenTelemetry spans {#otel}
+
+Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
+
+This layer is **optional and no-op by default**:
+
+- `@opentelemetry/api` is an **optional dependency**. If it isn't installed, the helpers degrade to silent no-ops — nothing here ever throws into the agent loop.
+- Even when the api package _is_ present, it ships a default no-op tracer. Spans only become real once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does **not** depend on the heavy SDK/exporter packages or register a provider itself — instrumentation is opt-in by the embedding app.
+
+So the cost when you haven't wired OTel is a couple of cached property reads per call. To turn it on, install the api package plus your SDK and register a provider at server startup the same way you would for any other Node service.
+
+The agent loop emits three span kinds:
+
+| Span        | When                       | Attributes                                                        |
+| ----------- | -------------------------- | ----------------------------------------------------------------- |
+| `agent.run` | once per agent run         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
+| `llm.call`  | per model call             | timing + OK/error status                                          |
+
+Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+
 ## Error reporting (Sentry) {#sentry}
 
 Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.

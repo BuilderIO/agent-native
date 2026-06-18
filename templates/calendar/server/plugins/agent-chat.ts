@@ -56,24 +56,56 @@ registerEvent({
   }),
 });
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-events",
+  "search-events",
+  "get-event",
+  "create-event",
+  "update-event",
+  "delete-event",
+  "rsvp-event",
+  "check-availability",
+  "find-a-time",
+  "search-people",
+  "navigate",
+  "list-booking-links",
+  "create-booking-link",
+  "update-booking-link",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
 export default createAgentChatPlugin({
   appId: "calendar",
+  initialToolNames: INITIAL_TOOL_NAMES,
+  // Enable sandboxed JavaScript execution so Calendar agents can fetch,
+  // paginate, and reduce provider data through providerFetch() without us
+  // hardcoding one action per Google Calendar / CRM endpoint.
+  codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
-  systemPrompt: `You are an AI calendar assistant. You manage the user's Google Calendar events, bookings, and availability.
+  systemPrompt: `You are an AI calendar assistant. You manage the user's Google Calendar events, bookings, availability, and connected provider data.
 
-## CRITICAL: Use Scripts, Not Raw SQL
+Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
-Google Calendar events are NOT stored in the local database. They are fetched live from Google Calendar API via scripts. You MUST use the following scripts — never use db-query or db-exec for calendar operations:
+## Critical: Use Actions And Provider APIs, Not Raw SQL
+
+Google Calendar events are NOT stored in the local database. They are fetched live from Google Calendar API via actions. Never use db-query or db-exec for calendar operations.
+
+Provider-specific Calendar actions are shortcuts, not limits. If a first-class action cannot express the exact Google Calendar/CRM endpoint, calendar id, filter, request body, pagination mode, attendee search, recurrence field, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Calendar cannot do something the underlying API can do.
 
 - \`pnpm action view-screen\` — See what the user is looking at (current view, date, events). ALWAYS run this first.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
-- \`pnpm action search-events --query "term"\` — Search events by title, people, organizer, location, or description across a broad one-year past/future window. Use this for recurring meetings and "how often do I meet with X?" questions.
+- \`pnpm action search-events --query "term" --from YYYY-MM-DD --to YYYY-MM-DD\` — Convenience bounded search by title, attendees, organizer, location, or description. For relationship history, all-calendar discovery, exact attendee/domain search, or custom pagination, prefer provider-api-request with provider=google_calendar.
+- \`pnpm action provider-api-catalog\` / \`provider-api-docs\` / \`provider-api-request\` — Inspect and call the real Google Calendar, Apollo, Gong, HubSpot, and Pylon APIs directly. For Google Calendar events.list pagination use provider=google_calendar, path=/calendars/primary/events, query={...}, fetchAllPages={cursorPath:"nextPageToken",cursorParam:"pageToken",itemsPath:"items"}. For large relationship-history scans, pass stageAs and pagination={nextCursorPath:"nextPageToken",cursorParam:"pageToken",maxPages:N} with itemsPath="items", then use query-staged-dataset.
 - \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event. Use \`--eventType outOfOffice\` for OOO, \`--eventType focusTime\` for focus time, \`--eventType workingLocation\` for working location, \`--transparency transparent\` to show as Free, \`--visibility private\` for private events, \`--startTimeZone America/Los_Angeles\` for timezone anchoring, \`--colorId 9\` for Google event color, \`--reminders '[{"method":"popup","minutes":10}]'\` for alerts, and \`--attachments '[{"fileUrl":"https://...","title":"Agenda"}]'\` for Drive/HTTPS file links.
-- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10 --scope single|all\` — Update event availability, visibility, reminders, timezone, color, attachments, recurrence, or generated video links. Use \`--scope all\` to update an entire recurring series from one occurrence.
+- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10 --addAttendees "alice@example.com" --scope single|all\` — Update event availability, visibility, reminders, timezone, color, attachments, recurrence, guests, or generated video links. Use \`addAttendees\` when inviting more people so existing RSVP metadata is preserved. Use \`--scope all\` to update an entire recurring series from one occurrence.
 - \`pnpm action navigate --view=calendar --calendarViewMode=day\` — Navigate the UI (day/week/month views, dates)
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings
@@ -82,7 +114,8 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action update-calendar-visual-preferences --colorMode single --singleColor '#5B9BD5'\` — Use one local display color for the user's Google events
 - \`pnpm action check-availability --date YYYY-MM-DD --duration 60\` — Check free slots
 - \`pnpm action list-booking-links\` — List existing booking links
-- \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30\` — Create a booking link
+- \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30 --hosts "brent@example.com"\` — Create a booking link; hosts are optional required co-hosts besides the owner
+- \`pnpm action update-booking-link --id <id> --title "Meeting" --slug meeting --duration 30 --hosts "brent@example.com"\` — Update a booking link, including required co-hosts
 - \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
 
 ## Local UI Visual Preferences vs Google Calendar Event Color
@@ -91,7 +124,7 @@ Use \`create-event\` or \`update-event --colorId 1..11\` when the user wants one
 ## Google Connection Check
 Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
 
-For relationship-frequency questions such as "how often do I meet with Mattel?", use search-events with the person's or company's name so recurring series outside the current visible range are included. Do not conclude there are no recurring meetings from a narrow date window alone.
+For relationship-history or frequency questions such as "who have I met at Adobe?" or "how often do I meet with Mattel?", prefer the raw Google Calendar API through provider-api-request so you can choose the exact timeMin/timeMax, q, calendarId, maxResults, and pageToken behavior. Stage large paginated results before analysis. Do not conclude there are no recurring meetings from the visible range or from a convenience action alone.
 
 ## Context Awareness
 The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.
@@ -103,6 +136,7 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
       await import("../db/schema.js");
     const { like, desc, and, inArray } = await import("drizzle-orm");
     const { accessFilter } = await import("@agent-native/core/sharing");
+    const { parseBookingHosts } = await import("../lib/booking-link-utils.js");
     return {
       bookings: {
         label: "Bookings",
@@ -157,14 +191,20 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
                 .where(access)
                 .orderBy(desc(bookingLinks.updatedAt))
                 .limit(15);
-          return rows.map((link) => ({
-            id: link.id,
-            label: link.title,
-            description: `${link.duration}min · /${link.slug}`,
-            icon: "document" as const,
-            refType: "booking-link",
-            refId: link.id,
-          }));
+          return rows.map((link) => {
+            const hostCount =
+              parseBookingHosts(link.hosts, link.ownerEmail).length + 1;
+            const hostLabel =
+              hostCount > 1 ? `${hostCount} required hosts` : "one-on-one";
+            return {
+              id: link.id,
+              label: link.title,
+              description: `${link.duration}min · ${hostLabel} · /${link.slug}`,
+              icon: "document" as const,
+              refType: "booking-link",
+              refId: link.id,
+            };
+          });
         },
       },
     };

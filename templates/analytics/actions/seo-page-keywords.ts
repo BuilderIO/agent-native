@@ -3,6 +3,9 @@ import { z } from "zod";
 import { getRankedKeywordsForPage } from "../server/lib/dataforseo";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description: "Get the top ranked keywords for a specific blog page by slug.",
   schema: z.object({
     slug: z

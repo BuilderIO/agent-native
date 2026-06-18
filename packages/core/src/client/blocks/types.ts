@@ -127,8 +127,8 @@ export interface BlockRenderContext {
     hoverSide?: "left" | "right";
     /**
      * Final hover fallback when neither side has a clean gutter. `"below"` keeps
-     * the legacy line-below behavior; `"left"`/`"right"` clamp the card to that
-     * viewport side, even if it overlaps part of the code surface.
+     * the legacy line-below behavior; `"left"`/`"right"` overlap the card from
+     * that code edge with a small overhang.
      */
     hoverFallbackSide?: "left" | "right" | "below";
     /** Show all annotation cards by default when the requested margin fits. */

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconUsers,
@@ -6,6 +6,7 @@ import {
   IconPlus,
   IconMenu2,
   IconX,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { Button } from "@/components/ui/button";
@@ -24,9 +25,17 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +89,19 @@ export function Sidebar() {
         "Create the form using the create-form script with appropriate title, description, and fields. After creating, tell the user the form name and a summary of the fields.",
     });
     promptRun.trackRun(trimmed, tabId);
+  }
+
+  function navigateHomeChat(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    if (isMobile) setMobileOpen(false);
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
+  }
+
+  function toggleLogoView() {
+    if (isMobile) setMobileOpen(false);
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
   }
 
   const newFormButton = (
@@ -154,25 +176,35 @@ export function Sidebar() {
     >
       {/* Header */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <Link
-          to="/forms"
-          className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
-          onClick={() => isMobile && setMobileOpen(false)}
-        >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          Forms
-        </Link>
+        <TooltipProvider delayDuration={700}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open Ask Forms full screen"
+                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleLogoView}
+              >
+                <img
+                  src={appPath("/agent-native-icon-light.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src={appPath("/agent-native-icon-dark.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+                <span className="truncate">Forms</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              Open Ask Forms full screen
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {isMobile && (
           <Button
             variant="ghost"
@@ -185,8 +217,27 @@ export function Sidebar() {
         )}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="py-2">
+      <ScrollArea className="min-h-0 min-w-0 flex-1">
+        <div
+          className={cn(
+            "min-w-0 max-w-full overflow-hidden py-2",
+            isMobile ? "w-full" : "w-60",
+          )}
+        >
+          <Link
+            to="/"
+            onClick={navigateHomeChat}
+            className={cn(
+              "flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm min-h-[44px]",
+              location.pathname === "/"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            )}
+          >
+            <IconMessageCircle size={14} className="shrink-0" />
+            <span className="min-w-0 flex-1 basis-0 truncate">Ask Forms</span>
+          </Link>
+
           {formsLoading && forms.length === 0
             ? Array.from({ length: 5 }).map((_, i) => (
                 <div
@@ -211,11 +262,12 @@ export function Sidebar() {
                 to={`/forms/${form.id}`}
                 onClick={() => isMobile && setMobileOpen(false)}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+                  "flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm min-h-[44px]",
                   isActive
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
+                title={form.title || "Untitled Form"}
               >
                 <span
                   className={cn(
@@ -223,7 +275,7 @@ export function Sidebar() {
                     isActive ? "bg-accent-foreground" : statusDots[form.status],
                   )}
                 />
-                <span className="truncate">
+                <span className="min-w-0 flex-1 basis-0 truncate">
                   {form.title || "Untitled Form"}
                 </span>
               </Link>

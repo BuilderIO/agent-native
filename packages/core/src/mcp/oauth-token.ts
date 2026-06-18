@@ -85,10 +85,10 @@ export async function signMcpOAuthAccessToken(params: {
   jti?: string;
   expiresIn?: string | number;
   /**
-   * When `"full"`, embed a `catalog_scope: "full"` custom claim so that on
-   * hosted multi-tenant deployments (AGENT_NATIVE_CONNECTOR_CATALOG=1) this
-   * token bypasses the connector-catalog tier filter. Used when the connect
-   * flow is initiated with `--full-catalog`.
+   * When `"full"`, embed a `catalog_scope: "full"` custom claim so this token
+   * bypasses the compact/connector-catalog tier filter (active by default
+   * whenever a `connectorCatalog` is declared). Used when the connect flow is
+   * initiated with `--full-catalog`.
    */
   catalogScope?: "full";
 }): Promise<string> {
@@ -152,7 +152,8 @@ export async function verifyMcpOAuthAccessToken(
   clientId: string;
   jti?: string;
   /** Present when the token was minted with `--full-catalog`; bypasses the
-   *  connector-catalog tier filter on hosted multi-tenant deployments. */
+   *  compact/connector-catalog tier filter (active by default whenever a
+   *  `connectorCatalog` is declared) for this caller. */
   catalogScope?: "full";
 } | null> {
   const audiences = buildAudienceList(resource);

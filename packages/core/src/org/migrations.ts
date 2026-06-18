@@ -55,4 +55,10 @@ export const ORG_MIGRATIONS = [
     version: 1007,
     sql: `CREATE INDEX IF NOT EXISTS org_members_lower_email_idx ON org_members (LOWER(email))`,
   },
+  {
+    // Domain join and org resolution query `LOWER(allowed_domain)`.
+    // Keep that opt-in lookup indexed before it appears on any request path.
+    version: 1008,
+    sql: `CREATE INDEX IF NOT EXISTS organizations_lower_allowed_domain_idx ON organizations (LOWER(allowed_domain))`,
+  },
 ];

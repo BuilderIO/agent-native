@@ -600,15 +600,25 @@ export async function listEvents(
   const allResults = await Promise.all(
     clients.map(async ({ email, accessToken }) => {
       try {
-        const response = await calendarListEvents(accessToken, "primary", {
-          timeMin,
-          timeMax,
-          singleEvents: true,
-          orderBy: "startTime",
-          eventTypes: LIST_EVENT_TYPES,
-        });
+        const events: any[] = [];
+        let pageToken: string | undefined;
+        do {
+          const response = await calendarListEvents(accessToken, "primary", {
+            timeMin,
+            timeMax,
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 2500,
+            pageToken,
+            eventTypes: LIST_EVENT_TYPES,
+          });
+          events.push(...(response.items || []));
+          pageToken =
+            typeof response.nextPageToken === "string"
+              ? response.nextPageToken
+              : undefined;
+        } while (pageToken);
 
-        const events = response.items || [];
         return events.map((event: any) => {
           // Find the current user's RSVP status from attendees
           const selfAttendee = event.attendees?.find(
@@ -1007,6 +1017,7 @@ export async function updateEvent(
   htmlLink?: string;
   meetLink?: string;
   conferenceData?: CalendarEvent["conferenceData"];
+  attendees?: CalendarEvent["attendees"];
 }> {
   const client = await getClient(event.accountEmail);
   if (!client) {
@@ -1103,6 +1114,14 @@ export async function updateEvent(
     htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),
+    attendees: response?.attendees?.map((a: any) => ({
+      email: a.email,
+      displayName: a.displayName || undefined,
+      comment: a.comment || undefined,
+      responseStatus: a.responseStatus || undefined,
+      organizer: a.organizer || undefined,
+      self: a.self || undefined,
+    })),
   };
 }
 

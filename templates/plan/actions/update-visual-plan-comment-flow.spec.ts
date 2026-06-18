@@ -30,6 +30,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
+  isNull: (...args: unknown[]) => ({ op: "isNull", args }),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => ({
@@ -74,6 +75,7 @@ vi.mock("../server/db/index.js", () => ({
       authorEmail: "planComments.authorEmail",
       resolutionTarget: "planComments.resolutionTarget",
       mentionsJson: "planComments.mentionsJson",
+      deletedAt: "planComments.deletedAt",
     },
     planEvents: {},
   },

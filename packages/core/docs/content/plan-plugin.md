@@ -37,8 +37,39 @@ the Plan MCP connector. They write `plans/<slug>/plan.mdx` plus optional
 `canvas.mdx`, `prototype.mdx`, and `.plan-state.json`, then preview locally with:
 
 ```bash
-npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind plan
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
 ```
+
+This starts a tiny localhost bridge and opens the Plan UI against the local
+folder. (`plan local preview` runs a local Plan dev-server route instead, and
+`plan local preview --out preview.html` is a legacy escape hatch that writes a
+standalone static HTML file. `plan serve` is accepted as a short alias for
+`plan local serve`.)
+
+A few local-files-mode gotchas worth knowing:
+
+- **Use a Chromium browser.** Safari blocks the hosted HTTPS Plan page from
+  reading the `http://127.0.0.1` localhost bridge (mixed-content / private
+  network), so the page hangs on "Loading plan." On macOS `--open` already
+  prefers Chrome/Chromium/Edge/Brave; if Safari opens anyway, reopen the printed
+  URL in a Chromium browser.
+- **The served URL is written to `plans/<slug>/.plan-url`** (override with
+  `--url-file`). A backgrounded or headless agent can read that file instead of
+  scraping the long-running `serve` stdout. Treat it as a local token file and
+  do not commit it.
+- **Verify headlessly** when no browser is available:
+  `npx @agent-native/core@latest plan local verify --dir plans/<slug>` starts the
+  bridge, checks the private-network preflight and JSON payload, prints
+  diagnostics, and exits non-zero on failure — no human eyes required.
+- **Run `plan local check` first.** It validates the MDX against the Plan
+  renderer's block schema (including required fields like `checklist` item
+  `id`/`label` and `question-form` question `id`/`title`/`mode`), so authoring
+  mistakes surface before the browser handoff instead of as a stuck loader.
+
+For folders in the current repo, the direct local route includes `?path=...` so
+the local Plan app can keep browser edits saving to the repo folder. The Plan
+app uses `apps.plan.roots[0].path` in `agent-native.json` as the default place
+to save promoted local plans, falling back to `plans/`.
 
 This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
 comments, screenshots, and plan history are unavailable until you explicitly
@@ -54,7 +85,7 @@ is no Plan DB writes.
 
 ## Install routes {#install}
 
-There are three ways in. The **universal CLI route** is the one we recommend by default, because it installs the skills **and** registers and authenticates the MCP connector in a single step. The plugin routes are for hosts with a first-class plugin/marketplace system.
+There are three ways in. The **universal CLI route** is the one we recommend by default, because it installs the skills **and** lets you choose hosted, local-files, or self-hosted mode in one flow. The plugin routes are for hosts with a first-class plugin/marketplace system and use hosted Plans by default.
 
 ### Universal skill route (any MCP host) {#universal}
 
@@ -68,6 +99,7 @@ This installs `visual-plan` plus the companion `visual-recap` skill, then regist
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — which local agents to write the MCP config for (default `all`).
 - `--no-connect` — register the connector without authenticating; run `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` later, or choose a narrower `--client`.
+- `--mode hosted|local-files|self-hosted` — choose hosted sharing, all-local MDX files, or your own Plan app.
 - `--mcp-url <url>` — point the connector at a custom origin (an ngrok tunnel, a local dev server, or a self-hosted deployment) instead of the hosted default.
 - `--with-github-action` — also write the PR Visual Recap GitHub Action (see [PR Visual Recap](/docs/pr-visual-recap)).
 
@@ -99,7 +131,7 @@ The public `BuilderIO/agent-native` repo is itself a Claude Code plugin marketpl
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` adds both Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake.
+`/plugin install` adds both Plan skills and a **URL-only** MCP config (no secrets in the package); `/mcp` → **Authenticate** completes the OAuth handshake. Use the universal CLI route instead when you want local-files or self-hosted mode.
 
 > The marketplace catalog is named `agent-native-apps` and the Plan plugin is `agent-native-visual-plans`, so the install target is always `agent-native-visual-plans@agent-native-apps`.
 
@@ -113,7 +145,7 @@ codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth in the browser
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together, or when you want local-files or self-hosted mode.
 
 > **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
 

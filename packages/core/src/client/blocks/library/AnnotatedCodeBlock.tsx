@@ -199,7 +199,7 @@ function AnnotatedCodeRead({
   const annotationLayout = ctx.codeAnnotationLayout;
   const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
   const annotationHoverFallbackSide =
-    annotationLayout?.hoverFallbackSide ?? "below";
+    annotationLayout?.hoverFallbackSide ?? "right";
   const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
   const showMarginAnnotations = useAnnotationMarginNotesAvailable({
     containerRef: codeRef,
@@ -213,6 +213,10 @@ function AnnotatedCodeRead({
   });
   const showPersistentAnnotations =
     showAnnotationOverlays || showMarginAnnotations;
+  const captureOverlayAnnotationIndex = useMemo(
+    () => resolved.find((item) => item.range)?.index ?? null,
+    [resolved],
+  );
   const langChip = data.language?.trim();
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
@@ -245,7 +249,12 @@ function AnnotatedCodeRead({
       activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
     const overlayItems =
       showPersistentAnnotations && markers
-        ? markers.filter((item) => item.range?.start === lineNo)
+        ? markers.filter(
+            (item) =>
+              item.range?.start === lineNo &&
+              (!showAnnotationOverlays ||
+                item.index === captureOverlayAnnotationIndex),
+          )
         : [];
 
     const buildAnchorForRow = (el: HTMLElement) => {
@@ -270,11 +279,11 @@ function AnnotatedCodeRead({
           "relative flex w-full",
           isAnnotated && "cursor-pointer",
           isActive
-            ? "bg-amber-400/20 dark:bg-amber-300/15"
+            ? "bg-amber-400/[0.12] dark:bg-amber-300/[0.10]"
             : isAnnotated && showAnnotationOverlays
-              ? "bg-amber-300/25 dark:bg-amber-300/15"
+              ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
               : isAnnotated
-                ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
+                ? "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]"
                 : null,
         )}
         onMouseEnter={
@@ -320,10 +329,10 @@ function AnnotatedCodeRead({
             "w-[3px] shrink-0 self-stretch",
             isAnnotated
               ? isActive
-                ? "bg-amber-500 dark:bg-amber-400"
+                ? "bg-amber-500/80 dark:bg-amber-400/70"
                 : showAnnotationOverlays
-                  ? "bg-amber-500/90 dark:bg-amber-300/70"
-                  : "bg-amber-400/45 dark:bg-amber-300/35"
+                  ? "bg-amber-500/55 dark:bg-amber-300/45"
+                  : "bg-amber-400/30 dark:bg-amber-300/25"
               : null,
           )}
         />

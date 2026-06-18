@@ -17,6 +17,12 @@ Detailed document editing, Notion, storage, and UI rules live in
   from `process.env`, never save a user-entered Notion token through
   `/_agent-native/env-vars`, and require editor access for routes that pull or
   push Notion content.
+- Treat Notion workflow actions as shortcuts, not capability limits. When the
+  exact Notion endpoint/filter/pagination/API version matters, use
+  `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
+  against the real Notion API. The provider API resolves auth from the user's
+  Notion OAuth connection, never from `NOTION_API_KEY`. For large scans, stage
+  results with `stageAs` and analyze them with `query-staged-dataset`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
 - For cross-app or Slack artifact requests, create/update the document artifact
@@ -233,6 +239,11 @@ explicit sync action.
 | `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
 | `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
 | `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
+
+Use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
+for Notion endpoints, filters, pagination modes, payload shapes, or API
+versions that these workflow actions do not model. Use `stageAs` plus
+`query-staged-dataset` for large Notion searches or database queries.
 
 ### Comments
 

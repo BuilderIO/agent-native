@@ -2,7 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
-import type { BookingLink, ConferencingConfig, CustomField } from "@shared/api";
+import type {
+  BookingHost,
+  BookingLink,
+  ConferencingConfig,
+  CustomField,
+} from "@shared/api";
 
 const LIST_KEY = ["action", "list-booking-links", undefined] as const;
 
@@ -35,6 +40,7 @@ export function useCreateBookingLink() {
     Pick<BookingLink, "title" | "slug" | "duration"> & {
       description?: string;
       durations?: number[];
+      hosts?: BookingHost[];
       customFields?: CustomField[];
       conferencing?: ConferencingConfig;
       color?: string;
@@ -56,6 +62,7 @@ export function useCreateBookingLink() {
         description: input.description,
         duration: input.duration,
         durations: input.durations,
+        hosts: input.hosts,
         customFields: input.customFields,
         conferencing: input.conferencing,
         color: input.color,
@@ -91,27 +98,17 @@ export function useCreateBookingLink() {
 
 export function useUpdateBookingLink() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (
-      data: Pick<
-        BookingLink,
-        "id" | "title" | "slug" | "duration" | "isActive"
-      > & {
-        description?: string;
-        durations?: number[];
-        customFields?: CustomField[];
-        conferencing?: ConferencingConfig;
-        color?: string;
-      },
-    ) => {
-      const res = await fetch(appApiPath(`/api/booking-links/${data.id}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to update booking link");
-      return res.json() as Promise<BookingLink>;
-    },
+  return useActionMutation<
+    BookingLink,
+    Pick<BookingLink, "id" | "title" | "slug" | "duration" | "isActive"> & {
+      description?: string;
+      durations?: number[];
+      hosts?: BookingHost[];
+      customFields?: CustomField[];
+      conferencing?: ConferencingConfig;
+      color?: string;
+    }
+  >("update-booking-link", {
     onSuccess: (updated) => {
       queryClient.setQueryData<BookingLink[]>(LIST_KEY, (current = []) =>
         current.map((link) => (link.id === updated.id ? updated : link)),

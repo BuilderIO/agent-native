@@ -13,6 +13,9 @@ Detailed library, generation, image, embed, and engine rules live in
 - Use actions for asset lifecycle, generation, library organization, uploads,
   embeds, notifications, progress, sharing, and collaboration. Do not bypass
   access checks.
+- Use `duplicate-library` when a user wants a Brand Kit copy. The action creates
+  a private, current-user-owned copy with durable kit contents remapped, without
+  copying shares, visibility, generation runs, or handoff sessions.
 - Use the configured generation/engine path for image and asset work. Do not add
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.

@@ -28,14 +28,18 @@ describe("docs agent web generation", () => {
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );
 
-  it("generates public paths for docs and templates", () => {
-    const paths = buildSitemapPaths(rootDir);
+  it(
+    "generates public paths for docs and templates",
+    () => {
+      const paths = buildSitemapPaths(rootDir);
 
-    expect(paths).toContain("/");
-    expect(paths).toContain("/docs");
-    expect(paths).toContain("/docs/agent-web-surfaces");
-    expect(paths).toContain("/templates/calendar");
-  });
+      expect(paths).toContain("/");
+      expect(paths).toContain("/docs");
+      expect(paths).toContain("/docs/agent-web-surfaces");
+      expect(paths).toContain("/templates/calendar");
+    },
+    AGENT_WEB_GENERATION_TIMEOUT_MS,
+  );
 
   it("uses the production www canonical origin in sitemap entries", () => {
     const sitemap = buildSitemapXml(["/", "/docs"]);

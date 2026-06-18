@@ -19,9 +19,9 @@ export default defineAction({
   readOnly: true,
   run: async ({ provider }) => {
     return {
-      providers: listProviderApiCatalog(provider),
+      providers: await listProviderApiCatalog(provider),
       guidance:
-        "Brain source sync and retrieval actions are convenience readers, not capability limits. When a question needs an endpoint, object type, filter, pagination mode, or API version that a source action does not model, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body.",
+        "Brain source sync and retrieval actions are convenience readers, not capability limits. When a question needs an endpoint, object type, filter, pagination mode, or API version that a source action does not model, inspect docs/spec URLs here and call provider-api-request with the exact provider API method/path/query/body. For broad searches, joins, classification, or absence claims, stage or save the full bounded corpus and reduce it with query-staged-dataset or run-code.",
     };
   },
 });

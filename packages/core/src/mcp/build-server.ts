@@ -38,6 +38,7 @@ import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
+  toVsCodeOpenUrl,
 } from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
@@ -112,20 +113,22 @@ export interface MCPConfig {
    * Curated allow-list of action names served to **external connector** clients
    * on a hosted multi-tenant deployment.
    *
-   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
-   * the MCP server trims both the advertised tool list *and* the callable
+   * Whenever this list is non-empty it is active by default for **every**
+   * caller — hosted connectors, code/stdio clients, and the local CLI alike.
+   * The MCP server trims both the advertised tool list *and* the callable
    * surface to exactly these names (plus any builtin cross-app tools such as
    * `list_apps` / `open_app`). Any tool call for a name **not** in the list is
    * rejected — it is not merely hidden. This prevents the ~105-tool full
    * catalog from landing in every external agent's context window and removes
    * footguns (db-exec, seed-*, extension tools, browser-session tools, etc.)
-   * from multi-tenant hosted connectors.
+   * from connectors. It is no longer gated behind an environment variable, and
+   * the catalog is never inferred from the client name/user-agent.
    *
-   * Callers who need the full surface can opt up with
-   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT. Local/dev deployments without
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` are unaffected — they always see the
-   * full surface.
+   * `tool-search` stays available in the compact catalog so any trimmed tool is
+   * reachable on demand. Callers who need the full surface up front opt in
+   * explicitly with `agent-native connect --full-catalog` (embeds a
+   * `catalog_scope: "full"` claim in the connect-minted JWT) or the
+   * deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
    * Declare this in your template's `createAgentChatPlugin` options rather than
    * setting it on `MCPConfig` directly; the plugin copies it through.
@@ -199,7 +202,12 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
   "ask_app",
+  "ask_app_status",
   "create_embed_session",
+  // `tool-search` MUST stay in every compact/connector surface: it is how a
+  // compacted client discovers and loads any action on demand, which is what
+  // makes "small catalog by default" safe instead of limiting.
+  "tool-search",
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
@@ -220,77 +228,43 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   return false;
 }
 
-const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
-const NON_APP_OAUTH_CLIENT_RE =
-  /\b(code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
-const MCP_APP_OAUTH_REDIRECT_HOST_RE =
-  /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
-const FULL_CATALOG_CLIENT_RE =
-  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
-
-async function isKnownMcpAppOAuthClient(
-  identity: MCPCallerIdentity | undefined,
-): Promise<boolean> {
-  const clientId = identity?.oauthClientId?.trim();
-  if (!clientId) return false;
-
-  function isKnownAppClientName(value: string | undefined | null): boolean {
-    if (!value) return false;
-    return (
-      MCP_APP_OAUTH_CLIENT_RE.test(value) &&
-      !NON_APP_OAUTH_CLIENT_RE.test(value)
-    );
-  }
-
-  function isKnownNonAppClientName(value: string | undefined | null): boolean {
-    return Boolean(value && NON_APP_OAUTH_CLIENT_RE.test(value));
-  }
-
-  function isKnownMcpAppRedirectUri(uri: string): boolean {
-    try {
-      const url = new URL(uri);
-      return (
-        url.protocol === "https:" &&
-        MCP_APP_OAUTH_REDIRECT_HOST_RE.test(url.hostname)
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  if (isKnownAppClientName(clientId)) return true;
-  if (isKnownNonAppClientName(clientId)) return false;
-
-  try {
-    const { getOAuthClient } = await import("./oauth-store.js");
-    const client = await getOAuthClient(clientId);
-    // If the token carries an OAuth client id but its registration is missing,
-    // keep the model on the compact MCP Apps surface instead of exposing every
-    // private action/schema.
-    if (!client) return true;
-    if (isKnownAppClientName(client.clientName)) return true;
-    if (isKnownNonAppClientName(client.clientName)) return false;
-    if (client.redirectUris.some(isKnownMcpAppRedirectUri)) return true;
-    // Most OAuth hosts are UI-oriented MCP clients. Preserve the full catalog
-    // only for known code/CLI clients so unknown browser hosts cannot trigger
-    // massive resources/list payloads.
-    return true;
-  } catch {
-    // On metadata lookup errors, fail compact instead of falling back to the
-    // full action surface; ChatGPT/Claude old tokens otherwise get huge lists.
-    return true;
-  }
-}
-
 function explicitlyRequestsFullMcpCatalog(
   requestMeta: MCPRequestMeta | undefined,
 ): boolean {
+  // Full catalog is a deliberate, rare opt-in — NEVER a default, and NEVER
+  // inferred from the client name / user-agent. It is reached only by an
+  // explicit deployment env or a token minted with
+  // `agent-native connect --full-catalog` (which embeds `catalog_scope: "full"`,
+  // surfaced here as requestMeta.fullCatalog). Dumping ~105 tool schemas
+  // (100k+ tokens) into a context window just because a client called itself
+  // "code"/"cursor"/"codex" was a recurring footgun. Everything else gets the
+  // connector/compact catalog plus `tool-search`, which keeps every tool
+  // reachable on demand.
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
-  if (requestMeta?.fullCatalog === true) return true;
-  if (requestMeta?.clientHint) {
-    return FULL_CATALOG_CLIENT_RE.test(requestMeta.clientHint);
-  }
-  return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
+  return requestMeta?.fullCatalog === true;
+}
+
+const warnedFullCatalogKeys = new Set<string>();
+
+/**
+ * Loud, deduped warning emitted whenever the full MCP catalog is actually
+ * served. Full catalog is a deliberate, rare opt-in (env or a `--full-catalog`
+ * token claim); logging it makes an accidental ~100k-token tool dump visible
+ * instead of silent, so a regression can't quietly reintroduce the footgun.
+ */
+function warnFullCatalogServed(toolCount: number): void {
+  const source =
+    process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1"
+      ? "AGENT_NATIVE_MCP_FULL_CATALOG=1"
+      : "a token minted with --full-catalog (catalog_scope:full)";
+  const key = `${source}:${toolCount}`;
+  if (warnedFullCatalogKeys.has(key)) return;
+  warnedFullCatalogKeys.add(key);
+  console.warn(
+    `[agent-native] Serving the FULL MCP tool catalog (${toolCount} tools) via ${source}. ` +
+      `This is a large context payload meant to be a rare, explicit opt-in — most ` +
+      `clients should use the default compact/connector catalog + tool-search instead.`,
+  );
 }
 
 /**
@@ -304,20 +278,6 @@ function isActionInConnectorCatalog(name: string, config: MCPConfig): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (!Array.isArray(config.connectorCatalog)) return false;
   return config.connectorCatalog.includes(name);
-}
-
-function shouldUseCompactMcpCatalogByDefault(
-  identity: MCPCallerIdentity | undefined,
-  requestMeta: MCPRequestMeta | undefined,
-): boolean {
-  if (explicitlyRequestsFullMcpCatalog(requestMeta)) return false;
-  // OAuth callers are classified through `isKnownMcpAppOAuthClient`: unknown
-  // OAuth clients compact by default, while known code/CLI clients stay full.
-  if (identity?.oauthClientId) return false;
-  // A real authenticated remote HTTP caller with no OAuth client metadata is
-  // usually a chat-host static-token connector. Keep it on the app-facing
-  // verbs so a host cannot dump every action schema into a giant tool card.
-  return requestMeta?.fullSurface === true;
 }
 
 interface ResolvedMcpAppResource {
@@ -550,6 +510,7 @@ function mcpAppEmbedOpenLinkMeta(
             ...(view ? { view } : {}),
             webUrl: safeOpenUrl,
             desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
+            vscodeUrl: toVsCodeOpenUrl(safeOpenUrl),
           },
         }
       : {}),
@@ -644,6 +605,7 @@ export function buildLinkArtifacts(
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
     const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
       block: { type: "text", text: `\n\n[${lk.label} →](${markdownUrl})` },
@@ -653,6 +615,7 @@ export function buildLinkArtifacts(
           view: lk.view,
           webUrl,
           desktopUrl,
+          vscodeUrl,
         },
       },
     };
@@ -1144,6 +1107,50 @@ function conciseMcpAppToolText(
   return `${name} completed.`;
 }
 
+function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function conciseToolResultText(name: string, result: unknown): string {
+  const purged = purgeEmbedStartUrls(result);
+  if (typeof purged === "string") return truncateToolText(purged);
+  if (purged === true || purged == null) return `${name} completed.`;
+  if (purged && typeof purged === "object" && !Array.isArray(purged)) {
+    const record = purged as Record<string, unknown>;
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) {
+      return truncateToolText(message.trim());
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      const titleText = title.trim();
+      return typeof id === "string" && id.trim()
+        ? `${titleText} (${id.trim()}) is ready.`
+        : `${titleText} is ready.`;
+    }
+    if (typeof id === "string" && id.trim()) {
+      return `${name} completed for ${id.trim()}.`;
+    }
+    const link = record.url ?? record.webUrl ?? record.path;
+    if (typeof link === "string" && link.trim()) {
+      return `${name} completed: ${truncateToolText(link.trim(), 500)}`;
+    }
+    if (isSuccessOnlyResult(record)) return `${name} completed.`;
+  }
+  const text = JSON.stringify(purged);
+  return text === undefined ? `${name} completed.` : truncateToolText(text);
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server creation — converts ActionEntry registry to MCP tools
 // ---------------------------------------------------------------------------
@@ -1204,12 +1211,14 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const compactMcpAppCatalog = explicitlyRequestsFullMcpCatalog(requestMeta)
-    ? false
-    : (Array.isArray(effectiveIdentity?.oauthScopes) &&
-        hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-      (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
-      shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
+  const fullCatalogRequested = explicitlyRequestsFullMcpCatalog(requestMeta);
+  // Compact/connector is the DEFAULT for every caller — hosted connectors,
+  // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
+  // full ~105-tool catalog is served only on the explicit opt-in above, so a
+  // host can never dump every action schema into one giant tool card. The
+  // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
+  // opt-in, everyone else does too.
+  const compactMcpAppCatalog = !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -1217,17 +1226,17 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
-  // Connector-catalog tier: on hosted multi-tenant deployments (signalled by
-  // AGENT_NATIVE_CONNECTOR_CATALOG=1) restrict external callers to the
-  // template-declared allow-list unless the token was minted with
-  // --full-catalog (catalog_scope: "full"). This prevents the ~105-tool full
-  // catalog from bloating every external agent's context window and removes
-  // db-exec / seed-* / extension / browser-session footguns.
+  // Connector-catalog tier: when a template declares a connector allow-list,
+  // serve exactly that curated surface (+ cross-app builtins + tool-search) to
+  // external callers unless they explicitly opted into the full catalog. This
+  // is active by default whenever a catalog is declared — no env flag required —
+  // so the ~105-tool full catalog can never leak just because a deployment
+  // forgot to set one. It also keeps db-exec / seed-* / extension /
+  // browser-session footguns off the external surface.
   const connectorCatalogActive =
-    process.env.AGENT_NATIVE_CONNECTOR_CATALOG === "1" &&
     Array.isArray(config.connectorCatalog) &&
     config.connectorCatalog.length > 0 &&
-    !explicitlyRequestsFullMcpCatalog(requestMeta);
+    !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
   // rather than advertisedActionsBeforeConnector. This ensures the connector
   // tier is an independent, template-declared surface that doesn't accidentally
@@ -1240,6 +1249,9 @@ export async function createMCPServerForRequest(
         ),
       )
     : advertisedActionsBeforeConnector;
+  if (fullCatalogRequested) {
+    warnFullCatalogServed(Object.keys(advertisedActions).length);
+  }
   const supportsMcpApps =
     compactMcpAppCatalog ||
     Object.values(advertisedActions).some((entry) =>
@@ -1507,9 +1519,7 @@ export async function createMCPServerForRequest(
             : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : typeof resultForClient === "string"
-            ? (purgeEmbedStartUrls(resultForClient) as string)
-            : JSON.stringify(purgeEmbedStartUrls(resultForClient));
+          : conciseToolResultText(name, resultForClient);
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {
@@ -1806,8 +1816,8 @@ export async function verifyAuth(
   /**
    * The caller explicitly opted up to the full connector catalog by minting
    * their token with `--full-catalog` (or equivalent). When `true`, the
-   * connector-catalog tier filter is bypassed even when
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set. Derived from a
+   * compact/connector-catalog tier filter (active by default whenever a
+   * `connectorCatalog` is declared) is bypassed for this caller. Derived from a
    * `catalog_scope: "full"` claim in the verified A2A/connect JWT.
    */
   fullCatalog?: boolean;

@@ -1,8 +1,10 @@
 import {
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -23,6 +25,7 @@ import type {
 import {
   type CanvasMarkupCreateContext,
   type CanvasMarkupMode,
+  type CanvasViewport,
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
@@ -32,10 +35,16 @@ import {
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
-import {
-  NestedPlanBlocksEditor,
-  PlanDocumentEditor,
-} from "../editor/PlanDocumentEditor";
+
+const loadPlanDocumentEditor = () => import("../editor/PlanDocumentEditor");
+const LazyPlanDocumentEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({ default: mod.PlanDocumentEditor })),
+);
+const LazyNestedPlanBlocksEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({
+    default: mod.NestedPlanBlocksEditor,
+  })),
+);
 
 type PlanContentRendererProps = {
   content: PlanContent;
@@ -65,6 +74,8 @@ type PlanContentRendererProps = {
     annotation: Omit<PlanAnnotation, "id">,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onCanvasViewportChange?: (view: CanvasViewport) => void;
+  onCanvasCommentShortcut?: () => void;
   /** Plan id used to key per-block collaborative editing docs. */
   planId?: string | null;
   /** Current user for collaborative cursor labels. */
@@ -133,6 +144,8 @@ export function PlanContentRenderer({
   editingDisabled = false,
   canvasMarkupMode,
   onCanvasMarkupCreate,
+  onCanvasViewportChange,
+  onCanvasCommentShortcut,
   planId,
   collabUser,
   prototypeOnly = false,
@@ -148,7 +161,7 @@ export function PlanContentRenderer({
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
-      ? "Prototype Plan"
+      ? "Visual Plan"
       : content.canvas?.title === "UI Flow"
         ? "UI Plan"
         : "Visual Plan";
@@ -433,23 +446,40 @@ export function PlanContentRenderer({
           // the stale node's id is gone from the side-map, a permanent
           // "Loading diff block…". Columns already render each region at its own
           // keyed position, so this is a no-op there.
-          <NestedPlanBlocksEditor
-            key={`${containerBlockId}::${regionId}`}
-            blocks={blocks as PlanBlock[]}
-            contentUpdatedAt={contentUpdatedAt}
-            planId={planId}
-            collabUser={collabUser}
-            editable={editable && !handlersRef.current.editingDisabled}
-            onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
-            onVisualQuestionsSubmit={(summary) =>
-              handlersRef.current.onVisualQuestionsSubmit?.(summary)
+          <Suspense
+            fallback={
+              <div className="grid gap-4">
+                {(blocks as PlanBlock[]).map((block) => (
+                  <PlanBlockView
+                    key={block.id}
+                    block={block}
+                    editingDisabled
+                    contentUpdatedAt={contentUpdatedAt}
+                    planId={planId}
+                    collabUser={collabUser}
+                  />
+                ))}
+              </div>
             }
-            notionCompatibleOnly={notionCompatibleOnly}
-            containerBlockId={containerBlockId}
-            regionId={regionId}
-            regionLabel={regionLabel}
-            compactVisuals={compactVisuals}
-          />
+          >
+            <LazyNestedPlanBlocksEditor
+              key={`${containerBlockId}::${regionId}`}
+              blocks={blocks as PlanBlock[]}
+              contentUpdatedAt={contentUpdatedAt}
+              planId={planId}
+              collabUser={collabUser}
+              editable={editable && !handlersRef.current.editingDisabled}
+              onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
+              onVisualQuestionsSubmit={(summary) =>
+                handlersRef.current.onVisualQuestionsSubmit?.(summary)
+              }
+              notionCompatibleOnly={notionCompatibleOnly}
+              containerBlockId={containerBlockId}
+              regionId={regionId}
+              regionLabel={regionLabel}
+              compactVisuals={compactVisuals}
+            />
+          </Suspense>
         ),
         editingDisabled,
         showCodeAnnotationOverlays,
@@ -520,6 +550,10 @@ export function PlanContentRenderer({
     hiddenChangedFileBlockIds,
     hideChangedFiles,
   ]);
+  const blockLookup = useMemo(
+    () => new Map(content.blocks.map((block) => [block.id, block])),
+    [content.blocks],
+  );
 
   /**
    * Map from file path → first block id that references the file. Built from
@@ -603,11 +637,11 @@ export function PlanContentRenderer({
           <PlanVisualSurface
             canvas={content.canvas}
             prototype={content.prototype}
-            blockLookup={
-              new Map(content.blocks.map((block) => [block.id, block]))
-            }
+            blockLookup={blockLookup}
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
+            onCanvasViewportChange={onCanvasViewportChange}
+            onCanvasCommentShortcut={onCanvasCommentShortcut}
             prototypeOnly={prototypeOnly}
             visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}
@@ -719,15 +753,29 @@ export function PlanContentRenderer({
                   // The whole body is ONE editable rich-markdown document; custom
                   // blocks are inline `planBlock` NodeViews. Read-only / review /
                   // SSR keeps the per-block render below (no Tiptap server-side).
-                  <PlanDocumentEditor
-                    content={content}
-                    contentUpdatedAt={contentUpdatedAt}
-                    planId={planId}
-                    collabUser={collabUser}
-                    editable
-                    onBlocksChange={replaceBlocks}
-                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                  />
+                  <Suspense
+                    fallback={renderedBlocks.map((block) => (
+                      <PlanBlockView
+                        key={block.id}
+                        block={block}
+                        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                        contentUpdatedAt={contentUpdatedAt}
+                        editingDisabled
+                        planId={planId}
+                        collabUser={collabUser}
+                      />
+                    ))}
+                  >
+                    <LazyPlanDocumentEditor
+                      content={content}
+                      contentUpdatedAt={contentUpdatedAt}
+                      planId={planId}
+                      collabUser={collabUser}
+                      editable
+                      onBlocksChange={replaceBlocks}
+                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                    />
+                  </Suspense>
                 ) : (
                   renderedBlocks.map((block) => (
                     <PlanBlockView

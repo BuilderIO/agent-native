@@ -15,7 +15,7 @@ name: PR Visual Recap (reusable)
 #
 # IMPORTANT: callers must trigger on the same pull_request event types as this
 # file declares in its on.workflow_call section (opened, synchronize, reopened,
-# ready_for_review).  The workflow_call trigger inherits the CALLER's event
+# ready_for_review, closed).  The workflow_call trigger inherits the CALLER's event
 # context, so `github.event.pull_request.*` expressions here work correctly only
 # when the caller fires on pull_request.
 
@@ -67,6 +67,11 @@ on:
         required: false
         type: string
         default: "auto"
+      secret-scan:
+        description: "Secret scan mode: off, high-confidence (default), or strict"
+        required: false
+        type: string
+        default: "high-confidence"
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -121,11 +126,20 @@ jobs:
 
             if (!pr) reasons.push('no pull_request payload');
             if (pr && pr.draft) reasons.push('draft PR');
+            if (pr && context.payload.action === 'closed' && !pr.merged) {
+              reasons.push('closed without merge');
+            }
 
-            // Fork PRs run with no secrets, so publishing would fail anyway — skip.
+            // Fork PRs only receive repo secrets when the org/repo opts into
+            // GitHub's "Send secrets to workflows from pull requests" setting
+            // (common in private orgs that use forks heavily). Gate on secret
+            // availability, not fork-ness: run on forks that have the token,
+            // and skip — with an actionable hint — those that don't.
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
-            if (pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY) {
-              reasons.push(`fork PR (${headRepo})`);
+            const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
+            const isPrivate = !!(context.payload.repository && context.payload.repository.private);
+            if (isFork && process.env.HAS_PLAN !== 'true') {
+              reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
 
             const login = (pr && pr.user && pr.user.login || '').toLowerCase();
@@ -133,7 +147,7 @@ jobs:
             if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
             if (pr && pr.user && pr.user.type === 'Bot') reasons.push('bot author (type=Bot)');
 
-            if (process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
+            if (!isFork && process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
             // Normalize + validate the agent.
             const agent = (process.env.AGENT || 'claude').toLowerCase();
@@ -161,7 +175,13 @@ jobs:
             // instructions or any agent config the runner loads. With the
             // default bundled skill source, visual skill and recap workflow
             // files are reviewed content, not instructions loaded by the runner.
-            if (pr) {
+            // Keep this guard for forks AND all public-repo PRs: a fork or a
+            // public same-repo author could rewrite loaded instruction files
+            // (AGENTS.md/CLAUDE.md/.claude/.mcp.json) and exfiltrate the
+            // secret-backed agent run. Skip it ONLY for private-repo same-repo
+            // PRs, where the author is a trusted org member — a deliberate owner
+            // risk acceptance so legit instruction edits don't false-skip recaps.
+            if (pr && (isFork || !isPrivate)) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
@@ -188,11 +208,16 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
-            core.info(run ? `Visual recap will run (${agent}).` : `Visual recap skipped: ${reasons.join('; ')}`);
+            if (run) {
+              core.info(`Visual recap will run (${agent}).`);
+            } else {
+              // Surface the skip reason as a run-summary annotation, not just a
+              // buried info log, so it's clear in the Actions UI why we skipped.
+              core.notice(`Visual recap skipped: ${reasons.join('; ')}`);
+            }
 
-            // When skipping, refresh an EXISTING sticky recap comment with a
-            // short skip line so it does not silently go stale. Never create a
-            // new comment (no spam for repos where the recap has never run).
+            // When skipping, upsert a sticky recap comment with a short skip
+            // line so the PR always explains why the recap job did not run.
             if (!run && pr) {
               try {
                 const MARKER = '<!-- pr-visual-recap -->';
@@ -205,23 +230,31 @@ jobs:
                 const existing = comments.find(
                   (c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(MARKER)
                 );
+                const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
+                const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
+                const primaryReason = reasons.filter(
+                  (r) => !r.startsWith('could not list PR files for the self-modifying guard')
+                )[0] || reasons[0] || 'skipped';
+                const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
+                const baseBody = `${MARKER}\n### Visual recap — skipped\n\nThe visual recap job did not run for this pull request. This is informational only and does **not** block the PR.`;
+                const withoutPrev = (existing && existing.body ? existing.body : baseBody)
+                  .split('\n')
+                  .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
+                  .join('\n')
+                  .trimEnd();
+                const updatedBody = `${withoutPrev}\n\n${skipLine}`;
                 if (existing) {
-                  const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
-                  const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
-                  const primaryReason = reasons.filter(
-                    (r) => !r.startsWith('could not list PR files for the self-modifying guard')
-                  )[0] || reasons[0] || 'skipped';
-                  const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
-                  const withoutPrev = (existing.body || '')
-                    .split('\n')
-                    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
-                    .join('\n')
-                    .trimEnd();
-                  const updatedBody = `${withoutPrev}\n\n${skipLine}`;
                   await github.rest.issues.updateComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     comment_id: existing.id,
+                    body: updatedBody,
+                  });
+                } else {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
                     body: updatedBody,
                   });
                 }
@@ -249,10 +282,14 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_STATE: ${{ github.event.pull_request.state }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       VISUAL_RECAP_MODEL: ${{ inputs.model }}
       VISUAL_RECAP_REASONING: ${{ inputs.reasoning }}
       VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
+      VISUAL_RECAP_SECRET_SCAN: ${{ inputs.secret-scan || 'high-confidence' }}
       RECAP_CLI_VERSION: ${{ inputs.cli-version || 'latest' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -286,6 +323,7 @@ jobs:
             sleep $((attempt * 10))
           done
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
+          echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -324,13 +362,54 @@ jobs:
             echo "auth_failed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Probe plan-app route health
+        id: route_health
+        if: steps.diff.outputs.tiny != 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Pre-publish health gate: confirm the plan app's recap action routes
+          # are actually deployed BEFORE the agent runs. A 404 from
+          # create-visual-recap (POST) or get-plan-blocks (GET) means the
+          # plan-app deploy has not propagated yet (the client is ahead of the
+          # deployed server). Say that plainly here instead of letting the agent
+          # run and then fail confusingly at publish time. A 401 or 200 is
+          # healthy — the route exists, it just rejected/accepted the probe.
+          probe_status() {
+            ROUTE="$1" METHOD="$2" node -e '
+              const https = require("https");
+              const base = process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com";
+              const url = new URL(process.env.ROUTE, base);
+              if (process.env.METHOD === "GET") url.searchParams.set("format", "reference");
+              const req = https.request(url, { method: process.env.METHOD, headers: { "authorization": "Bearer " + (process.env.PLAN_RECAP_TOKEN || ""), "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
+              req.on("error", () => process.stdout.write("0"));
+              req.on("timeout", () => { process.stdout.write("0"); req.destroy(); });
+              if (process.env.METHOD === "POST") { req.end(JSON.stringify({ __probe__: true })); } else { req.end(); }
+            ' 2>/dev/null || echo "0"
+          }
+          CREATE_STATUS="$(probe_status /_agent-native/actions/create-visual-recap POST)"
+          BLOCKS_STATUS="$(probe_status /_agent-native/actions/get-plan-blocks GET)"
+          REASON=""
+          if [ "$CREATE_STATUS" = "404" ] || [ "$BLOCKS_STATUS" = "404" ]; then
+            REASON="Plan app routes return 404 — deploy not yet propagated (create-visual-recap: $CREATE_STATUS, get-plan-blocks: $BLOCKS_STATUS). The plan-app client is ahead of the deployed server; re-run once the deploy finishes propagating."
+            echo "::error::$REASON"
+            echo "unhealthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unhealthy=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo 'reason<<__RECAP_ROUTE_HEALTH_EOF__'
+            echo "$REASON"
+            echo '__RECAP_ROUTE_HEALTH_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Secret scan
         id: scan
         if: steps.diff.outputs.tiny != 'true'
         run: |
           set -uo pipefail
           # Fail CLOSED: a scanner error or invalid JSON suppresses the diff.
-          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff)"; then
+          if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff --mode "$VISUAL_RECAP_SECRET_SCAN")"; then
             SCAN_JSON='{"suppressed":true,"reason":"secret scan failed to run; failing closed"}'
           fi
           {
@@ -350,41 +429,53 @@ jobs:
           PLAN_ID="$($RECAP_CLI recap comment find-plan-id --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")"
           echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Smoke-test Plan MCP tools
-        id: mcp_smoke
+      - name: Fetch plan block reference
+        id: block_reference
         if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         run: |
           set -uo pipefail
-          $RECAP_CLI recap mcp-smoke --app-url "$PLAN_RECAP_APP_URL"
+          if $RECAP_CLI recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            {
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_EOF__'
+              echo "Could not fetch the live plan block reference; the agent will fall back to bundled visual-recap instructions and the publisher will validate the final MDX."
+              echo '__RECAP_BLOCK_REFERENCE_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            cat > recap-blocks.md <<'EOF'
+          Live plan block reference unavailable. Follow the bundled visual-recap skill and author conservative MDX; the deterministic publisher will validate the source before posting.
+          EOF
+          fi
 
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
-          ARGS=(--diff recap.diff --stat recap.stat --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
+          ARGS=(--diff recap.diff --stat recap.stat --block-reference recap-blocks.md --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
+          if [ "${IS_FORK:-}" = "true" ]; then ARGS+=(--fork-pr true); fi
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
           $RECAP_CLI recap build-prompt "${ARGS[@]}"
 
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -uo pipefail
-          MCP_CONFIG="$RUNNER_TEMP/plan-mcp.json"
-          $RECAP_CLI recap mcp-config --agent claude --app-url "$PLAN_RECAP_APP_URL" --out "$MCP_CONFIG"
-          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*),mcp__plan__get-plan-blocks,mcp__plan__create-visual-recap,mcp__plan__set-resource-visibility,mcp__agent-native-plans__get-plan-blocks,mcp__agent-native-plans__create-visual-recap,mcp__agent-native-plans__set-resource-visibility"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --mcp-config "$MCP_CONFIG" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
-          rm -f recap-url.txt claude-result.json claude-stderr.log
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e
             npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
@@ -393,22 +484,23 @@ jobs:
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
           }
           run_claude
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' claude-result.json claude-stderr.log 2>/dev/null; then
-            echo "Plan MCP registration appears delayed; retrying Claude once after 20s."
-            sleep 20
+          # A clean agent exit WITHOUT recap-source.json is the strongest
+          # "retry me" signal — the deterministic publisher needs that file, and
+          # the agent occasionally finishes a turn without writing it. Retry once.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
             run_claude
           fi
-          rm -f "$MCP_CONFIG" || true
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true' && steps.mcp_smoke.outputs.ok == 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -uo pipefail
-          $RECAP_CLI recap mcp-config --agent codex --app-url "$PLAN_RECAP_APP_URL" --force
           printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
           CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
           if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
@@ -418,7 +510,7 @@ jobs:
             "") ;;
             *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
           esac
-          rm -f recap-url.txt codex-events.jsonl codex-stderr.log
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt codex-events.jsonl codex-stderr.log
           run_codex() {
             set +e
             npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-prompt.md)" 2> codex-stderr.log | tee codex-events.jsonl
@@ -427,11 +519,32 @@ jobs:
             echo "$CODEX_STATUS" > codex-exit-code.txt
           }
           run_codex
-          if [ ! -s recap-url.txt ] && grep -Eiq 'schedule(d)? (a )?(wakeup|retry)|will retry|backoff|connector.*register|mcp.*(register|unreachable|not usable|zero tools|not callable)' codex-events.jsonl codex-stderr.log 2>/dev/null; then
-            echo "Plan MCP registration appears delayed; retrying Codex once after 20s."
-            sleep 20
+          # Retry once if the agent exited without writing recap-source.json
+          # (see the Claude step) — the publisher needs that file.
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
             run_codex
           fi
+
+      - name: Publish recap source
+        id: publish
+        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+        run: |
+          set -uo pipefail
+          ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
+          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
+          if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
+            ARGS+=(--source-pr-state merged)
+          elif [ -n "${PR_STATE:-}" ]; then
+            ARGS+=(--source-pr-state "$PR_STATE")
+          fi
+          if [ -n "${PR_MERGED_AT:-}" ]; then ARGS+=(--source-pr-merged-at "$PR_MERGED_AT"); fi
+          $RECAP_CLI recap publish "${ARGS[@]}"
 
       - name: Read plan URL
         id: url
@@ -442,8 +555,10 @@ jobs:
           URL_REASON=""
           if [ -f recap-url.txt ]; then
             PLAN_URL="$(tr -d '\r\n' < recap-url.txt | tr -d ' ')"
+          elif [ -f recap-url-reason.txt ]; then
+            URL_REASON="$(cat recap-url-reason.txt)"
           else
-            URL_REASON="recap-url.txt was not created by the agent"
+            URL_REASON="recap-url.txt was not created."
           fi
           # recap-url.txt is agent-written -> untrusted. Rebuild a canonical
           # recap URL from the trusted app base and a strictly validated plan id.
@@ -506,17 +621,26 @@ jobs:
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
-          RECAP_MCP_SMOKE_OK: ${{ steps.mcp_smoke.outputs.ok }}
-          RECAP_MCP_SMOKE_SUMMARY: ${{ steps.mcp_smoke.outputs.summary }}
+          RECAP_BLOCK_REFERENCE_SUMMARY: ${{ steps.block_reference.outputs.summary }}
+          RECAP_PUBLISH_REASON: ${{ steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
-          if [ -n "${RECAP_MCP_SMOKE_SUMMARY:-}" ] && [ "${RECAP_MCP_SMOKE_OK:-}" != "true" ]; then
+          if [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
             {
-              echo 'summary<<__RECAP_MCP_SMOKE_SUMMARY_EOF__'
-              echo "$RECAP_MCP_SMOKE_SUMMARY"
-              echo '__RECAP_MCP_SMOKE_SUMMARY_EOF__'
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
+              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
             } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_MCP_SMOKE_SUMMARY || "" }) + "\n")'
+            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_BLOCK_REFERENCE_SUMMARY || "" }) + "\n")'
+            exit 0
+          fi
+          if [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
+            {
+              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
+              echo "$RECAP_PUBLISH_REASON"
+              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_PUBLISH_REASON || "" }) + "\n")'
             exit 0
           fi
           RESULT=claude-result.json
@@ -556,11 +680,24 @@ jobs:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
           set -uo pipefail
-          npx -y playwright@1 install --with-deps chromium || true
+          if [ -n "${RECAP_PLAYWRIGHT:-}" ] && [ -x "$RECAP_PLAYWRIGHT" ]; then
+            "$RECAP_PLAYWRIGHT" install --with-deps chromium || true
+          elif command -v pnpm >/dev/null 2>&1; then
+            pnpm exec playwright install --with-deps chromium 2>/dev/null || npx -y playwright@1 install --with-deps chromium || true
+          else
+            npx -y playwright@1 install --with-deps chromium || true
+          fi
           LIGHT_SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap.png --theme light || echo '{}')"
           DARK_SHOT_JSON="$($RECAP_CLI recap shot --url "$PLAN_URL" --token "$PLAN_RECAP_TOKEN" --app-url "$PLAN_RECAP_APP_URL" --out recap-dark.png --theme dark || echo '{}')"
+          for SHOT_LABEL in light dark; do
+            if [ "$SHOT_LABEL" = "light" ]; then SHOT_JSON="$LIGHT_SHOT_JSON"; else SHOT_JSON="$DARK_SHOT_JSON"; fi
+            SHOT_LABEL="$SHOT_LABEL" SHOT_JSON="$SHOT_JSON" node -e 'const label = process.env.SHOT_LABEL || "shot"; let parsed = {}; try { parsed = JSON.parse(process.env.SHOT_JSON || "{}"); } catch { parsed = { ok: false, reason: "invalid shot JSON" }; } const summary = { ok: parsed.ok === true, imageUrl: parsed.imageUrl ? "[present]" : "", out: typeof parsed.out === "string" ? parsed.out : "", reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 500) : "" }; console.log(`[recap shot] ${label}: ${JSON.stringify(summary)}`);'
+          done
           IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$LIGHT_SHOT_JSON")
           DARK_IMAGE_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).imageUrl||"")}catch{process.stdout.write("")}' "$DARK_SHOT_JSON")
+          if [ -z "$IMAGE_URL" ] && [ -z "$DARK_IMAGE_URL" ]; then
+            echo "::warning::Visual recap screenshot unavailable; posting link-only recap comment."
+          fi
           echo "image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
           echo "light_image_url=$IMAGE_URL" >> "$GITHUB_OUTPUT"
           echo "dark_image_url=$DARK_IMAGE_URL" >> "$GITHUB_OUTPUT"
@@ -577,8 +714,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Upload recap source artifact
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # recap-source.json + the agent transcript (claude-result.json /
+          # codex-events.jsonl + stderr) are the only window into WHAT the agent
+          # did when a publish fails (no plan URL) — INCLUDING the case where it
+          # finished without writing recap-source.json at all. The sticky comment
+          # only shows the screenshot, so without these a failed recap is
+          # undebuggable. Uploaded on success + failure; tolerant when absent.
+          name: pr-visual-recap-source-${{ github.event.pull_request.number }}
+          path: |
+            recap-source.json
+            claude-result.json
+            claude-stderr.log
+            codex-events.jsonl
+            codex-stderr.log
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upsert sticky comment
-        if: always()
+        if: always() && !cancelled()
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
@@ -592,15 +749,16 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          # Prefer the route-health diagnostic when the plan app routes are not
+          # yet deployed so the comment explains the 404 instead of a generic
+          # "recap-url.txt was not created" message.
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
-          ARGS=(recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN")
-          if [ "${DIFF_TINY:-}" = "true" ]; then ARGS+=(--update-only); fi
-          $RECAP_CLI "${ARGS[@]}"
+          $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
 
       - name: Complete visual recap check
-        if: always() && steps.recap_check.outputs.check_run_id != ''
+        if: always() && !cancelled() && steps.recap_check.outputs.check_run_id != ''
         continue-on-error: true
         env:
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
@@ -611,7 +769,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \

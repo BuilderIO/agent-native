@@ -60,7 +60,12 @@ step is still pending. Use `🔴` only when blocked on user input.
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
   `@agent-native/core/provider-api` instead of hardcoding one action per
-  provider endpoint/filter.
+  provider endpoint/filter. This is a framework tenet: first-class actions are
+  ergonomic shortcuts, not artificial capability limits. When the upstream API
+  can express an endpoint, filter, pagination mode, or payload, agents should
+  have a safe way to call it directly through the provider API substrate. If an
+  app stores provider credentials on resource/share rows, add a scoped resolver
+  that preserves those access checks before exposing raw provider requests.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
@@ -69,6 +74,25 @@ step is still pending. Use `🔴` only when blocked on user input.
 
 Every feature must touch the four areas when applicable: UI, actions, skills or
 instructions, and application state.
+
+## Plan Product Knowledge Chat
+
+- Plan's `/` route is the Ask Plan chat surface. Use it for product and code
+  questions backed by visual plans, merged PR recaps, and visual answers.
+- For historical product questions like "what shipped last week", "when did this
+  API change", or "what did that UI look like", call `search-pr-recaps` first.
+  The default scope is merged pull requests only. Include unmerged PR recaps only
+  when the user explicitly asks for unmerged or in-progress work.
+- After finding a recap, call `get-visual-plan` and inspect structured blocks:
+  `wireframe`, `diagram`, `api-endpoint`, `openapi-spec`, `data-model`, `diff`,
+  `file-tree`, `tabs`, and `annotated-code`.
+- For live code questions like "what is the API spec for this", "what does this
+  look like now", or "what is the schema model for x", use `visual-answer` after
+  inspecting the real code through the local repo, the Plan bridge, or GitHub.
+- Before generating or updating visual content, call `get-plan-blocks` or
+  `list-plan-components`. Custom components become chat-visible only after they
+  are registered in the normalized schema, shared/server registry, and browser
+  registry.
 
 ## Data And Security
 
@@ -155,6 +179,9 @@ Read the relevant skill before making changes in that area:
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
+- `visual-answer` for code/product questions answered as visual Plan artifacts.
+- `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
+  Cursor, or Mastra.
 - `self-modifying-code` for source edits by the agent.
 - `server-plugins` for `/_agent-native/*` routes and plugins.
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.

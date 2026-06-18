@@ -11,6 +11,7 @@ import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
 import createDreamReport from "./create-dream-report.js";
 import createEmbedSession from "./create_embed_session.js";
+import deleteStagedDataset from "./delete-staged-dataset.js";
 import deleteDestination from "./delete-destination.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
@@ -40,6 +41,7 @@ import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
 import listApps from "./list_apps.js";
+import listStagedDatasets from "./list-staged-datasets.js";
 import listVaultAudit from "./list-vault-audit.js";
 import listVaultGrants from "./list-vault-grants.js";
 import listVaultRequests from "./list-vault-requests.js";
@@ -59,6 +61,7 @@ import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
+import queryStagedDataset from "./query-staged-dataset.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
@@ -103,6 +106,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
   create_embed_session: createEmbedSession,
+  "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
   "delete-workspace-resource": deleteWorkspaceResource,
@@ -133,6 +137,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-linked-identities": listLinkedIdentities,
   "list-mcp-app-access": listMcpAppAccess,
   list_apps: listApps,
+  "list-staged-datasets": listStagedDatasets,
   "list-vault-audit": listVaultAudit,
   "list-vault-grants": listVaultGrants,
   "list-vault-requests": listVaultRequests,
@@ -152,6 +157,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "provider-api-docs": providerApiDocs,
   "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
+  "query-staged-dataset": queryStagedDataset,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,

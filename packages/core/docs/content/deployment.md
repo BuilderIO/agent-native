@@ -306,7 +306,7 @@ export default createAgentChatPlugin({
 The available modes are:
 
 - `off` — the default. No code-execution tools are registered in production.
-- `sandboxed` — registers `run-code`, an isolated Node.js JavaScript runner with a scrubbed environment, a fresh temp directory, output/time limits, and a localhost bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and `workspace-files`.
+- `sandboxed` — registers `run-code`, an isolated Node.js JavaScript runner with a scrubbed environment, a fresh temp directory, output/time limits, and a localhost bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and the Resources-backed workspace file bridge used by `workspaceRead` / `workspaceWrite`.
 - `trusted` — registers `run-code` plus the full coding tool registry (`bash`, `read`, `edit`, `write`). Use this only for single-tenant or operator-controlled deployments where full shell access to the host is intentional.
 
 Set `AGENT_PROD_CODE_EXECUTION=sandboxed` or `AGENT_PROD_CODE_EXECUTION=trusted` to override the plugin option for a specific deployment without a code change. `AGENT_PROD_CODE_EXECUTION=off` forces code execution off even when the plugin option enables it.

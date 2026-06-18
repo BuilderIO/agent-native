@@ -10,6 +10,14 @@ An agent-native app is reachable by any MCP-compatible host — Claude, Claude D
 
 The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — either by pasting the app's remote MCP URL into a chat host like Claude or ChatGPT, or by running the developer CLI flow for local coding agents. Then the agent does the work over MCP and hands the user either an inline **MCP App** UI in compatible hosts or a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
 
+## Which agent path do you need? {#which-agent-path}
+
+- **External MCP host:** use this page when Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP-compatible host should call your hosted agent-native app.
+- **Your own runtime behind Agent-Native chat:** see [Agent Surfaces](/docs/agent-surfaces#byo-agent) and [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) when an agent built with another framework should power `<AssistantChat runtime={...}>`.
+- **Your app consuming MCP tools:** see [MCP Clients](/docs/mcp-clients) when an agent-native app needs to call tools exposed by another MCP server.
+- **Another app or agent via A2A:** use [Agent Mentions](/docs/agent-mentions) and [A2A](/docs/a2a-protocol) when agent-native apps should discover and delegate to each other.
+- **Local custom sub-agents:** use [Workspace](/docs/workspace) when you want custom agent profiles inside the agent-native workspace itself.
+
 ## Easy setup {#easy-setup}
 
 Add one remote MCP connector to the host where you want to use Agent-Native.
@@ -83,7 +91,7 @@ In hosts that support MCP Apps, Analytics can render real dashboard and analysis
 
 ## Advanced setup: local agents {#connect}
 
-Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, and Claude Cowork. (Cursor uses the paste-URL flow above; it does not need this CLI path.)
+Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, Claude Cowork, Cursor, OpenCode, and GitHub Copilot / VS Code. Cursor and other OAuth-native clients can also use the paste-URL flow above when their UI supports remote MCP OAuth.
 
 Run the connect command through npm:
 
@@ -93,7 +101,7 @@ npx @agent-native/core@latest connect https://dispatch.agent-native.com
 
 The command asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
 
-For Claude Code and Claude Code CLI, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart Claude Code, run `/mcp`, and choose **Authenticate**; Claude completes the OAuth flow and stores its own tokens. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
+For Claude Code, Claude Code CLI, Cursor, OpenCode, and GitHub Copilot / VS Code, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart the client and authenticate from its MCP UI when prompted. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
 
 Keep the `connect` command running until the browser approval completes. If the
 waiting process is stopped early, the approval can succeed in the browser but
@@ -104,7 +112,10 @@ If you previously connected Claude Code through the old bearer-token flow, just 
 | Local client                  | Config written by `connect`                             | Auth flow                                       |
 | ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
 | Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope` | Standard remote MCP OAuth in Claude's `/mcp` UI |
-| Codex                         | `~/.codex/config.toml` under `[mcp_servers.<app>]`      | Browser-authorized bearer fallback              |
+| Cursor                        | `.cursor/mcp.json` or `~/.cursor/mcp.json`              | Standard remote MCP OAuth in Cursor's MCP UI    |
+| OpenCode                      | `opencode.json` or `~/.config/opencode/opencode.json`   | Standard remote MCP OAuth in OpenCode's MCP UI  |
+| GitHub Copilot / VS Code      | `.vscode/mcp.json` or VS Code user MCP config           | Standard remote MCP OAuth in VS Code's MCP UI   |
+| Codex                         | `$CODEX_HOME/config.toml` or `~/.codex/config.toml`     | Browser-authorized bearer fallback              |
 | Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP shape    | Browser-authorized bearer fallback              |
 
 Restart the agent client after connecting so it picks up the new MCP server; OAuth-native clients may then prompt you to authenticate from their MCP UI.
@@ -114,7 +125,7 @@ and token values before sharing logs. Do not use raw curl as a substitute for a
 host MCP session; after connecting, use the host-exposed tools or restart the
 client if the new server is not visible yet.
 
-Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
+Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
 First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
 
@@ -214,43 +225,55 @@ When the client requests no explicit scope, the app grants all three so the conn
 
 ## Catalog tiers {#catalog-tiers}
 
-The tool catalog your agent sees depends on both the deployment context and how
-you connected.
+The MCP server serves a **compact catalog by default to every caller** —
+hosted connectors (ChatGPT, Claude), code clients (Claude Code, Cursor,
+Codex), and the local CLI/stdio proxy alike. The full action surface is served
+only on an explicit opt-in. The catalog is never inferred from the client name
+or user-agent.
 
-### Connector tier (hosted multi-tenant, default) {#connector-tier}
+### Compact / connector tier (default) {#connector-tier}
 
-On hosted multi-tenant deployments (e.g. `plan.agent-native.com`) the server
-activates a curated **connector catalog** when `AGENT_NATIVE_CONNECTOR_CATALOG=1`
-is set. External MCP clients see only the template-declared allow-list of
-app-level actions (create/get/update plan, sharing, upload, navigate, automations,
-tool-search) plus the four builtin cross-app tools (`list_apps`, `open_app`,
-`ask_app`, `create_embed_session`). Tools outside the list — `db-exec`,
-`db-patch`, `seed-*`, the extension suite, browser-session tools, agent-engine
-management, and context-xray tools — are not advertised and calls to them are
-rejected with "Unknown tool".
+By default every connected agent sees a small, curated catalog: the
+template-declared allow-list of app-level actions (create/get/update plan,
+sharing, upload, navigate, automations, `tool-search`) plus the builtin
+cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`).
+Tools outside the list — `db-exec`, `db-patch`, `seed-*`, the extension suite,
+browser-session tools, agent-engine management, and context-xray tools — are
+not advertised, and calls to them are rejected with "Unknown tool" unless the
+caller has opted into the full catalog.
 
 This keeps the context window of every connected external agent small (~20–30
-tools vs. ~105) and removes footguns that are only safe for single-tenant
-local development.
+tools vs. ~105) and removes footguns that are only safe for single-tenant local
+development. The connector tier is active **whenever a template declares a
+`connectorCatalog`** — it is no longer gated behind an environment variable.
 
-### Full tier (local / dev, or per-token opt-up) {#full-tier}
+`tool-search` is always available (including in the compact catalog), so a
+compacted client can still reach any tool on demand. Call it with **no query**
+to get the full menu of tool names plus one-line descriptions (cheap — no
+schemas), or with a query to get ranked matches with parameter summaries. This
+is how a compacted client discovers and loads any full-surface tool when it
+needs one.
 
-Local and dev deployments that do not have `AGENT_NATIVE_CONNECTOR_CATALOG=1`
-always serve the full action surface. When the env flag is set, individual
-callers can still opt up by minting their token with `--full-catalog`:
+### Full tier (explicit opt-in only) {#full-tier}
 
-```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --full-catalog
-```
+The complete ~105-tool action surface is served only when a caller explicitly
+opts in. There are two ways to opt in:
 
-Swap `--client codex` for another target client when needed. This embeds a `catalog_scope: "full"` claim in the minted JWT. On subsequent
-requests the MCP server bypasses the connector-catalog filter for that token
-and serves the complete action surface — identical to the local/dev experience.
+- Mint a token with `--full-catalog`, which embeds a `catalog_scope: "full"`
+  claim in the JWT:
 
-`AGENT_NATIVE_MCP_FULL_CATALOG=1` (process env on the server) is a
-deployment-wide override that disables the filter for all callers. Use it for
-single-tenant hosted instances that need the full surface without per-token
-opt-up.
+  ```bash
+  npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --full-catalog
+  ```
+
+  Swap `--client codex` for another target client when needed. On subsequent
+  requests the MCP server bypasses the compact-catalog filter for that token
+  and serves the complete action surface.
+
+- Set `AGENT_NATIVE_MCP_FULL_CATALOG=1` (process env on the server) as a
+  deployment-wide override that serves the full surface to all callers. Use it
+  for single-tenant hosted instances that want the full surface without
+  per-token opt-up.
 
 ### Template declaration {#catalog-declaration}
 
@@ -283,16 +306,17 @@ included regardless of the declared list.
 
 ## What you can do once connected {#what-you-can-do}
 
-Once your agent is connected, the available MCP tool surface depends on the
-host and the deployment. Code/stdio developer clients on local deployments get
-the app's full action surface plus the `ask-agent` meta-tool that runs the full
-agent loop (the same entry point [A2A](/docs/a2a-protocol) uses). On hosted
-multi-tenant deployments the connector tier is active by default (see above).
-Chat hosts, including Claude and ChatGPT, get a compact app-facing catalog by
-default even when they authenticate through a generic bearer/static-token path:
-cross-app verbs such as `list_apps`, `open_app`, and `ask_app`, plus the
-app-only embed helper. In all cases, ask the agent to do real work and it hands
-back a link straight into the running app:
+Once your agent is connected, every caller gets the compact catalog by default
+(see [Catalog tiers](#catalog-tiers)) — code/stdio developer clients, the local
+CLI proxy, and chat hosts like Claude and ChatGPT alike. That surface is the
+template-declared app actions plus the builtin cross-app verbs (`list_apps`,
+`open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a
+natural-language task through an app agent (the same cross-app entry point
+[A2A](/docs/a2a-protocol) uses). `tool-search` is always present, so any tool
+outside the compact list stays reachable on demand. To get the full ~105-tool
+surface up front, opt in explicitly with `--full-catalog` or
+`AGENT_NATIVE_MCP_FULL_CATALOG=1`. In all cases, ask the agent to do real work
+and it hands back a link straight into the running app:
 
 ```
 > draft an email to John about the Q3 report
@@ -373,7 +397,7 @@ Every allow-listed template that produces or lists a navigable resource ships a 
 
 ## Authoring: the `link` builder {#link-builder}
 
-This section is for template authors. `defineAction` accepts an optional `link` builder. When set, every MCP/A2A result for that tool auto-appends a markdown `[label →](absoluteUrl)` block and a structured `_meta["agent-native/openLink"] = { label, view, webUrl, desktopUrl }`. `tools/list` adds `annotations["agent-native/producesOpenLink"]` and a description suffix so the external agent knows the tool yields an openable link and should surface it.
+This section is for template authors. `defineAction` accepts an optional `link` builder. When set, every MCP/A2A result for that tool auto-appends a markdown `[label →](absoluteUrl)` block and a structured `_meta["agent-native/openLink"] = { label, view, webUrl, desktopUrl, vscodeUrl }`. `tools/list` adds `annotations["agent-native/producesOpenLink"]` and a description suffix so the external agent knows the tool yields an openable link and should surface it.
 
 Build the URL with `buildDeepLink(...)` — it is the single source of truth for the open-route format. Never hand-format the `/_agent-native/open` URL.
 
@@ -418,7 +442,7 @@ See [MCP Apps](/docs/mcp-apps) for the full authoring guide — `embedRoute` vs 
 
 The `link` builder is **pure and synchronous — no I/O, no awaits**. It runs best-effort: a throw, `null`, or `undefined` is swallowed and **never** fails the tool call. It only reads the call's `args` and `result`; it must not query the DB, read app-state, or call other actions. Return `null` when there's nothing to open.
 
-`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin) and a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`); the markdown link uses the desktop URL when the client signals `target: "desktop"`.
+`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builderio.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
 
 ### The `/_agent-native/open` route {#open-route}
 
@@ -508,7 +532,7 @@ This is the unmanaged equivalent of what `connect` writes for you. See [MCP Prot
 
 ### Dev vs production tool surface {#dev-vs-prod}
 
-In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). Stdio/code clients that use the `agent-native` proxy identify themselves and get the full developer catalog after auth. Chat-style remote HTTP callers stay on the compact app-facing catalog by default, even when authenticated, so ChatGPT/Claude cannot dump a huge full action catalog into the conversation.
+In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The compact catalog is the default for every caller after auth — stdio/code clients using the `agent-native` proxy, the local CLI, and chat-style remote HTTP callers alike — so ChatGPT/Claude (or any client) cannot dump a huge full action catalog into the conversation. The full developer catalog is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`); `tool-search` keeps every tool reachable in the meantime.
 
 ### Switching first-party apps between prod and dev {#dev-switch}
 

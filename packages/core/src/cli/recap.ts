@@ -14,13 +14,12 @@
  *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
  *                 build output, snapshots), cap it at ~600KB, and classify the
  *                 huge/tiny flags.
- *   mcp-config    Write the plan MCP client config for the chosen backend
- *                 (Claude Code JSON or Codex config.toml).
- *   mcp-smoke     Verify the configured Plan MCP endpoint exposes the publish
- *                 tools before spending runner time on Claude/Codex.
  *   scan          Refuse to hand a secret-leaking diff to the agent.
+ *   block-reference
+ *                 Fetch the live get-plan-blocks reference for the target app.
  *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
  *                 + a task wrapper (or repo-pinned skill with --skill-source).
+ *   publish       Publish the agent-authored recap-source.json over HTTP.
  *   shot          Screenshot the published plan and upload it to the plan app's
  *                 signed public image route (for an inline PR-comment image).
  *   usage         Parse and emit agent token-usage/cost from stdout.
@@ -36,11 +35,17 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { readPlanPublishAuth } from "./plan-publish-store.js";
+import {
+  DEFAULT_PLAN_APP_URL,
+  fetchPlanBlockCatalog,
+  planActionEndpoint,
+} from "./plan-blocks.js";
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import { BUILT_IN_APP_SKILLS, VISUAL_RECAP_SKILL_MD } from "./skills.js";
 
@@ -96,6 +101,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.5) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
+  "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
 ];
 
@@ -177,7 +183,7 @@ export function buildReusableCallerWorkflow(
     `\n` +
     `on:\n` +
     `  pull_request:\n` +
-    `    types: [opened, synchronize, reopened, ready_for_review]\n` +
+    `    types: [opened, synchronize, reopened, ready_for_review, closed]\n` +
     `\n` +
     `jobs:\n` +
     `  visual-recap:\n` +
@@ -198,6 +204,7 @@ export function buildReusableCallerWorkflow(
     `      model: ${modelValue}\n` +
     `      reasoning: \${{ vars.VISUAL_RECAP_REASONING || '' }}\n` +
     `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
+    `      secret-scan: \${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}\n` +
     `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
     ``
   );
@@ -250,13 +257,7 @@ type RecapAgentValue = "claude" | "codex";
 
 export type RecapAgent = "claude" | "codex";
 
-const DEFAULT_RECAP_APP_URL = "https://plan.agent-native.com";
-const RECAP_MCP_CLIENT_HEADER = "agent-native-pr-visual-recap";
-export const RECAP_MCP_REQUIRED_TOOLS = [
-  "get-plan-blocks",
-  "create-visual-recap",
-  "set-resource-visibility",
-] as const;
+const DEFAULT_RECAP_APP_URL = DEFAULT_PLAN_APP_URL;
 
 export function normalizeRecapAgent(value: string | undefined): RecapAgent {
   const agent = (value || "claude").toLowerCase();
@@ -705,30 +706,59 @@ function runDoctor(args: Record<string, string | boolean>): void {
 /* -------------------------------------------------------------------------- */
 
 /**
- * If the diff contains anything that looks like a real secret, we refuse to
- * build a recap at all (rather than risk echoing it into a published plan).
- * These patterns intentionally err toward caution and scan added, removed, and
- * context lines so deleting a real secret does not leak it in a split diff.
+ * If the diff contains a high-confidence secret shape, we refuse to build a
+ * recap at all (rather than risk echoing it into a published plan). The default
+ * deliberately avoids generic TOKEN/SECRET assignment names because code often
+ * contains harmless variable references like `var.webhook_token`.
  */
-const SECRET_PATTERNS: RegExp[] = [
+const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
   // Common provider key prefixes.
-  /\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}\b/,
+  /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
+  /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+  /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/,
+  /\bbpk-[A-Za-z0-9_-]{16,}\b/,
   /\bghp_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
   // Bearer / Authorization header values with an actual token.
-  /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{12,}/i,
+  /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{20,}/i,
   // Private key blocks.
   /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
-  // `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...` assigned a real-looking
-  // value (long, non-placeholder).
+];
+
+const STRICT_SECRET_PATTERNS: RegExp[] = [
+  ...HIGH_CONFIDENCE_SECRET_PATTERNS,
+  // Strict mode only: `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...`
+  // assigned a real-looking value. This is intentionally not the default; it
+  // has produced too many false positives on variable names and CLI flags.
   /\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*[:=]\s*['"]?(?!.*(?:your|example|placeholder|changeme|xxxx|\*\*\*|<|\$\{|process\.env|env\.|REDACTED))[A-Za-z0-9/_+=.-]{16,}/i,
 ];
 
-export function lineLooksSecret(line: string): boolean {
-  return SECRET_PATTERNS.some((re) => re.test(line));
+export type RecapSecretScanMode = "off" | "high-confidence" | "strict";
+
+export function normalizeRecapSecretScanMode(
+  value: string | undefined,
+): RecapSecretScanMode {
+  const mode = (value || "high-confidence").trim().toLowerCase();
+  if (mode === "off" || mode === "false" || mode === "disabled") return "off";
+  if (mode === "strict") return "strict";
+  return "high-confidence";
+}
+
+function secretPatternsForMode(mode: RecapSecretScanMode): RegExp[] {
+  if (mode === "off") return [];
+  if (mode === "strict") return STRICT_SECRET_PATTERNS;
+  return HIGH_CONFIDENCE_SECRET_PATTERNS;
+}
+
+export function lineLooksSecret(
+  line: string,
+  mode: RecapSecretScanMode = "high-confidence",
+): boolean {
+  return secretPatternsForMode(mode).some((re) => re.test(line));
 }
 
 /**
@@ -790,7 +820,9 @@ export function lineMatchesAllowlist(
 export function diffContainsSecret(
   diffText: string,
   allowlist: Array<RegExp | string> = [],
+  mode: RecapSecretScanMode = "high-confidence",
 ): boolean {
+  if (mode === "off") return false;
   for (const line of diffText.split("\n")) {
     if (
       line.startsWith("+") ||
@@ -799,7 +831,7 @@ export function diffContainsSecret(
       line.startsWith("+++") ||
       line.startsWith("---")
     ) {
-      if (lineLooksSecret(line) && !lineMatchesAllowlist(line, allowlist))
+      if (lineLooksSecret(line, mode) && !lineMatchesAllowlist(line, allowlist))
         return true;
     }
   }
@@ -1312,450 +1344,6 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
 }
 
 /* -------------------------------------------------------------------------- */
-/* MCP config writers — were the two `node -e` one-liners in the agent steps   */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The Claude Code MCP config the recap agent loads: a single HTTP `plan` server
- * pointing at the app's `/_agent-native/mcp` endpoint, authorized with the
- * PLAN_RECAP_TOKEN. Pure (returns the JSON string) so it can be unit-tested.
- */
-export function buildRecapClaudeMcpConfig(
-  appUrl: string,
-  token: string | undefined,
-): string {
-  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
-  return JSON.stringify({
-    mcpServers: {
-      plan: {
-        type: "http",
-        url,
-        headers: {
-          Authorization: "Bearer " + token,
-          "X-Agent-Native-MCP-Client": RECAP_MCP_CLIENT_HEADER,
-          "X-Agent-Native-MCP-Full-Catalog": "1",
-        },
-      },
-      "agent-native-plans": {
-        type: "http",
-        url,
-        headers: {
-          Authorization: "Bearer " + token,
-          "X-Agent-Native-MCP-Client": RECAP_MCP_CLIENT_HEADER,
-          "X-Agent-Native-MCP-Full-Catalog": "1",
-        },
-      },
-    },
-  });
-}
-
-/**
- * The Codex `config.toml` the recap agent loads. JSON.stringify the URL value so
- * a stray quote/newline in the app URL can't break out of the TOML basic string
- * (TOML shares JSON's escaping); the key and env-var name stay literal. Pure so
- * it can be unit-tested.
- */
-export function buildRecapCodexMcpConfig(appUrl: string): string {
-  const url = appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
-  return (
-    "[mcp_servers.plan]\n" +
-    "url = " +
-    JSON.stringify(url) +
-    "\n" +
-    'bearer_token_env_var = "PLAN_RECAP_TOKEN"\n' +
-    'http_headers = { "X-Agent-Native-MCP-Client" = "agent-native-pr-visual-recap", "X-Agent-Native-MCP-Full-Catalog" = "1" }\n'
-  );
-}
-
-type RecapMcpSmokeOk = {
-  ok: true;
-  appUrl: string;
-  mcpUrl: string;
-  toolCount: number;
-  tools: string[];
-  requiredTools: string[];
-  summary: string;
-};
-
-type RecapMcpSmokeFailure = {
-  ok: false;
-  appUrl: string;
-  mcpUrl: string;
-  toolCount: number;
-  tools: string[];
-  requiredTools: string[];
-  reason: string;
-  summary: string;
-};
-
-export type RecapMcpSmokeResult = RecapMcpSmokeOk | RecapMcpSmokeFailure;
-
-function recapMcpUrl(appUrl: string): string {
-  return appUrl.replace(/\/$/, "") + "/_agent-native/mcp";
-}
-
-function recapMcpSmokeHeaders(token: string): Record<string, string> {
-  return {
-    authorization: `Bearer ${token}`,
-    accept: "application/json, text/event-stream",
-    "content-type": "application/json",
-    "mcp-protocol-version": "2025-06-18",
-    "x-agent-native-mcp-client": RECAP_MCP_CLIENT_HEADER,
-    "x-agent-native-mcp-full-catalog": "1",
-  };
-}
-
-function parseSseJsonPayload(raw: string): unknown | null {
-  const dataLines = raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .filter((line) => line && line !== "[DONE]");
-
-  for (let i = dataLines.length - 1; i >= 0; i -= 1) {
-    try {
-      return JSON.parse(dataLines[i]);
-    } catch {
-      // Keep looking for a parseable event payload.
-    }
-  }
-  return null;
-}
-
-function parseMcpJsonPayload(raw: string): unknown | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return parseSseJsonPayload(trimmed);
-  }
-}
-
-function mcpRpcErrorMessage(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const error = (payload as Record<string, unknown>).error;
-  if (!error || typeof error !== "object") return null;
-  const message = (error as Record<string, unknown>).message;
-  return typeof message === "string" && message.trim()
-    ? message.trim()
-    : JSON.stringify(error);
-}
-
-async function postRecapMcpRpc(input: {
-  fetchFn: typeof fetch;
-  mcpUrl: string;
-  token: string;
-  method: string;
-  id: number;
-  params?: Record<string, unknown>;
-}): Promise<
-  | { ok: true; payload: unknown }
-  | { ok: false; reason: string; raw: string; status?: number }
-> {
-  const response = await input.fetchFn(input.mcpUrl, {
-    method: "POST",
-    headers: recapMcpSmokeHeaders(input.token),
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: input.id,
-      method: input.method,
-      params: input.params ?? {},
-    }),
-  });
-
-  const raw = await response.text().catch((err) => String(err));
-  if (!response.ok) {
-    const detail = sanitizeAgentFailureSummary(raw, 300);
-    return {
-      ok: false,
-      status: response.status,
-      raw,
-      reason: `Plan MCP ${input.method} returned HTTP ${response.status}${
-        detail ? `: ${detail}` : ""
-      }`,
-    };
-  }
-
-  const payload = parseMcpJsonPayload(raw);
-  if (!payload) {
-    return {
-      ok: false,
-      raw,
-      reason: `Plan MCP ${input.method} returned an unreadable response`,
-    };
-  }
-
-  const rpcError = mcpRpcErrorMessage(payload);
-  if (rpcError) {
-    return {
-      ok: false,
-      raw,
-      reason: `Plan MCP ${input.method} failed: ${sanitizeAgentFailureSummary(
-        rpcError,
-        300,
-      )}`,
-    };
-  }
-
-  return { ok: true, payload };
-}
-
-function extractMcpToolNames(payload: unknown): string[] {
-  const result =
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>).result
-      : undefined;
-  const tools =
-    result && typeof result === "object"
-      ? (result as Record<string, unknown>).tools
-      : undefined;
-  if (!Array.isArray(tools)) return [];
-  return tools
-    .map((tool) =>
-      tool && typeof tool === "object"
-        ? (tool as Record<string, unknown>).name
-        : undefined,
-    )
-    .filter((name): name is string => typeof name === "string" && !!name)
-    .sort();
-}
-
-function recapMcpSmokeFailure(input: {
-  appUrl: string;
-  mcpUrl: string;
-  tools?: string[];
-  requiredTools: readonly string[];
-  reason: string;
-}): RecapMcpSmokeFailure {
-  const tools = input.tools ?? [];
-  const reason = sanitizeAgentFailureSummary(input.reason, 500);
-  return {
-    ok: false,
-    appUrl: input.appUrl,
-    mcpUrl: input.mcpUrl,
-    toolCount: tools.length,
-    tools,
-    requiredTools: [...input.requiredTools],
-    reason,
-    summary: `Plan MCP smoke check failed: ${reason}`,
-  };
-}
-
-/**
- * Non-mutating live contract check for PR Visual Recap publishing.
- *
- * The previous workflow discovered a broken Plan MCP catalog only after the
- * agent tried to publish and failed to create `recap-url.txt`. This probes the
- * same authenticated MCP endpoint first and requires the three tools that the
- * visual-recap skill needs to publish a hosted recap.
- */
-export async function smokeRecapMcpTools(input: {
-  appUrl?: string;
-  token?: string;
-  requiredTools?: readonly string[];
-  fetchFn?: typeof fetch;
-}): Promise<RecapMcpSmokeResult> {
-  const appUrl = input.appUrl ?? DEFAULT_RECAP_APP_URL;
-  const mcpUrl = recapMcpUrl(appUrl);
-  const requiredTools = input.requiredTools ?? RECAP_MCP_REQUIRED_TOOLS;
-  const token = input.token?.trim();
-  if (!token) {
-    return recapMcpSmokeFailure({
-      appUrl,
-      mcpUrl,
-      requiredTools,
-      reason: "PLAN_RECAP_TOKEN is empty",
-    });
-  }
-
-  const fetchFn = input.fetchFn ?? fetch;
-  try {
-    const init = await postRecapMcpRpc({
-      fetchFn,
-      mcpUrl,
-      token,
-      method: "initialize",
-      id: 1,
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: {
-          name: RECAP_MCP_CLIENT_HEADER,
-          version: "1.0.0",
-        },
-      },
-    });
-    if (!init.ok) {
-      return recapMcpSmokeFailure({
-        appUrl,
-        mcpUrl,
-        requiredTools,
-        reason: init.reason,
-      });
-    }
-
-    const listed = await postRecapMcpRpc({
-      fetchFn,
-      mcpUrl,
-      token,
-      method: "tools/list",
-      id: 2,
-    });
-    if (!listed.ok) {
-      return recapMcpSmokeFailure({
-        appUrl,
-        mcpUrl,
-        requiredTools,
-        reason: listed.reason,
-      });
-    }
-
-    const tools = extractMcpToolNames(listed.payload);
-    const missing = requiredTools.filter((name) => !tools.includes(name));
-    if (missing.length > 0) {
-      return recapMcpSmokeFailure({
-        appUrl,
-        mcpUrl,
-        tools,
-        requiredTools,
-        reason: `Plan MCP tools/list returned ${tools.length} tools but is missing required publishing tools: ${missing.join(
-          ", ",
-        )}`,
-      });
-    }
-
-    return {
-      ok: true,
-      appUrl,
-      mcpUrl,
-      toolCount: tools.length,
-      tools,
-      requiredTools: [...requiredTools],
-      summary: `Plan MCP smoke check passed: tools/list exposes ${requiredTools.join(
-        ", ",
-      )}.`,
-    };
-  } catch (err) {
-    return recapMcpSmokeFailure({
-      appUrl,
-      mcpUrl,
-      requiredTools,
-      reason: `Plan MCP smoke check could not reach ${mcpUrl}: ${String(err)}`,
-    });
-  }
-}
-
-async function runMcpSmoke(
-  args: Record<string, string | boolean>,
-): Promise<void> {
-  const appUrl =
-    optionalArg(args, "app-url") ??
-    process.env.PLAN_RECAP_APP_URL ??
-    DEFAULT_RECAP_APP_URL;
-  const token = optionalArg(args, "token") ?? process.env.PLAN_RECAP_TOKEN;
-  const result = await smokeRecapMcpTools({ appUrl, token });
-  writeGitHubOutput("ok", result.ok ? "true" : "false");
-  writeGitHubOutput("summary", result.summary);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-  if (!result.ok) process.exitCode = 1;
-}
-
-/**
- * `recap mcp-config` — write the plan MCP client config for the chosen backend,
- * replacing the two `node -e '...'` one-liners that previously lived inline in
- * the agent steps. PLAN_RECAP_TOKEN is read from the environment (claude only),
- * exactly as before.
- */
-function runMcpConfig(args: Record<string, string | boolean>): void {
-  const agent = stringArg(args, "agent").toLowerCase();
-  const appUrl = stringArg(args, "app-url");
-  const force = Boolean(args["force"]);
-
-  if (agent === "claude") {
-    const token = process.env.PLAN_RECAP_TOKEN;
-    if (!token) {
-      process.stderr.write(
-        `recap mcp-config: PLAN_RECAP_TOKEN is not set.\n` +
-          `Set it in the workflow environment before running this step.\n`,
-      );
-      process.exit(1);
-    }
-    const out = stringArg(args, "out");
-    fs.writeFileSync(
-      path.resolve(out),
-      buildRecapClaudeMcpConfig(appUrl, token),
-    );
-    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
-    return;
-  }
-
-  if (agent === "codex") {
-    const out =
-      optionalArg(args, "out") ??
-      path.join(os.homedir(), ".codex", "config.toml");
-    const absOut = path.resolve(out);
-    fs.mkdirSync(path.dirname(absOut), { recursive: true });
-
-    const newEntry = buildRecapCodexMcpConfig(appUrl);
-    const SECTION_MARKER = "[mcp_servers.plan]";
-
-    // If the file already exists and is non-empty, merge rather than overwrite.
-    let existing = "";
-    try {
-      const raw = fs.readFileSync(absOut, "utf8");
-      if (raw.trim()) existing = raw;
-    } catch {
-      /* file absent — write fresh */
-    }
-
-    if (existing) {
-      if (existing.includes(SECTION_MARKER)) {
-        // Section already present — skip unless --force was passed.
-        if (!force) {
-          process.stdout.write(
-            `${JSON.stringify({ ok: true, agent, out, skipped: true, reason: "plan entry already present; pass --force to overwrite" })}\n`,
-          );
-          return;
-        }
-        // --force: replace the existing [mcp_servers.plan] block.
-        // Remove lines from the section header until the next `[` header or EOF.
-        const lines = existing.split("\n");
-        const startIdx = lines.findIndex((l) => l.trim() === SECTION_MARKER);
-        let endIdx = lines.length;
-        for (let i = startIdx + 1; i < lines.length; i++) {
-          if (lines[i].trimStart().startsWith("[")) {
-            endIdx = i;
-            break;
-          }
-        }
-        const without = [
-          ...lines.slice(0, startIdx),
-          ...lines.slice(endIdx),
-        ].join("\n");
-        const merged =
-          (without.trimEnd() ? without.trimEnd() + "\n\n" : "") + newEntry;
-        fs.writeFileSync(absOut, merged, { mode: 0o600 });
-      } else {
-        // Append the new section to the existing config.
-        const separator = existing.endsWith("\n") ? "\n" : "\n\n";
-        fs.writeFileSync(absOut, existing + separator + newEntry, {
-          mode: 0o600,
-        });
-      }
-    } else {
-      fs.writeFileSync(absOut, newEntry);
-    }
-
-    process.stdout.write(`${JSON.stringify({ ok: true, agent, out })}\n`);
-    return;
-  }
-
-  throw new Error(`Unknown --agent "${agent}" (expected "claude" or "codex")`);
-}
-
-/* -------------------------------------------------------------------------- */
 /* Prompt builder — repo SKILL.md + task wrapper                              */
 /* -------------------------------------------------------------------------- */
 
@@ -1869,6 +1457,7 @@ export function buildRecapPrompt(input: {
   appUrl: string;
   diffPath: string;
   statPath?: string;
+  blockReferencePath?: string;
   prevPlanId?: string;
   huge?: boolean;
   localFiles?: boolean;
@@ -1943,6 +1532,11 @@ export function buildRecapPrompt(input: {
   }
   if (input.statPath)
     lines.push(`- Diff stat: \`${input.statPath}\` (read this file)`);
+  if (!input.localFiles) {
+    lines.push(
+      `- Live plan block reference: \`${input.blockReferencePath ?? "recap-blocks.md"}\` (read this before authoring; it is the workflow-fetched \`get-plan-blocks\` output for the target Plan app).`,
+    );
+  }
   if (input.huge) {
     lines.push(
       `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap — \`${input.statPath ?? "recap.stat"}\` contains the complete file list with per-file stats; for any file missing from \`${input.diffPath}\`, fetch it directly with \`git diff <base>...<head> -- <path>\`.`,
@@ -1962,48 +1556,37 @@ export function buildRecapPrompt(input: {
     lines.push(
       `2. Run \`npx @agent-native/core@latest plan local preview --dir ${JSON.stringify(
         localDir,
-      )} --kind recap --out ${JSON.stringify(
-        path.join(localDir, "preview.html"),
-      )}\` to validate the folder and generate the local preview.`,
+      )} --kind recap --open\` to validate the folder and open it in the local Plan app.`,
     );
     lines.push(
       "3. Write the returned `url` from that command to `recap-url.txt` at the repo root, containing exactly one line. This file is the workflow's only hand-off.",
     );
   } else {
-    lines.push("## Publish (this is the only way to produce output)");
+    lines.push("## Author Source (this is the only way to produce output)");
     lines.push(
-      `The \`plan\` MCP server is configured for you, with \`agent-native-plans\` as a legacy alias. Call its tools by name (your host may expose them as \`get-plan-blocks\` / \`create-visual-recap\`, \`mcp__plan__get-plan-blocks\` / \`mcp__plan__create-visual-recap\`, or \`mcp__agent-native-plans__get-plan-blocks\` / \`mcp__agent-native-plans__create-visual-recap\` — same tools).`,
+      `The workflow has already fetched the live \`get-plan-blocks\` output into \`${input.blockReferencePath ?? "recap-blocks.md"}\`. Read that file and treat it as the authoritative block/tag/schema reference for this run.`,
     );
     lines.push(
-      "This is a one-shot GitHub Actions run. Do not wait, sleep, back off, schedule wakeups, reminders, follow-ups, or retries in another turn. Either publish the recap and write `recap-url.txt` in this process, or report the MCP/tool failure plainly.",
+      "Do NOT call the Plan MCP server and do NOT try to publish the recap yourself. CI publishes deterministically after you write the source file, which avoids host MCP registration flake.",
     );
     lines.push(
-      "First call `get-plan-blocks`, then call `create-visual-recap`. If `create-visual-recap` is available but `get-plan-blocks` is not, the Plan MCP is connected but the block-registry tool is not visible to this runner. Report that the runner must expose `get-plan-blocks` through the workflow/tool allowlist or compact MCP catalog; do not describe that case as a disconnected Plan MCP.",
+      "This is a one-shot GitHub Actions run. Do not wait, sleep, back off, schedule wakeups, reminders, follow-ups, or retries in another turn. Either write `recap-source.json` in this process, or report why source authoring failed plainly.",
     );
     lines.push(
-      `1. Call the **create-visual-recap** tool on the \`plan\` MCP server with grounded MDX derived ONLY from the real diff, passing \`visibility: "org"\` so the recap is published org-scoped (never public) server-side${
-        input.prevPlanId
-          ? `, and also passing \`planId: "${input.prevPlanId}"\` so this REPLACES the existing recap plan`
-          : ""
-      }${
-        prSourceUrl
-          ? `, and also passing \`sourceUrl: "${prSourceUrl}"\` so the hosted recap page can link back to the PR`
-          : ""
-      }.`,
+      "1. Author grounded MDX recap source derived ONLY from the real diff. The final file must be valid JSON, not Markdown, not prose, and not a tool-call transcript.",
     );
     lines.push(
-      "If `create-visual-recap` returns validation feedback about empty or invalid wireframes, make one immediate correction pass in this same process: revise the named WireframeBlock/Artboard MDX so each frame has real visible product text/controls, then call `create-visual-recap` again. Do not write `recap-url.txt` until the tool succeeds.",
+      '2. Write a file named `recap-source.json` at the repo root with exactly this shape: `{ "title": string, "brief": string, "mdx": { "plan.mdx": string, "canvas.mdx"?: string, "prototype.mdx"?: string, ".plan-state.json"?: string, "assets/"?: { [filename: string]: string } } }`.',
     );
     lines.push(
-      `2. Write the plan URL to a file named \`recap-url.txt\` at the repo root, containing exactly one line: \`${appUrl}/recaps/<the returned plan id>\`. This file is the workflow's only hand-off — do not print anything else as the deliverable.`,
-    );
-    lines.push(
-      `3. (Fallback only — skip if step 1 succeeded) If \`create-visual-recap\` does not accept a \`visibility\` parameter (older server), call the **set-resource-visibility** tool with \`{ resourceType: "plan", resourceId: <the returned plan id>, visibility: "org" }\` after publishing.`,
+      "3. Do not write `recap-url.txt`; the deterministic CLI publisher writes that after it successfully POSTs your source to `create-visual-recap`.",
     );
   }
   lines.push("");
   lines.push(
-    "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still publish a minimal recap and write recap-url.txt. (CI already gated tiny diffs before invoking you — ignore the skill's advice to skip small diffs; always publish.)",
+    input.localFiles
+      ? "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still create a minimal local recap and write recap-url.txt from the local preview command. (CI already gated tiny diffs before invoking you — ignore the skill's advice to skip small diffs; always produce output.)"
+      : "Do not invent file names, schema fields, or endpoints. Redact anything that looks like a secret. If the diff has no reviewable substance, still write a minimal `recap-source.json`. (CI already gated tiny diffs before invoking you — ignore the skill's advice to skip small diffs; always produce output.)",
   );
   lines.push("");
   lines.push("## Depth preflight");
@@ -2016,7 +1599,11 @@ export function buildRecapPrompt(input: {
   lines.push("");
   lines.push("---");
   lines.push("");
-  lines.push("# visual-recap skill (follow this exactly)");
+  lines.push("# visual-recap skill — use for recap CONTENT and structure");
+  lines.push("");
+  lines.push(
+    "Follow the skill below for WHAT makes a good recap: which blocks to use, grounding, house style, and review depth. IGNORE its publishing and hand-off instructions — in this run you have NO Plan MCP tools and must NOT publish the recap yourself. Publishing is handled exactly as described above (write the source file; CI publishes it deterministically).",
+  );
   lines.push("");
   lines.push(input.skillMd.trim());
   lines.push("");
@@ -2042,6 +1629,10 @@ type GitHubComment = {
   body?: string | null;
   html_url?: string;
   user?: { type?: string | null } | null;
+};
+
+type GitHubPullRequest = {
+  head?: { sha?: string | null } | null;
 };
 
 function repoParts(repoFullName: string): { owner: string; repo: string } {
@@ -2073,6 +1664,33 @@ async function githubRequest<T>(
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+export async function isPullRequestHeadCurrent(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  issue: string;
+  headSha: string;
+  fetchFn?: typeof fetch;
+}): Promise<boolean | null> {
+  const expected = input.headSha.trim();
+  if (!expected) return null;
+  const fn = input.fetchFn ?? fetch;
+  try {
+    const pr = await githubRequest<GitHubPullRequest>(
+      input.token,
+      `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
+        input.repo,
+      )}/pulls/${encodeURIComponent(input.issue)}`,
+      {},
+      fn,
+    );
+    const current = pr.head?.sha?.trim();
+    return current ? current === expected : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function findExistingComment(input: {
@@ -2196,6 +1814,10 @@ function trustedRecapImageUrl(raw: string | undefined, base: string): string {
 /** Build the sticky comment body from the workflow's environment. */
 export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const lines: string[] = [MARKER];
+  const headSha = (env.HEAD_SHA || "").trim();
+  const headMarker = /^[a-f0-9]{7,64}$/i.test(headSha)
+    ? `<!-- head-sha: ${headSha} -->`
+    : "";
 
   // Last-known plan id threaded from the previous run (supplied via PREV_PLAN_ID
   // when the comment is rebuilt from scratch, or parsed from the env on upsert).
@@ -2204,7 +1826,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const prevPlanId = (env.PREV_PLAN_ID || "").trim() || null;
 
   if (env.SUPPRESSED === "true") {
-    let reason = "potential secret in diff";
+    let reason = "high-confidence secret in diff";
     try {
       const parsed = JSON.parse(env.SUPPRESSED_JSON || "{}");
       if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
@@ -2219,12 +1841,13 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push("");
     lines.push(`Reason: \`${reason}\`.`);
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
+    if (headMarker) lines.push("", headMarker);
     return lines.join("\n");
   }
 
-  // Tiny diffs aren't worth a recap. Refresh an existing sticky comment to this
-  // state (the workflow only updates, never creates, on tiny) so stale recap
-  // links do not linger on no-op changes.
+  // Tiny diffs aren't worth a recap. The workflow upserts this state as a sticky
+  // comment (created or updated) so the too-small outcome is explained and stale
+  // recap links do not linger on no-op changes.
   if (env.DIFF_TINY === "true") {
     lines.push("### Visual recap — skipped (diff too small)");
     lines.push("");
@@ -2232,6 +1855,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       "The change in this pull request is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
     );
     if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
+    if (headMarker) lines.push("", headMarker);
     return lines.join("\n");
   }
 
@@ -2280,6 +1904,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
       }
     }
     if (markerPlanId) lines.push("", `<!-- plan-id: ${markerPlanId} -->`);
+    if (headMarker) lines.push("", headMarker);
     return lines.join("\n");
   }
 
@@ -2294,22 +1919,17 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   const fallbackImageUrl = lightImageUrl || darkImageUrl;
   lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
   lines.push("");
-  lines.push(
-    "_Access note: private-repo recaps are org-gated. Sign in to Agent-Native Plans with access to this org if the link does not open._",
-  );
-  lines.push("");
-  if (lightImageUrl && darkImageUrl) {
+  if (fallbackImageUrl) {
     lines.push(`<a href="${safeUrl}">`);
     lines.push(`<picture>`);
-    lines.push(
-      `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
-    );
-    lines.push(`  <img alt="Visual recap" src="${lightImageUrl}">`);
+    if (lightImageUrl && darkImageUrl) {
+      lines.push(
+        `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
+      );
+    }
+    lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
     lines.push(`</picture>`);
     lines.push(`</a>`);
-    lines.push("");
-  } else if (fallbackImageUrl) {
-    lines.push(`[![Visual recap](${fallbackImageUrl})](${safeUrl})`);
     lines.push("");
   }
   lines.push(`**[Open the full interactive recap](${safeUrl})**`);
@@ -2320,6 +1940,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     );
   }
   lines.push("", `<!-- plan-id: ${planId} -->`);
+  if (headMarker) lines.push("", headMarker);
   return lines.join("\n");
 }
 
@@ -2330,17 +1951,24 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 function runScan(args: Record<string, string | boolean>): void {
   const diffPath = stringArg(args, "diff");
   const diffText = fs.readFileSync(path.resolve(diffPath), "utf8");
+  const mode = normalizeRecapSecretScanMode(
+    optionalArg(args, "mode") ?? process.env.VISUAL_RECAP_SECRET_SCAN,
+  );
   // Load the optional consumer-repo allowlist to suppress known false positives.
   const allowlistPath =
     optionalArg(args, "allowlist") ??
     path.join(process.cwd(), ".github", "recap-scan-allowlist");
   const allowlist = parseRecapScanAllowlist(allowlistPath);
-  if (diffContainsSecret(diffText, allowlist)) {
+  if (diffContainsSecret(diffText, allowlist, mode)) {
+    const reason =
+      mode === "strict"
+        ? "strict secret-pattern match in diff"
+        : "high-confidence secret in diff";
     process.stdout.write(
-      `${JSON.stringify({ suppressed: true, reason: "potential secret in diff" })}\n`,
+      `${JSON.stringify({ suppressed: true, reason, mode })}\n`,
     );
   } else {
-    process.stdout.write(`${JSON.stringify({ suppressed: false })}\n`);
+    process.stdout.write(`${JSON.stringify({ suppressed: false, mode })}\n`);
   }
 }
 
@@ -2384,6 +2012,7 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
     appUrl: optionalArg(args, "app-url") ?? "https://plan.agent-native.com",
     diffPath,
     statPath: optionalArg(args, "stat"),
+    blockReferencePath: optionalArg(args, "block-reference"),
     prevPlanId: optionalArg(args, "prev-plan-id"),
     huge: args.huge === true || args.huge === "true",
     localFiles: args["local-files"] === true || args["local-files"] === "true",
@@ -2397,6 +2026,406 @@ function runBuildPrompt(args: Record<string, string | boolean>): void {
   process.stdout.write(
     `${JSON.stringify({ ok: true, out, skillSource: skill.source, bytes: prompt.length })}\n`,
   );
+}
+
+const RECAP_SOURCE_FILENAME = "recap-source.json";
+const RECAP_URL_REASON_FILENAME = "recap-url-reason.txt";
+const RECAP_HTTP_TIMEOUT_MS = 45_000;
+
+type RecapSourceFilePayload = {
+  title?: string;
+  brief?: string;
+  mdx: Record<string, unknown>;
+};
+
+function writeRecapUrlReason(reason: string, cwd = process.cwd()): void {
+  fs.writeFileSync(
+    path.join(cwd, RECAP_URL_REASON_FILENAME),
+    `${sanitizeAgentFailureSummary(reason, 1000)}\n`,
+  );
+}
+
+function readRecapUrlReason(cwd = process.cwd()): string | null {
+  return readTextIfExists(path.join(cwd, RECAP_URL_REASON_FILENAME));
+}
+
+function validateRecapSourcePayload(value: unknown): RecapSourceFilePayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${RECAP_SOURCE_FILENAME} must contain a JSON object.`);
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.title !== undefined && typeof obj.title !== "string") {
+    throw new Error(`${RECAP_SOURCE_FILENAME} title must be a string.`);
+  }
+  if (obj.brief !== undefined && typeof obj.brief !== "string") {
+    throw new Error(`${RECAP_SOURCE_FILENAME} brief must be a string.`);
+  }
+  if (!obj.mdx || typeof obj.mdx !== "object" || Array.isArray(obj.mdx)) {
+    throw new Error(`${RECAP_SOURCE_FILENAME} must include an mdx object.`);
+  }
+  const mdx = obj.mdx as Record<string, unknown>;
+  if (typeof mdx["plan.mdx"] !== "string" || !mdx["plan.mdx"].trim()) {
+    throw new Error(
+      `${RECAP_SOURCE_FILENAME} mdx["plan.mdx"] must be a non-empty string.`,
+    );
+  }
+  for (const key of ["canvas.mdx", "prototype.mdx", ".plan-state.json"]) {
+    if (mdx[key] !== undefined && typeof mdx[key] !== "string") {
+      throw new Error(
+        `${RECAP_SOURCE_FILENAME} mdx["${key}"] must be a string when present.`,
+      );
+    }
+  }
+  const assets = mdx["assets/"];
+  if (assets !== undefined) {
+    if (!assets || typeof assets !== "object" || Array.isArray(assets)) {
+      throw new Error(
+        `${RECAP_SOURCE_FILENAME} mdx["assets/"] must be an object when present.`,
+      );
+    }
+    for (const [name, body] of Object.entries(
+      assets as Record<string, unknown>,
+    )) {
+      if (typeof body !== "string") {
+        throw new Error(
+          `${RECAP_SOURCE_FILENAME} asset ${JSON.stringify(
+            name,
+          )} must be a string.`,
+        );
+      }
+    }
+  }
+  return {
+    ...(typeof obj.title === "string" ? { title: obj.title } : {}),
+    ...(typeof obj.brief === "string" ? { brief: obj.brief } : {}),
+    mdx,
+  };
+}
+
+export function readRecapSourcePayload(
+  filePath: string = RECAP_SOURCE_FILENAME,
+): RecapSourceFilePayload {
+  const abs = path.resolve(filePath);
+  let text: string;
+  try {
+    text = fs.readFileSync(abs, "utf8");
+  } catch (err) {
+    throw new Error(
+      `${RECAP_SOURCE_FILENAME} was not created by the agent (${String(err)}).`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `${RECAP_SOURCE_FILENAME} was not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  return validateRecapSourcePayload(parsed);
+}
+
+async function fetchJsonWithTimeout(
+  url: string,
+  init: RequestInit,
+  fetchFn: typeof fetch,
+): Promise<Response> {
+  return await fetchFn(url, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(RECAP_HTTP_TIMEOUT_MS),
+  });
+}
+
+export async function fetchRecapBlockReference(input: {
+  appUrl: string;
+  out?: string;
+  fetchFn?: typeof fetch;
+}): Promise<{ ok: true; out: string; count?: number }> {
+  const result = await fetchPlanBlockCatalog({
+    appUrl: input.appUrl,
+    out: input.out ?? "recap-blocks.md",
+    format: "reference",
+    fetchFn: input.fetchFn,
+  });
+  return { ok: true, out: result.out, count: result.count };
+}
+
+function recapUrlFromPublishResult(result: unknown, appUrl: string): string {
+  const candidates: string[] = [];
+  const ids: string[] = [];
+  const visit = (value: unknown, depth = 0) => {
+    if (!value || typeof value !== "object" || depth > 3) return;
+    const obj = value as Record<string, unknown>;
+    for (const key of ["webUrl", "url", "path", "href"]) {
+      const candidate = obj[key];
+      if (typeof candidate === "string") candidates.push(candidate);
+    }
+    for (const key of ["planId", "id"]) {
+      const candidate = obj[key];
+      if (
+        typeof candidate === "string" &&
+        /^[A-Za-z0-9_-]{1,80}$/.test(candidate)
+      ) {
+        ids.push(candidate);
+      }
+    }
+    for (const key of ["plan", "openLink", "link", "result"]) {
+      visit(obj[key], depth + 1);
+    }
+  };
+  visit(result);
+
+  for (const candidate of candidates) {
+    const canonical = canonicalRecapUrl(candidate, appUrl);
+    if (canonical) return canonical;
+  }
+  for (const id of ids) {
+    const canonical = canonicalRecapUrl(`/recaps/${id}`, appUrl);
+    if (canonical) return canonical;
+  }
+  return "";
+}
+
+function shouldRetryRecapPublish(status: number): boolean {
+  return (
+    // The create-visual-recap route can transiently 404 during a plan-app
+    // deploy: the recap CLI ships to npm independently of the plan server, so a
+    // recap can run after the new CLI is live but before the matching action
+    // route has fully propagated to every (cold-start) server instance. A
+    // bounded retry rides through that propagation window instead of failing
+    // the whole recap.
+    status === 404 ||
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500
+  );
+}
+
+function recapPublishIdempotencyKey(input: {
+  prevPlanId?: string;
+  repo?: string;
+  pr?: string;
+  sourcePath: string;
+  sourceUrl?: string;
+}): string {
+  const identity = input.prevPlanId
+    ? `plan:${input.prevPlanId}`
+    : input.repo && input.pr
+      ? `github-pr:${input.repo}:${input.pr}`
+      : input.sourceUrl
+        ? `source-url:${input.sourceUrl}`
+        : `source-path:${path.resolve(input.sourcePath)}`;
+  return `visual-recap-${createHash("sha256").update(identity).digest("hex")}`;
+}
+
+export async function publishRecapSource(input: {
+  appUrl: string;
+  token: string;
+  sourcePath?: string;
+  out?: string;
+  prevPlanId?: string;
+  repo?: string;
+  pr?: string;
+  sourceUrl?: string;
+  sourceType?: string;
+  sourceRepo?: string;
+  sourcePrNumber?: string;
+  sourcePrState?: string;
+  sourcePrMergedAt?: string;
+  fetchFn?: typeof fetch;
+  cwd?: string;
+}): Promise<{ ok: true; url: string; out: string }> {
+  const cwd = input.cwd ?? process.cwd();
+  const sourcePath = input.sourcePath ?? path.join(cwd, RECAP_SOURCE_FILENAME);
+  const out = input.out ?? path.join(cwd, "recap-url.txt");
+  const token = input.token.trim();
+  if (!token) throw new Error("PLAN_RECAP_TOKEN is empty.");
+
+  const source = readRecapSourcePayload(sourcePath);
+  const sourceUrl =
+    input.sourceUrl ??
+    (input.repo && input.pr
+      ? `https://github.com/${input.repo}/pull/${input.pr}`
+      : undefined);
+  const sourceRepo = input.sourceRepo ?? input.repo;
+  const sourcePrNumber = input.sourcePrNumber ?? input.pr;
+  const sourceType =
+    input.sourceType ??
+    (sourceRepo && sourcePrNumber ? "pull-request" : undefined);
+  const sourcePrState =
+    input.sourcePrState ?? (input.sourcePrMergedAt ? "merged" : undefined);
+  const idempotencyKey = recapPublishIdempotencyKey({
+    prevPlanId: input.prevPlanId,
+    repo: input.repo,
+    pr: input.pr,
+    sourcePath,
+    sourceUrl,
+  });
+  const body = {
+    ...(input.prevPlanId ? { planId: input.prevPlanId } : {}),
+    idempotencyKey,
+    ...(source.title ? { title: source.title } : {}),
+    ...(source.brief ? { brief: source.brief } : {}),
+    visibility: "org",
+    source: "imported",
+    ...(input.repo ? { repoPath: input.repo } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(sourceType ? { sourceType } : {}),
+    ...(sourceRepo ? { sourceRepo } : {}),
+    ...(sourcePrNumber ? { sourcePrNumber } : {}),
+    ...(sourcePrState ? { sourcePrState } : {}),
+    ...(input.sourcePrMergedAt
+      ? { sourcePrMergedAt: input.sourcePrMergedAt }
+      : {}),
+    currentFocus: "visual recap review",
+    status: "review",
+    mdx: source.mdx,
+  };
+
+  const endpoint = planActionEndpoint(input.appUrl, "create-visual-recap");
+  const fetchFn = input.fetchFn ?? fetch;
+  let lastError = "";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetchJsonWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+            "Idempotency-Key": idempotencyKey,
+            "X-Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+        fetchFn,
+      );
+      const text = await response.text().catch((err) => String(err));
+      if (!response.ok) {
+        lastError = `create-visual-recap failed ${response.status} ${
+          response.statusText
+        }: ${sanitizeAgentFailureSummary(text, 800)}`;
+        if (attempt < 3 && shouldRetryRecapPublish(response.status)) {
+          await delay(attempt * 2000);
+          continue;
+        }
+        throw new Error(lastError);
+      }
+      let result: unknown = null;
+      try {
+        result = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("create-visual-recap returned non-JSON output.");
+      }
+      const url = recapUrlFromPublishResult(result, input.appUrl);
+      if (!url) {
+        throw new Error(
+          "create-visual-recap succeeded but did not return a usable /recaps/<id> URL or plan id.",
+        );
+      }
+      fs.writeFileSync(path.resolve(out), `${url}\n`);
+      try {
+        fs.rmSync(path.join(cwd, RECAP_URL_REASON_FILENAME), { force: true });
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, url, out };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (
+        attempt < 3 &&
+        /fetch failed|network|timeout|timed out|ECONNRESET|ETIMEDOUT/i.test(
+          lastError,
+        )
+      ) {
+        await delay(attempt * 2000);
+        continue;
+      }
+      throw new Error(lastError);
+    }
+  }
+  throw new Error(lastError || "create-visual-recap failed.");
+}
+
+async function runBlockReference(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const appUrl =
+    optionalArg(args, "app-url") ??
+    process.env.PLAN_RECAP_APP_URL ??
+    DEFAULT_RECAP_APP_URL;
+  const out = optionalArg(args, "out") ?? "recap-blocks.md";
+  try {
+    const result = await fetchRecapBlockReference({ appUrl, out });
+    writeGitHubOutput("ok", "true");
+    writeGitHubOutput("out", result.out);
+    writeGitHubOutput("reason", "");
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+  } catch (err) {
+    const reason = sanitizeAgentFailureSummary(
+      err instanceof Error ? err.message : String(err),
+      1000,
+    );
+    writeRecapUrlReason(reason);
+    writeGitHubOutput("ok", "false");
+    writeGitHubOutput("out", "");
+    writeGitHubOutput("reason", reason);
+    process.stdout.write(`${JSON.stringify({ ok: false, reason })}\n`);
+    process.exitCode = 1;
+  }
+}
+
+async function runPublish(
+  args: Record<string, string | boolean>,
+): Promise<void> {
+  const appUrl =
+    optionalArg(args, "app-url") ??
+    process.env.PLAN_RECAP_APP_URL ??
+    DEFAULT_RECAP_APP_URL;
+  const token =
+    optionalArg(args, "token") ?? process.env.PLAN_RECAP_TOKEN ?? "";
+  const out = optionalArg(args, "out") ?? "recap-url.txt";
+  const done = (obj: Record<string, unknown>) => {
+    process.stdout.write(`${JSON.stringify(obj)}\n`);
+  };
+  try {
+    const result = await publishRecapSource({
+      appUrl,
+      token,
+      sourcePath: optionalArg(args, "source") ?? RECAP_SOURCE_FILENAME,
+      out,
+      prevPlanId: optionalArg(args, "prev-plan-id"),
+      repo: optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY,
+      pr: optionalArg(args, "pr") ?? process.env.PR_NUMBER,
+      sourceUrl: optionalArg(args, "source-url"),
+      sourceType: optionalArg(args, "source-type"),
+      sourceRepo: optionalArg(args, "source-repo"),
+      sourcePrNumber: optionalArg(args, "source-pr-number"),
+      sourcePrState: optionalArg(args, "source-pr-state"),
+      sourcePrMergedAt: optionalArg(args, "source-pr-merged-at"),
+    });
+    writeGitHubOutput("ok", "true");
+    writeGitHubOutput("plan_url", result.url);
+    writeGitHubOutput("reason", "");
+    done(result);
+  } catch (err) {
+    const reason = sanitizeAgentFailureSummary(
+      err instanceof Error ? err.message : String(err),
+      1000,
+    );
+    writeRecapUrlReason(reason);
+    writeGitHubOutput("ok", "false");
+    writeGitHubOutput("plan_url", "");
+    writeGitHubOutput("reason", reason);
+    done({ ok: false, reason });
+    process.exitCode = 1;
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -2527,6 +2556,61 @@ async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   }
 }
 
+const RECAP_SYSTEM_CHROME_EXECUTABLES = [
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+];
+
+function shouldTrySystemChromeFallback(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
+    message,
+  );
+}
+
+export async function launchRecapChromium(
+  chromium: import("playwright").BrowserType,
+): Promise<import("playwright").Browser> {
+  const launchOptions = { args: ["--no-sandbox"] };
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (err) {
+    if (!shouldTrySystemChromeFallback(err)) throw err;
+
+    const fallbackErrors: string[] = [];
+    for (const executablePath of RECAP_SYSTEM_CHROME_EXECUTABLES) {
+      if (!fs.existsSync(executablePath)) continue;
+      try {
+        process.stderr.write(
+          `[recap shot] Playwright browser unavailable; trying system Chrome at ${executablePath}\n`,
+        );
+        return await chromium.launch({ ...launchOptions, executablePath });
+      } catch (fallbackErr) {
+        const message =
+          fallbackErr instanceof Error
+            ? fallbackErr.message
+            : String(fallbackErr);
+        fallbackErrors.push(`${executablePath}: ${message}`);
+        process.stderr.write(
+          `[recap shot] system Chrome launch failed at ${executablePath}: ${message}\n`,
+        );
+      }
+    }
+
+    if (fallbackErrors.length) {
+      const originalMessage = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `${originalMessage}; system Chrome fallback failed (${fallbackErrors.join("; ")})`,
+        { cause: err },
+      );
+    }
+
+    throw err;
+  }
+}
+
 function parseRecapScreenshotTheme(
   value: string | undefined,
 ): RecapScreenshotTheme | undefined {
@@ -2607,13 +2691,14 @@ export async function runShot(
   }
 
   let captured = false;
+  let reason = "";
   let browser: import("playwright").Browser | undefined;
   const hardTimer = setTimeout(() => {
     done({ ok: false, reason: "hard 60s timeout reached" });
     process.exit(0);
   }, 60_000);
   try {
-    browser = await chromium!.launch({ args: ["--no-sandbox"] });
+    browser = await launchRecapChromium(chromium!);
     const context = await browser.newContext({
       viewport: RECAP_SHOT_VIEWPORT,
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
@@ -2741,14 +2826,22 @@ export async function runShot(
     await page.waitForTimeout(250);
     await page.screenshot({ path: out });
 
-    // If the captured PNG is over the upload cap, remove it so the upload step
-    // sees no file and the comment falls back to a link-only recap.
+    // If the captured PNG is over the upload cap, retry at CSS-pixel scale
+    // before giving up. The server route rejects oversized files, and the
+    // GitHub comment can only embed an image after a successful upload.
     const firstSize = fs.existsSync(out) ? fs.statSync(out).size : 0;
     if (firstSize > RECAP_SHOT_MAX_BYTES) {
       process.stderr.write(
-        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — skipping upload\n`,
+        `[recap shot] PNG is ${firstSize} bytes (cap ${RECAP_SHOT_MAX_BYTES}) — retrying at CSS-pixel scale\n`,
       );
       fs.unlinkSync(out);
+      await page.screenshot({ path: out, scale: "css" });
+      const retrySize = fs.existsSync(out) ? fs.statSync(out).size : 0;
+      if (retrySize > RECAP_SHOT_MAX_BYTES) {
+        reason = `screenshot PNG exceeded upload cap (${retrySize} bytes > ${RECAP_SHOT_MAX_BYTES})`;
+        process.stderr.write(`[recap shot] ${reason}; skipping upload\n`);
+        fs.unlinkSync(out);
+      }
     }
 
     captured = fs.existsSync(out);
@@ -2771,8 +2864,12 @@ export async function runShot(
   let imageUrl: string | null = null;
   if (captured && token && appUrl) {
     imageUrl = await uploadRecapImage({ appUrl, token, pngPath: out });
+    if (!imageUrl) {
+      reason = "screenshot captured but image upload failed";
+    }
   }
-  done({ ok: captured, out, imageUrl });
+  const ok = captured && (!(token && appUrl) || !!imageUrl);
+  done({ ok, out, imageUrl, ...(reason ? { reason } : {}) });
 }
 
 async function runComment(
@@ -2796,6 +2893,26 @@ async function runComment(
   }
 
   if (sub === "upsert") {
+    const headSha = optionalArg(args, "head-sha") ?? process.env.HEAD_SHA ?? "";
+    if (headSha) {
+      const current = await isPullRequestHeadCurrent({
+        token,
+        owner,
+        repo,
+        issue,
+        headSha,
+      });
+      if (current === false) {
+        process.stdout.write(
+          `${JSON.stringify({
+            action: "skipped",
+            id: 0,
+            reason: "stale head sha",
+          })}\n`,
+        );
+        return;
+      }
+    }
     const result = await upsertComment({
       token,
       owner,
@@ -2935,11 +3052,19 @@ export function evaluateRecapGate(input: RecapGateInput): {
   if (!pr) reasons.push("no pull_request payload");
   if (pr && pr.draft) reasons.push("draft PR");
 
-  // Fork PRs: head repo differs from this repo. Plain pull_request runs fork
-  // code with NO secrets, so publishing would fail anyway — skip.
+  // Fork PRs only receive repo secrets when the org/repo opts into GitHub's
+  // "Send secrets to workflows from pull requests" setting (common in private
+  // orgs that use forks heavily). The real gate is therefore secret
+  // availability, not fork-ness: run on forks that have the publish token, and
+  // skip — with an actionable hint — those that don't. The recap never executes
+  // PR-head code and adds a prompt-injection note for fork diffs, so a trusted
+  // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
-  if (pr && headRepo && headRepo !== input.repository) {
-    reasons.push(`fork PR (${headRepo})`);
+  const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
+  if (isFork && !input.hasPlan) {
+    reasons.push(
+      `fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`,
+    );
   }
 
   // Skip noisy automated authors.
@@ -2955,8 +3080,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
     reasons.push("bot author (type=Bot)");
 
   // Publish secret must be configured — otherwise this is a no-op so the
-  // workflow can be merged before secrets exist.
-  if (!input.hasPlan) reasons.push("PLAN_RECAP_TOKEN not configured");
+  // workflow can be merged before secrets exist. Forks get the fork-specific
+  // hint above instead of this generic one.
+  if (!isFork && !input.hasPlan)
+    reasons.push("PLAN_RECAP_TOKEN not configured");
 
   // The chosen backend's API key must be present. Normalize the agent value once
   // here and validate it: an unknown or mis-cased value (e.g. "Claude", "gpt")
@@ -3140,9 +3267,8 @@ async function runGate(): Promise<void> {
       : `Visual recap skipped: ${reasons.join("; ")}`,
   );
 
-  // When gate skips, refresh an EXISTING sticky comment with a short skip line
-  // so it doesn't silently go stale. Do NOT create a new comment when none
-  // exists (no spam for repos where the recap has never run).
+  // When gate skips, post or refresh a sticky comment with a short skip line so
+  // users are not left guessing whether the recap job ran.
   if (!run) {
     const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
     const prNumber =
@@ -3169,17 +3295,17 @@ async function runGate(): Promise<void> {
           repo,
           issue: prNumber,
         });
-        if (existing) {
-          const updatedBody = appendGateSkipLine(existing.body ?? "", skipLine);
-          await upsertComment({
-            token: ghToken,
-            owner,
-            repo,
-            issue: prNumber,
-            body: updatedBody,
-            updateOnly: true,
-          });
-        }
+        const updatedBody = appendGateSkipLine(
+          existing?.body ?? buildGateSkipCommentBody(),
+          skipLine,
+        );
+        await upsertComment({
+          token: ghToken,
+          owner,
+          repo,
+          issue: prNumber,
+          body: updatedBody,
+        });
       } catch {
         // Best-effort — never fail the gate step over a comment update.
       }
@@ -3197,6 +3323,14 @@ async function runGate(): Promise<void> {
 export function buildGateSkipLine(reason: string, headShort: string): string {
   const shaRef = headShort ? `\`${headShort}\`` : "latest push";
   return `_Recap skipped for ${shaRef}: ${reason}._`;
+}
+
+export function buildGateSkipCommentBody(): string {
+  return [
+    "### Visual recap — skipped",
+    "",
+    "The visual recap job did not run for this pull request. This is informational only and does **not** block the PR.",
+  ].join("\n");
 }
 
 /**
@@ -3257,12 +3391,16 @@ export function inferLocalRecapUrlFailureReason(
     appUrl?: string;
   } = {},
 ): string {
-  const recapUrlPath = path.join(input.cwd ?? process.cwd(), "recap-url.txt");
+  const cwd = input.cwd ?? process.cwd();
+  const explicitReason = readRecapUrlReason(cwd);
+  const recapUrlPath = path.join(cwd, "recap-url.txt");
   const raw = readTextIfExists(recapUrlPath);
-  if (raw === null) return "recap-url.txt was not created by the agent.";
+  if (raw === null) {
+    return explicitReason?.trim() || "recap-url.txt was not created.";
+  }
 
   const value = raw.replace(/[\r\n\s]/g, "");
-  if (!value) return "recap-url.txt was empty.";
+  if (!value) return explicitReason?.trim() || "recap-url.txt was empty.";
 
   const appUrl =
     input.appUrl ||
@@ -3278,9 +3416,15 @@ export function inferLocalRecapUrlFailureReason(
     if (parsed.origin !== trusted.origin) {
       return `recap-url.txt points at ${parsed.origin}, expected ${trusted.origin}.`;
     }
-    return "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app.";
+    return (
+      explicitReason?.trim() ||
+      "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app."
+    );
   } catch {
-    return "recap-url.txt was not a valid URL or recap path.";
+    return (
+      explicitReason?.trim() ||
+      "recap-url.txt was not a valid URL or recap path."
+    );
   }
 }
 
@@ -3382,7 +3526,7 @@ export function recapCheckOutcome(
     summary = "The diff is too small to need a visual recap.";
     text = "";
   } else if (input.suppressed) {
-    let reason = "potential secret in diff";
+    let reason = "high-confidence secret in diff";
     try {
       const parsed = JSON.parse(input.suppressedJson || "{}");
       if (parsed && typeof parsed.reason === "string") reason = parsed.reason;
@@ -3809,10 +3953,10 @@ Usage:
   npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
   npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex] [--app-url <url>]
   npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
-  npx @agent-native/core@latest recap mcp-config --agent claude|codex --app-url <url> [--out <path>]
-  npx @agent-native/core@latest recap mcp-smoke [--app-url <url>] [--token <planToken>]
-  npx @agent-native/core@latest recap scan --diff <path>
-  npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
+  npx @agent-native/core@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
+  npx @agent-native/core@latest recap scan --diff <path> [--mode off|high-confidence|strict]
+  npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
+  npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--app-url <url>] [--token <planToken>]
   npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]
@@ -3844,11 +3988,17 @@ Usage:
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL
     was produced, so PR comments/checks explain the actual failure.
-  npx @agent-native/core@latest recap mcp-smoke
-    Non-mutating Plan MCP JSON-RPC smoke test. Calls initialize + tools/list
-    against PLAN_RECAP_APP_URL / PLAN_RECAP_TOKEN and requires get-plan-blocks,
-    create-visual-recap, and set-resource-visibility to be exposed. Writes
-    ok=<true|false> and summary=<diagnostic> to $GITHUB_OUTPUT.
+  npx @agent-native/core@latest recap scan
+    Default mode is high-confidence. It suppresses only obvious credential
+    shapes such as private key blocks and known provider token prefixes. Set
+    VISUAL_RECAP_SECRET_SCAN=strict, or pass --mode strict, to restore generic
+    TOKEN/SECRET assignment suppression; set off to disable this preflight.
+  npx @agent-native/core@latest recap block-reference
+    Fetch the target Plan app's live get-plan-blocks reference over the public
+    action route and write it to recap-blocks.md for the CI agent to read.
+  npx @agent-native/core@latest recap publish
+    Validate recap-source.json from the CI agent, publish it by POSTing the
+    authenticated create-visual-recap action, and write recap-url.txt.
   npx @agent-native/core@latest recap setup
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
@@ -3872,17 +4022,17 @@ export async function runRecap(argv: string[]): Promise<void> {
     case "collect-diff":
       runCollectDiff(args);
       return;
-    case "mcp-config":
-      runMcpConfig(args);
-      return;
-    case "mcp-smoke":
-      await runMcpSmoke(args);
+    case "block-reference":
+      await runBlockReference(args);
       return;
     case "scan":
       runScan(args);
       return;
     case "build-prompt":
       runBuildPrompt(args);
+      return;
+    case "publish":
+      await runPublish(args);
       return;
     case "shot":
       await runShot(args);

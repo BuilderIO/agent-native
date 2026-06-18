@@ -320,6 +320,7 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Selected row ids: a, b",
       message: "Continue with this selection",
+      mode: "plan",
     });
     await flushMicrotasks();
 
@@ -339,6 +340,8 @@ describe("MCP app host client helpers", () => {
     expect(contextCall).toMatchObject({
       params: {
         content: [{ type: "text", text: "Selected row ids: a, b" }],
+        mode: "plan",
+        requestMode: "plan",
       },
     });
     dispatchHostMessage({
@@ -354,6 +357,8 @@ describe("MCP app host client helpers", () => {
       params: {
         role: "user",
         content: [{ type: "text", text: "Continue with this selection" }],
+        mode: "plan",
+        requestMode: "plan",
       },
     });
 
@@ -425,6 +430,7 @@ describe("MCP app host client helpers", () => {
       context:
         "Hidden draft context. Do not ask to read application-state/compose.json.",
       message: "Rewrite the selected sentence",
+      requestMode: "plan",
     });
 
     await expect(result).resolves.toBe(true);
@@ -439,11 +445,15 @@ describe("MCP app host client helpers", () => {
             text: "Hidden draft context. Do not ask to read application-state/compose.json.",
           },
         ],
+        mode: "plan",
+        requestMode: "plan",
       },
     });
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
       prompt: "Rewrite the selected sentence",
       scrollToBottom: true,
+      mode: "plan",
+      requestMode: "plan",
     });
     expect(JSON.stringify(sendFollowUpMessage.mock.calls)).not.toContain(
       "application-state/compose.json",
@@ -464,6 +474,7 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
       message: "Use the selected Assets image",
+      mode: "plan",
       structuredContent: {
         selectedAsset: {
           assetId: "asset-123",
@@ -485,6 +496,8 @@ describe("MCP app host client helpers", () => {
           { type: "text", text: "Hidden selected asset context" },
           { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
         ],
+        mode: "plan",
+        requestMode: "plan",
         structuredContent: {
           selectedAsset: {
             assetId: "asset-123",
@@ -496,6 +509,8 @@ describe("MCP app host client helpers", () => {
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
       prompt: "Use the selected Assets image",
       scrollToBottom: true,
+      mode: "plan",
+      requestMode: "plan",
     });
   });
 
@@ -506,6 +521,7 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
       message: "Use the selected Assets image",
+      mode: "plan",
       structuredContent: {
         selectedAsset: {
           assetId: "asset-123",
@@ -527,6 +543,8 @@ describe("MCP app host client helpers", () => {
           requestId: expect.any(String),
           context: "Hidden selected asset context",
           message: "Use the selected Assets image",
+          mode: "plan",
+          requestMode: "plan",
           content: [
             { type: "text", text: "Use the selected Assets image" },
             { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },

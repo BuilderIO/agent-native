@@ -39,12 +39,13 @@ export async function fetchPublicPlanMeta(
         brief: schema.plans.brief,
         visibility: schema.plans.visibility,
         kind: schema.plans.kind,
+        deletedAt: schema.plans.deletedAt,
       })
       .from(schema.plans)
       .where(eq(schema.plans.id, id))
       .limit(1);
 
-    if (!row || row.visibility !== "public") return null;
+    if (!row || row.visibility !== "public" || row.deletedAt) return null;
 
     return {
       title: row.title,

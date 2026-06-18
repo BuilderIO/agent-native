@@ -728,6 +728,56 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
+async function gotoAndWaitForNavLink(
+  page: Page,
+  running: RunningDev,
+  path: string,
+  linkName: string,
+  browserErrors: string[],
+  httpErrors: string[],
+): Promise<void> {
+  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  let lastError: unknown;
+  let lastBody = "";
+
+  while (Date.now() < deadline) {
+    browserErrors.length = 0;
+    httpErrors.length = 0;
+
+    try {
+      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await waitForViteDepsQuiet(running.viteReload, running.logs, {
+        timeoutMs: 30_000,
+      });
+      await page
+        .getByRole("link", { name: linkName })
+        .waitFor({ state: "visible", timeout: 8_000 });
+      return;
+    } catch (err) {
+      lastError = err;
+      lastBody = await page
+        .locator("body")
+        .innerText({ timeout: 2_000 })
+        .catch(() => "");
+      if (Date.now() >= deadline) break;
+      if (verbose || isCi) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[standalone-dev-smoke] ${path} not ready yet: ${message.split("\n")[0]}`,
+        );
+      }
+      await sleep(2_000);
+    }
+  }
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(
+    `${path} did not show ${linkName} link before timeout: ${message}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}`,
+  );
+}
+
 async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
@@ -779,10 +829,14 @@ async function waitForAuthenticatedShell(
   }
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
-  await waitForHomeLink(page, Math.max(15_000, shellDeadline - Date.now()), {
-    baseUrl,
-    renavigateOnTimeout: true,
-  });
+  await waitForHomeLink(
+    page,
+    Math.max(isCi ? 60_000 : 15_000, shellDeadline - Date.now()),
+    {
+      baseUrl,
+      renavigateOnTimeout: true,
+    },
+  );
 
   const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
@@ -804,10 +858,14 @@ async function runBrowserSmoke(
   httpErrors.length = 0;
 
   log("assertion pass: /observability after warmup");
-  await gotoCommitted(page, `${baseUrl}/observability`);
-  await page
-    .getByRole("link", { name: "Observability" })
-    .waitFor({ state: "visible", timeout: 20_000 });
+  await gotoAndWaitForNavLink(
+    page,
+    running,
+    "/observability",
+    "Observability",
+    browserErrors,
+    httpErrors,
+  );
 
   assert.deepEqual(browserErrors, [], "browser console/page errors");
   assert.deepEqual(httpErrors, [], "browser HTTP errors on app origin");

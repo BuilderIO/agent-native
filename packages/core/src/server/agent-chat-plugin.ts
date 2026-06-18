@@ -7,6 +7,7 @@ import {
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -124,6 +125,7 @@ import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
+  getCurrentDelegationDepth,
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
@@ -158,6 +160,8 @@ import {
   getModelFamilyOverlay,
   type PromptExamples,
 } from "./prompts/index.js";
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
+import { dataWidgetResultSchema } from "../data-widgets/index.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -923,6 +927,65 @@ function createUrlTools(): Record<string, ActionEntry> {
   };
 }
 
+function createDataWidgetActionEntries(): Record<string, ActionEntry> {
+  return {
+    "render-data-widget": {
+      readOnly: true,
+      parallelSafe: true,
+      chatUI: {
+        renderer: ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+        title: "Data widget",
+        description: "Render a validated native data table or chart in chat.",
+      },
+      tool: {
+        description:
+          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
+        parameters: {
+          type: "object",
+          properties: {
+            widget: {
+              type: "string",
+              enum: ["data-table", "data-chart", "data-insights"],
+              description:
+                "Widget kind. Use data-chart for a chart, data-table for a table, or data-insights for a combined summary/chart/table card.",
+            },
+            widgetId: {
+              type: "string",
+              description: "Optional stable widget identifier.",
+            },
+            title: {
+              type: "string",
+              description: "Optional widget title.",
+            },
+            summary: {
+              type: "object",
+              description:
+                "Optional scalar summary values for data-insights cards.",
+            },
+            display: {
+              type: "object",
+              description:
+                "Optional display metadata: title, description, primaryAction.",
+            },
+            table: {
+              type: "object",
+              description:
+                "For data-table/data-insights: { title?, columns: [{ key, label, align? }], rows, totalRows?, sampledRows?, truncated? }.",
+            },
+            chartSeries: {
+              type: "object",
+              description:
+                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
+            },
+          },
+          required: ["widget"],
+        },
+      },
+      run: async (args) => dataWidgetResultSchema.parse(args),
+    },
+  };
+}
+
 /**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
  * These let the agent read and write the app's own SQL database. Scoping to
@@ -963,7 +1026,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-query": wrapCliScript(
         {
           description:
-            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like BigQuery, HubSpot, Jira, Pylon, GA4, etc. For those, use the appropriate template action (e.g. `bigquery` for warehouse tables, `ga4-report` for Google Analytics, `jira`/`jira-search` for Jira, `pylon-issues` for Pylon). If the user names a provider, use that provider-specific action first; don't substitute BigQuery unless they ask for warehouse data. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.",
+            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like data warehouses, CRMs, issue trackers, analytics platforms, calendars, mail, docs, or other third-party services. For those, use the relevant template/provider action, MCP connector, or provider-api-catalog/provider-api-docs/provider-api-request when available. If the user names a provider, that named provider wins; do not substitute a warehouse or app database copy unless they explicitly ask for it. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.",
           parameters: {
             type: "object",
             properties: {
@@ -998,31 +1061,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
-          parameters: {
-            type: "object",
-            properties: {
-              sql: {
-                type: "string",
-                description:
-                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
-              },
-              args: {
-                type: "string",
-                description:
-                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
-              },
-              statements: {
-                type: "string",
-                description:
-                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
+          parameters: dbExecToolParameters(),
         },
         execMod.default,
       ),
@@ -2252,6 +2291,23 @@ export interface AgentChatPluginOptions {
    */
   leanPrompt?: boolean;
   /**
+   * Skip auto-injecting the workspace files/skills/agents inventory on the
+   * first message of a conversation while keeping the normal prompt, resources,
+   * and tool surface. Use this for domain-focused apps where broad workspace
+   * inventory is mostly latency/noise unless the user explicitly references it.
+   *
+   * `leanPrompt: true` implies this.
+   */
+  skipFilesContext?: boolean;
+  /**
+   * Initial native tool schemas to send to the LLM provider. When set, the
+   * agent starts with only these tools plus `tool-search`; the live registry
+   * remains searchable, and matching schemas from `tool-search` results are
+   * loaded into the next model request. Use this for domain-focused apps that
+   * have a few common actions and many rare framework utilities.
+   */
+  initialToolNames?: string[];
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -2287,6 +2343,14 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
+   * Expose raw SQL/native database tools (`db-query`, `db-exec`, `db-patch`,
+   * `db-schema`) to the app agent. Defaults to true for backwards-compatible
+   * agent/UI parity. Set to false for chat-first apps that want agents to use
+   * typed actions only while still rendering rich data widgets from action
+   * results.
+   */
+  databaseTools?: boolean;
+  /**
    * Optional A2A-only deterministic response path. Runs after inbound A2A text
    * and user context are resolved, but before an agent engine/model is loaded.
    * Return a message to complete the A2A task without invoking the LLM, or
@@ -2310,7 +2374,7 @@ export interface AgentChatPluginOptions {
    * prompt by default.
    *
    * - `providerActions`: external provider action names this template exposes
-   *   (e.g. `["bigquery", "ga4-report"]` for the analytics template).
+   *   (e.g. `["warehouse-query", "crm-records"]` for a template).
    * - `appActions`: representative template action names for rule 5's refresh
    *   examples (e.g. `["log-meal", "update-form"]` for a forms template).
    */
@@ -2319,22 +2383,35 @@ export interface AgentChatPluginOptions {
    * Curated allow-list of action names to serve external **connector** clients
    * on a hosted multi-tenant deployment.
    *
-   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
-   * external MCP clients see (and can call) only these actions plus the builtin
+   * Whenever this list is non-empty it is active by default for **every**
+   * caller (hosted connectors, code/stdio clients, and the local CLI): external
+   * MCP clients see (and can call) only these actions plus the builtin
    * cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`).
    * Calls to any tool outside the list are rejected with "Unknown tool".
    * This prevents the full ~105-tool catalog from bloating external-agent
    * context windows and removes footguns (db-exec, seed-*, extension suite,
-   * browser-session tools) from hosted multi-tenant connectors.
+   * browser-session tools) from connectors. It is no longer gated behind an
+   * environment variable, and the catalog is never inferred from the client.
    *
-   * Callers who need the full surface can opt up with
-   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT. Local/dev deployments without the env
-   * flag are unaffected — they always see the full surface.
+   * `tool-search` stays available so any trimmed tool is reachable on demand.
+   * Callers who need the full surface up front opt in explicitly with
+   * `agent-native connect --full-catalog` (embeds a `catalog_scope: "full"`
+   * claim in their connect-minted JWT) or the deployment-wide
+   * `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
    * Declare here rather than in MCPConfig directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+
+  /**
+   * Skip mounting the remote MCP protocol route.
+   *
+   * Most apps should leave this off so agent chat, A2A, and MCP share one
+   * runtime. Hosted apps with a dedicated early MCP plugin can set this to
+   * true so their external connector does not depend on the heavier chat
+   * plugin initialization path.
+   */
+  disableMcp?: boolean;
 
   /**
    * Code-execution capability for the production agent.
@@ -2562,7 +2639,10 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
  * request) with the template's promptExamples, producing the four assembled
  * prompt strings used at request time.
  */
-function buildFrameworkPrompts(examples?: PromptExamples): {
+function buildFrameworkPrompts(
+  examples?: PromptExamples,
+  options?: { databaseTools?: boolean },
+): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
   PROD_FRAMEWORK_PROMPT: string;
@@ -2573,8 +2653,8 @@ function buildFrameworkPrompts(examples?: PromptExamples): {
   // Note: FIRST_SESSION_PERSONALIZATION is NOT appended here — it is injected
   // at per-request prompt-assembly time only for new threads (no prior messages).
   // This prevents the ~1.5KB block from appearing on every request forever.
-  const FRAMEWORK_CORE = buildFrameworkCore(examples);
-  const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples);
+  const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
+  const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
 
   const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
 
@@ -2725,6 +2805,8 @@ export const _agentChatPromptSectionsForTests = (() => {
     frameworkCore,
     frameworkCoreCompact,
     frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
+    generateActionsPrompt,
+    createDataWidgetActionEntries,
   };
 })();
 
@@ -2944,16 +3026,13 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  _legacyHasRawDbTools?: boolean,
+  hasRawDbTools = true,
 ): Promise<string> {
-  // db-* tools are always registered (see createDbScriptEntries), in both dev
-  // and prod. The legacy boolean is kept for call-site compatibility but
-  // ignored — always advertise the tools to the agent.
   try {
     return await loadSchemaPromptBlock({
       owner,
       orgId: getRequestOrgId() ?? null,
-      hasRawDbTools: true,
+      hasRawDbTools,
     });
   } catch {
     return "";
@@ -2979,6 +3058,10 @@ function generateActionsPrompt(
   if (!registry || Object.keys(registry).length === 0) return "";
 
   const actionEntries = Object.entries(registry);
+  const nativeWidgetNote = (entry: ActionEntry) =>
+    entry.chatUI && typeof entry.chatUI.renderer === "string"
+      ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
+      : "";
 
   if (mode === "tool") {
     const summaryLines = actionEntries.map(([name, entry]) => {
@@ -2986,7 +3069,7 @@ function generateActionsPrompt(
         entry.tool.description,
         MAX_ACTION_SUMMARY_DESCRIPTION_CHARS,
       );
-      return `- \`${name}\` — ${desc}`;
+      return `- \`${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     });
 
     return `\n\n## Available Actions
@@ -3003,7 +3086,7 @@ ${summaryLines.join("\n")}`;
 
     // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
     if (!params || Object.keys(params).length === 0) {
-      return `- \`pnpm action ${name}\` — ${desc}`;
+      return `- \`pnpm action ${name}\` — ${desc}${nativeWidgetNote(entry)}`;
     }
     const entries = Object.entries(params);
     // Required first (alphabetical), then optional (alphabetical)
@@ -3029,7 +3112,7 @@ ${summaryLines.join("\n")}`;
     const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
     const requiredNote =
       requiredNames.length > 0 ? ` Required: ${requiredNames.join(", ")}.` : "";
-    return `- \`${cmd}\` — ${desc}.${requiredNote}`;
+    return `- \`${cmd}\` — ${desc}.${requiredNote}${nativeWidgetNote(entry)}`;
   });
 
   return `\n\n## Available Actions
@@ -3039,6 +3122,42 @@ ${summaryLines.join("\n")}`;
 Do NOT try to call these by name as if they were tools — they will not exist in your tool list. Always go through \`bash\`.
 
 ${lines.join("\n")}`;
+}
+
+function generateCorpusToolsPrompt(
+  registry: Record<string, ActionEntry>,
+): string {
+  const hasProviderApi = "provider-api-request" in registry;
+  const hasProviderCorpusJob = "provider-corpus-job" in registry;
+  const providerDiscoveryTools = [
+    "provider-api-catalog" in registry ? "`provider-api-catalog`" : null,
+    "provider-api-docs" in registry ? "`provider-api-docs`" : null,
+  ].filter(Boolean);
+  const hasRunCode = "run-code" in registry;
+  const hasStagedDataset = "query-staged-dataset" in registry;
+  if (
+    !hasProviderApi &&
+    !hasProviderCorpusJob &&
+    !hasRunCode &&
+    !hasStagedDataset
+  )
+    return "";
+
+  const available = [
+    ...providerDiscoveryTools,
+    hasProviderApi ? "`provider-api-request`" : null,
+    hasProviderCorpusJob ? "`provider-corpus-job`" : null,
+    hasStagedDataset ? "`query-staged-dataset`" : null,
+    hasRunCode ? "`run-code`" : null,
+  ].filter(Boolean);
+
+  return `\n\n## Broad Provider And Corpus Workflows
+
+Available corpus-capable tools: ${available.join(", ")}.
+
+For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
+
+When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }
 
 /**
@@ -3252,7 +3371,9 @@ export function createAgentChatPlugin(
         DEV_FRAMEWORK_PROMPT,
         PROD_FRAMEWORK_PROMPT_COMPACT,
         DEV_FRAMEWORK_PROMPT_COMPACT,
-      } = buildFrameworkPrompts(options?.promptExamples);
+      } = buildFrameworkPrompts(options?.promptExamples, {
+        databaseTools: options?.databaseTools,
+      });
 
       // Initialize MCP client. Merges file/env config + auto-detected binaries
       // + any remote servers users have added through the settings UI (persisted
@@ -3359,10 +3480,14 @@ export function createAgentChatPlugin(
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();
       const docsScripts = await createDocsScriptEntries();
-      const dbScripts = await createDbScriptEntries();
+      const databaseToolsEnabled = options?.databaseTools !== false;
+      const dbScripts = databaseToolsEnabled
+        ? await createDbScriptEntries()
+        : {};
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
+      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
@@ -3391,7 +3516,9 @@ export function createAgentChatPlugin(
         try {
           const { createDevScriptRegistry } =
             await import("../scripts/dev/index.js");
-          devScriptsForA2A = await createDevScriptRegistry();
+          devScriptsForA2A = await createDevScriptRegistry({
+            databaseTools: databaseToolsEnabled,
+          });
         } catch {}
 
         // Auto-discover template action files and register as bash-based tools.
@@ -3443,6 +3570,11 @@ export function createAgentChatPlugin(
                     ...(def.http !== undefined ? { http: def.http } : {}),
                     ...(typeof def.agentTool === "boolean"
                       ? { agentTool: def.agentTool }
+                      : {}),
+                    ...(def.chatUI &&
+                    typeof def.chatUI === "object" &&
+                    !Array.isArray(def.chatUI)
+                      ? { chatUI: def.chatUI }
                       : {}),
                   };
                   continue;
@@ -3652,11 +3784,15 @@ export function createAgentChatPlugin(
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
       } catch {}
-      let toolActions: Record<string, ActionEntry> = {};
+      let toolActions: Record<string, ActionEntry> =
+        createDataWidgetActionEntries();
       try {
         const { createExtensionActionEntries } =
           await import("../extensions/actions.js");
-        toolActions = createExtensionActionEntries();
+        toolActions = {
+          ...toolActions,
+          ...createExtensionActionEntries(),
+        };
       } catch {}
       let browserSessionTools: Record<string, ActionEntry> = {};
       try {
@@ -3687,6 +3823,99 @@ export function createAgentChatPlugin(
           await import("./attachment-actions.js");
         coreAttachmentTools = createCoreAttachmentActionEntries();
       } catch {}
+
+      // -----------------------------------------------------------------------
+      // Production code-execution mode resolution.
+      //
+      // Priority (highest -> lowest):
+      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
+      //   2. options.codeExecution.production
+      //   3. Default: "off"
+      //
+      // Dev mode ignores this entirely: dev always gets the run-code sandbox.
+      // Build these tools before A2A/MCP registries so every agent-loop surface
+      // has the same code execution capability when enabled.
+      // -----------------------------------------------------------------------
+      const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
+        .toLowerCase()
+        .trim();
+      const resolvedProdCodeExec: "off" | "sandboxed" | "trusted" =
+        rawEnvCodeExec === "trusted"
+          ? "trusted"
+          : rawEnvCodeExec === "sandboxed"
+            ? "sandboxed"
+            : rawEnvCodeExec === "off"
+              ? "off"
+              : (options?.codeExecution?.production ?? "off");
+
+      // Forward-declaration for the production run-code bridge supplier.
+      // Must come before createRunCodeEntry so the closure can capture it.
+      let prodRunCodeToolActions: Record<string, ActionEntry> = {};
+      let leanRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
+      // modes and always in dev mode.
+      const runCodeTool: Record<string, ActionEntry> = {};
+      const leanRunCodeTool: Record<string, ActionEntry> = {};
+      try {
+        const { createRunCodeEntry } =
+          await import("../coding-tools/run-code.js");
+        runCodeTool["run-code"] = createRunCodeEntry(
+          // Supplier is evaluated at invocation time so runtime additions to
+          // prodActions (e.g. MCP sync) are visible to the bridge.
+          () => prodRunCodeToolActions,
+          { bridgeTools: options?.codeExecution?.bridgeTools },
+        );
+        leanRunCodeTool["run-code"] = createRunCodeEntry(
+          // Lean prompt mode intentionally exposes a much smaller action
+          // surface; keep sandbox appAction() calls scoped to that same surface.
+          () => leanRunCodeToolActions,
+          { bridgeTools: options?.codeExecution?.bridgeTools },
+        );
+      } catch {
+        // Module unavailable (e.g. bundled browser build) — skip silently.
+      }
+
+      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
+      // In dev mode this is handled separately via devHandler below.
+      const prodCodingTools: Record<string, ActionEntry> = {};
+      if (resolvedProdCodeExec === "trusted" && !canToggle) {
+        try {
+          const { createCodingToolRegistry } =
+            await import("../coding-tools/index.js");
+          const codingRegistry = createCodingToolRegistry({
+            cwd: process.cwd(),
+            beforeBash: async ({ command: _command }) => {
+              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
+              // this hook is a belt-and-suspenders guard inside trusted production.
+              return null;
+            },
+          });
+          Object.assign(prodCodingTools, codingRegistry);
+        } catch {
+          // Coding tools unavailable — skip silently.
+        }
+      }
+
+      // Forward-declaration: populated after devActions is assembled below.
+      // Must be declared before devRunCodeTool so the closure can close over it.
+      let devRunCodeToolActions: Record<string, ActionEntry> = {};
+
+      // Always register run-code in dev mode (when the coding module loads).
+      const devRunCodeTool: Record<string, ActionEntry> = {};
+      if (canToggle) {
+        try {
+          const { createRunCodeEntry } =
+            await import("../coding-tools/run-code.js");
+          // devActions is not yet defined at this point; we use a late-binding
+          // supplier so devRunCodeTool can reference the devActions registry
+          // once it is built below (see devHandler block).
+          devRunCodeTool["run-code"] = createRunCodeEntry(
+            () => devRunCodeToolActions,
+            { bridgeTools: options?.codeExecution?.bridgeTools },
+          );
+        } catch {}
+      }
 
       const resolveExtraContext = async (
         event: any,
@@ -3725,12 +3954,14 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...webSearchTool,
+              ...workspaceFilesTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
               ...devScriptsForA2A,
+              ...devRunCodeTool,
             }
           : {
               ...discoveredActions,
@@ -3748,12 +3979,15 @@ export function createAgentChatPlugin(
               ...progressTools,
               ...fetchTool,
               ...webSearchTool,
+              ...workspaceFilesTool,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
               ...devScriptsForA2A,
+              ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+              ...prodCodingTools,
             },
       );
 
@@ -3784,12 +4018,14 @@ export function createAgentChatPlugin(
             ...progressTools,
             ...fetchTool,
             ...webSearchTool,
+            ...workspaceFilesTool,
             ...toolActions,
             ...browserSessionTools,
             ...coreEmailTools,
             ...coreAttachmentTools,
             ...browserTools,
             ...devScriptsForA2A,
+            ...devRunCodeTool,
           })
         : undefined;
 
@@ -3966,7 +4202,7 @@ export function createAgentChatPlugin(
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, devActive);
+            : await buildSchemaBlock(owner, databaseToolsEnabled && devActive);
           const extra = await resolveExtraContext(context.event, owner);
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
@@ -3993,12 +4229,17 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
+                  ...mcpActionEntries,
                   ...devScriptsForA2A,
+                  ...devRunCodeTool,
                 }
               : {
                   ...templateScripts,
@@ -4009,11 +4250,17 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
+                  ...mcpActionEntries,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
                 },
           );
 
@@ -4117,11 +4364,21 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const prodActionsPrompt = generateActionsPrompt(templateScripts, "tool");
-      const devActionsPrompt = generateActionsPrompt(
-        { ...discoveredActions, ...templateScripts },
-        "cli",
-      );
+      const corpusToolsPrompt = generateCorpusToolsPrompt({
+        ...templateScripts,
+        ...(canToggle
+          ? devRunCodeTool
+          : resolvedProdCodeExec !== "off"
+            ? runCodeTool
+            : {}),
+      });
+      const prodActionsPrompt =
+        generateActionsPrompt(templateScripts, "tool") + corpusToolsPrompt;
+      const devActionsPrompt =
+        generateActionsPrompt(
+          { ...discoveredActions, ...templateScripts },
+          "cli",
+        ) + corpusToolsPrompt;
 
       // Build system prompts — dynamic functions that pre-load resources per-request.
       // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
@@ -4150,122 +4407,135 @@ export function createAgentChatPlugin(
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
 
-      // Mount MCP remote server — same action registry as A2A + agent chat
-      const { mountMCP } = await import("../mcp/server.js");
-      mountMCP(nitroApp, {
-        name: options?.appId
-          ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-          : "Agent",
-        title: options?.mcpServerInfo?.title,
-        appId: options?.appId,
-        description:
-          options?.mcpServerInfo?.description ??
-          `Agent-native ${options?.appId ?? "app"} agent`,
-        websiteUrl: options?.mcpServerInfo?.websiteUrl,
-        icons: options?.mcpServerInfo?.icons,
-        actions: allScripts,
-        productionActions: mcpFullActions,
-        ...(options?.connectorCatalog
-          ? { connectorCatalog: options.connectorCatalog }
-          : {}),
-        askAgent: async (message: string) => {
-          const mcpEngine = await resolveEngine({
-            engineOption: options?.engine,
-            apiKey: options?.apiKey,
-            appId: options?.appId,
-          });
-          const mcpModelCandidate =
-            options?.model ??
-            (await getStoredModelForEngine(mcpEngine, {
+      if (options?.disableMcp !== true) {
+        // Mount MCP remote server — same action registry as A2A + agent chat
+        const { mountMCP } = await import("../mcp/server.js");
+        mountMCP(nitroApp, {
+          name: options?.appId
+            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+            : "Agent",
+          title: options?.mcpServerInfo?.title,
+          appId: options?.appId,
+          description:
+            options?.mcpServerInfo?.description ??
+            `Agent-native ${options?.appId ?? "app"} agent`,
+          websiteUrl: options?.mcpServerInfo?.websiteUrl,
+          icons: options?.mcpServerInfo?.icons,
+          actions: allScripts,
+          productionActions: mcpFullActions,
+          ...(options?.connectorCatalog
+            ? { connectorCatalog: options.connectorCatalog }
+            : {}),
+          askAgent: async (message: string) => {
+            const mcpEngine = await resolveEngine({
+              engineOption: options?.engine,
+              apiKey: options?.apiKey,
               appId: options?.appId,
-            })) ??
-            mcpEngine.defaultModel;
-          const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
+            });
+            const mcpModelCandidate =
+              options?.model ??
+              (await getStoredModelForEngine(mcpEngine, {
+                appId: options?.appId,
+              })) ??
+              mcpEngine.defaultModel;
+            const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
-          // Same actions as A2A — without call-agent to prevent loops.
-          // In dev mode, template actions go through bash, not native tools.
-          const devActiveMcp = isDevMode();
-          const mcpActions = attachToolSearch(
-            devActiveMcp
-              ? {
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...toolActions,
-                  ...devScriptsForA2A,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...toolActions,
+            // Same actions as A2A — without call-agent to prevent loops.
+            // In dev mode, template actions go through bash, not native tools.
+            const devActiveMcp = isDevMode();
+            const mcpActions = attachToolSearch(
+              devActiveMcp
+                ? {
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...toolActions,
+                    ...mcpActionEntries,
+                    ...devScriptsForA2A,
+                    ...devRunCodeTool,
+                  }
+                : {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...dbScripts,
+                    ...refreshScreenTool,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...toolActions,
+                    ...mcpActionEntries,
+                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                    ...prodCodingTools,
+                  },
+            );
+
+            const mcpTools = actionsToEngineTools(mcpActions);
+
+            const resources = await loadResourcesForPrompt(
+              SHARED_OWNER,
+              lazyContext,
+              options?.appId,
+            );
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(SHARED_OWNER, databaseToolsEnabled);
+            // Build the MCP handler's own prompt — always use the bash-based
+            // dev prompt in dev mode because mcpActions routes template actions
+            // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
+            const mcpDevPrompt =
+              (options?.devSystemPrompt
+                ? options.devSystemPrompt +
+                  (options?.systemPrompt ??
+                    (lazyContext
+                      ? PROD_FRAMEWORK_PROMPT_COMPACT
+                      : PROD_FRAMEWORK_PROMPT))
+                : lazyContext
+                  ? DEV_FRAMEWORK_PROMPT_COMPACT
+                  : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            const systemPrompt = devActiveMcp
+              ? mcpDevPrompt +
+                buildRuntimeContextPrompt() +
+                resources +
+                schemaBlock
+              : basePrompt +
+                buildRuntimeContextPrompt() +
+                resources +
+                schemaBlock;
+
+            let accumulatedText = "";
+            const controller = new AbortController();
+
+            await runAgentLoopDirectWithSoftTimeout(
+              {
+                engine: mcpEngine,
+                model,
+                systemPrompt,
+                tools: mcpTools,
+                messages: [
+                  { role: "user", content: [{ type: "text", text: message }] },
+                ],
+                actions: mcpActions,
+                send: (event) => {
+                  if (event.type === "text") accumulatedText += event.text;
                 },
-          );
-
-          const mcpTools = actionsToEngineTools(mcpActions);
-
-          const resources = await loadResourcesForPrompt(
-            SHARED_OWNER,
-            lazyContext,
-            options?.appId,
-          );
-          const schemaBlock = lazyContext
-            ? ""
-            : await buildSchemaBlock(SHARED_OWNER, devActiveMcp);
-          // Build the MCP handler's own prompt — always use the bash-based
-          // dev prompt in dev mode because mcpActions routes template actions
-          // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
-          const mcpDevPrompt =
-            (options?.devSystemPrompt
-              ? options.devSystemPrompt +
-                (options?.systemPrompt ??
-                  (lazyContext
-                    ? PROD_FRAMEWORK_PROMPT_COMPACT
-                    : PROD_FRAMEWORK_PROMPT))
-              : lazyContext
-                ? DEV_FRAMEWORK_PROMPT_COMPACT
-                : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
-          const systemPrompt = devActiveMcp
-            ? mcpDevPrompt +
-              buildRuntimeContextPrompt() +
-              resources +
-              schemaBlock
-            : basePrompt +
-              buildRuntimeContextPrompt() +
-              resources +
-              schemaBlock;
-
-          let accumulatedText = "";
-          const controller = new AbortController();
-
-          await runAgentLoopDirectWithSoftTimeout(
-            {
-              engine: mcpEngine,
-              model,
-              systemPrompt,
-              tools: mcpTools,
-              messages: [
-                { role: "user", content: [{ type: "text", text: message }] },
-              ],
-              actions: mcpActions,
-              send: (event) => {
-                if (event.type === "text") accumulatedText += event.text;
+                signal: controller.signal,
               },
-              signal: controller.signal,
-            },
-            options?.runSoftTimeoutMs,
-          );
+              options?.runSoftTimeoutMs,
+            );
 
-          return accumulatedText || "(no response)";
-        },
-      });
+            return accumulatedText || "(no response)";
+          },
+        });
+      }
 
       type OwnerContext = {
         owner: string;
@@ -4722,14 +4992,14 @@ export function createAgentChatPlugin(
       // progress, call-agent, and MCP entries to keep the tool list tight and
       // prevent the LLM from reaching for web-request instead of the
       // template's native actions (e.g. log-meal).
-      const leanActions = attachToolSearch({
+      const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
         ...toolActions,
-      });
+      };
       const anonymousReadOnlyActions = attachToolSearch(
         filterReadOnlyActions(templateScripts),
       );
@@ -4739,90 +5009,9 @@ export function createAgentChatPlugin(
       // Code-mode toggle), so the agent has the same DB-admin capability the UI
       // does whenever it is available — true agent/UI parity, in App or Code mode.
       const dbAdminScripts =
-        process.env.NODE_ENV === "development" ? createDbAdminAgentTools() : {};
-
-      // -----------------------------------------------------------------------
-      // Production code-execution mode resolution.
-      //
-      // Priority (highest → lowest):
-      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
-      //   2. options.codeExecution.production
-      //   3. Default: "off"
-      //
-      // Dev mode ignores this entirely — dev always gets the full coding surface.
-      // -----------------------------------------------------------------------
-      const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
-        .toLowerCase()
-        .trim();
-      const resolvedProdCodeExec: "off" | "sandboxed" | "trusted" =
-        rawEnvCodeExec === "trusted"
-          ? "trusted"
-          : rawEnvCodeExec === "sandboxed"
-            ? "sandboxed"
-            : rawEnvCodeExec === "off"
-              ? "off"
-              : (options?.codeExecution?.production ?? "off");
-
-      // Forward-declaration for the production run-code bridge supplier.
-      // Must come before createRunCodeEntry so the closure can capture it.
-      let prodRunCodeToolActions: Record<string, ActionEntry> = {};
-
-      // Sandboxed run-code tool — available in "sandboxed" or "trusted" prod
-      // modes and always in dev mode.
-      const runCodeTool: Record<string, ActionEntry> = {};
-      try {
-        const { createRunCodeEntry } =
-          await import("../coding-tools/run-code.js");
-        runCodeTool["run-code"] = createRunCodeEntry(
-          // Supplier is evaluated at invocation time so runtime additions to
-          // prodActions (e.g. MCP sync) are visible to the bridge.
-          () => prodRunCodeToolActions,
-          { bridgeTools: options?.codeExecution?.bridgeTools },
-        );
-      } catch {
-        // Module unavailable (e.g. bundled browser build) — skip silently.
-      }
-
-      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
-      // In dev mode this is handled separately via devHandler below.
-      const prodCodingTools: Record<string, ActionEntry> = {};
-      if (resolvedProdCodeExec === "trusted" && !canToggle) {
-        try {
-          const { createCodingToolRegistry } =
-            await import("../coding-tools/index.js");
-          const codingRegistry = createCodingToolRegistry({
-            cwd: process.cwd(),
-            beforeBash: async ({ command: _command }) => {
-              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
-              // this hook is a belt-and-suspenders guard inside "trusted" production.
-              return null;
-            },
-          });
-          Object.assign(prodCodingTools, codingRegistry);
-        } catch {
-          // Coding tools unavailable — skip silently.
-        }
-      }
-
-      // Forward-declaration: populated after devActions is assembled below.
-      // Must be declared BEFORE devRunCodeTool so the closure can close over it.
-      let devRunCodeToolActions: Record<string, ActionEntry> = {};
-
-      // Always register run-code in dev mode (when the coding module loads).
-      const devRunCodeTool: Record<string, ActionEntry> = {};
-      if (canToggle) {
-        try {
-          const { createRunCodeEntry } =
-            await import("../coding-tools/run-code.js");
-          // devActions is not yet defined at this point; we use a late-binding
-          // supplier so devRunCodeTool can reference the devActions registry
-          // once it is built below (see devHandler block).
-          devRunCodeTool["run-code"] = createRunCodeEntry(
-            () => devRunCodeToolActions,
-            { bridgeTools: options?.codeExecution?.bridgeTools },
-          );
-        } catch {}
-      }
+        databaseToolsEnabled && process.env.NODE_ENV === "development"
+          ? createDbAdminAgentTools()
+          : {};
 
       const prodActions = attachToolSearch({
         ...templateScripts,
@@ -4849,8 +5038,9 @@ export function createAgentChatPlugin(
         ...coreAttachmentTools,
         ...browserTools,
         ...mcpActionEntries,
-        // Sandboxed run-code tool in production when mode allows it.
-        ...(resolvedProdCodeExec !== "off" && !canToggle ? runCodeTool : {}),
+        // Sandboxed run-code for hosted production when enabled, and for the
+        // app-rendered production-style handler in local dev.
+        ...(canToggle || resolvedProdCodeExec !== "off" ? runCodeTool : {}),
         // Full coding tools in production when mode is "trusted".
         ...(!canToggle ? prodCodingTools : {}),
       });
@@ -4858,6 +5048,16 @@ export function createAgentChatPlugin(
       // Wire the prod run-code bridge supplier so it sees the fully-assembled
       // prodActions registry (including MCP entries added at runtime).
       prodRunCodeToolActions = prodActions;
+
+      const leanActions = attachToolSearch({
+        ...leanActionEntries,
+        // Lean mode still needs run-code when code execution is enabled.
+        // Otherwise templates with a minimal prompt can advertise sandboxed
+        // execution in the system prompt while the actual tool registry omits
+        // it.
+        ...(canToggle || resolvedProdCodeExec !== "off" ? leanRunCodeTool : {}),
+      });
+      leanRunCodeToolActions = leanActions;
 
       // Keep the prod action dict's MCP entries in sync when the manager's
       // server set changes at runtime (e.g. a user adds a remote MCP server
@@ -4942,7 +5142,13 @@ export function createAgentChatPlugin(
           tzRaw.trim().length < 64
             ? tzRaw.trim()
             : undefined;
-        return buildRuntimeContextPrompt({ timezone });
+        // Thread the ambient sub-agent delegation depth so a sub-agent running
+        // at the depth cap is told in its runtime context that it cannot
+        // delegate further. The depth-guard already enforces the cap
+        // server-side (`evaluateSubagentDepth`); this only surfaces it to the
+        // model. 0 (the top-level chat) emits no delegation line.
+        const delegationDepth = getCurrentDelegationDepth();
+        return buildRuntimeContextPrompt({ timezone, delegationDepth });
       };
 
       // The app-rendered sidebar must never edit the app's source code
@@ -4976,8 +5182,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const prodCodeExecPromptNote =
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
-            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript analytics. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
-            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch() and webFetch() inside run-code for authenticated provider calls.</code-execution-mode>"
+            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), webRead(), and webFetch() inside run-code for authenticated provider calls and compact web/document reduction.</code-execution-mode>"
           : "";
 
       const prodHandler = createProductionAgentHandler({
@@ -5012,11 +5218,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
           );
-          // In lazy context mode, skip embedding the full schema — the agent
-          // calls `db-schema` on demand. This saves ~1-2K tokens per request.
+          // In lazy context mode, skip embedding the full schema. When database
+          // tools are enabled the agent can call `db-schema` on demand.
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, false);
+            : await buildSchemaBlock(owner, databaseToolsEnabled);
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -5079,7 +5285,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
-        skipFilesContext: leanPrompt,
+        skipFilesContext,
+        initialToolNames: options?.initialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -5125,6 +5332,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
+              initialToolNames: options?.initialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -5193,7 +5401,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreAttachmentTools,
                   ...browserTools,
                   ...mcpActionEntries,
-                  ...(await createDevScriptRegistry()),
+                  ...(await createDevScriptRegistry({
+                    databaseTools: databaseToolsEnabled,
+                  })),
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
@@ -5231,9 +5441,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
             );
-            const schemaBlock = lazyContext
-              ? ""
-              : await buildSchemaBlock(owner, true);
+            const schemaBlock =
+              lazyContext || !databaseToolsEnabled
+                ? ""
+                : await buildSchemaBlock(owner, true);
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
@@ -5250,7 +5461,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
-          skipFilesContext: leanPrompt,
+          skipFilesContext,
+          initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();
@@ -6312,8 +6524,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             callerOwnsThread(owner, threadId);
           const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
 
-          // Route: GET /runs/list?goalId=agent-team
-          // Returns hosted Agent Teams in the Code hub-compatible run shape.
+          // Route: GET /runs/list?goalId=agent-team|agent-harness
+          // Returns background agents in the Code hub-compatible run shape.
           const listMatch =
             url.match(/\/runs\/list(?:[/?]|$)/) ||
             url.match(/^\/list(?:[/?]|$)/);
@@ -6323,10 +6535,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const runs = await runWithRequestContext(
               { userEmail: owner },
               async () => {
-                if (goalId && goalId !== "agent-team") return [];
-                const { listAgentTeamBackgroundRuns } =
-                  await import("./agent-teams.js");
-                return listAgentTeamBackgroundRuns();
+                const runs: unknown[] = [];
+                if (!goalId || goalId === "agent-team") {
+                  const { listAgentTeamBackgroundRuns } =
+                    await import("./agent-teams.js");
+                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                }
+                if (!goalId || goalId === "agent-harness") {
+                  const { listAgentHarnessBackgroundRuns } =
+                    await import("../agent/harness/background.js");
+                  runs.push(
+                    ...(await listAgentHarnessBackgroundRuns({
+                      goalId: "agent-harness",
+                      ownerEmail: owner,
+                    })),
+                  );
+                }
+                return runs;
               },
             );
             return { status: "ok", goalId, runs };
@@ -6342,14 +6567,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const runId = decodeURIComponent(stopMatch[1]);
             const { stopAgentTeamBackgroundRun } =
               await import("./agent-teams.js");
-            const result = await runWithRequestContext(
-              { userEmail: owner },
-              () => stopAgentTeamBackgroundRun(runId),
+            let result = await runWithRequestContext({ userEmail: owner }, () =>
+              stopAgentTeamBackgroundRun(runId),
             );
+            if (!result.ok && result.error === "Task not found") {
+              const { stopAgentHarnessBackgroundRun } =
+                await import("../agent/harness/background.js");
+              result = await runWithRequestContext({ userEmail: owner }, () =>
+                stopAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+              );
+            }
             if (!result.ok) {
               setResponseStatus(
                 event,
-                result.error === "Task not found" ? 404 : 400,
+                result.error === "Task not found" ||
+                  result.error === "Harness run not found"
+                  ? 404
+                  : 400,
               );
               return { ok: false, error: result.error };
             }
@@ -6395,13 +6629,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const run = await runWithRequestContext({ userEmail: owner }, () =>
               getAgentTeamBackgroundRun(runId),
             );
-            if (!run) {
+            if (run) {
+              const events = await runWithRequestContext(
+                { userEmail: owner },
+                () => listAgentTeamBackgroundTranscriptEvents(runId),
+              );
+              return { status: "ok", runId, events };
+            }
+            const {
+              getAgentHarnessBackgroundRun,
+              listAgentHarnessBackgroundTranscriptEvents,
+            } = await import("../agent/harness/background.js");
+            const harnessRun = await runWithRequestContext(
+              { userEmail: owner },
+              () => getAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+            );
+            if (!harnessRun) {
               setResponseStatus(event, 404);
               return { status: "unavailable", runId, events: [] };
             }
             const events = await runWithRequestContext(
               { userEmail: owner },
-              () => listAgentTeamBackgroundTranscriptEvents(runId),
+              () =>
+                listAgentHarnessBackgroundTranscriptEvents(runId, {
+                  ownerEmail: owner,
+                }),
             );
             return { status: "ok", runId, events };
           }
@@ -7066,7 +7318,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, false);
+              : await buildSchemaBlock(owner, databaseToolsEnabled);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
@@ -7165,7 +7417,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, false);
+              : await buildSchemaBlock(owner, databaseToolsEnabled);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
