@@ -134,13 +134,14 @@ function allowLocalDevBuilderEnvCredentials(): boolean {
 // TEMP DIAGNOSTIC (remove): expose the SUT's own view of the env so CI can
 // reveal whether NODE_ENV is read as "production" inside the bundle despite the
 // test setting "development" (i.e. static inlining at transform time).
+export const __DEBUG_MODULE_ID = `${import.meta.url}#${process.pid}`;
 export function __debugCredentialEnv() {
   return {
+    moduleId: __DEBUG_MODULE_ID,
     nodeEnvLiteral: process.env.NODE_ENV,
-    nodeEnvComparedProduction: process.env.NODE_ENV === "production",
-    localBuilderEnvFlag: process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV,
-    allowLocal_call1: allowLocalDevBuilderEnvCredentials(),
-    allowLocal_call2: allowLocalDevBuilderEnvCredentials(),
+    getRequestUserEmail: getRequestUserEmail(),
+    isLocalDatabase: isLocalDatabase(),
+    allowLocal: allowLocalDevBuilderEnvCredentials(),
     isHostedWorkspaceRuntime: isHostedWorkspaceRuntime(),
     isDeployFallbackAllowed: isDeployCredentialFallbackAllowed(),
     canUseDeployFallback: canUseDeployCredentialFallbackForRequest(),

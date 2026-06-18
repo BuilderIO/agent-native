@@ -473,14 +473,18 @@ describe("resolveBuilderCredential", () => {
     mockReadAppSecret.mockResolvedValue(null);
 
     // TEMP DIAGNOSTIC (remove): see what the SUT bundle actually reads.
-    const { __debugCredentialEnv } = await import("./credential-provider.js");
+    const dynamic = await import("./credential-provider.js");
     console.error(
       "[DIAG escape-hatch] test-side NODE_ENV=" +
         JSON.stringify(process.env.NODE_ENV) +
         " FLAG=" +
         JSON.stringify(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV) +
-        " sut=" +
-        JSON.stringify(__debugCredentialEnv()),
+        " | topImportModuleId=" +
+        JSON.stringify(dynamic.__DEBUG_MODULE_ID) +
+        " topImport.canUseDeployFallback=" +
+        JSON.stringify(canUseDeployCredentialFallbackForRequest()) +
+        " | sut=" +
+        JSON.stringify(dynamic.__debugCredentialEnv()),
     );
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
