@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.59.1
+
+### Patch Changes
+
+- e151605: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, retry any fresh user turn — queued follow-ups and normal sends fired shortly after the previous run finished — through transient 409 active-run conflicts instead of reconnecting to the prior run (which replayed its answer, dropped the new message, and corrupted thread history), while still letting genuine internal continuations resume the active run, and stabilize built-in data widget renderers to avoid chart remount loops.
+- e151605: Close the notifications popover correctly over extension iframes.
+- e151605: Auto-join existing signed-in users into organizations whose allowed domain matches their email, and activate the newly joined org immediately.
+- e151605: Pre-optimize core client dependencies during monorepo dev so chat-heavy apps avoid Vite optimized-dependency reloads during navigation.
+
 ## 0.59.0
 
 ### Minor Changes
