@@ -122,6 +122,20 @@ describe("GitHub repo tools", () => {
     );
   });
 
+  it("does not fall back to deploy repository for authenticated hosted requests", async () => {
+    readDeployCredentialEnv.mockReturnValue("deploy-owner/deploy-repo");
+
+    await expect(
+      githubTools()["github-repo-list-files"].run({ path: "" }),
+    ).rejects.toThrow(
+      'GitHub repository is required. Pass repository="owner/repo" or configure GITHUB_REPOSITORY in setup.',
+    );
+
+    expect(readDeployCredentialEnv).not.toHaveBeenCalledWith(
+      "GITHUB_REPOSITORY",
+    );
+  });
+
   it("reads file content and returns the GitHub SHA", async () => {
     resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
       available: true,
@@ -308,10 +322,11 @@ describe("GitHub repo tools", () => {
 
   it("can default the repository from setup", async () => {
     readAppSecret.mockImplementation(async (ref: { key?: string }) =>
-      ref.key === "GITHUB_TOKEN" ? { value: "github-secret-token" } : null,
-    );
-    readDeployCredentialEnv.mockImplementation((key: string) =>
-      key === "GITHUB_REPOSITORY" ? "acme/default-app" : undefined,
+      ref.key === "GITHUB_TOKEN"
+        ? { value: "github-secret-token" }
+        : ref.key === "GITHUB_REPOSITORY"
+          ? { value: "acme/default-app" }
+          : null,
     );
     vi.mocked(globalThis.fetch).mockResolvedValue(
       jsonResponse({

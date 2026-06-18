@@ -106,13 +106,13 @@ const GitHubRepoFilesActionSchema = z.object({
     .string()
     .optional()
     .describe(
-      "For write updates, the current blob SHA. Required by GitHub unless overwriteExisting is true.",
+      "For write updates, the current blob SHA. The action reads it first by default when omitted.",
     ),
   overwriteExisting: z
     .boolean()
     .optional()
     .describe(
-      "For write, read the current file SHA first when sha is omitted, then update if it exists.",
+      "For write, read the current file SHA first when sha is omitted, then update if it exists. Defaults to true.",
     ),
   committer: GitHubCommitIdentitySchema.optional().describe(
     "Optional GitHub contents API committer identity.",
@@ -251,7 +251,7 @@ export function createGitHubRepoFilesAction(
         message: args.message,
         branch: args.branch,
         sha: args.sha,
-        overwriteExisting: args.overwriteExisting,
+        overwriteExisting: args.overwriteExisting ?? true,
         committer: args.committer,
         author: args.author,
         connectionId: args.connectionId,

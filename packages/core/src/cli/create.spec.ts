@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { createApp, _getCoreDependencyVersion } from "./create.js";
+import {
+  createApp,
+  _getCoreDependencyVersion,
+  _workspaceAppNameForTemplateSelection,
+} from "./create.js";
 
 let tmpDir: string;
 
@@ -25,6 +29,15 @@ afterEach(() => {
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("derives workspace app names from GitHub template repo names", () => {
+    expect(
+      _workspaceAppNameForTemplateSelection("github:acme/customer-portal"),
+    ).toBe("customer-portal");
+    expect(_workspaceAppNameForTemplateSelection("github:acme/123 CRM")).toBe(
+      "app-123-crm",
+    );
+  });
+
   it("scaffolds a directory with the app name", async () => {
     await createApp("my-app", { template: "blank" });
     expect(fs.existsSync(path.join(tmpDir, "my-app"))).toBe(true);

@@ -179,44 +179,58 @@ async function createWorkspaceInteractive(
 
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
+  const appNames = new Set<string>();
+  const scaffoldedApps: string[] = [];
 
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
 
     for (let i = 0; i < templates.length; i++) {
-      const t = templates[i];
+      const templateName = templates[i];
+      const appName = workspaceAppNameForTemplateSelection(templateName);
+      validateWorkspaceAppName(appName, clack, {
+        allowDispatch: appName === "dispatch" && templateName === "dispatch",
+      });
+      if (appNames.has(appName)) {
+        clack.cancel(
+          `Workspace app "${appName}" is selected more than once. Choose unique app templates or app names.`,
+        );
+        process.exit(1);
+      }
+      appNames.add(appName);
+      scaffoldedApps.push(appName);
       // Distinguish download vs local copy in the spinner so a multi-second
       // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
       // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
-        t !== "headless" && t.startsWith("github:")
+        templateName !== "headless" && templateName.startsWith("github:")
           ? true
-          : !findLocalTemplate(normalizeTemplateName(t));
+          : !findLocalTemplate(normalizeTemplateName(templateName));
       s.message(
         willDownload
-          ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
-          : `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+          ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
+          : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", t);
-      await scaffoldAppTemplate(appDir, t);
+      const appDir = path.join(targetDir, "apps", appName);
+      await scaffoldAppTemplate(appDir, templateName);
       s.message(
-        `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
+        `Configuring ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      replacePlaceholders(appDir, t, appTitleForScaffold(t), name);
-      rewriteTrackingAppId(appDir, t, t);
+      replacePlaceholders(appDir, appName, appTitleForScaffold(appName), name);
+      rewriteTrackingAppId(appDir, appName, templateName);
       workspacifyApp({
         appDir,
-        appName: t,
-        templateName: t,
+        appName,
+        templateName,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
       });
-      fixPackageJsonName(appDir, t);
-      fixWebManifestName(appDir, t, t);
-      rewriteNetlifyToml(appDir, t, "workspace");
+      fixPackageJsonName(appDir, appName, templateName);
+      fixWebManifestName(appDir, appName, templateName);
+      rewriteNetlifyToml(appDir, appName, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
@@ -245,10 +259,11 @@ async function createWorkspaceInteractive(
   // makes the structure concrete.
   const treeLines = [
     `  ${name}/                    ← your workspace`,
-    ...templates.map(
-      (t, i) =>
-        `  ${i === templates.length - 1 ? "└─" : "├─"} apps/${t}/`.padEnd(30) +
-        `   ← app`,
+    ...scaffoldedApps.map(
+      (appName, i) =>
+        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
+          30,
+        ) + `   ← app`,
     ),
   ];
   const dispatchNextStep = [
@@ -286,6 +301,21 @@ async function createWorkspaceInteractive(
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
+}
+
+function workspaceAppNameForTemplateSelection(templateName: string): string {
+  const normalized = normalizeTemplateName(templateName);
+  if (!normalized.startsWith("github:")) return templateName;
+  const repo = normalized.slice("github:".length).trim();
+  const repoName = repo.split("/").filter(Boolean).pop() ?? "app";
+  let appName = repoName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!appName) appName = "app";
+  if (!/^[a-z]/.test(appName)) appName = `app-${appName}`;
+  return appName;
 }
 
 /**
@@ -1095,6 +1125,7 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
+  workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
 };
