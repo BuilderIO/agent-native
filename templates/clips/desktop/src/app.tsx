@@ -4101,8 +4101,9 @@ function Setup({
               console.error("[clips-tray] open logs failed:", err);
             });
           }}
-          style={{ background: "transparent", border: "none" }}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
         >
+          <IconFolderOpen size={14} />
           Open logs
         </button>
       </div>

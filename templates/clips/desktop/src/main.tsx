@@ -153,12 +153,9 @@ function installHeapDebugLog(): void {
  * frontend errors can't be debugged after the fact. We wrap each console method
  * to also forward its message to the Rust `frontend_log` command, which prints
  * it into the same redirected stdout/stderr that backs `clips-tray.log`. The
- * original console behavior is preserved (tee, not replace). Dev keeps the raw
- * console untouched since devtools + the terminal already cover it.
+ * original console behavior is preserved (tee, not replace)
  */
 function installConsoleCapture(route: string): void {
-  if (import.meta.env.DEV) return;
-
   const serialize = (value: unknown): string => {
     if (typeof value === "string") return value;
     if (value instanceof Error)

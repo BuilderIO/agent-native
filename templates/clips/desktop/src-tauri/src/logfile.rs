@@ -23,7 +23,7 @@ static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Rotate once the active log passes this size so the file can't grow without
 /// bound across long-lived sessions.
-const MAX_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Path of the active log file, once [`init`] has resolved it.
 pub fn log_path() -> Option<PathBuf> {
