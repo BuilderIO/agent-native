@@ -131,6 +131,21 @@ function allowLocalDevBuilderEnvCredentials(): boolean {
   return /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
 }
 
+// TEMP DIAGNOSTIC (remove): expose the SUT's own view of the env so CI can
+// reveal whether NODE_ENV is read as "production" inside the bundle despite the
+// test setting "development" (i.e. static inlining at transform time).
+export function __debugCredentialEnv() {
+  return {
+    nodeEnvLiteral: process.env.NODE_ENV,
+    nodeEnvComparedProduction: process.env.NODE_ENV === "production",
+    localBuilderEnvFlag: process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV,
+    allowLocalDevBuilderEnvCredentials: allowLocalDevBuilderEnvCredentials(),
+    isHostedWorkspaceRuntime: isHostedWorkspaceRuntime(),
+    canUseBuilderDeployCredentialFallbackForRequest:
+      canUseBuilderDeployCredentialFallbackForRequest(),
+  };
+}
+
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
   // Builder workspace previews can run with NODE_ENV=development and their DB
