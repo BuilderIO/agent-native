@@ -159,6 +159,33 @@ describe("preUploadAttachments", () => {
     );
   });
 
+  it("treats image-typed SVG payloads as reference-only file uploads", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/icon.svg",
+      provider: "builder",
+    });
+
+    const att = makeImageAtt({
+      name: "icon.svg",
+      contentType: "image/svg+xml",
+      data: "data:image/svg+xml;base64,PHN2Zy8+",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.uploaded).toHaveLength(0);
+    expect(result.uploadedFiles).toHaveLength(1);
+    expect(result.uploadedFiles[0]).toMatchObject({
+      contentType: "image/svg+xml",
+      referenceOnly: true,
+    });
+    expect(result.injectedText).toContain("chat-file-attachment");
+    expect(result.injectedText).not.toContain("chat-image-attachment");
+    expect(result.injectedText).toContain("unsanitized vector source");
+  });
+
   it("does NOT upload file attachments when includeFiles=false (legacy behaviour)", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/report.pdf",

@@ -44,11 +44,14 @@ export interface PreUploadAttachmentsResult {
   injectedText: string | null;
 }
 
-const IMAGE_DATA_URL_RE = /^data:(image\/[^;]+);base64,(.+)$/;
 const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
 
 function normalizeContentType(value: string | undefined): string | undefined {
   return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+}
+
+function hasSvgFilename(name: string | undefined): boolean {
+  return /\.svg$/i.test(name ?? "");
 }
 
 function isSvgAttachment(args: {
@@ -57,7 +60,17 @@ function isSvgAttachment(args: {
 }): boolean {
   return (
     normalizeContentType(args.contentType) === "image/svg+xml" ||
-    /\.svg$/i.test(args.name ?? "")
+    hasSvgFilename(args.name)
+  );
+}
+
+function isSvgPayload(args: { name?: string; contentType?: string }): boolean {
+  const contentType = normalizeContentType(args.contentType);
+  return (
+    contentType === "image/svg+xml" ||
+    ((contentType === undefined ||
+      contentType === "application/octet-stream") &&
+      hasSvgFilename(args.name))
   );
 }
 
@@ -135,7 +148,7 @@ export async function preUploadAttachments(opts: {
 
     if ((att as any).url) {
       // Already pre-uploaded earlier in the pipeline — reuse it.
-      const isReferenceOnlySvg = !isImage && isSvgAttachment(att);
+      const isReferenceOnlySvg = isSvgAttachment(att);
       const entry = {
         name: att.name,
         url: (att as any).url as string,
@@ -149,7 +162,7 @@ export async function preUploadAttachments(opts: {
             }
           : {}),
       };
-      if (isImage) {
+      if (isImage && !isReferenceOnlySvg) {
         uploaded.push(entry);
       } else {
         uploadedFiles.push(entry);
@@ -157,12 +170,17 @@ export async function preUploadAttachments(opts: {
       continue;
     }
 
-    const re = isImage ? IMAGE_DATA_URL_RE : FILE_DATA_URL_RE;
-    const match = att.data.match(re);
+    const match = att.data.match(FILE_DATA_URL_RE);
     if (!match) continue;
     const dataUrlMimeType = normalizeContentType(match[1]);
     const mimeType =
       dataUrlMimeType || normalizeContentType(att.contentType) || match[1];
+    const uploadAsImage =
+      isImage && !isSvgPayload({ name: att.name, contentType: mimeType });
+    const uploadAsFile =
+      !uploadAsImage && (isImage || (includeFiles && isFile));
+    if (!uploadAsImage && !uploadAsFile) continue;
+
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(Buffer.from(match[2], "base64"));
@@ -178,13 +196,15 @@ export async function preUploadAttachments(opts: {
         ownerEmail: opts.ownerEmail || undefined,
       });
       if (!result) {
-        if (isImage) providerMissing = true;
+        if (uploadAsImage) providerMissing = true;
         continue;
       }
       (att as any).url = result.url;
       (att as any).uploadProvider = result.provider;
-      const isReferenceOnlySvg =
-        !isImage && isSvgAttachment({ name: att.name, contentType: mimeType });
+      const isReferenceOnlySvg = isSvgPayload({
+        name: att.name,
+        contentType: mimeType,
+      });
       const entry = {
         name: att.name,
         url: result.url,
@@ -199,7 +219,7 @@ export async function preUploadAttachments(opts: {
             }
           : {}),
       };
-      if (isImage) {
+      if (uploadAsImage) {
         uploaded.push(entry);
       } else {
         uploadedFiles.push(entry);

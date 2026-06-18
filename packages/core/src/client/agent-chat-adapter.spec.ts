@@ -496,6 +496,76 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("includes preserved SVG data URL attachments in prior-turn history", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-svg-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use this logo later" }],
+            attachments: [
+              {
+                name: "logo.svg",
+                contentType: "image/svg+xml",
+                content: [
+                  {
+                    type: "file",
+                    data: "data:image/svg+xml;base64,PHN2Zz48dGl0bGU+TG9nbzwvdGl0bGU+PC9zdmc+",
+                    mimeType: "image/svg+xml",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "I saved the logo context." }],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "What was in the logo?" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.history[0].content).toContain(
+      '<attachment name="logo.svg" contentType="image/svg+xml" type="file">',
+    );
+    expect(body.history[0].content).toContain("<title>Logo</title>");
+    expect(body.structuredHistory[0]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("<title>Logo</title>"),
+        },
+      ],
+    });
+  });
+
   it("summarizes bare successful tool results in structured history", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);

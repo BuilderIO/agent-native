@@ -54,6 +54,7 @@ type AgentChatAdapterAttachment = {
 const TEXT_ATTACHMENT_CONTENT_TYPES = new Set([
   "application/json",
   "application/x-ndjson",
+  "image/svg+xml",
   "text/csv",
   "text/css",
   "text/html",
@@ -278,16 +279,20 @@ function extractAttachmentsFromMessage(message: {
         const preserveDataUrl =
           part.data.startsWith("data:") &&
           shouldPreserveFileDataUrl({ name: att.name, contentType });
-        const decodedText =
-          part.data.startsWith("data:") && !preserveDataUrl
-            ? decodeTextDataUrl(part.data)
-            : null;
+        const decodedText = part.data.startsWith("data:")
+          ? decodeTextDataUrl(part.data)
+          : null;
         attachments.push({
           type: "file",
           name: att.name,
           contentType,
           ...(preserveDataUrl
-            ? { data: part.data }
+            ? {
+                data: part.data,
+                ...(decodedText !== null
+                  ? { text: truncateOutboundAttachment(decodedText) }
+                  : {}),
+              }
             : decodedText !== null
               ? { text: truncateOutboundAttachment(decodedText) }
               : part.data.startsWith("data:")
