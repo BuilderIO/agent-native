@@ -216,14 +216,15 @@ pub fn run() {
                                 // the recording-start path, so the first
                                 // recording doesn't block ~hundreds of ms
                                 // loading the model into memory. Blocking work
-                                // → spawn_blocking.
+                                // → spawn_blocking
                                 let warm_handle = app_handle.clone();
                                 let _ = tauri::async_runtime::spawn_blocking(move || {
                                     match whisper_speech::prewarm_context(&warm_handle) {
                                         Ok(_) => {
-                                            println!("[clips-tray] whisper context prewarm finished");
-                                            let _ = warm_handle
-                                                .emit("whisper:context-ready", ());
+                                            println!(
+                                                "[clips-tray] whisper context prewarm finished"
+                                            );
+                                            let _ = warm_handle.emit("whisper:context-ready", ());
                                         }
                                         Err(e) => {
                                             eprintln!(
