@@ -58,11 +58,13 @@ import { toast } from "sonner";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
+  BuilderSetupCard,
   ShareButton,
   appPath,
   agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
+  useAgentEngineConfigured,
   useActionQuery,
   useSession,
   emailToColor,
@@ -8280,6 +8282,10 @@ function CreatePlanDialog({
   const [promptText, setPromptText] = useState("");
   const [promptSeed, setPromptSeed] = useState("");
   const [promptSeedKey, setPromptSeedKey] = useState(0);
+  // Gate the composer when signed in but nothing can run the agent (guests get
+  // the sign-in path instead). Clears live when a key is added.
+  const agentMissing = useAgentEngineConfigured(canCreate).missing;
+  const composerLocked = !canCreate || agentMissing;
 
   useEffect(() => {
     if (open) return;
@@ -8295,6 +8301,12 @@ function CreatePlanDialog({
     if (!canCreate) {
       onOpenChange(false);
       onRequireSignIn();
+      return;
+    }
+    if (agentMissing) {
+      toast.message(
+        "Connect the agent to run — add an API key or use Builder.",
+      );
       return;
     }
     const prompt = value.trim();
@@ -8322,10 +8334,20 @@ function CreatePlanDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {canCreate && agentMissing ? (
+            <BuilderSetupCard
+              fullWidth
+              onConnected={() =>
+                window.dispatchEvent(
+                  new Event("agent-engine:configured-changed"),
+                )
+              }
+            />
+          ) : null}
           <div className="rounded-xl border border-border bg-background p-2 shadow-sm">
             <PromptComposer
               autoFocus
-              disabled={!canCreate}
+              disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
               placeholder="Ask the agent for a UI flow, implementation map, review notes..."
@@ -8344,7 +8366,7 @@ function CreatePlanDialog({
                 variant="outline"
                 size="sm"
                 className="h-8 rounded-full border-border/80 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-                disabled={!canCreate}
+                disabled={composerLocked}
                 onClick={() => {
                   setPromptSeed(preset.prompt);
                   setPromptSeedKey((key) => key + 1);

@@ -4,6 +4,10 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MultiTabAssistantChat } from "./MultiTabAssistantChat.js";
+import {
+  sendToAgentChat,
+  _resetAgentChatSubmitBufferForTests,
+} from "./agent-chat.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -45,6 +49,24 @@ const threadMocks = vi.hoisted(() => ({
 
 vi.mock("./frame.js", () => ({
   isTrustedFrameMessage: () => true,
+  getFramePostMessageTargetOrigin: () => null,
+}));
+
+vi.mock("./builder-frame.js", () => ({
+  isInBuilderFrame: () => false,
+  isTrustedBuilderMessage: () => false,
+  sendToBuilderChat: vi.fn(),
+}));
+
+vi.mock("./embed-auth.js", () => ({
+  isEmbedAuthActive: () => false,
+  isEmbedMcpChatBridgeActive: () => false,
+  markEmbedMcpChatBridgeActive: vi.fn(),
+  readEmbedMcpChatBridgeFlagFromUrl: () => false,
+}));
+
+vi.mock("./mcp-app-host.js", () => ({
+  sendMcpAppHostMessage: () => null,
 }));
 
 vi.mock("./api-path.js", () => ({
@@ -341,6 +363,148 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       container.querySelectorAll("[data-testid='assistant-chat']"),
     ).toHaveLength(1);
+  });
+});
+
+describe("MultiTabAssistantChat cold-start first message", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    // A tab is restored, but no thread is active yet — the exact cold-start
+    // window where the bootstrap createThread() has not resolved.
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:cold-start",
+      JSON.stringify(["thread-1"]),
+    );
+    threadMocks.activeThreadId = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    threadMocks.activeThreadId = "thread-1";
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("buffers the first message and delivers it once a thread exists", async () => {
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="cold-start" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Message arrives before any thread is active → must be buffered, not sent.
+    act(() => {
+      dispatchSubmitChat({ message: "First message" });
+    });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+
+    // The first thread becomes active (bootstrap or restore). The buffered send
+    // should now flush exactly once, without creating a second thread.
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="cold-start" />);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledTimes(1);
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "First message",
+      undefined,
+    );
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
+  });
+});
+
+describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:mode-b",
+      JSON.stringify(["thread-1"]),
+    );
+    _resetAgentChatSubmitBufferForTests();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    _resetAgentChatSubmitBufferForTests();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("delivers a message sent before the lazy panel mounted its listener", async () => {
+    // Send while nothing is mounted — the live post has no listener to receive
+    // it, so only the buffered replay can deliver it.
+    act(() => {
+      sendToAgentChat({ message: "Sent before mount", submit: true });
+    });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledTimes(1);
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Sent before mount",
+      undefined,
+    );
+  });
+
+  it("ignores a duplicate submit with the same submitMessageId", async () => {
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      dispatchSubmitChat({ message: "Once only", submitMessageId: "dup-1" });
+    });
+    act(() => {
+      dispatchSubmitChat({ message: "Once only", submitMessageId: "dup-1" });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledTimes(1);
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Once only",
+      undefined,
+    );
   });
 });
 

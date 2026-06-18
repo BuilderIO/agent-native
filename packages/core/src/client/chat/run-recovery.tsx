@@ -400,9 +400,11 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  fullWidth,
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  fullWidth?: boolean;
 }) {
   // Progressive disclosure: the card leads with one-click Builder connect while
   // keeping the bring-your-own-key path close by.
@@ -422,7 +424,12 @@ export function BuilderSetupCard({
   }, [bouncePulse]);
 
   return (
-    <div ref={cardRef} className="mx-auto w-full max-w-[34rem] px-3 pb-2">
+    <div
+      ref={cardRef}
+      className={
+        fullWidth ? "w-full pb-2" : "mx-auto w-full max-w-[34rem] px-3 pb-2"
+      }
+    >
       <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
