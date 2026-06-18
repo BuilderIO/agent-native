@@ -43,6 +43,20 @@ describe("agentNative client", () => {
     expect(agents[0]?.id).toBe("research");
   });
 
+  it("infers the current app when listing agents", async () => {
+    const rt = runtime({
+      discoverAgents: vi.fn(async () => []),
+    });
+    const client = createAgentNativeClient({
+      env: { APP_BASE_PATH: "/dispatch" },
+      runtime: rt,
+    });
+
+    await client.listAgents();
+
+    expect(rt.discoverAgents).toHaveBeenCalledWith("dispatch");
+  });
+
   it("invokes a target and resolves an API key from the configured env", async () => {
     const rt = runtime();
     const client = createAgentNativeClient({
@@ -85,6 +99,24 @@ describe("agentNative client", () => {
         includeInvocationHint: false,
       }),
     );
+  });
+
+  it("does not forward A2A_SECRET as a raw bearer token", async () => {
+    const rt = runtime();
+    const client = createAgentNativeClient({
+      apiKeyEnv: "A2A_SECRET",
+      env: { A2A_SECRET: "shared-signing-secret" },
+      runtime: rt,
+    });
+
+    await client.invoke("briefs", "Create the account brief", {
+      userEmail: "steve@example.com",
+    });
+
+    const call = vi.mocked(rt.invokeAgent).mock.calls[0]?.[0];
+    expect(call?.apiKey).toBeUndefined();
+    expect(call?.orgSecret).toBe("shared-signing-secret");
+    expect(call?.userEmail).toBe("steve@example.com");
   });
 
   it("infers self-call guardrail context from the environment", async () => {

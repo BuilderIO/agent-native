@@ -201,7 +201,7 @@ const agents = await agentNative.listAgents();
 const result = await agentNative.invoke(
   "analytics",
   "Summarize signups by source this month.",
-  { apiKeyEnv: "A2A_SECRET" },
+  { userEmail: "steve@example.com" },
 );
 
 console.log(`Called ${result.target.name}: ${result.responseText}`);
@@ -209,7 +209,10 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 
 Use this for composable mini-apps: Dispatch or an orchestrator app discovers
 workspace siblings, then invokes the specialist app that owns the provider,
-dataset, or workflow. Use local actions instead of invoking yourself.
+dataset, or workflow. In production agent-native apps, set `A2A_SECRET` in each
+app environment and pass the caller identity (`userEmail`) so outbound calls are
+signed as JWT bearer tokens. Use `apiKeyEnv` only for legacy external peers that
+expect a static bearer token. Use local actions instead of invoking yourself.
 
 ## Task lifecycle {#task-lifecycle}
 

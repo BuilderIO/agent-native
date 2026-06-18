@@ -147,9 +147,13 @@ const agents = await agentNative.listAgents();
 const result = await agentNative.invoke(
   "gong-evidence",
   "Find transcript evidence for deal_123.",
-  { apiKeyEnv: "A2A_SECRET" },
+  { userEmail: "steve@example.com" },
 );
 ```
+
+For production agent-native apps, set `A2A_SECRET` in each app environment and
+pass the caller identity (`userEmail`) so outbound calls are signed. Use
+`apiKeyEnv` only for legacy external peers that expect a static bearer token.
 
 See [A2A Protocol](/docs/a2a-protocol) and
 [Pure Agent Apps](/docs/pure-agent-apps) for the full pattern.
