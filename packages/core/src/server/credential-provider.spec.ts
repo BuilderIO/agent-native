@@ -472,12 +472,6 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestOrgId.mockReturnValue(null);
     mockReadAppSecret.mockResolvedValue(null);
 
-    // TEMP DIAGNOSTIC (remove): confirm the dot-vs-bracket NODE_ENV divergence.
-    const { __debugCredentialEnv } = await import("./credential-provider.js");
-    console.error(
-      "[DIAG escape-hatch] sut=" + JSON.stringify(__debugCredentialEnv()),
-    );
-
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "deploy-key",
     );

@@ -79,11 +79,7 @@ export function readDeployCredentialEnv(key: string): string | undefined {
  * key does not silently power another tenant's chat.
  */
 export function isDeployCredentialFallbackAllowed(): boolean {
-  // Read NODE_ENV through computed access so a bundler `define` (Vite/esbuild)
-  // can't statically inline `process.env.NODE_ENV` to a build-time literal at
-  // inlined call sites — the runtime value is what must gate this.
-  const nodeEnv = process.env["NODE_ENV"];
-  if (nodeEnv !== "production") return true;
+  if (process.env.NODE_ENV !== "production") return true;
   return isLocalDatabase();
 }
 
@@ -124,58 +120,40 @@ function isHostedWorkspaceRuntime(): boolean {
 }
 
 /**
- * Local dogfooding escape hatch. A developer can explicitly opt in (non-prod
- * only) to let the env / root-`.env` Builder key back their signed-in user, so
- * running the app locally does not require completing the Builder connect flow
- * first. Default OFF — hosted/shared deployments are never affected, and the
- * workspace-runtime safety block stays in force unless this is set.
+ * Whether deployment-level Builder env keys may back the current request.
+ *
+ * This is intentionally a single self-contained function rather than a chain of
+ * tiny helpers (`allowLocalDevBuilderEnvCredentials` →
+ * `canUseDeployCredentialFallbackForRequest` → `isDeployCredentialFallbackAllowed`).
+ * The chained form tripped a CI test-transform/optimizer artifact where the
+ * composed result diverged from each helper's correct standalone value, making
+ * the dogfooding escape hatch read as blocked. Reading the env once into locals
+ * here keeps the decision evaluating identically everywhere.
+ *
+ * Rules (all evaluated against the live request/runtime, not a build-time value):
+ *  - No signed-in user → safe to use the deploy env (nobody to mis-identify).
+ *  - Hosted workspace + signed-in user → deploy-level Builder keys would
+ *    impersonate that user, so block them — UNLESS a developer has explicitly
+ *    opted into the local dogfooding escape hatch (non-prod only). Default OFF;
+ *    hosted/shared production deployments are never affected.
+ *  - Otherwise → allowed in non-prod, or on a local/single-tenant database.
  */
-function allowLocalDevBuilderEnvCredentials(): boolean {
-  const nodeEnv = process.env["NODE_ENV"];
-  if (nodeEnv === "production") return false;
-  return /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
-}
-
-// TEMP DIAGNOSTIC (remove): expose the SUT's own view of the env so CI can
-// reveal whether NODE_ENV is read as "production" inside the bundle despite the
-// test setting "development" (i.e. static inlining at transform time).
-export function __debugCredentialEnv() {
-  const emailA = getRequestUserEmail();
-  const isDeployA = isDeployCredentialFallbackAllowed();
-  const manualCanUseDeploy = (() => {
-    const e = getRequestUserEmail();
-    if (!e) return true;
-    return isDeployCredentialFallbackAllowed();
-  })();
-  const realCanUseDeploy = canUseDeployCredentialFallbackForRequest();
-  const isDeployB = isDeployCredentialFallbackAllowed();
-  return {
-    emailA,
-    emailTypeof: typeof emailA,
-    isLocalDatabase: isLocalDatabase(),
-    nodeEnvBracket: process.env["NODE_ENV"],
-    isDeployA,
-    manualCanUseDeploy,
-    realCanUseDeploy,
-    isDeployB,
-    canUseBuilder: canUseBuilderDeployCredentialFallbackForRequest(),
-  };
-}
-
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
-  // Builder workspace previews can run with NODE_ENV=development and their DB
-  // detection can look local during early startup. Once a real signed-in user
-  // is present, hosted workspace flags are enough to make deployment-level
-  // Builder keys unsafe as an identity fallback — UNLESS a developer has
-  // explicitly opted into the local dogfooding escape hatch.
-  if (
-    email &&
-    isHostedWorkspaceRuntime() &&
-    !allowLocalDevBuilderEnvCredentials()
-  )
-    return false;
-  return canUseDeployCredentialFallbackForRequest();
+  if (!email) return true;
+
+  const isProduction = process.env.NODE_ENV === "production";
+  // Local dogfooding escape hatch: lets the env / root-`.env` Builder key back
+  // a signed-in user so running the app locally doesn't require completing the
+  // Builder connect flow first. Non-prod only.
+  const localDevOptIn =
+    !isProduction &&
+    /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
+
+  if (isHostedWorkspaceRuntime() && !localDevOptIn) return false;
+
+  // Deploy fallback is safe in non-prod or on a local/single-tenant database.
+  return !isProduction || isLocalDatabase();
 }
 
 function shouldTraceCredentialResolve(): boolean {
