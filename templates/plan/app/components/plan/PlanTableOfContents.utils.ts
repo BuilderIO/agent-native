@@ -65,13 +65,20 @@ function findReadonlyHeadingElement(
   return directDocumentHeadings(block)[item.headingIndex] ?? null;
 }
 
+function findMainEditorProse(root: HTMLElement): HTMLElement | null {
+  const editor = root.querySelector<HTMLElement>(".plan-document-editor");
+  if (!editor) return null;
+  // Tiptap wraps the ProseMirror root in a div, so `.an-rich-md-prose` isn't a
+  // direct child — match at any depth. First in document order is the top-level
+  // prose (nested-block editors live deeper inside it).
+  return editor.querySelector<HTMLElement>(".an-rich-md-prose");
+}
+
 function findEditableHeadingElement(
   root: HTMLElement,
   item: PlanHeadingTocItem,
 ) {
-  const prose = root.querySelector<HTMLElement>(
-    ".plan-document-editor > .an-rich-md-prose",
-  );
+  const prose = findMainEditorProse(root);
   if (!prose) return null;
 
   let currentRunId = "";
@@ -178,10 +185,7 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
     const synthetic: PlanTocItem[] = [];
     const usedBlockIds = new Set(items.map((item) => item.blockId));
 
-    // Semantic label map: block type → TOC label. Only the FIRST occurrence of
-    // each type is synthesized (second file-tree, second data-model, etc. get no
-    // separate entry — they're assumed to be the same semantic category).
-    const seenSynthTypes = new Set<string>();
+    // Semantic label map: block type → TOC label.
     const SYNTH_LABELS: Partial<Record<PlanBlock["type"], string>> = {
       "file-tree": "Files changed",
       "data-model": "Schema",
@@ -191,16 +195,21 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       "question-form": "Open questions",
     };
 
+    // Skip any label already used — seeded with real heading/title labels so a
+    // synthetic entry never duplicates a section the document already names
+    // (e.g. a "## Key changes" heading next to a diff block), then growing as
+    // synthetics are added so each label appears at most once.
+    const usedLabels = new Set(
+      items.map((item) => item.label.trim().toLowerCase()),
+    );
+
     for (const block of blocks) {
       if (usedBlockIds.has(block.id)) continue;
       if (block.type === "tabs" || block.type === "columns") continue;
       const label = SYNTH_LABELS[block.type];
       if (!label) continue;
-      // De-duplicate: file-tree+file-tree both map to "Files changed", so only
-      // emit the first. But api-endpoint and diff both can synthesize (different
-      // labels), so key by label not type.
-      if (seenSynthTypes.has(label)) continue;
-      seenSynthTypes.add(label);
+      if (usedLabels.has(label.toLowerCase())) continue;
+      usedLabels.add(label.toLowerCase());
       synthetic.push({
         id: tocIdForBlock(block.id),
         blockId: block.id,

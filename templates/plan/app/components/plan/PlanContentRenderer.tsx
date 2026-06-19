@@ -34,6 +34,7 @@ import {
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
+import { usePlanHashScroll } from "./usePlanHashScroll";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { getPlanContentDirection } from "./planTextDirection";
 
@@ -159,6 +160,8 @@ export function PlanContentRenderer({
   recapScreenshotTheme = null,
   sourceUrl,
 }: PlanContentRendererProps) {
+  // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
+  usePlanHashScroll(content.blocks);
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
