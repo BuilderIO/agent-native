@@ -215,9 +215,9 @@ export default defineConfig({
 | `PORT`                      | Server port (Node.js only)                                                                                                                        |
 | `NITRO_PRESET`              | Override build preset at build time                                                                                                               |
 | `APP_BASE_PATH`             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.             |
-| `DATABASE_URL`              | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details.              |
-| `DATABASE_AUTH_TOKEN`       | Auth token for providers that require a separate token, such as Turso/libSQL.                                                                     |
 | `AGENT_PROD_CODE_EXECUTION` | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution). |
+
+Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/database#production).
 
 ### Required in Production {#env-required-prod}
 

@@ -96,18 +96,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-Example contents:
+Keep `context/` files short and factual — a few bullets the agent can skim:
 
 ```text
-<!-- context/company.md -->
-
-# Company
-
-- Company: Example Co
-- Product: Agent-native workspace for internal teams
-- ICP: Operations, support, and GTM teams managing many small tools
-- Canonical links: https://example.com, https://docs.example.com
-
 <!-- context/brand.md -->
 
 # Brand
@@ -115,31 +106,6 @@ Example contents:
 - Voice: direct, warm, concrete
 - Use: "workspace", "agent", "team"
 - Avoid: unsupported superlatives and vague AI claims
-
-<!-- context/messaging.md -->
-
-# Messaging
-
-- Positioning: one control plane for every app agent
-- Value props: shared context, shared credentials, cross-app delegation
-- Proof points: fewer duplicated Slack bots, one vault, one policy surface
-
-<!-- instructions/guardrails.md -->
-
-# Guardrails
-
-- Do not invent customer names, metrics, or legal claims.
-- Ask for approval before changing shared instructions or All-app resources.
-- Escalate security, billing, and data-loss concerns to an admin.
-
-<!-- skills/company-voice/SKILL.md -->
-
----
-name: company-voice
-description: Rewrite or review customer-facing copy using the workspace brand and messaging resources.
----
-
-Read `context/brand.md` and `context/messaging.md` before writing. Keep claims grounded in those files, preserve approved terminology, and flag missing proof instead of inventing it.
 ```
 
 ## Workspace Panel {#workspace-panel}

@@ -1,7 +1,34 @@
 ---
-title: "Sandbox Adapters"
-description: "Swap the backend that runs the agent's run-code tool — local child process by default, a remote/durable runner when you need to exceed the hosted code-exec ceiling."
+title: "Adapters"
+description: "The framework's two adapter seams: sandbox adapters swap the backend that runs the agent's run-code tool, and CLI adapters give the agent structured access to command-line tools."
+search: "adapters sandbox adapter cli adapter run-code SandboxAdapter CliAdapter ShellCliAdapter durable runner remote sandbox edge serverless child_process"
 ---
+
+# Adapters
+
+> **Who is this for:** host authors extending the runtime. App developers rarely
+> need this — the defaults work out of the box.
+
+Agent-Native has two adapter seams that factor a concern out behind a narrow,
+swappable interface:
+
+- **Sandbox adapters** swap the backend that runs the agent's `run-code` tool —
+  a local child process by default, or a Docker / remote / durable runner.
+- **CLI adapters** give the agent structured access to command-line tools
+  (`gh`, `ffmpeg`, `stripe`) with discovery, availability checks, and a
+  consistent result shape.
+
+Both share one runtime constraint: they rely on Node.js system bindings and do
+not run on edge/worker runtimes — see [Edge and serverless](#edge-serverless).
+
+## Which coding doc do I want? {#which-doc}
+
+| You want to…                                                               | Use                                          |
+| -------------------------------------------------------------------------- | -------------------------------------------- |
+| Swap the backend that runs the agent's **`run-code` tool**                 | **Sandbox adapters** (this page)             |
+| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | **CLI adapters** (this page)                 |
+| Render a Claude-Code/Codex-style **coding workspace UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | [Harness Agents](/docs/harness-agents)       |
 
 # Sandbox Adapters
 
@@ -74,7 +101,7 @@ Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "
 - Temp files are cleaned up best-effort after the run.
 
 > [!WARNING]
-> The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes (Cloudflare Workers, Netlify Edge Functions). Run `run-code` in a standard Node.js environment, or register a remote adapter.
+> The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes. Run `run-code` in a standard Node.js environment, or register a remote adapter — see [Edge and serverless](#edge-serverless).
 
 ## Selecting an adapter {#selection}
 
@@ -127,8 +154,55 @@ Register it under a new `AGENT_NATIVE_SANDBOX` value (e.g. `remote`) and/or via 
 > [!TIP]
 > The `agent-native add sandbox docker` blueprint emits a full, self-contained recipe for implementing a Docker adapter against this seam. See [Blueprint Installer](/docs/blueprint-installer).
 
+# CLI Adapters
+
+The other adapter seam wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Every CLI adapter implements `CliAdapter`:
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+For most CLIs, `ShellCliAdapter` wraps any binary with sensible defaults, and `CliRegistry` collects adapters for runtime discovery:
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI — manage repos, PRs, issues, and releases",
+  }),
+);
+
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+Wrap a CLI call in `defineAction` to expose it on the action surface. See the [CLI Adapters](/docs/cli-adapters) quick reference for `ShellCliAdapter` options, custom adapters, and the action-wrapping pattern.
+
+## Edge and serverless {#edge-serverless}
+
+> [!WARNING]
+> Both adapter seams rely on Node.js system bindings. The sandbox `LocalChildProcessAdapter` and CLI adapters (`ShellCliAdapter` and custom adapters) use `node:child_process` (`execFile` / `spawn`), which **does not exist** on edge/worker runtimes such as Cloudflare Workers or Netlify Edge Functions. If you deploy server routes to these edge presets, executing these adapters throws a runtime exception. Run adapter endpoints and tasks in a standard Node.js environment (traditional server containers or serverless Node functions) — or, for the sandbox seam, register a remote adapter that ships work out of process.
+
 ## What's next
 
+- [**CLI Adapters**](/docs/cli-adapters) — the quick reference for the CLI seam
 - [**Blueprint Installer**](/docs/blueprint-installer) — `agent-native add sandbox docker` prints a Docker-adapter recipe
 - [**Agent Teams**](/docs/agent-teams) — delegating heavy work to sub-agents
 - [**Security**](/docs/security) — the env scrub and bridge allowlist posture

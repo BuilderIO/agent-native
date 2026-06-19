@@ -7,6 +7,23 @@ description: "Security model for agent-native apps: input validation, SQL inject
 
 Agent-native apps are designed to be secure by default. The framework provides automatic protections at multiple layers — you get SQL-level data isolation, parameterized queries, input validation, and authentication out of the box.
 
+## What you get for free, and what you own {#what-you-own}
+
+When you build on the standard patterns, the framework already handles most of the threat surface for you:
+
+- **Data isolation** — agent SQL is rewritten so it can only see the current user's (and active org's) rows. See [Data Scoping](#data-scoping).
+- **SQL injection** — `db-query`/`db-exec` and Drizzle always parameterize. See [SQL Injection Prevention](#sql-injection).
+- **XSS** — React auto-escapes, TipTap and `react-markdown` sanitize. See [XSS Prevention](#xss).
+- **Auth & CSRF** — every `defineAction` is auth-guarded; cookies are `httpOnly` + `SameSite=lax`. See [Authentication](#auth).
+- **Secret encryption** — credentials and the vault are encrypted at rest. See [Secrets Management](#secrets).
+
+That leaves a small surface you actually have to think about:
+
+- **A. Tag your tables for scoping.** Add `owner_email` (and `org_id` for team data) via [`ownableColumns()`](#data-scoping), and route Drizzle reads/writes through the [access guards](#access-guards).
+- **B. Validate and route external input.** Give every action a Zod [`schema:`](#input-validation), and send any server-side fetch of a user/agent URL through the [SSRF guard](#ssrf).
+
+Get those two right and the rest is defaults. The [Production Checklist](#production-checklist) is the one-page confirmation before you ship.
+
 ## Security by Design {#secure-by-design}
 
 The framework architecture prevents common vulnerabilities when you use the standard patterns:
@@ -213,30 +230,6 @@ Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/i
 Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
 
 This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full env-var list.
-
-## OAuth State Signing {#oauth-state}
-
-OAuth flows (Google, Atlassian, Zoom) sign their state envelope with a dedicated HMAC key:
-
-```bash
-OAUTH_STATE_SECRET=$(openssl rand -hex 32)
-```
-
-This used to fall back to `GOOGLE_CLIENT_SECRET` (a credential shared with Google) — a leak of the Google secret would have let attackers forge OAuth state envelopes. The dedicated key is independent of any third-party secret. If `OAUTH_STATE_SECRET` is unset, the framework falls back to `BETTER_AUTH_SECRET`; hosted workspace deploys can also derive a per-purpose OAuth key from the already-required `A2A_SECRET`. If none of those server secrets are available, OAuth flows fail in production.
-
-`redirect_uri` query parameters are also validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use the framework's `isAllowedOAuthRedirectUri()` helper before signing state.
-
-## Cross-User Tooling Secrets {#tooling-secrets}
-
-Tools and automations that reference `${keys.NAME}` resolve secrets per-user by default. Workspace-scope fallback is **off by default** in this version — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' API calls.
-
-If your org genuinely shares workspace-wide keys (e.g. a single corporate Stripe key), opt back into the old behavior with:
-
-```bash
-AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
-```
-
-Workspace-scope secret writes still require org owner/admin role regardless of this flag.
 
 ## Production Checklist {#production-checklist}
 

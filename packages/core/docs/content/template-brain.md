@@ -96,6 +96,12 @@ Open the app and choose **Start demo** to see cited memory without connecting a 
 
 ### Data model
 
+Brain intentionally uses SQL text search and agentic query expansion — there is
+no vector-database requirement, so the template stays portable across SQLite,
+Postgres, Neon, D1, Turso, and similar hosts. Application state mirrors the
+current route, filters, and selected IDs so the agent always knows the current
+navigation and selection.
+
 Brain's schema lives in `templates/brain/server/db/schema.ts`. Eight tables:
 
 | Table                    | What it holds                                                                                                                                  |
@@ -124,17 +130,7 @@ Grouped by area (`templates/brain/actions/`):
 - **Context & navigation** — `view-screen`, `navigate`
 - **Provider APIs** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
 
-### Customizing it
-
-Key places to look when extending Brain:
-
-- `templates/brain/actions/` — every agent-callable operation. Add a new file with `defineAction` to expose a new capability.
-- `templates/brain/app/routes/` — the UI surface: Ask, Sources, Review, Knowledge, Settings, and Team routes.
-- `templates/brain/.agents/skills/` — Brain-specific guidance for distillation and retrieval.
-- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major features.
-- `templates/brain/server/db/schema.ts` — data model. Additive migrations only.
-
-## Connecting sources
+### Connecting sources
 
 Brain resolves provider credentials from a granted workspace connection first,
 then from backward-compatible Brain-local or registered vault credentials.
