@@ -349,11 +349,17 @@ export function Sidebar({
     : IconLayoutSidebarLeftCollapse;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      "flex h-9 items-center rounded-md text-sm transition-colors",
-      collapsed ? "justify-center px-0" : "gap-3 px-3",
+      "flex items-center text-sm transition-colors",
+      collapsed
+        ? "relative h-10 w-full justify-center rounded-none border-l-2 px-0"
+        : "h-9 rounded-md gap-3 px-3",
       isActive
-        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-        : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
+        ? collapsed
+          ? "border-l-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          : "bg-sidebar-accent text-sidebar-accent-foreground"
+        : collapsed
+          ? "border-l-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
     <Tooltip>
@@ -361,7 +367,10 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => onCollapsedChange?.(!collapsed)}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-8" : "size-7",
+          )}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ToggleIcon className="size-4" />
@@ -378,13 +387,13 @@ export function Sidebar({
       data-collapsed={collapsed ? "true" : "false"}
       className={cn(
         "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150",
-        collapsed ? "w-16" : "w-60",
+        collapsed ? "w-12" : "w-60",
       )}
     >
       <div
         className={cn(
-          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center px-1" : "px-3",
+          "flex shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "h-12 justify-center px-0" : "h-14 px-3",
         )}
       >
         <Link
@@ -417,11 +426,11 @@ export function Sidebar({
 
       <nav
         className={cn(
-          "flex-1 overflow-y-auto py-3",
-          collapsed ? "px-2" : "px-2",
+          "flex-1 overflow-y-auto",
+          collapsed ? "px-0 py-2" : "px-2 py-3",
         )}
       >
-        <div className="grid gap-1">
+        <div className={cn("grid", collapsed ? "gap-0" : "gap-1")}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const link = (
@@ -456,7 +465,12 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="mt-auto shrink-0">
+      <div
+        className={cn(
+          "mt-auto shrink-0",
+          collapsed && "border-t border-sidebar-border py-2",
+        )}
+      >
         {!collapsed ? (
           <div className="border-t border-sidebar-border px-2 py-1">
             <ExtensionsSidebarSection />
@@ -465,8 +479,9 @@ export function Sidebar({
 
         <div
           className={cn(
-            "border-t border-sidebar-border py-2",
-            collapsed ? "px-2" : "px-3",
+            collapsed
+              ? "px-1 py-1"
+              : "border-t border-sidebar-border px-3 py-2",
           )}
         >
           <OrgSwitcher
@@ -481,8 +496,9 @@ export function Sidebar({
 
         <div
           className={cn(
-            "border-t border-sidebar-border py-2",
-            collapsed ? "flex justify-center px-2" : "px-3",
+            collapsed
+              ? "flex justify-center px-1 py-1"
+              : "border-t border-sidebar-border px-3 py-2",
           )}
         >
           <FeedbackButton
@@ -495,8 +511,9 @@ export function Sidebar({
         {collapseButton ? (
           <div
             className={cn(
-              "border-t border-sidebar-border py-2",
-              collapsed ? "flex justify-center px-2" : "flex justify-end px-3",
+              collapsed
+                ? "flex justify-center px-1 py-1"
+                : "flex justify-end border-t border-sidebar-border px-3 py-2",
             )}
           >
             {collapseButton}
