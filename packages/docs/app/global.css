@@ -1095,6 +1095,14 @@ html.dark .shiki span {
   margin-top: 0;
 }
 
+/* Code-bearing blocks (annotated-code walkthroughs, API request/response
+ * examples) ship with the block library's own code surface, which is a touch
+ * lighter than the docs' code blocks. Align them to `--code-bg` so an embedded
+ * code block reads as the same surface as a plain ``` fence on the page. */
+.docs-article .docs-block .bg-plan-code {
+  background-color: var(--code-bg) !important;
+}
+
 /* Prev / Next navigation */
 .docs-prev-next {
   display: flex;

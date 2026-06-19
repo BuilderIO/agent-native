@@ -45,6 +45,25 @@ describe("docs visual blocks", () => {
     expect(docs.length).toBeGreaterThan(0);
   });
 
+  // Guard against the splitter SILENTLY skipping a visual fence (e.g. a regex that
+  // rejects a valid info string), which would otherwise leak raw JSON into the
+  // page AND bypass the schema/render checks below (they only see parsed blocks).
+  it("parses every raw an-* fence opener into a block segment", () => {
+    const failures: string[] = [];
+    for (const doc of docs) {
+      const rawOpeners = (doc.body.match(/^```an-[\w-]+/gm) ?? []).length;
+      const parsedBlocks = splitDocSegments(doc.body).filter(
+        (segment) => segment.kind === "block",
+      ).length;
+      if (parsedBlocks !== rawOpeners) {
+        failures.push(
+          `${doc.slug}: ${rawOpeners} \`an-*\` openers but ${parsedBlocks} parsed blocks`,
+        );
+      }
+    }
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  });
+
   it("every embedded block passes its schema", () => {
     const failures: string[] = [];
     for (const doc of docs) {

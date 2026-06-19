@@ -142,32 +142,49 @@ export function splitDocSegments(markdown: string): DocSegment[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const open = /^```([\w-]+)([^\n`]*)$/.exec(line);
-    const alias = open?.[1]?.toLowerCase();
-    if (open && alias && DOC_BLOCK_LANGUAGES.has(alias)) {
-      // Capture the fenced body up to the next closing ``` at column 0.
+    // A fenced code block opener: 3+ backticks then an info string. The info may
+    // contain backticks (e.g. an inline-code attribute value like
+    // `summary="uses \`appFetch\`"`), so don't ban them.
+    const open = /^(`{3,})([^\n]*)$/.exec(line);
+    if (open) {
+      const fence = open[1];
+      const info = open[2] ?? "";
+      const alias = /^\s*([\w-]+)/.exec(info)?.[1]?.toLowerCase();
+      // Per CommonMark a fence is closed by a line of >= as many of the same
+      // fence char (plus optional trailing spaces). Matching the length means a
+      // ```block that closes with ```` is handled, and we step over normal code
+      // fences as a unit instead of scanning their contents for `an-*` openers.
+      const closeRe = new RegExp(`^${fence}\`*\\s*$`);
       const bodyLines: string[] = [];
       let j = i + 1;
       let closed = false;
       for (; j < lines.length; j++) {
-        if (/^```\s*$/.test(lines[j])) {
+        if (closeRe.test(lines[j])) {
           closed = true;
           break;
         }
         bodyLines.push(lines[j]);
       }
       if (!closed) {
-        // Unterminated fence — treat as plain prose so nothing is dropped.
+        // Unterminated fence — emit the opener as prose and keep scanning the
+        // rest line by line so nothing is dropped.
         prose.push(line);
         continue;
       }
-      flushProse();
-      segments.push({
-        kind: "block",
-        alias,
-        attrs: parseFenceAttrs(open[2] ?? ""),
-        body: bodyLines.join("\n"),
-      });
+      if (alias && DOC_BLOCK_LANGUAGES.has(alias)) {
+        flushProse();
+        segments.push({
+          kind: "block",
+          alias,
+          attrs: parseFenceAttrs(info),
+          body: bodyLines.join("\n"),
+        });
+      } else {
+        // A normal code fence — keep it verbatim in the prose stream so the
+        // markdown renderer handles it (and an `an-*` line inside a code example
+        // is never mistaken for a block).
+        prose.push(line, ...bodyLines, lines[j]);
+      }
       i = j; // skip past the closing fence
       continue;
     }
@@ -236,8 +253,6 @@ function MarkdownInline({ markdown }: { markdown: string }): ReactNode {
     />
   );
 }
-
-let nestedBlockSeq = 0;
 
 /**
  * The read-only render context shared by every docs block. Wires markdown-bearing
@@ -311,10 +326,14 @@ export function DocBlock({
   alias,
   attrs,
   body,
+  index = 0,
 }: {
   alias: string;
   attrs: Record<string, string>;
   body: string;
+  /** Stable position of this block within its doc. Used to derive a fallback id
+   * so SSR and client hydration agree (no module-level mutable counter). */
+  index?: number;
 }) {
   const { registry, ctx } = useBlockRegistry();
   const type = resolveDocBlockType(alias);
@@ -356,7 +375,7 @@ export function DocBlock({
   }
 
   const block = {
-    id: attrs.id || `doc-block-${(nestedBlockSeq += 1)}`,
+    id: attrs.id || `doc-block-${index}`,
     title: attrs.title || undefined,
     summary: attrs.summary || undefined,
     data: parsed.data,

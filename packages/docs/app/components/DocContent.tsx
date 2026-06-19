@@ -37,6 +37,7 @@ export default function DocContent({ markdown }: Props) {
               alias={segment.alias}
               attrs={segment.attrs}
               body={segment.body}
+              index={index}
             />
           </div>
         ),
