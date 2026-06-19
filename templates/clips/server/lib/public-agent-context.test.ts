@@ -186,7 +186,8 @@ describe("loadRecordingMediaBytes", () => {
       loadRecordingMediaBytes(
         makeRecording({
           sourceAppName: "Loom",
-          videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
           videoFormat: "mp4",
         }) as any,
       ),
@@ -209,7 +210,8 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording({
           sourceAppName: "Loom",
-          videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
           videoFormat: "mp4",
         }) as any,
         viewerIsOwner: false,

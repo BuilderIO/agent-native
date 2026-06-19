@@ -56,7 +56,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
-import { isLoomEmbedUrl } from "../../shared/loom";
+import { isLoomRecordingSource } from "../../shared/loom";
 
 type SharePageMetaRecording = {
   id: string;
@@ -241,7 +241,7 @@ function AgentDiscovery({
   recording,
   agentContextUrl,
 }: {
-  recording: SharePageMetaRecording | null;
+  recording: Pick<SharePageMetaRecording, "id" | "title"> | null;
   agentContextUrl: string | null;
 }) {
   if (!recording || !agentContextUrl) return null;
@@ -338,11 +338,15 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
-  const isLoomRecording = isLoomEmbedUrl(recording?.videoUrl);
+  const isLoomRecording = isLoomRecordingSource(recording);
+  const unlockedAgentContextUrl =
+    typeof dataQ.data?.data?.agentContextUrl === "string"
+      ? dataQ.data.data.agentContextUrl
+      : null;
   const agentDiscovery = (
     <AgentDiscovery
-      recording={loaderData.recording}
-      agentContextUrl={loaderData.agentContextUrl}
+      recording={recording ?? loaderData.recording}
+      agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
     />
   );
 
@@ -667,6 +671,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomRecording}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
@@ -684,6 +689,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              embedProvider={isLoomRecording ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}

@@ -96,6 +96,7 @@ export interface VideoPlayerHandle {
 export interface VideoPlayerProps {
   recordingId: string;
   videoUrl: string | null | undefined;
+  embedProvider?: "loom" | null;
   durationMs: number;
   thumbnailUrl?: string | null;
   /** Default playback rate. Clips default is 1.2x. */
@@ -149,6 +150,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(props, ref) {
     const {
       videoUrl,
+      embedProvider,
       durationMs,
       thumbnailUrl,
       defaultSpeed = 1.2,
@@ -236,8 +238,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [activeVideoSrc],
     );
     const isLoomEmbed = useMemo(
-      () => isLoomEmbedUrl(activeVideoSrc),
-      [activeVideoSrc],
+      () => embedProvider === "loom" || isLoomEmbedUrl(activeVideoSrc),
+      [activeVideoSrc, embedProvider],
     );
     const incomingVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(resolvedVideoSrc),

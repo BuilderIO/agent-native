@@ -17,7 +17,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../shared/transcript-segments.js";
-import { isLoomEmbedUrl } from "../../shared/loom.js";
+import { isLoomRecordingSource } from "../../shared/loom.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 
@@ -326,7 +326,7 @@ export function buildPublicAgentContext({
     token: access.apiToken,
   });
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
-  const isLoomRecording = isLoomEmbedUrl(recording.videoUrl);
+  const isLoomRecording = isLoomRecordingSource(recording);
   const suggestedFrames = isLoomRecording
     ? []
     : buildRecommendedFrames({
@@ -425,7 +425,7 @@ export async function loadRecordingMediaBytes(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const videoUrl = recording.videoUrl ?? "";
   if (!videoUrl) throw new Error("Recording has no videoUrl");
-  if (isLoomEmbedUrl(videoUrl)) {
+  if (isLoomRecordingSource(recording)) {
     throw new Error(
       "Frame extraction is not available for Loom embed imports.",
     );

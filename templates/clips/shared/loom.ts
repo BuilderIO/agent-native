@@ -63,8 +63,43 @@ export function isLoomEmbedUrl(value: string | null | undefined): boolean {
   return typeof value === "string" && Boolean(sanitizeLoomEmbedUrl(value));
 }
 
+export function isLoomSourceName(value: string | null | undefined): boolean {
+  return value?.trim().toLowerCase() === "loom";
+}
+
+export type LoomRecordingLike = {
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  videoUrl?: string | null;
+};
+
+export function isLoomRecordingSource(
+  recording: LoomRecordingLike | null | undefined,
+): boolean {
+  if (!recording) return false;
+  return (
+    isLoomSourceName(recording.sourceAppName) ||
+    isLoomEmbedUrl(recording.videoUrl)
+  );
+}
+
 export function loomEmbedUrlForId(id: string): string {
   return `https://www.loom.com/embed/${encodeURIComponent(id)}`;
+}
+
+export function loomEmbedUrlForRecording(
+  recording: LoomRecordingLike | null | undefined,
+): string | null {
+  if (!recording) return null;
+
+  const fromVideoUrl = sanitizeLoomEmbedUrl(recording.videoUrl ?? "");
+  if (fromVideoUrl) return fromVideoUrl;
+
+  if (!isLoomSourceName(recording.sourceAppName)) return null;
+  const id =
+    extractLoomVideoId(recording.sourceWindowTitle ?? "") ??
+    extractLoomVideoId(recording.videoUrl ?? "");
+  return id ? loomEmbedUrlForId(id) : null;
 }
 
 export function extractLoomEmbedUrlFromHtml(html: string): string | null {

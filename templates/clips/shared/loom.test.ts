@@ -3,6 +3,8 @@ import {
   extractLoomEmbedUrlFromHtml,
   extractLoomVideoId,
   isLoomEmbedUrl,
+  isLoomRecordingSource,
+  loomEmbedUrlForRecording,
   normalizeLoomShareUrl,
   sanitizeLoomEmbedUrl,
 } from "./loom";
@@ -40,6 +42,19 @@ describe("Loom URL helpers", () => {
     expect(
       sanitizeLoomEmbedUrl("https://evil.example/embed/abcDEF_123456"),
     ).toBe(null);
+  });
+
+  it("recognizes Loom recording metadata after Clips proxies the player URL", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "/api/video/rec-1",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(loomEmbedUrlForRecording(recording)).toBe(
+      "https://www.loom.com/embed/abcDEF_123456",
+    );
   });
 
   it("rejects unsupported protocols, hosts, paths, and IDs", () => {

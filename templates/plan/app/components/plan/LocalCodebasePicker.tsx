@@ -28,7 +28,10 @@ import {
   syncLocalCodebaseSnapshot,
   type LocalCodebaseSummary,
 } from "@/lib/local-codebase-context";
-import { syncLocalControlResources } from "@/lib/local-control-resources";
+import {
+  deleteLocalControlResources,
+  syncLocalControlResources,
+} from "@/lib/local-control-resources";
 import { cn } from "@/lib/utils";
 
 type RestoredLocalCodebase = NonNullable<
@@ -101,6 +104,7 @@ export function LocalCodebasePicker() {
 
       try {
         await syncLocalControlResources({
+          folderId: selection.id,
           folderName: selection.name,
           files: snapshot.controlResources,
         });
@@ -147,6 +151,19 @@ export function LocalCodebasePicker() {
       handle: chosen.handle,
       latest: null,
     };
+    if (active && active.id !== selection.id) {
+      try {
+        const removed = await deleteLocalControlResources({
+          folderId: active.id,
+          folderName: active.name,
+        });
+        if (removed.count > 0) {
+          await queryClient.invalidateQueries({ queryKey: ["resources"] });
+        }
+      } catch (err) {
+        console.warn("[plan] local control resource cleanup failed", err);
+      }
+    }
     setActive(selection);
     try {
       await syncSelection(selection);
@@ -156,16 +173,30 @@ export function LocalCodebasePicker() {
       setSyncState({ kind: "error", message });
       toast.error("Codebase sync failed", { description: message });
     }
-  }, [syncSelection]);
+  }, [active, queryClient, syncSelection]);
 
   const clearSelection = useCallback(async () => {
+    const previous = active;
     await clearLocalCodebaseSelection();
     setActive(null);
     setSummary(null);
     setSyncState({ kind: "idle" });
     await syncAppState(null);
+    if (previous) {
+      try {
+        const removed = await deleteLocalControlResources({
+          folderId: previous.id,
+          folderName: previous.name,
+        });
+        if (removed.count > 0) {
+          await queryClient.invalidateQueries({ queryKey: ["resources"] });
+        }
+      } catch (err) {
+        console.warn("[plan] local control resource cleanup failed", err);
+      }
+    }
     toast("Codebase unlinked");
-  }, [syncAppState]);
+  }, [active, queryClient, syncAppState]);
 
   const resync = useCallback(async () => {
     if (!active) return;

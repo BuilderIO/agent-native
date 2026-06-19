@@ -20,6 +20,7 @@ import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
+import { localRecordingVideoRoute } from "../server/lib/player-video-url.js";
 
 const LoomOembedSchema = z
   .object({
@@ -133,6 +134,7 @@ export default defineAction({
       extractLoomEmbedUrlFromHtml(oembed.html) ?? loomEmbedUrlForId(loomId);
     const now = new Date().toISOString();
     const id = nanoid();
+    const videoUrl = localRecordingVideoRoute(id);
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const { organizationId } = await requireOrganizationAccess(
@@ -160,7 +162,7 @@ export default defineAction({
       description: "",
       thumbnailUrl: oembed.thumbnail_url ?? null,
       durationMs,
-      videoUrl: embedUrl,
+      videoUrl,
       videoFormat: "mp4",
       videoSizeBytes: 0,
       width: boundedDimension(oembed.width ?? oembed.thumbnail_width),
@@ -205,7 +207,7 @@ export default defineAction({
       status: "ready" as const,
       provider: "loom" as const,
       sourceUrl: shareUrl,
-      embedUrl,
+      embedUrl: videoUrl,
       thumbnailUrl: oembed.thumbnail_url ?? null,
       durationMs,
       transcriptStatus: transcript
