@@ -16,6 +16,7 @@ import {
 } from "../../components/ui/popover.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 import {
   highlightCode,
@@ -95,7 +96,11 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
     undefined;
   const hasFilename = Boolean(data.filename?.trim());
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       <div className="plan-code group relative">
         {hasFilename && (
           <div className="plan-code-head">
@@ -318,6 +323,7 @@ function CodeEditorSurface({
 
   return (
     <div
+      {...ltrCodeBlockProps}
       className={cn(
         "plan-code plan-code-editing group relative",
         !hasFilename && "plan-code-editing--unlabeled",

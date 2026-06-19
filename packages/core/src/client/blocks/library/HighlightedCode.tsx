@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 
 type ShikiHighlighter = {
   codeToHtml: (
@@ -219,6 +220,7 @@ export function CodeSurface({
 
   return (
     <div
+      {...ltrCodeBlockProps}
       className={cn("plan-code-surface", className ?? "mt-5")}
       data-collapsed={collapsed ? "true" : undefined}
     >

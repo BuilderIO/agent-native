@@ -18,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type {
   BlockEditProps,
   BlockReadProps,
@@ -968,6 +969,7 @@ function DiffRead({
 
   return (
     <section
+      {...ltrCodeBlockProps}
       ref={containerRef}
       className="relative plan-block group/diff-block"
       data-block-id={blockId}

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   AnnotatedCodeAnnotation,
@@ -427,7 +428,11 @@ function AnnotatedCodeRead({
   );
 
   return (
-    <section className="plan-block relative" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block relative"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       {/* The code keeps its full width — no persistent annotation column. Notes
           live in a visually-hidden stack (a11y + tests) and surface ONE at a
