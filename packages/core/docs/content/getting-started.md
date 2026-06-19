@@ -1,46 +1,47 @@
 ---
 title: "Getting Started"
-description: "Create a headless agent app, run your first action, and watch the agent call it."
+description: "Create an agent app — with a chat UI or headless — add an action, and watch the agent call it."
 ---
 
 # Getting Started
 
 Agent-Native apps give an AI agent and your UI the same actions, data, and
-state. The smallest useful app is a single action — no screen required. Start
-there, then add a UI only where it earns its place.
+state. The smallest useful app is a single action.
 
-## Create your app
+The only choice up front is whether you want a UI. Everything after it — defining
+actions, running the agent — is exactly the same either way.
+
+## 1. Create your app
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
 
+**Want a UI?** Start from the Chat template. You get a working agent plus a
+customizable chat UI, and every action you add shows up in it automatically:
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+```
+
+**Just the headless primitive?** Start headless — the same actions and agent
+loop, no UI shell:
+
 ```bash
 npx @agent-native/core@latest create my-agent --headless
-cd my-agent
+```
+
+Then install:
+
+```bash
+cd my-app
 pnpm install
 ```
 
-This scaffolds a headless app with one example action and the full app-agent
-loop — the same runtime that powers chat, jobs, webhooks, and hosted apps.
+From here on, the two are identical.
 
-## Run your first action
+## 2. Add an action
 
-Call the action directly from the CLI:
-
-```bash
-pnpm action hello --name Steve
-```
-
-Now ask the agent to call it for you:
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-Same operation, two callers. That action is also reachable over HTTP, MCP, A2A,
-scheduled jobs, and webhooks — and from any UI you add later. You define the
-operation once; every surface gets it for free.
-
-## The example action
+An action is one operation your agent — and your UI — can call. Both scaffolds
+ship with this example:
 
 ```ts
 // actions/hello.ts
@@ -60,8 +61,32 @@ export default defineAction({
 });
 ```
 
-Replace `hello` with the smallest real operation in your domain. The agent, the
-CLI, and every protocol surface pick it up automatically.
+Replace `hello` with the smallest real operation in your domain. You define it
+once; every surface picks it up.
+
+## 3. Run it
+
+Call the action directly:
+
+```bash
+pnpm action hello --name Steve
+```
+
+Or ask the agent to call it for you:
+
+```bash
+pnpm agent "Call the hello action for Steve and explain what happened."
+```
+
+If you started from the Chat template, run the app and use the same agent in the
+browser — it can already call every action you define:
+
+```bash
+pnpm dev
+```
+
+That one action is now reachable from the chat UI, the CLI, HTTP, MCP, A2A,
+scheduled jobs, and webhooks. Define once, call from anywhere.
 
 ## State is built in
 
@@ -70,20 +95,52 @@ run history, and credentials all live in SQL. Locally that's SQLite at
 `data/app.db`; in production you set `DATABASE_URL`. See
 [Deployment](/docs/deployment).
 
-## Add a UI when you want one
+## Customize the UI
 
-When users need a conversation to inspect, approve, or continue the work,
-scaffold the Chat template instead. It's the same action surface plus a chat
-route, sidebar, auth, and live sync:
+If you started from the Chat template, the UI is yours to edit. The chat itself
+is one small route built on the `<AgentChatSurface>` component:
 
-```bash
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app && pnpm install && pnpm dev
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return <AgentChatSurface mode="page" className="h-full" />;
+}
 ```
 
-Open the local URL and ask the chat what actions it has. For a finished domain
-app, start from a [Template](/docs/cloneable-saas). To compare headless, chat,
-embedded, and full-app surfaces, see [Agent Surfaces](/docs/agent-surfaces).
+- **`app/routes/_index.tsx`** — the chat page. Change the suggestions, empty
+  state, and layout.
+- **`app/root.tsx`** — the app shell. Add your own routes and screens around the
+  agent.
+- Drop the agent into any screen with `<AgentSidebar>`, hand work to it from a
+  button with `sendToAgentChat()`, or run an action directly with
+  `useActionMutation()`.
+
+See [Drop-in Agent](/docs/drop-in-agent) for the full component set, and
+[Native Chat UI](/docs/native-chat-ui) to render action results as tables,
+charts, and typed cards instead of plain text.
+
+**Started headless and want a UI later?** The Chat template _is_ the UI on-ramp —
+its `app/` layer (React Router + Vite) is exactly what the headless scaffold
+leaves out. The cleanest move is to start (or re-scaffold) from the Chat
+template; your `actions/`, agent, and SQL state carry over unchanged. See
+[Agent Surfaces](/docs/agent-surfaces) for every surface in between.
+
+## Compose mini-apps
+
+A big workspace is usually easier to reason about as a few focused apps than one
+giant one. A `hubspot-pipeline` app can own CRM access, a `gong-evidence` app can
+own transcripts, and a `deal-brief` app can call both over A2A:
+
+```bash
+pnpm agent-native agents list
+pnpm agent-native invoke gong-evidence "Find transcript evidence for deal_123."
+```
+
+Each app keeps its own actions, agent, and state, and can discover its siblings.
+See [Multi-App Workspaces](/docs/multi-app-workspace) and
+[A2A Protocol](/docs/a2a-protocol).
 
 ## Project structure
 
@@ -102,12 +159,8 @@ my-app/
   sync, and context awareness.
 - **[Actions](/docs/actions)** — the full action API: schemas, HTTP, auth, and
   approval.
-- **[Agent Surfaces](/docs/agent-surfaces)** — choosing headless, chat,
-  embedded, and full-app surfaces.
-- **[Workspace Connections](/docs/workspace-connections)** — give the agent a
-  GitHub repo or other provider to work against.
-- **[Multi-App Workspaces](/docs/multi-app-workspace)** and
-  [A2A Protocol](/docs/a2a-protocol) — split provider-heavy work into focused
-  mini-apps that call each other.
+- **[Agent Surfaces](/docs/agent-surfaces)** — headless, chat, embedded sidecar,
+  and full app.
+- **[Drop-in Agent](/docs/drop-in-agent)** — add the agent chat to any React app.
 - **[Deployment](/docs/deployment)** — put your app on your own domain.
 - **[FAQ](/docs/faq)** — setup and product questions.
