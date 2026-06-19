@@ -2419,6 +2419,14 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
+          meterActive={popoverVisible && !isRecording}
+          // The meter mic must open in whichever page owns the camera, or
+          // WebKit's cross-page capture-exclusion mutes it. The bubble owns the
+          // camera only in native full-screen (`bubbleUsesLocalCamera`); in
+          // window/screen/camera modes the popover owns it, so the meter runs
+          // locally here. Keying off `bubbleActive` alone wrongly relayed window
+          // recordings to a bubble that has no camera → flat bars.
+          meterRelay={bubbleActive && bubbleUsesLocalCamera}
         />
       </div>
 

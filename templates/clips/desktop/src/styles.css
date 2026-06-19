@@ -719,53 +719,26 @@ body[data-clips-route="recording-pill"] #root {
   transform: translateX(14px);
 }
 
-/* Mic level indicator — animated bars under the mic row. */
+/* Live mic level meter — bars driven by real audio input under the mic row. */
 .mic-wave {
   position: absolute;
   left: 12px;
   right: 12px;
   bottom: 4px;
-  height: 3px;
+  height: 14px;
   display: flex;
   gap: 2px;
   align-items: flex-end;
   pointer-events: none;
-  opacity: 0.55;
+  opacity: 0.75;
 }
 
 .mic-wave .bar {
   flex: 1;
   background: var(--brand);
   border-radius: 1px;
-  animation: mic-pulse 1.2s ease-in-out infinite;
-  height: 60%;
-}
-
-.mic-wave .b1 {
-  animation-delay: 0s;
-  height: 40%;
-}
-.mic-wave .b2 {
-  animation-delay: 0.15s;
-  height: 80%;
-}
-.mic-wave .b3 {
-  animation-delay: 0.3s;
-  height: 55%;
-}
-.mic-wave .b4 {
-  animation-delay: 0.45s;
-  height: 70%;
-}
-
-@keyframes mic-pulse {
-  0%,
-  100% {
-    transform: scaleY(1);
-  }
-  50% {
-    transform: scaleY(0.4);
-  }
+  height: 10%;
+  transition: height 0.08s linear;
 }
 
 /* ------------------------------------------------------------------------- */

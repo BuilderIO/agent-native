@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
 import { useRowMenu } from "./useRowMenu";
+import { useMicMeter, WAVE_BARS } from "../hooks/useMicMeter";
 
 function Toggle({
   on,
@@ -25,13 +26,32 @@ function Toggle({
   );
 }
 
-function MicWave() {
+// Live mic level meter. Drives the bar heights from real audio so users can see
+// their mic is actually picking up sound. When the camera bubble is live the
+// meter relays through the bubble page instead of opening a mic here (see
+// useMicMeter for the WebKit capture-exclusion details).
+function MicWave({
+  deviceId,
+  active,
+  relay,
+}: {
+  deviceId: string;
+  active: boolean;
+  relay: boolean;
+}) {
+  const barsRef = useMicMeter({ deviceId, active, relay });
+
   return (
     <span className="mic-wave" aria-hidden>
-      <span className="bar b1" />
-      <span className="bar b2" />
-      <span className="bar b3" />
-      <span className="bar b4" />
+      {Array.from({ length: WAVE_BARS }).map((_, i) => (
+        <span
+          key={i}
+          className="bar"
+          ref={(el) => {
+            barsRef.current[i] = el;
+          }}
+        />
+      ))}
     </span>
   );
 }
@@ -47,6 +67,8 @@ export function MediaDeviceRow({
   onToggle,
   systemAudio,
   onSystemAudioToggle,
+  meterActive = true,
+  meterRelay = false,
 }: {
   kind: "camera" | "mic";
   devices: MediaDeviceInfo[];
@@ -58,6 +80,8 @@ export function MediaDeviceRow({
   onToggle: (v: boolean) => void;
   systemAudio?: boolean;
   onSystemAudioToggle?: (v: boolean) => void;
+  meterActive?: boolean;
+  meterRelay?: boolean;
 }) {
   const current = useMemo(
     () =>
@@ -117,7 +141,13 @@ export function MediaDeviceRow({
         onChange={onToggle}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
-      {kind === "mic" && on ? <MicWave /> : null}
+      {kind === "mic" && on ? (
+        <MicWave
+          deviceId={selectedId}
+          active={on && meterActive}
+          relay={meterRelay}
+        />
+      ) : null}
       {open ? (
         <div className="row-menu" role="menu">
           <button

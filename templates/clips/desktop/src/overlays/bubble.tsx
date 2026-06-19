@@ -3,6 +3,16 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconCameraOff } from "@tabler/icons-react";
+import {
+  createMeterAnalyser,
+  sampleLevels,
+  METER_INTERVAL_MS,
+} from "../hooks/useMicMeter";
+
+// Drop the mic meter if the popover's keepalive pings stop arriving — guards
+// against leaking an open mic (and the macOS recording indicator) when the
+// popover window dies without sending `clips:mic-meter-stop`.
+const RELAY_STALE_MS = 2500;
 
 type BubbleSize = "small" | "medium";
 const LOCAL_CAMERA_TARGET_FPS = 60;
@@ -259,8 +269,40 @@ export function Bubble() {
     let startUnlisten: (() => void) | null = null;
     let stopUnlisten: (() => void) | null = null;
     let refreshMicsUnlisten: (() => void) | null = null;
+    let meterStartUnlisten: (() => void) | null = null;
+    let meterStopUnlisten: (() => void) | null = null;
     let renderedFrames = 0;
     let lastFpsLogAt = 0;
+
+    // Live mic meter session. The popover delegates this to us because opening a
+    // mic in its own page would mute this bubble's camera (WebKit cross-page
+    // capture-exclusion). Opening the mic HERE — same page as our camera — does
+    // not mute it, so we run the analyser and relay level samples to the popover.
+    let meterStream: MediaStream | null = null;
+    let meterCtx: AudioContext | null = null;
+    let meterTimer: ReturnType<typeof setInterval> | null = null;
+    let meterWatchdog: ReturnType<typeof setInterval> | null = null;
+    let meterMicId: string | null = null;
+    let meterLastPing = 0;
+    const stopMicMeter = () => {
+      if (meterTimer) {
+        clearInterval(meterTimer);
+        meterTimer = null;
+      }
+      if (meterWatchdog) {
+        clearInterval(meterWatchdog);
+        meterWatchdog = null;
+      }
+      if (meterCtx) {
+        meterCtx.close().catch(() => {});
+        meterCtx = null;
+      }
+      if (meterStream) {
+        meterStream.getTracks().forEach((t) => t.stop());
+        meterStream = null;
+      }
+      meterMicId = null;
+    };
 
     const stopLocalCanvasRenderer = () => {
       const videoEl = videoRef.current;
@@ -509,8 +551,86 @@ export function Bubble() {
       })
       .catch(() => {});
 
+    // Start the live mic meter on request and emit level samples the popover
+    // renders. We open the mic here (same page as our camera) so the bubble
+    // stays live instead of getting muted.
+    listen<{ micId?: string | null; bars?: number }>(
+      "clips:mic-meter-start",
+      async (event) => {
+        if (stopped) return;
+        const micId = event.payload?.micId?.trim() || null;
+        // Each start also counts as a keepalive ping (the popover re-sends on a
+        // timer); record it so the watchdog below knows the popover is alive.
+        meterLastPing = Date.now();
+        // Ignore idempotent repeats for the same device — already running.
+        if (meterStream && meterMicId === micId) return;
+        stopMicMeter();
+        const barCount = Math.max(1, event.payload?.bars ?? 18);
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: micId ? { deviceId: { exact: micId } } : true,
+            video: false,
+          });
+          if (stopped) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          meterStream = stream;
+          meterMicId = micId;
+          const ctx = new AudioContext();
+          meterCtx = ctx;
+          // May start suspended without a user gesture; resume so the analyser
+          // actually advances instead of reporting silence.
+          await ctx.resume();
+          const { analyser, data } = createMeterAnalyser(ctx, stream);
+          meterTimer = setInterval(() => {
+            emit("clips:mic-level", {
+              levels: sampleLevels(analyser, data, barCount),
+            }).catch(() => {});
+          }, METER_INTERVAL_MS);
+          // Stop if the popover stops pinging (window closed/crashed) so we
+          // never hold the mic open in the background.
+          meterWatchdog = setInterval(() => {
+            if (Date.now() - meterLastPing > RELAY_STALE_MS) stopMicMeter();
+          }, RELAY_STALE_MS);
+        } catch (err) {
+          console.warn("[bubble] mic meter failed", err);
+          stopMicMeter();
+        }
+      },
+    )
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+        } else {
+          meterStartUnlisten = u;
+        }
+      })
+      .catch(() => {});
+
+    listen("clips:mic-meter-stop", () => {
+      stopMicMeter();
+    })
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+        } else {
+          meterStopUnlisten = u;
+        }
+      })
+      .catch(() => {});
+
     return () => {
       stopped = true;
+      stopMicMeter();
       try {
         startUnlisten?.();
       } catch {
@@ -523,6 +643,16 @@ export function Bubble() {
       }
       try {
         refreshMicsUnlisten?.();
+      } catch {
+        // ignore
+      }
+      try {
+        meterStartUnlisten?.();
+      } catch {
+        // ignore
+      }
+      try {
+        meterStopUnlisten?.();
       } catch {
         // ignore
       }
