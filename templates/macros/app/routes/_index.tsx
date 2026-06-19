@@ -26,14 +26,22 @@ import {
 import { toast } from "sonner";
 import type { Meal, Exercise } from "@shared/types";
 
+const SEO_TITLE = "Agent-Native Macros - AI calorie and macro tracker";
+const SEO_DESCRIPTION =
+  "Log meals, exercises, weight, calories, and macros by typing or voice while an AI agent estimates nutrition.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Macros" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Log meals, exercises, and weight by typing or voice while the agent estimates calories and macros for you.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

@@ -1,14 +1,23 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
 
+const SEO_TITLE =
+  "Agent-Native Clips - Open source, agent-friendly Loom alternative";
+const SEO_DESCRIPTION =
+  "Record screens, capture meeting notes, and dictate voice notes with AI transcription, summaries, search, and agent-readable share links.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Clips" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Screen recording, meeting notes, and voice dictation — all transcribed, summarized, and searchable. The open-source alternative to Loom, Granola, and Wisprflow.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

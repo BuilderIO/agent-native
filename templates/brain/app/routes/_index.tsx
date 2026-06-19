@@ -5,6 +5,23 @@ import {
 } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 
+const SEO_TITLE =
+  "Agent-Native Brain - Cited company knowledge base for AI agents";
+const SEO_DESCRIPTION =
+  "Turn Slack, meetings, transcripts, docs, and decisions into cited company knowledge your AI agents can trust.";
+
+export function meta() {
+  return [
+    { title: SEO_TITLE },
+    { name: "description", content: SEO_DESCRIPTION },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
+  ];
+}
+
 export default function AskRoute() {
   useEffect(() => {
     function handleChatRunning(event: Event) {

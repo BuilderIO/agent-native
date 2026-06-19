@@ -1,13 +1,22 @@
 import Studio from "@/pages/Index";
 
+const SEO_TITLE =
+  "Agent-Native Videos - AI video editor for programmatic video";
+const SEO_DESCRIPTION =
+  "Build, animate, edit, and render programmatic videos with an AI video editor powered by React and Remotion.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Videos" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent builds, animates, and refines programmatic videos alongside you.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

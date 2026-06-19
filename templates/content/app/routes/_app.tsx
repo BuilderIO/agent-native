@@ -2,7 +2,12 @@ import { Outlet } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 
 export function meta() {
-  return [{ title: "Agent-Native Content" }];
+  return [
+    {
+      title:
+        "Agent-Native Content - Open source, agent-friendly Obsidian alternative",
+    },
+  ];
 }
 
 // Pathless layout route — wraps all protected routes with AppLayout so the

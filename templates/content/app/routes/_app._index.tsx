@@ -4,14 +4,23 @@ import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
+const SEO_TITLE =
+  "Agent-Native Content - Open source, agent-friendly Obsidian alternative";
+const SEO_DESCRIPTION =
+  "Edit local MDX docs, knowledge bases, and content systems with an open-source editor built for AI agents.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Content" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Open-source Obsidian for MDX: edit local docs, create custom blocks, and organize everything with an AI agent.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

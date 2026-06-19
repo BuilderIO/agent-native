@@ -2,7 +2,12 @@ import { useParams } from "react-router";
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 
 export function meta() {
-  return [{ title: "Agent-Native Content" }];
+  return [
+    {
+      title:
+        "Agent-Native Content - Open source, agent-friendly Obsidian alternative",
+    },
+  ];
 }
 
 export default function DocumentPage() {
