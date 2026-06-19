@@ -165,8 +165,8 @@ server/
 ├── routes/                # API endpoints
 └── index.ts              # Express server
 
-scripts/
-└── create-composition.ts  # Example creation script
+docs/examples/
+└── create-composition.example.ts  # Example creation script
 ```
 
 ## 🔧 Development
@@ -179,8 +179,6 @@ pnpm run dev           # Start dev server (http://localhost:8080)
 
 # Build
 pnpm run build         # Build client and server
-pnpm run build:client  # Build client only
-pnpm run build:server  # Build server only
 
 # Production
 pnpm start             # Run production server
