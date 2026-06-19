@@ -77,7 +77,7 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
 
 ## End-to-end {#flow}
 
-```txt
+```text
 agent calls send-email
    │
    ▼

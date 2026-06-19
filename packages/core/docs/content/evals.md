@@ -73,7 +73,7 @@ Imported from `@agent-native/core/eval`:
 
 `createScorer` builds a scorer from a Mastra-style 4-step pipeline. Only `generateScore` is required:
 
-```txt
+```text
 preprocess(run)     → x          transform the run/output (optional)
 analyze(x, ctx)     → analysis   plain JS OR an LLM judge (optional)
 generateScore(a)    → 0..1       REQUIRED, normalized

@@ -255,7 +255,7 @@ const agUiRuntime = createAgUiChatRuntime({
 
 The endpoint may stream the normalized event shape directly:
 
-```txt
+```text
 data: {"type":"message-start","message":{"id":"m1","role":"assistant","content":[]}}
 data: {"type":"message-delta","messageId":"m1","delta":{"type":"text","text":"Hello"}}
 data: {"type":"tool-start","toolCall":{"id":"t1","name":"query","input":{"q":"forms"}}}

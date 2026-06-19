@@ -291,7 +291,7 @@ Every incoming webhook is signature-verified before processing:
 The email adapter also enforces:
 
 - **Allowed domains** — optional `allowedDomains` array in the integration's `integration_configs` row; senders outside the list are dropped.
-- **Rate limit** — in-memory limiter at 20 inbound messages per sender per hour.
+- **Rate limit** — SQL-queue-backed rate limit of 20 inbound messages per sender per hour.
 
 ### Proactive sends {#proactive-sends}
 

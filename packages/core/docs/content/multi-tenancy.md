@@ -29,7 +29,7 @@ POST /_agent-native/org/invitations  # invite a member by email
 
 Server code can call the same surface directly through the `org/` module. `createOrganization(name, email, role?)` creates an org and adds the caller as a member; membership and roles live in the `org_members` table:
 
-```typescript
+```ts
 import { createOrganization } from "@agent-native/core/org";
 
 // Creating an org adds the caller (email) as a member with the given role

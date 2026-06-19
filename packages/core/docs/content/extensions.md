@@ -228,7 +228,7 @@ For deeper detail on slots — how to declare them in your template, how the con
 
 Local File Mode lets a workspace keep extensions in the repo:
 
-```txt
+```text
 extensions/
   doc-status/
     extension.json

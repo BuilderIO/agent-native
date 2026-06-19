@@ -80,7 +80,7 @@ Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "
 
 Resolution order — an explicitly registered adapter wins; otherwise the env var selects a built-in; otherwise the local default is used:
 
-```txt
+```text
 registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 ```
 

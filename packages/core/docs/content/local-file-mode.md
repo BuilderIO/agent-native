@@ -50,7 +50,7 @@ to SQL rows or local files.
 
 A Content workspace can be as small as this:
 
-```txt
+```text
 my-content-repo/
   agent-native.json
   docs/
@@ -285,7 +285,7 @@ Local File Mode can also load repo-backed extensions from the configured
 `extensions` folder. Each extension is one directory with an `extension.json`
 manifest and an HTML entry file:
 
-```txt
+```text
 extensions/
   doc-status/
     extension.json

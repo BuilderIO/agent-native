@@ -136,7 +136,7 @@ Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECR
 
 Pass a custom `getSession` callback to use any auth provider (Clerk, Auth0, Firebase, etc.):
 
-```typescript
+```ts
 // server/plugins/auth.ts
 import { createAuthPlugin } from "@agent-native/core/server";
 
@@ -191,7 +191,7 @@ unless the app explicitly adds those prefixes to
 
 The session object returned by `getSession(event)` has this shape:
 
-```typescript
+```ts
 interface AuthSession {
   email: string; // User's email (primary identifier)
   userId?: string; // Better Auth user ID
@@ -205,7 +205,7 @@ interface AuthSession {
 
 On the client, use the `useSession()` hook:
 
-```typescript
+```ts
 import { useSession } from "@agent-native/core/client";
 
 function MyComponent() {
@@ -253,7 +253,7 @@ Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-
 
 If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it via the options-object form of `encodeOAuthState`:
 
-```typescript
+```ts
 const returnUrl = getQuery(event).return;
 const state = encodeOAuthState({
   redirectUri,

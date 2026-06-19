@@ -26,7 +26,7 @@ The framework architecture prevents common vulnerabilities when you use the stan
 
 Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically before your code runs:
 
-```typescript
+```ts
 import { z } from "zod";
 import { defineAction } from "@agent-native/core/action";
 
@@ -48,7 +48,7 @@ Invalid input returns clear error messages (400 for HTTP, structured error for a
 
 The framework's `db-query` and `db-exec` tools use parameterized queries. User input is passed as arguments, never interpolated into the SQL string:
 
-```typescript
+```ts
 // SAFE — parameterized query (framework default)
 await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
 
@@ -72,7 +72,7 @@ React auto-escapes all JSX expressions. Additional guidelines:
 
 Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard, or it can be pointed at cloud metadata (`169.254.169.254`), `localhost`, or internal services:
 
-```typescript
+```ts
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 
 const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
@@ -98,7 +98,7 @@ The signed-in session carries `email` and (when an org is active) `orgId`. The f
 
 Every table with user-specific data **must** have an `owner_email` text column. Use the camelCase Drizzle property name — `accessFilter` reads `resourceTable.ownerEmail`:
 
-```typescript
+```ts
 import {
   table,
   text,
@@ -141,7 +141,7 @@ For multi-user apps where teams share data, add an `org_id` column. When both co
 
 The `ownableColumns()` schema helper adds `owner_email`, `org_id`, and `visibility` in one call, so new tenant-aware tables get the full scoping contract by default:
 
-```typescript
+```ts
 import { table, text, ownableColumns } from "@agent-native/core/db/schema";
 
 export const projects = table("projects", {

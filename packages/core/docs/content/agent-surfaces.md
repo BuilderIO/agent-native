@@ -238,7 +238,7 @@ const runtime = createOpenAIAgentsChatRuntime({
 
 The endpoint can stream SSE or NDJSON events:
 
-```txt
+```text
 data: {"type":"message-delta","messageId":"m1","delta":{"type":"text","text":"I found 34 submissions."}}
 data: {"type":"tool-start","toolCall":{"id":"t1","name":"query","input":{"formId":"form_123"}}}
 data: {"type":"tool-done","toolCallId":"t1","toolName":"query","status":"completed","resultText":"34 rows"}
