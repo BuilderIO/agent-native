@@ -11,10 +11,11 @@ import {
 const { sendToAgentChat } = vi.hoisted(() => ({
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core/client", () => ({
   sendToAgentChat,
-  // `@/lib/utils` re-exports `cn` from `@agent-native/core`, so the mock has
-  // to keep that helper alive or the component crashes on its first render.
+  // The component imports `sendToAgentChat` from `@agent-native/core/client`,
+  // and `@/lib/utils` re-exports `cn` from the same client subpath, so the mock
+  // must target `/client` to keep both alive.
   cn: (...args: unknown[]) =>
     args
       .flat(Infinity)

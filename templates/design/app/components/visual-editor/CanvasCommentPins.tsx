@@ -5,7 +5,7 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";

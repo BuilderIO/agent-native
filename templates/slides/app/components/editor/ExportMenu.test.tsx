@@ -21,6 +21,13 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/client", () => ({
+  // `@/lib/utils` re-exports `cn` from `@agent-native/core/client`, so the
+  // client mock must provide it or DropdownMenu crashes on first render.
+  cn: (...args: unknown[]) =>
+    args
+      .flat(Infinity)
+      .filter((v) => typeof v === "string" && v.length > 0)
+      .join(" "),
   agentNativePath: (path: string) => `/agent${path}`,
   appBasePath: () => "/slides",
 }));

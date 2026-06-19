@@ -15,6 +15,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { spawnSync } from "child_process";
+import { fileURLToPath } from "url";
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
@@ -247,6 +249,124 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * Headless onboarding guards
+ *
+ * The two documented post-install commands for a headless scaffold —
+ * `pnpm typecheck` and `pnpm action hello` — both used to fail out of the box:
+ *
+ *   1. tsconfig inherited `types: ["vite/client"]` from the UI base config, but
+ *      a headless app has no Vite dep, so tsc died with TS2688.
+ *   2. `import { defineAction } from "@agent-native/core"` resolved to the Node
+ *      `default` entry, which re-exported the React client barrel and pulled
+ *      `@tanstack/react-query` (uninstalled in a headless app) into the load
+ *      graph, crashing at module load.
+ *
+ * The fast checks below pin both regressions without an install; the gated
+ * end-to-end check actually runs the documented commands.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const SPEC_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CORE_ROOT = path.resolve(SPEC_DIR, "../..");
+const ROOT_ENTRY_SRC = path.join(CORE_ROOT, "src", "index.ts");
+const CORE_DIST_INDEX = path.join(CORE_ROOT, "dist", "index.js");
+
+describe("headless onboarding guards", { timeout: 60000 }, () => {
+  it("scaffolds a tsconfig that does not pull vite/client types", async () => {
+    await createApp("test-app", { template: "headless" });
+    const tsconfig = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "test-app", "tsconfig.json"), "utf-8"),
+    );
+    const types: string[] | undefined = tsconfig.compilerOptions?.types;
+    // Must override the UI base's `types: ["vite/client"]` — a headless app
+    // has no `vite` dependency, so that ambient type lib can't resolve.
+    expect(
+      types,
+      "headless tsconfig must override compilerOptions.types",
+    ).toBeDefined();
+    expect(types).not.toContain("vite/client");
+    expect(types).toContain("node");
+  });
+
+  it("keeps the package root (Node default) entry free of the React client barrel", () => {
+    // Importing `defineAction` (or anything else) from the bare
+    // "@agent-native/core" specifier must stay server-safe: the Node `default`
+    // entry must not statically re-export "./client/index.js", which would drag
+    // react / react-router / @tanstack/react-query into a headless load graph.
+    const rootEntry = fs.readFileSync(ROOT_ENTRY_SRC, "utf-8");
+    expect(rootEntry).not.toMatch(/from\s+["']\.\/client\/index(\.js)?["']/);
+    // Sanity: the server/action primitives headless apps need are still here.
+    expect(rootEntry).toMatch(/\bdefineAction\b/);
+    expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
+ *
+ * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
+ * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE
+ * (the flag the CI "Scaffold E2E" job already sets) plus a built dist/, so the
+ * fast `pnpm test` job skips it but CI and local `pnpm build && ...` runs it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const RUN_HEADLESS_INSTALL_E2E =
+  process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" &&
+  fs.existsSync(CORE_DIST_INDEX);
+
+function runPnpm(
+  args: string[],
+  cwd: string,
+  timeout = 300000,
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync("pnpm", args, {
+    cwd,
+    encoding: "utf-8",
+    timeout,
+    env: { ...process.env },
+  });
+  return {
+    status: res.status,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
+
+describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
+  "headless onboarding — install + typecheck + action",
+  { timeout: 600000 },
+  () => {
+    it("pnpm install, pnpm typecheck, and pnpm action hello all succeed", async () => {
+      await createApp("headless-e2e", { template: "headless" });
+      const appDir = path.join(tmpDir, "headless-e2e");
+
+      // The scaffold must be linked to the local core build (file: URL), not
+      // the published "latest", so the test exercises THIS branch's code.
+      const pkg = readPkg(appDir);
+      expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:/);
+
+      const install = runPnpm(["install", "--prefer-offline"], appDir);
+      expect(
+        install.status,
+        `pnpm install failed:\n${install.stdout}\n${install.stderr}`,
+      ).toBe(0);
+
+      const typecheck = runPnpm(["typecheck"], appDir);
+      expect(
+        typecheck.status,
+        `pnpm typecheck failed:\n${typecheck.stdout}\n${typecheck.stderr}`,
+      ).toBe(0);
+
+      const action = runPnpm(["action", "hello", "--name", "Builder"], appDir);
+      expect(
+        action.status,
+        `pnpm action hello failed:\n${action.stdout}\n${action.stderr}`,
+      ).toBe(0);
+      expect(`${action.stdout}\n${action.stderr}`).toContain("Hello, Builder!");
+    });
+  },
+);
+
+/* ─────────────────────────────────────────────────────────────────────────
  * Workspace scaffold with required packages
  * ───────────────────────────────────────────────────────────────────────── */
 
@@ -345,9 +465,21 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   });
 
   it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
-    const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
-    expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+    // Pin the default (non-local-linking) behaviour regardless of an ambient
+    // AGENT_NATIVE_CREATE_USE_LOCAL_CORE set by the headless install e2e.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
+      const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
+      expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("can opt into local dispatch linking for framework development", async () => {
@@ -546,7 +678,19 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
 
 describe("template/core version compatibility", () => {
   it("uses the npm latest dist-tag for generated projects", () => {
-    expect(_getCoreDependencyVersion()).toBe("latest");
+    // Pin the default behaviour even when the headless install e2e has set
+    // AGENT_NATIVE_CREATE_USE_LOCAL_CORE in the ambient environment.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      expect(_getCoreDependencyVersion()).toBe("latest");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("can opt into local core linking for framework development", () => {

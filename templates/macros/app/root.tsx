@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import { useDbSync } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   CommandMenu,

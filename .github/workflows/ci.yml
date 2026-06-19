@@ -211,6 +211,14 @@ jobs:
         # production build alone does not surface. Also scaffolds + pnpm install.
         run: pnpm qa:standalone-chat-dev
 
+      - name: Headless scaffold — pnpm install + typecheck + action
+        # Guards the documented one-file headless onboarding: a fresh
+        # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
+        # types) and `pnpm action hello` (server-safe package root, no React /
+        # react-query in the load graph) out of the box. AGENT_NATIVE_CREATE_USE_LOCAL_CORE
+        # is set at the job level, so the gated heavyweight guard actually runs.
+        run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
+
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the
         # workspacify.ts dispatch-rewrite path (workspace:* → "latest" for

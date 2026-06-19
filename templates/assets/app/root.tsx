@@ -2,7 +2,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useDbSync } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   CommandMenu,

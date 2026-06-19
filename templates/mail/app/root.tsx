@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useDbSync } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   RequireSession,

@@ -36,7 +36,7 @@ import {
 } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { ComposeState, EmailMessage } from "@shared/types";
 import {
