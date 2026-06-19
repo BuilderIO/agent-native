@@ -194,7 +194,7 @@ arbitrary query execution behind typed read actions rather than raw SQL in chat.
 lets an agent you built elsewhere stream normalized events into Agent-Native's
 conversation UI while keeping the shared composer, transcript rendering, tool
 cards, approvals, native widgets, and surrounding app layout. For how this fits
-with headless actions, embedded sidecars, and full applications, see
+with headless agents, embedded sidecars, and full applications, see
 [Agent Surfaces](/docs/agent-surfaces).
 
 Use the generic HTTP runtime when your agent can expose a POST endpoint that

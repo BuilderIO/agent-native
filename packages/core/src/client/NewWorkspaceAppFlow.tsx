@@ -118,7 +118,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
     `Pick a UI template that fits the user's prompt — analytics, assets, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when the request needs custom UI but none of the domain templates fit.`,
-    `Use the chat template as the minimal add-UI scaffold. Do not treat Chat as the required default for primitive/headless action-only workflows unless the user explicitly asks for a UI app.`,
+    `Use the chat template as the minimal add-UI scaffold. Do not treat Chat as the required default for primitive/headless agent workflows unless the user explicitly asks for a UI app.`,
     `If you use the chat template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     `Important routing rule: from outside the app, link to /${input.appId}; inside apps/${input.appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${input.appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${input.appId}/${input.appId}/review.`,

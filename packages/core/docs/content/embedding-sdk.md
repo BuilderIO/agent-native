@@ -30,7 +30,7 @@ pnpm add @agent-native/core
 ## Choosing a mode {#choosing-a-mode}
 
 This page is for embedding Agent-Native into an existing product. If you are
-still deciding between headless actions, rich chat, an embedded sidecar, or a
+still deciding between headless agents, rich chat, an embedded sidecar, or a
 full app, start with [Agent Surfaces](/docs/agent-surfaces).
 
 | Mode                                 | Use it when                                                                                         | Package                                                  |

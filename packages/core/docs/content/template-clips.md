@@ -1,6 +1,6 @@
 ---
 title: "Clips"
-description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — all transcribed, summarized, and searchable in one app you own."
+description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — all transcribed, summarized, searchable, and agent-readable in one app you own."
 ---
 
 # Clips
@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 ![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: agents can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
 
 ## What you can do with it
 
@@ -27,8 +27,26 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Share with agents** through a public context URL that exposes metadata, transcript segments, recommended frames, and timestamped frame images without handing a model the raw video file.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
+
+## Agent-readable clips
+
+Public clips expose a compact context URL for other agents and MCP-style tools.
+That context points to the transcript and frame APIs, so models that only accept
+text or still images can still understand what happened in the recording.
+
+| Endpoint                                          | What agents get                                                                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
+
+The endpoints follow the same public/password/expiry rules as the share page.
+Password-protected clips require the password once; successful responses return
+short-lived tokenized links so downstream agents do not need the plaintext
+password.
 
 ## Getting started
 

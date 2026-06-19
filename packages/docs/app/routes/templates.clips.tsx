@@ -137,8 +137,9 @@ export default function ClipsTemplate() {
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               One-click screen recording, calendar-synced meeting notes with AI
               summaries and action items, and Fn-hold voice dictation — all in
-              one app, all transcribed, all yours. No vendor lock-in, no
-              per-seat fees.
+              one app, all transcribed, all agent-readable. Share a clip and an
+              agent can hear the transcript and see timestamped frames even if
+              its model cannot ingest raw video or audio.
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -192,7 +193,7 @@ export default function ClipsTemplate() {
             { number: "1-click", label: "Screen Record" },
             { number: "Auto", label: "Meeting Notes" },
             { number: "Hold-to", label: "Dictate" },
-            { number: "AI", label: "Everything" },
+            { number: "Agent", label: "Can See + Hear" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -262,7 +263,8 @@ export default function ClipsTemplate() {
             <h3 className="mb-1 text-sm font-semibold">Auto Transcripts</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Every screen recording, meeting, and dictation gets a full
-              transcript. Click any line to jump to that moment.
+              transcript. Agents can use that as the audio layer, and viewers
+              can click any line to jump to that moment.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -452,8 +454,8 @@ export default function ClipsTemplate() {
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
               Ask the agent anything about your library — it reads transcripts,
-              clips highlights, and drafts written follow-ups from your
-              recordings.
+              inspects timestamped frames, clips highlights, and drafts written
+              follow-ups from your recordings.
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -627,6 +629,17 @@ export default function ClipsTemplate() {
                 <td className="px-5 py-3">No</td>
                 <td className="px-5 py-3">No</td>
                 <td className="px-5 py-3 text-[var(--fg)]">Yes</td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  Agent-readable media context
+                </td>
+                <td className="px-5 py-3">Transcript only</td>
+                <td className="px-5 py-3">Notes only</td>
+                <td className="px-5 py-3">Text only</td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  Transcript + timestamped frames
+                </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">

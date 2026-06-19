@@ -129,7 +129,7 @@ That staged model keeps the first sharing surface useful without pretending coll
 
 ## What's next
 
-- [**Getting Started**](/docs/getting-started) — create a chat app or headless action first
+- [**Getting Started**](/docs/getting-started) — create a chat app or headless agent first
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, email
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own

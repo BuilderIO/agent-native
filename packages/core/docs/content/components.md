@@ -49,7 +49,7 @@ so bundlers choose the browser-safe entry.
 `AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
 `runtime` to `<AssistantChat>` when an external agent should power the
 conversation while Agent-Native keeps the composer, transcript, tool cards, and
-native widget rendering. If you are choosing between headless actions, rich
+native widget rendering. If you are choosing between headless agents, rich
 chat, embedded sidecar, and full app shapes, see
 [Agent Surfaces](/docs/agent-surfaces).
 

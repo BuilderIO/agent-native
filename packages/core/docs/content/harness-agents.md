@@ -45,6 +45,13 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
+Codex auth has two paths. The `ai-sdk-harness:codex` adapter loads the AI SDK
+Codex harness package and does not implement a separate Agent-Native OAuth flow.
+For Agent-Native Code or Desktop coding sessions, Agent-Native can use the
+local Codex CLI after the user runs `codex login`; that reuses whatever
+ChatGPT subscription or API-key auth the installed Codex CLI reports through
+`codex login status`.
+
 ## Register and resolve {#register-resolve}
 
 ```ts

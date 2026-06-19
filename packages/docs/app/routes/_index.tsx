@@ -399,8 +399,8 @@ export default function Home() {
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   Agent-Native is an open-source framework for building agents
-                  as real software: start with chat or headless actions, then
-                  add UI, jobs, and collaboration around the same actions.
+                  as real software: start with chat or headless agents, then add
+                  UI, jobs, and collaboration around the same actions.
                 </p>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   It gives you primitives for product-grade agentic software:

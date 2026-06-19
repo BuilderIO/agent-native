@@ -1,27 +1,28 @@
 ---
 title: "Getting Started"
-description: "Start with one headless action, or start with Chat when the conversation UI is the product."
+description: "Start with a headless agent, or start with Chat when the conversation UI is the product."
 ---
 
 # Getting Started
 
 Agent-Native is for apps where an AI agent and any UI around it share the same
-actions, data, and state. The smallest useful app can be just one action. The
-first useful UI can be Chat. Both paths use the same runtime, so you can move
-between them without rewriting the operation the agent calls.
+actions, data, and state. The smallest useful app can be a headless agent with
+one custom action. The first useful UI can be Chat. Both paths use the same
+runtime, so you can move between them without rewriting the operation the agent
+calls.
 
 Choose the first path that matches what you want to prove:
 
-| Path                | Pick it when                                                                                                    | Creates                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Headless action** | You want the primitive first: one local action, the app-agent loop, CLI/HTTP/MCP/A2A, and no custom screen yet. | `actions/`, `.agents/`, runtime config, local SQLite state          |
-| **Chat app**        | You want a browser app users can talk to immediately, with durable threads and tool-call UI.                    | Everything above, plus the Chat route, sidebar, auth, and live sync |
+| Path               | Pick it when                                                                                                    | Creates                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Headless agent** | You want the primitive first: one local action, the app-agent loop, CLI/HTTP/MCP/A2A, and no custom screen yet. | `actions/`, `.agents/`, runtime config, local SQLite state          |
+| **Chat app**       | You want a browser app users can talk to immediately, with durable threads and tool-call UI.                    | Everything above, plus the Chat route, sidebar, auth, and live sync |
 
 If you already know you want a finished domain app, go to
 [Templates](/docs/cloneable-saas). If you are choosing between headless, chat,
 embedded, or full app surfaces, go to [Agent Surfaces](/docs/agent-surfaces).
 
-## Path 1: One headless action {#headless-action}
+## Path 1: One headless agent {#headless-action}
 
 You'll need [Node.js 22 or newer](https://nodejs.org) and
 [pnpm](https://pnpm.io) installed. Then run:
@@ -34,9 +35,9 @@ pnpm action hello --name Steve
 pnpm agent "Call the hello action for Steve and explain what happened."
 ```
 
-That is the primitive-first on-ramp: one action, no app screen, and the same
-production app-agent loop used by chat, jobs, webhooks, and hosted runtimes.
-The scaffold includes one example action:
+That is the primitive-first on-ramp: a headless agent with one custom action,
+no app screen, and the same production app-agent loop used by chat, jobs,
+webhooks, and hosted runtimes. The scaffold includes one example action:
 
 ```ts
 // actions/hello.ts
@@ -56,9 +57,9 @@ export default defineAction({
 });
 ```
 
-Replace `hello` with the smallest real operation in your domain. That one
-operation is then callable through the CLI, HTTP, MCP, A2A, scheduled jobs,
-integration webhooks, and any future UI.
+Replace `hello` with the smallest custom behavior your agent should perform.
+That one action is then callable through the CLI, HTTP, MCP, A2A, scheduled
+jobs, integration webhooks, and any future UI.
 
 Headless does not mean stateless. Actions, auth/session data, application
 state, threads, run history, credentials, and share records use SQL. Locally
@@ -82,6 +83,33 @@ template includes the same `actions/hello.ts` shape as the headless scaffold,
 plus a full-page chat route, the standard left sidebar, auth, live sync, and a
 SQLite database at `data/app.db` unless you set `DATABASE_URL`.
 
+The first files to inspect are:
+
+- `actions/hello.ts` - replace the starter behavior or add actions beside it.
+- `app/routes/_index.tsx` - tweak the full-page chat route, empty state, and
+  suggestions.
+- `AGENTS.md` - tune the instructions the built-in agent follows for this app.
+
+The chat route starts small:
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
 Run the example action directly:
 
 ```bash
@@ -99,10 +127,11 @@ action surface.
 
 ## Move between paths {#move-between-paths}
 
-Headless and Chat are not separate products. Start headless when you want the
-operation first. Add Chat when a durable conversation UI helps users inspect,
-approve, or continue the work. Start with Chat when the conversation itself is
-the main workflow, then add screens only where structured UI clarifies the job.
+Headless agents and Chat apps are not separate products. Start with a headless
+agent when you want the operation first. Add Chat when a durable conversation
+UI helps users inspect, approve, or continue the work. Start with Chat when the
+conversation itself is the main workflow, then add screens only where
+structured UI clarifies the job.
 
 For a deeper comparison, see [Agent Surfaces](/docs/agent-surfaces). For the
 Chat template reference, see [Chat template](/docs/template-chat).

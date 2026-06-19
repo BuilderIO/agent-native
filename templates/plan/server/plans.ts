@@ -1057,12 +1057,12 @@ function parseImplementationFiles(
   body: string,
   repoPath?: string | null,
 ): ImplementationFile[] {
-  const files = new Map<string, ImplementationFile>();
+  const implementationFiles = new Map<string, ImplementationFile>();
   const lines = body.split(/\r?\n/);
 
   for (const line of lines) {
     for (const ref of findFileReferences(line)) {
-      const existing = files.get(ref.path);
+      const existing = implementationFiles.get(ref.path);
       const summary = cleanImplementationSummary(line, ref.path);
       const symbols = extractSymbols(line, ref.path);
       if (existing) {
@@ -1073,7 +1073,7 @@ function parseImplementationFiles(
         }
         continue;
       }
-      files.set(ref.path, {
+      implementationFiles.set(ref.path, {
         id: stableDomId(`impl-${ref.path}`),
         path: ref.path,
         absolutePath: resolveImplementationPath(repoPath, ref.path),
@@ -1100,14 +1100,16 @@ function parseImplementationFiles(
     const hintedRef =
       findFileReferences(fence.info)[0] || nearbyRefs[nearbyRefs.length - 1];
     const item = hintedRef
-      ? files.get(hintedRef.path)
-      : Array.from(files.values()).find((candidate) => !candidate.previewCode);
+      ? implementationFiles.get(hintedRef.path)
+      : Array.from(implementationFiles.values()).find(
+          (candidate) => !candidate.previewCode,
+        );
     if (!item) continue;
     item.previewCode = fence.code;
     item.language = inferLanguage(item.path, fence.info) || item.language;
   }
 
-  return Array.from(files.values()).slice(0, 12);
+  return Array.from(implementationFiles.values()).slice(0, 12);
 }
 
 function cleanImplementationSummary(line: string, path: string) {

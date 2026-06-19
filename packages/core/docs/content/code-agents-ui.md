@@ -62,6 +62,24 @@ Desktop uses the shared UI but keeps privileged capabilities in Electron:
 
 That separation matters. The UI can be reused by templates, but native process control should stay in Desktop or CLI.
 
+## Codex CLI Auth {#codex-cli-auth}
+
+Agent-Native Code can use a local Codex CLI login instead of an OpenAI API key.
+Install the Codex CLI on your `PATH`, sign in once, then restart Desktop or the
+Code UI if it was already open:
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+Desktop and the CLI read `codex login status` and run `codex exec`, so they
+reuse whatever ChatGPT subscription or API-key auth your installed Codex CLI
+reports. This is separate from the `@ai-sdk/harness-codex` package used by
+[Harness Agents](/docs/harness-agents); the harness adapter does not add a
+separate Agent-Native OAuth flow.
+
 ## Browser Host
 
 The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:

@@ -1,0 +1,404 @@
+import { appStateGet } from "@agent-native/core/application-state";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  getSession,
+  signShortLivedToken,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
+import { asc, eq } from "drizzle-orm";
+import { getRequestURL, setResponseHeader, type H3Event } from "h3";
+import {
+  buildAgentApiUrls,
+  buildRecommendedFrames,
+  CLIP_AGENT_CONTEXT_VERSION,
+  toAgentTranscriptSegments,
+} from "../../shared/agent-context.js";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments.js";
+import { getDb, schema } from "../db/index.js";
+import { verifySharePassword } from "./share-password.js";
+
+export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
+export type PublicAgentTranscript =
+  | typeof schema.recordingTranscripts._.inferSelect
+  | null;
+
+export interface PublicAgentAccess {
+  recording: PublicAgentRecording;
+  viewerIsOwner: boolean;
+  apiToken: string | null;
+}
+
+export interface PublicAgentFailure {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+export type PublicAgentAccessResult =
+  | { ok: true; access: PublicAgentAccess }
+  | { ok: false; failure: PublicAgentFailure };
+
+const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+
+export function getServerAppBasePath(): string {
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}` : "";
+}
+
+export function applyAgentJsonHeaders(event: H3Event) {
+  setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+}
+
+export function queryString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return "";
+}
+
+function maxAgentFrameMediaBytes(): number {
+  const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1, Math.floor(configured));
+  }
+  return DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES;
+}
+
+function assertFrameMediaSize(size: number | null | undefined) {
+  if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
+  const maxBytes = maxAgentFrameMediaBytes();
+  if ((size ?? 0) > maxBytes) {
+    throw new Error(
+      `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`,
+    );
+  }
+}
+
+export async function loadPublicAgentAccess(
+  event: H3Event,
+  recordingId: string,
+  options: { password?: string; token?: string } = {},
+): Promise<PublicAgentAccessResult> {
+  const id = recordingId.trim();
+  if (!id) {
+    return {
+      ok: false,
+      failure: { status: 400, body: { error: "id is required" } },
+    };
+  }
+
+  const db = getDb();
+  const [recording] = await db
+    .select()
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, id))
+    .limit(1);
+
+  if (!recording) {
+    return {
+      ok: false,
+      failure: { status: 404, body: { error: "Not found" } },
+    };
+  }
+
+  if (recording.trashedAt || recording.archivedAt) {
+    return {
+      ok: false,
+      failure: { status: 404, body: { error: "Not found" } },
+    };
+  }
+
+  const session = await getSession(event).catch(() => null);
+  const viewerIsOwner = Boolean(
+    session?.email && session.email === recording.ownerEmail,
+  );
+
+  if (recording.visibility !== "public" && !viewerIsOwner) {
+    return {
+      ok: false,
+      failure: { status: 404, body: { error: "Not found" } },
+    };
+  }
+
+  if (recording.expiresAt) {
+    const expires = new Date(recording.expiresAt).getTime();
+    if (Number.isFinite(expires) && expires < Date.now()) {
+      return {
+        ok: false,
+        failure: {
+          status: 410,
+          body: { error: "Recording has expired", expired: true },
+        },
+      };
+    }
+  }
+
+  let apiToken: string | null = null;
+  if (recording.password && !viewerIsOwner) {
+    const suppliedToken = options.token ?? "";
+    const suppliedPassword = options.password ?? "";
+    let allowed = false;
+
+    if (suppliedToken) {
+      const result = verifyShortLivedToken(suppliedToken, recording.id);
+      if (result.ok) {
+        allowed = true;
+        apiToken = suppliedToken;
+      }
+    }
+
+    if (
+      !allowed &&
+      suppliedPassword &&
+      verifySharePassword(suppliedPassword, recording.password)
+    ) {
+      allowed = true;
+      apiToken = signShortLivedToken({ resourceId: recording.id });
+    }
+
+    if (!allowed) {
+      return {
+        ok: false,
+        failure: {
+          status: 401,
+          body: { error: "Password required", passwordRequired: true },
+        },
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    access: {
+      recording,
+      viewerIsOwner,
+      apiToken,
+    },
+  };
+}
+
+export async function loadAgentTranscript(
+  recordingId: string,
+  durationMs: number,
+) {
+  const [transcript] = await getDb()
+    .select()
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, recordingId))
+    .limit(1);
+
+  const normalized = normalizeTranscriptSegments({
+    segments: parseTranscriptSegments(transcript?.segmentsJson),
+    fullText: transcript?.fullText,
+    durationMs,
+  });
+
+  return {
+    transcript: transcript ?? null,
+    segments: normalized,
+    agentSegments: toAgentTranscriptSegments(normalized),
+  };
+}
+
+export function parseAgentChapters(recording: PublicAgentRecording) {
+  try {
+    const parsed = JSON.parse(recording.chaptersJson ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((chapter) => ({
+        startMs: Number(chapter?.startMs),
+        title: typeof chapter?.title === "string" ? chapter.title.trim() : "",
+      }))
+      .filter(
+        (chapter) =>
+          Number.isFinite(chapter.startMs) &&
+          chapter.startMs >= 0 &&
+          chapter.title,
+      );
+  } catch {
+    return [];
+  }
+}
+
+export async function loadAgentCtas(recordingId: string) {
+  return await getDb()
+    .select()
+    .from(schema.recordingCtas)
+    .where(eq(schema.recordingCtas.recordingId, recordingId))
+    .orderBy(asc(schema.recordingCtas.createdAt));
+}
+
+export function buildPublicAgentContext({
+  event,
+  access,
+  transcript,
+  agentSegments,
+  chapters,
+  ctas,
+}: {
+  event: H3Event;
+  access: PublicAgentAccess;
+  transcript: PublicAgentTranscript;
+  agentSegments: ReturnType<typeof toAgentTranscriptSegments>;
+  chapters: ReturnType<typeof parseAgentChapters>;
+  ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
+}) {
+  const recording = access.recording;
+  const requestUrl = getRequestURL(event);
+  const api = buildAgentApiUrls(recording.id, {
+    origin: requestUrl.origin,
+    basePath: getServerAppBasePath(),
+    token: access.apiToken,
+  });
+  const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
+  const suggestedFrames = buildRecommendedFrames({
+    durationMs: recording.durationMs,
+    chapters,
+    segments: agentSegments,
+  }).map((frame) => ({
+    ...frame,
+    url: api.frameUrl(frame.atMs),
+  }));
+
+  return {
+    type: "agent-native.clip.context",
+    version: CLIP_AGENT_CONTEXT_VERSION,
+    instructions: [
+      "Use transcript.segments for timestamped spoken context.",
+      "Use apis.frame.urlTemplate with atMs to fetch a JPEG frame when the spoken transcript references something visible on screen.",
+      "Prefer recommendedFrames first, then request additional frames around transcript timestamps that matter for the task.",
+    ],
+    clip: {
+      id: recording.id,
+      title: recording.title,
+      description: recording.description,
+      publicPageUrl,
+      thumbnailUrl: recording.thumbnailUrl,
+      animatedThumbnailUrl: recording.animatedThumbnailUrl,
+      durationMs: recording.durationMs,
+      duration: recording.durationMs
+        ? `${Math.round(recording.durationMs / 1000)}s`
+        : null,
+      width: recording.width,
+      height: recording.height,
+      hasAudio: Boolean(recording.hasAudio),
+      hasCamera: Boolean(recording.hasCamera),
+      status: recording.status,
+      createdAt: recording.createdAt,
+      updatedAt: recording.updatedAt,
+    },
+    apis: {
+      context: { method: "GET", url: api.contextUrl },
+      transcript: { method: "GET", url: api.transcriptUrl },
+      frame: {
+        method: "GET",
+        urlTemplate: api.frameUrlTemplate,
+        query: {
+          atMs: "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
+        },
+      },
+    },
+    transcript: {
+      status: transcript?.status ?? "missing",
+      language: transcript?.language ?? null,
+      fullText: transcript?.fullText ?? "",
+      segments: agentSegments,
+      segmentCount: agentSegments.length,
+    },
+    chapters,
+    recommendedFrames: suggestedFrames,
+    ctas: ctas.map((cta) => ({
+      label: cta.label,
+      url: cta.url,
+      placement: cta.placement,
+    })),
+  };
+}
+
+function recordingFallbackMimeType(
+  recording: Pick<PublicAgentRecording, "videoFormat">,
+): string {
+  return recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
+}
+
+function pickSourceMimeType(
+  actual: string | null | undefined,
+  fallback: string,
+): string {
+  const base = (actual ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!base || base === "application/octet-stream") return fallback;
+  return actual ?? fallback;
+}
+
+export async function loadRecordingMediaBytes(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  assertFrameMediaSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const isLocalBlob =
+    videoUrl.startsWith("/api/video/") ||
+    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
+
+  if (isLocalBlob) {
+    const stash = await appStateGet(
+      recording.ownerEmail,
+      `recording-blob-${recording.id}`,
+    );
+    const b64 = typeof stash?.data === "string" ? stash.data : null;
+    if (!b64) throw new Error("recording-blob app-state missing");
+    const bytes = Buffer.from(b64, "base64");
+    assertFrameMediaSize(bytes.byteLength);
+    const mimeType =
+      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
+    return {
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
+    };
+  }
+
+  let resolvedVideoUrl = videoUrl;
+  const isAppRelativeUrl =
+    resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
+  if (isAppRelativeUrl) {
+    const port = process.env.NITRO_PORT || process.env.PORT || "3000";
+    const origin =
+      process.env.PUBLIC_URL ??
+      process.env.NITRO_PUBLIC_URL ??
+      `http://localhost:${port}`;
+    resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
+  }
+
+  const response = isAppRelativeUrl
+    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+    : await ssrfSafeFetch(
+        resolvedVideoUrl,
+        { signal: AbortSignal.timeout(30_000) },
+        { maxRedirects: 3 },
+      );
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch videoUrl: HTTP ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const contentLength = Number(response.headers.get("content-length"));
+  assertFrameMediaSize(contentLength);
+  const arrayBuffer = await response.arrayBuffer();
+  assertFrameMediaSize(arrayBuffer.byteLength);
+  return {
+    bytes: new Uint8Array(arrayBuffer),
+    mimeType: pickSourceMimeType(
+      response.headers.get("content-type"),
+      fallbackMimeType,
+    ),
+  };
+}

@@ -11,7 +11,7 @@ Common questions about agent-native, organized from "I'm just looking" to "I'm w
 
 ### What is agent-native? {#what-is-agent-native}
 
-Agent-native is a framework for building apps where the AI agent and the product surface around it are equal partners. That surface can start as one headless action, grow into rich chat, or become a full UI. The invariant is that agents and humans share the same actions, database, and state. See [What Is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
+Agent-native is a framework for building apps where the AI agent and the product surface around it are equal partners. That surface can start as a headless agent with one custom action, grow into rich chat, or become a full UI. The invariant is that agents and humans share the same actions, database, and state. See [What Is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
 
 ### Who is this for? {#who-is-this-for}
 

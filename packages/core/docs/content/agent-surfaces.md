@@ -15,23 +15,23 @@ you want, then use the matching primitive.
 
 | Surface                       | Use it when                                                                                                 | Start with                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Headless agent/actions**    | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Headless agent**            | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
 | **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
 | **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
 | **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
 | **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
 
 Those are stages, not separate products. A workflow can start as a headless
-action, appear in chat as a table or chart, and later become a full screen in an
-app without changing the operation the agent calls.
+agent with one action, appear in chat as a table or chart, and later become a
+full screen in an app without changing the operation the agent calls.
 
-## Headless agent/actions {#headless}
+## Headless agent {#headless}
 
 Use the headless path when no one needs to stare at a custom app screen while
 the work runs: scheduled jobs, integrations, backend workflows, CLI loops,
 another agent, or an existing product calling into Agent-Native.
 
-The smallest local path is a headless scaffold plus one action:
+The smallest local path is a headless agent scaffold plus one action:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
@@ -322,7 +322,7 @@ want a complete product shape.
 
 | If you are thinking...                                          | Choose                    |
 | --------------------------------------------------------------- | ------------------------- |
-| "I just need a callable tool or workflow."                      | Headless action           |
+| "I just need a callable tool or workflow."                      | Headless agent            |
 | "I want the framework's agent, but chat should be the main UI." | Rich chat on Agent-Native |
 | "I already have an agent; I need a polished chat UI for it."    | Rich chat on your agent   |
 | "I already have a SaaS app; add an agent beside it."            | Embedded sidecar          |

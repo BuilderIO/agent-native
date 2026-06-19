@@ -5,7 +5,7 @@ description: "Why most AI apps feel half-built, what makes an app truly agent-na
 
 # What Is Agent-Native?
 
-Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. That surface can be one headless action, a rich chat, or a full UI. The important part is that agents and humans share the same actions, database, and state.
+Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. That surface can be a headless agent with one custom action, a rich chat, or a full UI. The important part is that agents and humans share the same actions, database, and state.
 
 If you only remember one thing from this page, remember this: most AI apps today stop one step short of being useful, and that gap is the biggest mistake in the space right now.
 
