@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.63.1
+
+### Patch Changes
+
+- 7157583: Export the in-loop processor API (`TripWire`, `Processor`, `ProcessorState`, `ProcessorAbort`) from the package root so the `@agent-native/core` imports shown in the In-Loop Processors guide resolve.
+- 7157583: Rename the onboarding path from headless action to headless agent in docs and CLI copy.
+- 7157583: Make Codex CLI subscription auth easier to discover in Agent-Native Code docs and provider copy, and document that Codex harness auth is supplied by the AI SDK Codex runtime while Code/Desktop sessions reuse the locally signed-in Codex CLI.
+- 7157583: Add shared full-page chat handoff helpers so apps can morph a chat tab into the
+  agent sidebar while preserving the active thread.
+- 7157583: Document Clips' agent-readable public clip context, transcript, and timestamped frame APIs.
+
 ## 0.63.0
 
 ### Minor Changes
