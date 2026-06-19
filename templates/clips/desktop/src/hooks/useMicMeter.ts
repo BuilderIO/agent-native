@@ -1,26 +1,50 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 
-// Number of bars in the live mic level meter.
-export const WAVE_BARS = 18;
+// Number of points sampled across the wave line. Fewer points = wider, bigger
+// waves (each above/below pair is one hump); more = a tighter, busier line.
+export const WAVE_BARS = 10;
 
 // How often the meter pushes a fresh sample (ms).
 export const METER_INTERVAL_MS = 50;
 
-// Map a 0..1 level to a bar height. The 10% floor keeps idle bars visible; the
-// 1.3 gain lifts quiet speech to a readable height before the 100% clamp.
-function levelToHeight(level: number): string {
-  return `${Math.max(10, Math.min(100, level * 130))}%`;
-}
+// SVG path coordinate space. The line is drawn into a 0..VIEW_W × 0..VIEW_H box
+// stretched to the row width; the stroke stays crisp via non-scaling-stroke.
+const VIEW_W = 100;
+const VIEW_H = 24;
+const CENTER_Y = VIEW_H / 2;
+const MAX_AMP = 11; // peak deflection from center, leaves a little headroom
+const FLAT_LINE = `M 0 ${CENTER_Y} L ${VIEW_W} ${CENTER_Y}`;
 
-function flatten(bars: (HTMLSpanElement | null)[]): void {
-  for (const bar of bars) if (bar) bar.style.height = "10%";
-}
-
-function applyLevels(bars: (HTMLSpanElement | null)[], levels: number[]): void {
-  for (let i = 0; i < bars.length; i++) {
-    const bar = bars[i];
-    if (bar) bar.style.height = levelToHeight(levels[i] ?? 0);
+// Build a smooth wave path from 0..1 levels. Points alternate above/below the
+// center line so the result reads as an oscillating waveform (not a one-sided
+// envelope); quadratic curves through the midpoints round off the corners. At
+// rest (levels ~0) it collapses to a flat center line.
+function buildWavePath(levels: number[]): string {
+  const n = levels.length;
+  if (n < 2) return FLAT_LINE;
+  const pts = levels.map((lv, i) => {
+    const x = (i / (n - 1)) * VIEW_W;
+    const sign = i % 2 === 0 ? -1 : 1;
+    const y = CENTER_Y + sign * Math.min(1, lv) * MAX_AMP;
+    return { x, y };
+  });
+  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const xc = (pts[i].x + pts[i + 1].x) / 2;
+    const yc = (pts[i].y + pts[i + 1].y) / 2;
+    d += ` Q ${pts[i].x.toFixed(2)} ${pts[i].y.toFixed(2)} ${xc.toFixed(2)} ${yc.toFixed(2)}`;
   }
+  const last = pts[n - 1];
+  d += ` L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  return d;
+}
+
+function drawWave(path: SVGPathElement | null, levels: number[]): void {
+  if (path) path.setAttribute("d", buildWavePath(levels));
+}
+
+function flatten(path: SVGPathElement | null): void {
+  if (path) path.setAttribute("d", FLAT_LINE);
 }
 
 // Shared analyser config so local and relay modes sample identically.
@@ -59,8 +83,8 @@ export function useMicMeter({
 }: {
   active: boolean;
   deviceId: string;
-}): MutableRefObject<(HTMLSpanElement | null)[]> {
-  const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
+}): MutableRefObject<SVGPathElement | null> {
+  const pathRef = useRef<SVGPathElement | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -86,10 +110,10 @@ export function useMicMeter({
         await audioCtx.resume();
         const { analyser, data } = createMeterAnalyser(audioCtx, stream);
         timer = setInterval(() => {
-          applyLevels(barsRef.current, sampleLevels(analyser, data, WAVE_BARS));
+          drawWave(pathRef.current, sampleLevels(analyser, data, WAVE_BARS));
         }, METER_INTERVAL_MS);
       } catch {
-        flatten(barsRef.current);
+        flatten(pathRef.current);
       }
     };
 
@@ -100,8 +124,9 @@ export function useMicMeter({
       if (timer) clearInterval(timer);
       if (audioCtx) audioCtx.close().catch(() => {});
       if (stream) stream.getTracks().forEach((t) => t.stop());
+      flatten(pathRef.current);
     };
   }, [active, deviceId]);
 
-  return barsRef;
+  return pathRef;
 }

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
 import { useRowMenu } from "./useRowMenu";
-import { useMicMeter, WAVE_BARS } from "../hooks/useMicMeter";
+import { useMicMeter } from "../hooks/useMicMeter";
 
 function Toggle({
   on,
@@ -26,21 +26,26 @@ function Toggle({
   );
 }
 
-// Live mic level meter. Drives the bar heights from real audio.
+// Live mic level meter — a single wave line driven by real audio. The hook
+// owns the analyser and writes the path's `d`; the line oscillates around the
+// center and flattens when silent.
 function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
-  const barsRef = useMicMeter({ deviceId, active });
+  const pathRef = useMicMeter({ deviceId, active });
 
   return (
     <span className="mic-wave" aria-hidden>
-      {Array.from({ length: WAVE_BARS }).map((_, i) => (
-        <span
-          key={i}
-          className="bar"
-          ref={(el) => {
-            barsRef.current[i] = el;
-          }}
+      <svg
+        className="mic-wave-svg"
+        viewBox="0 0 100 24"
+        preserveAspectRatio="none"
+      >
+        <path
+          ref={pathRef}
+          className="mic-wave-path"
+          d="M 0 12 L 100 12"
+          fill="none"
         />
-      ))}
+      </svg>
     </span>
   );
 }
@@ -119,6 +124,11 @@ export function MediaDeviceRow({
         title={label}
       >
         <span className="row-label">{label}</span>
+        {kind === "mic" && on ? (
+          <MicWave deviceId={selectedId} active={on && meterActive} />
+        ) : (
+          <span className="row-flex" aria-hidden />
+        )}
         <span className="row-chev" aria-hidden>
           <ChevronDown />
         </span>
@@ -128,9 +138,6 @@ export function MediaDeviceRow({
         onChange={onToggle}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
-      {kind === "mic" && on ? (
-        <MicWave deviceId={selectedId} active={on && meterActive} />
-      ) : null}
       {open ? (
         <div className="row-menu" role="menu">
           <button
