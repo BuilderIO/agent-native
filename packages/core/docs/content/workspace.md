@@ -141,34 +141,9 @@ The built-in app agent manages resources with the unified `resources` tool: use 
 
 At the start of every conversation, the agent automatically reads:
 
-### AGENTS.md {#agents-md}
+### AGENTS.md and instructions {#agents-md}
 
-An instruction resource seeded by default. The agent loads `AGENTS.md` from workspace, shared/organization, and personal scopes in that order. Edit the workspace version from Dispatch for company-wide defaults, the shared/app version for team or app-specific rules, and the personal version for per-user preferences.
-
-```text
-# Agent Instructions
-
-## Tone
-
-Be concise. Lead with the answer.
-
-## Code style
-
-- Use TypeScript, never JavaScript
-- Prefer named exports
-
-## Skills
-
-| Skill         | Path                            | Description                 |
-| ------------- | ------------------------------- | --------------------------- |
-| data-analysis | `skills/data-analysis/SKILL.md` | BigQuery and data workflows |
-```
-
-### Global Instructions {#global-instructions}
-
-Use workspace `AGENTS.md` for company-wide defaults, shared `AGENTS.md` for app/team rules, and personal `AGENTS.md` for per-user preferences. Use files under `instructions/` for separate guardrail documents that should also apply every turn, such as compliance rules, customer-facing tone, escalation policy, or brand voice. These files use the same workspace -> organization/app -> personal precedence.
-
-For example:
+`AGENTS.md` is an instruction resource seeded by default and loaded every turn from workspace, shared/organization, and personal scopes in that order — workspace for company-wide defaults, shared/app for team rules, personal for per-user preferences. Files under `instructions/` are separate guardrail documents that also apply every turn (compliance rules, escalation policy, brand voice) and follow the same precedence. Both normal chat and integration-triggered runs load them before responding.
 
 ```text
 AGENTS.md
@@ -176,11 +151,9 @@ instructions/customer-support-guardrails.md
 instructions/legal-review-policy.md
 ```
 
-Both normal chat and integration-triggered agent runs load these instruction resources before responding.
+### Reference resources {#reference-resources}
 
-### Reference Resources {#reference-resources}
-
-Put reusable company context under `context/`: personas, positioning, messaging, product facts, customer proof points, brand guidelines, competitive notes, and similar material. The agent sees an index of workspace and shared reference resources and reads the relevant file with the `resources` tool (`action: "read"`) when a task may depend on it. Use `resources` with `action: "effective"` and `path: "context/brand.md"` when you need to see whether a workspace default is overridden by an organization/app or personal resource.
+Reusable company context lives under `context/` (personas, positioning, product facts, brand guidelines, competitive notes). The agent sees an index of these and reads the relevant file with the `resources` tool (`action: "read"`) when a task may depend on it; use `action: "effective"` to see whether a workspace default is overridden for an app or user.
 
 ### Memory {#memory}
 

@@ -5,6 +5,10 @@ description: "When a hosted agent run is interrupted and resumes, completed side
 
 # Durable Resume
 
+> **Who is this for:** anyone who wants to understand how the framework's run
+> recovery avoids duplicate side effects. This is built-in behavior — there is
+> nothing to wire up.
+
 Hosted agent runs get interrupted: a serverless function hits its hard timeout mid-stream, a gateway drops the connection at 45s, a socket hangs up, the platform cold-starts. The framework already recovers from these by saving the conversation prefix and re-running the LLM call ("continue from where you left off"). But recovery alone has a sharp edge: if the interrupted attempt **already sent an email or created a ticket**, a naive resume could do it again.
 
 Durable resume closes that gap. On resume, the framework knows which side-effecting tool calls already completed and refuses to re-run them — at two layers.

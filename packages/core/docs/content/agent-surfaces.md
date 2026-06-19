@@ -81,45 +81,20 @@ If another app or script needs to call the whole agent, use
 `agentNative.invoke("analytics", "...")` or the `agent-native invoke` CLI. That
 keeps cross-app work on the A2A path while local work stays on actions.
 
-Workers, jobs, integration webhooks, and custom hosts can use the server API
-directly. This is lower-level than actions: you provide the engine, model,
-messages, actions, and event sink yourself.
+Workers, jobs, integration webhooks, and custom hosts can drive the agent loop
+directly through the server API. This is lower-level than actions — you provide
+the engine, model, messages, actions, and event sink yourself:
 
 ```ts
-import {
-  actionsToEngineTools,
-  resolveEngine,
-  runAgentLoop,
-} from "@agent-native/core/server";
+import { runAgentLoop } from "@agent-native/core/server";
 
-const engine = await resolveEngine({ engineOption: undefined });
-const model = engine.defaultModel;
-const controller = new AbortController();
-
-await runAgentLoop({
-  engine,
-  model,
-  systemPrompt: "You are the reporting agent for this workspace.",
-  actions,
-  tools: actionsToEngineTools(actions),
-  messages: [
-    {
-      role: "user",
-      content: [{ type: "text", text: "Summarize this week's forms." }],
-    },
-  ],
-  send: (event) => {
-    // Persist, log, stream, or translate AgentChatEvent objects.
-  },
-  signal: controller.signal,
-  ownerEmail: user.email,
-  orgId: user.orgId,
-});
+await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
 ```
 
 For most apps, scheduled prompts and integration webhooks already call this loop
-for you. Reach for direct `runAgentLoop()` when you are building a custom
-headless host, eval runner, or server-side orchestration surface.
+for you. Reach for it directly only when building a custom headless host, eval
+runner, or server-side orchestration surface — see [Server — Production agent
+handler](/docs/server#agent-handler) for the full signature.
 
 ### Running against a folder {#folder-loop}
 

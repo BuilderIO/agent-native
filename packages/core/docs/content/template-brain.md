@@ -167,25 +167,6 @@ notes, or any other source that can produce a bounded capture.
 Slack, Granola, and GitHub sources can opt into background `autoSync` with a
 poll cadence once review quality is proven.
 
-## Brain vs Dispatch
-
-Brain and Dispatch are complementary, but they do different jobs:
-
-- **Brain owns company memory.** It ingests sources, reviews raw captures,
-  distills durable facts/decisions/processes, answers from cited evidence, and
-  exposes approved knowledge to agents.
-- **Dispatch owns the workspace control plane.** It centralizes messaging,
-  secrets, recurring jobs, approvals, A2A orchestration, and the distribution
-  and approval of workspace-wide resources.
-
-In a multi-app workspace, Dispatch can route a question to Brain over A2A and
-can grant Brain shared provider credentials. Brain remains the specialist for
-approved source ingestion, review, retrieval, and cited Company Brain answers.
-Brain exposes read-only, citation-backed retrieval as its public A2A capability
-so Dispatch and sibling apps can ask company-memory questions — the A2A agent
-card is public discovery metadata, while retrieval still happens inside Brain's
-authenticated action surface.
-
 ### Privacy and gating
 
 Brain is designed for company memory, not personal surveillance:
