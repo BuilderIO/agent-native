@@ -228,17 +228,18 @@ export function useMediaDevices({
         await loadDevices();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const isPermissionError =
+          isHardCapturePermissionError(message) ||
+          /notallowed|permission|denied/i.test(message);
         if (kind === "camera") {
           setCameraError(
-            isHardCapturePermissionError(message) ||
-              /notallowed|permission|denied/i.test(message)
+            isPermissionError
               ? MACOS_CAPTURE_PERMISSION_MESSAGE
               : `Camera unavailable: ${message}`,
           );
         } else {
           setRecError(
-            isHardCapturePermissionError(message) ||
-              /notallowed|permission|denied/i.test(message)
+            isPermissionError
               ? "Microphone access is blocked. Open System Settings → Privacy & Security → Microphone, allow Clips, then try again."
               : `Microphone unavailable: ${message}`,
           );

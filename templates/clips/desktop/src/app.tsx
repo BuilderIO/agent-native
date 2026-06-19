@@ -557,9 +557,7 @@ export function App() {
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
-  // ONLY source of truth: explicit `clips:popover-visible` events from Rust
-  // (wired in the listener effect below). Mirrors whether the popover window
-  // is currently shown.
+  // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
