@@ -229,7 +229,7 @@ Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/i
 
 Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
 
-This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full env-var list.
+This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [Messaging](/docs/messaging#env-vars) for the per-integration signing-secret variables.
 
 ## Production Checklist {#production-checklist}
 
@@ -243,7 +243,7 @@ This was previously a "warn and accept" stance — set the secret you'd otherwis
 
 ### Webhook secrets (set the ones for integrations you use)
 
-- [ ] Signing secret set for each enabled inbound integration — see [Inbound Webhooks](#webhooks) and [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full list
+- [ ] Signing secret set for each enabled inbound integration — see [Inbound Webhooks](#webhooks) and [Messaging](/docs/messaging#env-vars) for the per-integration list
 - [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
 
 ### Schema
