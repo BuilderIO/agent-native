@@ -1079,9 +1079,20 @@ html.dark .shiki span {
 
 /* Push doc content below the sticky mobile nav */
 @media (max-width: 1023px) {
-  .mobile-docs-nav + .docs-content {
+  .mobile-docs-nav + .docs-article {
     margin-top: 24px;
   }
+}
+
+/* Visual blocks (diagrams, API/schema specs, annotated code, callouts) render as
+ * siblings of the prose chunks, intentionally OUTSIDE `.docs-content` so the doc
+ * prose rules (tables, links, paragraphs) never bleed into a block's own design.
+ * This just gives each embedded block comfortable vertical rhythm. */
+.docs-article > .docs-block {
+  margin: 1.75rem 0;
+}
+.docs-article > .docs-block:first-child {
+  margin-top: 0;
 }
 
 /* Prev / Next navigation */

@@ -29,6 +29,13 @@ There are two agent paths:
 
 In both cases, your main agent sees the response and can reference or build on it.
 
+```an-diagram title="Where an @-mention routes" summary="The server splits each mention by type: custom agents run locally, connected agents go over A2A — both responses fold back into the main agent's context."
+{
+  "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Server resolves</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Custom agent<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">Connected agent<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
+  "css": ".diagram-mention{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-mention .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-mention .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mention .row{display:flex;align-items:center;gap:8px}.diagram-mention .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## How it works {#how-it-works}
 
 When a message containing an `@`-mention is sent, the following happens on the server:
@@ -54,6 +61,13 @@ Last week's signups: 1,247 total
 ```
 
 The main agent can then use this data naturally in its response — for example, incorporating the numbers into an email draft.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "Mentioned-agent output arrives as an `<agent-response agent=\"…\">` block in the **main agent's** context — not as separate chat bubbles. The main agent decides how to weave it into the reply."
+}
+```
 
 ## Adding agents {#adding-agents}
 
@@ -105,38 +119,17 @@ Remote A2A agents still use JSON manifests:
 
 Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface:
 
-```ts
-import type { MentionProvider } from "@agent-native/core/server";
-
-const contactsProvider: MentionProvider = {
-  id: "contacts",
-  label: "Contacts",
-
-  // Search for mentionable items
-  async search(query: string) {
-    const contacts = await db.query.contacts.findMany({
-      where: like(contacts.name, `%${query}%`),
-      limit: 10,
-    });
-    return contacts.map((c) => ({
-      id: c.id,
-      label: c.name,
-      description: c.email,
-      type: "contact",
-    }));
-  },
-
-  // Resolve a mention into context for the agent
-  async resolve(id: string) {
-    const contact = await db.query.contacts.findFirst({
-      where: eq(contacts.id, id),
-    });
-    return {
-      type: "context",
-      text: `Contact: ${contact.name} (${contact.email})`,
-    };
-  },
-};
+```an-annotated-code title="A custom MentionProvider"
+{
+  "filename": "server/mentions/contacts.ts",
+  "language": "ts",
+  "code": "import type { MentionProvider } from \"@agent-native/core/server\";\n\nconst contactsProvider: MentionProvider = {\n  id: \"contacts\",\n  label: \"Contacts\",\n\n  // Search for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: \"contact\",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: \"context\",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};",
+  "annotations": [
+    { "lines": "4-5", "label": "Identity", "note": "`id` namespaces the provider; `label` is the section heading shown in the `@` popover." },
+    { "lines": "8-9", "label": "search", "note": "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`." },
+    { "lines": "23-24", "label": "resolve", "note": "Called when the message is sent. Turns a picked id into `{ type: \"context\", text }` that is injected into the agent's context." }
+  ]
+}
 ```
 
 Register providers in the agent-chat plugin configuration:

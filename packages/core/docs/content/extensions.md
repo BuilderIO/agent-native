@@ -17,6 +17,13 @@ Three things make extensions work:
 - **Full access to the template's data.** Extensions can call the same actions the agent calls — `list-emails` in Mail, `list-decks` in Slides, `list-recordings` in Clips — so they have everything the host app has.
 - **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
+```an-diagram title="The sandbox bridge" summary="Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."
+{
+  "html": "<div class=\"ext-bridge\"><div class=\"diagram-card sandbox\" data-rough><span class=\"diagram-pill warn\">Sandboxed iframe</span><small class=\"diagram-muted\">Alpine.js HTML &middot; no host cookies, session, or DOM</small><div class=\"ext-helpers\"><span class=\"diagram-pill\">appAction</span><span class=\"diagram-pill\">appFetch</span><span class=\"diagram-pill\">dbQuery / dbExec</span><span class=\"diagram-pill\">extensionData</span><span class=\"diagram-pill\">extensionFetch</span></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Host template<br><small class=\"diagram-muted\">actions, auto-scoped SQL</small></div><div class=\"diagram-box\">Secret proxy<br><small class=\"diagram-muted\"><code>${keys.NAME}</code>, domain-locked</small></div><div class=\"diagram-box\">External APIs<br><small class=\"diagram-muted\">via extensionFetch only</small></div></div></div>",
+  "css": ".ext-bridge{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ext-bridge .sandbox{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.ext-bridge .ext-helpers{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.ext-bridge .diagram-col{display:flex;flex-direction:column;gap:8px}.ext-bridge .diagram-arrow{font-size:24px}"
+}
+```
+
 Extensions can also be **repo-backed in Local File Mode**. In that workflow,
 `agent-native.json` declares an `extensions` folder, each extension has an
 `extension.json` manifest plus an HTML entry file, and the app renders those
@@ -208,6 +215,13 @@ A slot is a named widget area a template ships:
 
 When an extension is **installed into a slot**, the host pushes the relevant context — the contact's email, the dashboard id, the event id — into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
 
+```an-diagram title="Slots push context into the widget" summary="The host template owns named slots; installing an extension into one feeds it `window.slotContext` for whatever the user is currently viewing."
+{
+  "html": "<div class=\"slot\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Mail thread</span><small class=\"diagram-muted\">slot <code>mail.contact-sidebar.bottom</code></small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box accent\"><code>window.slotContext</code><br><small class=\"diagram-muted\">{ contactEmail }</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Contact notes</span><small class=\"diagram-muted\">loads notes for that contact &mdash; same widget, different context</small></div></div>",
+  "css": ".slot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.slot .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.slot .diagram-arrow{font-size:22px}"
+}
+```
+
 ### A concrete example
 
 Imagine the contact-notes extension from the gallery. On its own, it's a standalone widget. To make it appear inside the Mail contact sidebar:
@@ -307,6 +321,10 @@ The framework lets the agent edit the app's source code directly — components,
 Rule of thumb: **if it's for one user or one team, it's an extension.** If every user of the template should get it, ship it as a real feature.
 
 ## Security {#security}
+
+```an-callout
+{ "tone": "success", "body": "**The raw secret never reaches the browser.** `extensionFetch` substitutes `${keys.NAME}` server-side and each key is locked to a URL allowlist, so even a leaked extension can't exfiltrate it elsewhere." }
+```
 
 Extensions run in a sandboxed iframe:
 

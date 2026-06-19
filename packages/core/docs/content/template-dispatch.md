@@ -21,6 +21,13 @@ Dispatch is the **workspace control plane**. Where other templates are domain ap
 
 If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
+```an-diagram title="Orchestrate, don't specialize" summary="Messages from every channel land in one inbox; the orchestrator triages and delegates domain work to the right specialist app over A2A — secrets, resources, and approvals stay central."
+{
+  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A requests</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">central inbox · triage · route</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail agent</div><div class=\"diagram-node\">Analytics agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secrets vault</span><span class=\"diagram-pill\">Workspace resources</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Scheduled jobs</span></div>",
+  "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
+}
+```
+
 ## What it does {#what-it-does}
 
 - **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
@@ -83,6 +90,49 @@ _How it works under the hood (for developers)._
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. These live in the `@agent-native/dispatch` package (`packages/dispatch/src/db/schema.ts`) and are re-exported into the template via `templates/dispatch/server/db/index.ts` — there is no template-local `server/db/schema.ts`. Dispatch's runtime ships in the package, not in template source (consistent with the note below that `@agent-native/dispatch` owns the shell, sidebar, and built-in pages).
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
 - **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
+
+```an-schema title="Secrets vault schema" summary="Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+{
+  "entities": [
+    { "id": "secrets", "name": "vault_secrets", "note": "Stored credential values", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "owner_email", "type": "text" },
+      { "name": "org_id", "type": "text", "nullable": true },
+      { "name": "name", "type": "text" },
+      { "name": "credential_key", "type": "text" },
+      { "name": "value", "type": "text", "note": "secret value" },
+      { "name": "provider", "type": "text", "nullable": true }
+    ] },
+    { "id": "grants", "name": "vault_grants", "note": "Per-app access grant", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "secret_id", "type": "text", "fk": "vault_secrets.id" },
+      { "name": "app_id", "type": "text" },
+      { "name": "granted_by", "type": "text" },
+      { "name": "status", "type": "text" }
+    ] },
+    { "id": "requests", "name": "vault_requests", "note": "Access request + review", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "credential_key", "type": "text" },
+      { "name": "app_id", "type": "text" },
+      { "name": "reason", "type": "text", "nullable": true },
+      { "name": "status", "type": "text" },
+      { "name": "reviewed_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "audit", "name": "vault_audit_log", "note": "Who used which secret when", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "secret_id", "type": "text", "fk": "vault_secrets.id", "nullable": true },
+      { "name": "app_id", "type": "text", "nullable": true },
+      { "name": "action", "type": "text" },
+      { "name": "actor", "type": "text" }
+    ] }
+  ],
+  "relations": [
+    { "from": "secrets", "to": "grants", "kind": "1-n", "label": "granted via" },
+    { "from": "secrets", "to": "audit", "kind": "1-n", "label": "use recorded by" }
+  ]
+}
+```
+
 - **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 
 ## Dreams {#dreams}

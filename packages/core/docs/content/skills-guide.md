@@ -13,6 +13,13 @@ Skills live at `.agents/skills/<name>/SKILL.md` and contain detailed guidance fo
 
 Every skill's frontmatter `name` and `description` are always injected into the system prompt's skills block so the agent knows what skills exist. The full skill body is loaded on demand when the agent decides a skill is relevant to the task (it is also surfaced via `docs-search`). This is why keeping descriptions short and trigger-specific matters: the description is the only thing the agent reads before deciding whether to load the rest.
 
+```an-diagram title="Progressive disclosure" summary="Only the name + description of every skill is always in context. The full body loads on demand when the task matches."
+{
+  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Always in the system prompt</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">rules, code, do/don't</small></div></div>",
+  "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
+}
+```
+
 ## Framework skills {#framework-skills}
 
 These are the skills bundled with the **default template**. The exact set available in any given app depends on the template you scaffolded from — check that template's `.agents/skills/` directory for what it actually ships.
@@ -72,48 +79,18 @@ Don't create a skill when:
 
 Each skill is a Markdown file with YAML frontmatter:
 
-```markdown
----
-name: project-imports
-description: >-
-  How to import projects from the legacy CSV export. Use when the user uploads
-  a project CSV or asks to migrate projects from the old system.
----
-
-# Project Imports
-
-## Rule
-
-Always validate the CSV header row before writing any rows. Reject unknown
-columns rather than silently dropping them.
-
-## Why
-
-The legacy export has three known formats. Silently skipping columns causes data
-loss that is hard to notice until the migration is audited.
-
-## How
-
-1. Call `get-import-schema` to fetch the expected columns for the target project type.
-2. Parse the first CSV row and diff against the schema.
-3. If any required columns are missing, return an error listing them — do not proceed.
-4. Stream remaining rows through `create-project-item` in batches of 50.
-5. Return a summary: rows processed, rows skipped, and any errors.
-
-## Do
-
-- Run `view-screen` before importing so you know the user's current project context.
-- Use the `sharing` skill after import if the project should be shared with collaborators.
-
-## Don't
-
-- Don't hold all rows in memory — stream them.
-- Don't create duplicate projects; check for an existing project with the same name first.
-
-## Related Skills
-
-- **storing-data** — SQL schema and write patterns for new project rows
-- **sharing** — Exposing a project to other users after import
+```an-annotated-code title="Anatomy of a SKILL.md"
+{
+  "filename": ".agents/skills/project-imports/SKILL.md",
+  "language": "markdown",
+  "code": "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import",
+  "annotations": [
+    { "lines": "2", "label": "Discovery key", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
+    { "lines": "3-5", "label": "The trigger", "note": "This `description` is the **only** text always in context. Make it state precisely *when* the skill applies." },
+    { "lines": "9-14", "label": "Rules first", "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches." },
+    { "lines": "27-30", "label": "Cross-link", "note": "Point at related skills so the agent can chain them instead of re-deriving guidance." }
+  ]
+}
 ```
 
 The frontmatter `name` and `description` are used by the agent's tool system for skill discovery. The description should state when the skill triggers — be specific about the situations.
@@ -151,6 +128,13 @@ The agent-native runtime reads skills from `.agents/skills/`. Claude Code reads 
 - Place or mirror the skill under `.claude/skills/<name>/SKILL.md` so Claude Code picks it up.
 
 This replaces the old hack of relying on Claude Code only reading `.claude/skills` — `scope: dev` makes the dev-vs-runtime split a first-class, explicit choice.
+
+```an-diagram title="Which agent loads which skill" summary="`scope` decides whether the in-app runtime agent sees a skill. `dev` skills are visible only to your coding agent."
+{
+  "html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
+  "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
+}
+```
 
 > **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean.
 

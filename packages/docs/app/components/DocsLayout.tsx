@@ -22,7 +22,7 @@ export default function DocsLayout({
       <DocsSidebar />
       <main className="min-w-0 flex-1 border-0 border-[var(--docs-border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
         <MobileDocsNav />
-        <article className="docs-content mx-auto max-w-[900px]">
+        <article className="docs-article mx-auto max-w-[900px]">
           {children}
         </article>
         <div className="mx-auto max-w-[900px]">

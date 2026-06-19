@@ -23,6 +23,13 @@ beneath `runAgentLoop`. A harness is not an `AgentEngine` provider — it runs i
 own loop end to end, so Agent-Native drives it as a session, not as a single
 model call.
 
+```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+{
+  "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
+  "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## Which coding doc do I want? {#which-doc}
 
 | You want to…                                                               | Use                                          |
@@ -119,6 +126,13 @@ A harness owns long-lived native session state. Agent-Native persists it in SQL
 so a thread can survive across turns, processes, and deploys. The `resumeState`
 is **opaque** — Agent-Native stores it and hands it back, but never inspects or
 interprets it.
+
+```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+{
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 ```ts
 import {

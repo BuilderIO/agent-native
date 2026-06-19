@@ -7,6 +7,13 @@ description: "Nitro server routes, plugins, framework-mounted routes, request co
 
 Agent-native apps use [Nitro](https://nitro.build) for server routes and plugins. Most product behavior should live in [Actions](/docs/actions); custom routes are for protocol surfaces that actions do not fit: uploads, streaming, public pages, webhooks, OAuth callbacks, and provider-specific APIs.
 
+```an-diagram title="What runs on the server" summary="Actions are the default. Custom file routes and framework-mounted routes share the same Nitro app and the same SQL database."
+{
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Browser / UI</div><div class=\"diagram-node\">Agent loop</div><div class=\"diagram-node\">External clients<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro server</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">default surface</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL database<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
+  "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## File-Based Routes {#file-based-routes}
 
 Routes live in `server/routes/` and Nitro maps filenames to methods and paths:
@@ -96,30 +103,17 @@ in an action so the UI and agent share the same capability.
 
 Actions mounted by the framework automatically run with request context. Custom routes do not. If a custom route reads or writes ownable resources, load the session and wrap the work:
 
-```ts
-import { defineEventHandler, createError } from "h3";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import { getDb } from "../../db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
-import * as schema from "../../db/schema";
-
-export default defineEventHandler(async (event) => {
-  const session = await getSession(event);
-  if (!session?.email) {
-    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  }
-
-  return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    async () => {
-      const db = getDb();
-      return db
-        .select()
-        .from(schema.projects)
-        .where(accessFilter(schema.projects, schema.projectShares));
-    },
-  );
-});
+```an-annotated-code title="Scoping a custom route to the request user"
+{
+  "filename": "server/routes/api/projects.get.ts",
+  "language": "ts",
+  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});",
+  "annotations": [
+    { "lines": "7-10", "label": "Custom routes have no auto-context", "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user." },
+    { "lines": "12-13", "label": "Establish request context", "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work." },
+    { "lines": "18-19", "label": "Scope ownable reads", "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here." }
+  ]
+}
 ```
 
 `getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`, so custom routes import it from the template (`../../db/index.js`), not from `@agent-native/core/db`; see [Database — Where the DB Client Lives](/docs/database#db-client). Do not run unscoped `db.select().from(ownableTable)` in custom routes.
@@ -177,6 +171,26 @@ Agent-native does not rely on filesystem watchers or sticky in-memory state. Whe
 
 This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
 
+```an-diagram title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches."
+{
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL database</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```an-api title="The poll endpoint" method="GET" path="/_agent-native/poll"
+{
+  "method": "GET",
+  "path": "/_agent-native/poll",
+  "summary": "Return the current per-source database sync versions so the client can detect changes.",
+  "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
+  "auth": "Session cookie (request-scoped identity)",
+  "responses": [
+    { "status": "200", "description": "Current sync versions keyed by source." }
+  ]
+}
+```
+
 ## Webhooks {#webhooks}
 
 Inbound webhooks should verify, persist, and return quickly. Long-running agent work should use the integration queue pattern:
@@ -187,7 +201,15 @@ Inbound webhooks should verify, persist, and return quickly. Long-running agent 
 4. Return 200 immediately.
 5. Let the fresh processor execution run the agent loop and post the result.
 
-Do not rely on unawaited promises after returning a response. See [Messaging](/docs/messaging) for the canonical integration queue.
+```an-diagram title="Integration queue pattern" summary="The webhook handler returns in milliseconds; a separate signed execution runs the slow agent work."
+{
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
+  "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+> [!WARNING]
+> Do not rely on unawaited promises after returning a response — serverless hosts freeze the execution. See [Messaging](/docs/messaging) for the canonical integration queue.
 
 ## Advanced: Escape Hatches {#advanced-escape-hatches}
 

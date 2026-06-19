@@ -14,6 +14,13 @@ One install gives you:
 - **Two skills** — `/visual-plan` (the canonical entry point) and `/visual-recap`.
 - **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`).
 
+```an-diagram title="Three routes, one bundle" summary="The universal CLI, Claude Code plugin, and Codex plugin all install the same two skills plus the hosted Plan connector."
+{
+  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Code plugin<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codex plugin<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
+  "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
+}
+```
+
 By default, both skills publish to the hosted Plan app — they create a plan via
 the MCP connector and hand you a link or inline plan to review. They never dump
 an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
