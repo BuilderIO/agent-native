@@ -9,13 +9,25 @@ Agent-native apps use [Better Auth](https://better-auth.com) for authentication 
 
 ## Overview {#overview}
 
-Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. The behavior depends on your environment:
+Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. There are three modes:
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-Local development uses the same Better Auth flow as production — there is no dev auth bypass, and `getSession()` never falls back to a `local@localhost` sentinel. The first time you load a template the framework auto-creates a throwaway dev account and signs you in, so you are not stuck at a login wall (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to use the normal signup page). Set `AUTH_DISABLED=true` (or `AUTH_DISABLED=1`) to skip login/signup entirely and run every request as a shared user — for local dev, cloud previews, and internal demos only, not production with real users. `AUTH_MODE=local` only affects CLI/agent identity resolution (which signed-in dev user `pnpm action` runs as) — it is not a browser login bypass. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
+The browser flow is the same Better Auth flow everywhere — there is **no dev auth bypass**, and `getSession()` never falls back to a `local@localhost` sentinel. What changes between environments is signup friction, not the login wall:
+
+| Environment      | First-load behavior                                                           | Email verification                              |
+| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
+| **Local dev**    | Auto-creates a throwaway dev account and signs you in (no login wall)         | Skipped by default (and when no email provider) |
+| **QA / preview** | Normal signup, but verification can be skipped so testers don't wait on email | Skip with `AUTH_SKIP_EMAIL_VERIFICATION=1`      |
+| **Production**   | Normal Better Auth signup/login                                               | Required (when an email provider is configured) |
+
+A few flags tune this; full details are in the [Environment Variables](#environment-variables) table:
+
+- `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — use the normal signup page in local dev instead of the auto dev account.
+- `AUTH_DISABLED=true` — skip login/signup entirely and run every request as one shared user (local dev / previews / demos only, never production with real users).
+- `AUTH_MODE=local` — affects only CLI/agent identity (which dev user `pnpm action` runs as); it is **not** a browser login bypass.
 
 ## Better Auth (Default) {#better-auth}
 
@@ -36,24 +48,23 @@ Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also
 
 ## Cookie Realms {#cookie-realms}
 
-Standalone apps keep their framework session cookie isolated by app when an
-app slug is available (`APP_NAME`, or the package name in local dev). Better
-Auth keeps its production standalone cookie prefix stable as `an` so existing
-sessions are not renamed casually.
+The session cookie's realm follows the deployment shape, so apps that share a
+database/origin share sign-in and apps that don't stay isolated:
 
-Workspace mode (`AGENT_NATIVE_WORKSPACE=1`) uses one shared session realm
-because workspace apps share an origin and database. Custom same-database
-subdomain deployments can opt into shared cookies with `COOKIE_DOMAIN`.
+| Deployment shape                            | Cookie realm                                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Standalone app                              | Isolated per app by slug (`APP_NAME`, or package name in local dev); stable `an` prefix in production                |
+| Workspace mode (`AGENT_NATIVE_WORKSPACE=1`) | One shared realm — workspace apps share an origin and database                                                       |
+| Custom same-database subdomains             | Opt into shared cookies with `COOKIE_DOMAIN`                                                                         |
+| First-party hosted (`*.agent-native.com`)   | Isolated namespace per app (each has its own auth database); `COOKIE_DOMAIN=.agent-native.com` is ignored by default |
 
-First-party hosted apps at `*.agent-native.com` are different: each app has its
-own auth database, so `COOKIE_DOMAIN=.agent-native.com` is ignored by default
-and the app uses an isolated cookie namespace instead. Cross-app sign-in for
-those apps should go through [Cross-App SSO](/docs/cross-app-sso). First-party
-deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
-`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of
-falling back to the shared `an_session` name. If a first-party deployment
-intentionally shares one auth database across subdomains, set
-`AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside `COOKIE_DOMAIN`.
+First-party hosted apps each have their own auth database, so cross-app sign-in
+goes through [Cross-App SSO](/docs/cross-app-sso) rather than a shared cookie.
+These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of falling
+back to the shared `an_session` name. To intentionally share one auth database
+across subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
+`COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
 
@@ -272,6 +283,11 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let email/password signups proceed without verification; local dev/test skips by default            |
 | `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (local dev/preview only — not for production with real users) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                                         |
+| `AUTH_MODE`                             | `local` resolves CLI/agent identity only (which dev user `pnpm action` runs as); never a browser login bypass                                |
+| `COOKIE_DOMAIN`                         | Opt into shared session cookies across same-database subdomains (see [Cookie Realms](#cookie-realms))                                        |
+| `AGENT_NATIVE_WORKSPACE`                | `1` runs in workspace mode — one shared session realm across workspace apps                                                                  |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set with `COOKIE_DOMAIN` to share one auth database across first-party subdomains                                                            |
+| `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes (see [Security — OAuth State Signing](/docs/security#oauth-state))                              |
 | `GOOGLE_CLIENT_ID`                      | Enable Google OAuth                                                                                                                          |
 | `GOOGLE_CLIENT_SECRET`                  | Google OAuth secret                                                                                                                          |
 | `GITHUB_CLIENT_ID`                      | Enable GitHub OAuth                                                                                                                          |

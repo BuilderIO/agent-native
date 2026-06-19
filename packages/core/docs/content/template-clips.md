@@ -62,7 +62,7 @@ Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 4. **Search and reuse.** Ask for the clip, quote, action item, or decision you
    need, then share the result with the right visibility.
 
-## Useful Prompts
+### Useful prompts
 
 - "Summarize this clip for a product update."
 - "Find the meeting where we discussed the rollout plan."
@@ -74,7 +74,7 @@ Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 
 The rest of this doc is for anyone forking the Clips template or extending it.
 
-### Scaffolding
+### Quick start
 
 ```bash
 npx @agent-native/core@latest create my-clips --standalone --template clips

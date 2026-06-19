@@ -49,9 +49,11 @@ so bundlers choose the browser-safe entry.
 `AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
 `runtime` to `<AssistantChat>` when an external agent should power the
 conversation while Agent-Native keeps the composer, transcript, tool cards, and
-native widget rendering. If you are choosing between headless agents, rich
-chat, embedded sidecar, and full app shapes, see
-[Agent Surfaces](/docs/agent-surfaces).
+native widget rendering. The connectors above are the API surface; the runtime
+contract and event shapes are taught in
+[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
+If you are choosing between headless agents, rich chat, embedded sidecar, and
+full app shapes, see [Agent Surfaces](/docs/agent-surfaces).
 
 The shortest custom route is still a pre-wired surface:
 
@@ -85,26 +87,11 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 }
 ```
 
-For a bring-your-own agent endpoint:
-
-```tsx
-import {
-  AssistantChat,
-  createOpenAIAgentsChatRuntime,
-} from "@agent-native/core/client/chat";
-
-const runtime = createOpenAIAgentsChatRuntime({
-  endpoint: "/api/my-agent/chat",
-  label: "My agent",
-});
-
-export function MyAgentChat() {
-  return <AssistantChat runtime={runtime} />;
-}
-```
-
-Use `createHttpAgentChatRuntime()` instead when your endpoint already emits
-Agent-Native normalized events.
+For a bring-your-own agent endpoint, build an `AgentChatRuntime` with one of the
+connectors above and pass it to `<AssistantChat runtime={...} />`. See
+[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+for the connector usage, the normalized event stream, and when to reach for
+`createHttpAgentChatRuntime()` versus a protocol-specific connector.
 
 ## Chat Field And Composer {#composer}
 

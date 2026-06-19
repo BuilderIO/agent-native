@@ -190,15 +190,18 @@ arbitrary query execution behind typed read actions rather than raw SQL in chat.
 
 ## BYO agent runtimes {#byo-agent-runtimes}
 
-`AgentChatRuntime` is the bring-your-own-agent contract for the chat shell. It
-lets an agent you built elsewhere stream normalized events into Agent-Native's
-conversation UI while keeping the shared composer, transcript rendering, tool
-cards, approvals, native widgets, and surrounding app layout. For how this fits
-with headless agents, embedded sidecars, and full applications, see
-[Agent Surfaces](/docs/agent-surfaces).
+`AgentChatRuntime` is the bring-your-own-agent contract for the chat shell, and
+this section is its canonical reference. It lets an agent you built elsewhere
+stream normalized events into Agent-Native's conversation UI while keeping the
+shared composer, transcript rendering, tool cards, approvals, native widgets,
+and surrounding app layout. The [Drop-in Agent](/docs/drop-in-agent#custom-chat-ui)
+tutorial points here for the runtime story, and [Component API](/docs/components#agent-chat-ui)
+lists each connector and adapter with its import path; the contract itself is
+described below.
 
-Use the generic HTTP runtime when your agent can expose a POST endpoint that
-returns SSE or NDJSON runtime events:
+All connectors are exported from `@agent-native/core/client/chat` (and the root
+`@agent-native/core/client` entry). Use the generic HTTP runtime when your agent
+can expose a POST endpoint that returns SSE or NDJSON runtime events:
 
 ```tsx
 import {
@@ -295,7 +298,7 @@ if it matures, it should adapt into this same explicit runtime/widget contract.
 
 - [Actions](/docs/actions) — define the operations that return native widget data.
 - [Agent Surfaces](/docs/agent-surfaces) — decide whether you need headless, chat, sidecar, or full app.
-- [Drop-in Agent](/docs/drop-in-agent) — mount the standard chat runtime.
-- [Component API](/docs/components) — custom chat layers and tool renderers.
+- [Drop-in Agent](/docs/drop-in-agent) — the tutorial for mounting the standard chat runtime.
+- [Component API](/docs/components) — the per-export API map for chat layers, runtimes, and tool renderers.
 - [MCP Apps](/docs/mcp-apps) — inline UI for external MCP hosts.
 - [Key Concepts](/docs/key-concepts#protocols) — protocol status and positioning.

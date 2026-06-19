@@ -58,79 +58,7 @@ import { identify } from "@agent-native/core/tracking";
 identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
 ```
 
-### `registerTrackingProvider(provider)` {#register}
-
-Register a custom provider for any analytics backend.
-
-```ts
-import { registerTrackingProvider } from "@agent-native/core/tracking";
-
-registerTrackingProvider({
-  name: "my-analytics",
-  track(event) {
-    // Send event to your backend
-    fetch("https://analytics.example.com/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(event),
-    }).catch(() => {});
-  },
-  identify(userId, traits) {
-    // Optional — link user identity to future events
-  },
-  flush() {
-    // Optional — called on graceful shutdown
-  },
-});
-```
-
-### `flushTracking()` {#flush}
-
-Flush all providers. Call before process exit to ensure pending events are sent.
-
-```ts
-import { flushTracking } from "@agent-native/core/tracking";
-
-await flushTracking();
-```
-
-### `unregisterTrackingProvider(name)` {#unregister}
-
-Remove a provider by name. Returns `true` if the provider was found and removed.
-
-### `listTrackingProviders()` {#list}
-
-Returns the names of all registered providers.
-
-## The TrackingProvider interface {#provider-interface}
-
-```ts
-interface TrackingProvider {
-  name: string;
-  track(event: TrackingEvent): void | Promise<void>;
-  identify?(
-    userId: string,
-    traits?: Record<string, unknown>,
-  ): void | Promise<void>;
-  flush?(): void | Promise<void>;
-}
-
-interface TrackingEvent {
-  name: string;
-  properties?: Record<string, unknown>;
-  timestamp?: string;
-  userId?: string;
-}
-```
-
-Only `name` and `track` are required. `identify` and `flush` are optional — implement them if your backend supports user identity and batched delivery.
-
-## How it works {#internals}
-
-- **Batched HTTP** — built-in providers enqueue events and flush every 10 seconds or when 50 events accumulate, whichever comes first. This minimizes outbound requests without losing data.
-- **No SDK dependencies** — all built-in providers use raw `fetch()`. No PostHog SDK, no Mixpanel SDK, no Amplitude SDK. Keeps the framework lightweight.
-- **Best-effort delivery** — provider errors are caught and logged. A failing analytics integration never crashes the caller or blocks request handling.
-- **Global singleton** — the registry uses a `Symbol.for` key on `globalThis` so multiple ESM graph instances (dev-mode Vite + Nitro, symlinks) share one provider set.
+Need a custom backend, the provider-registry API, or the batching/singleton internals? See [Advanced: custom providers & internals](#advanced) at the end.
 
 ## Using track() in templates {#templates}
 
@@ -183,9 +111,90 @@ Key differences from the [server `track()`](#track):
 
 This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
 
-## Browser defaults {#browser-defaults}
+## Advanced: custom providers & internals {#advanced}
 
-This section covers the framework's own internal telemetry — mostly relevant to framework contributors and advanced template authors.
+Most apps only need `track()` / `identify()` and a built-in provider. The rest of the surface — registering custom providers, the `TrackingProvider` interface, batching internals, and the framework's own browser telemetry — is below.
+
+<details>
+<summary><strong>Provider-registry API, interface, internals, and browser defaults</strong></summary>
+
+### `registerTrackingProvider(provider)` {#register}
+
+Register a custom provider for any analytics backend.
+
+```ts
+import { registerTrackingProvider } from "@agent-native/core/tracking";
+
+registerTrackingProvider({
+  name: "my-analytics",
+  track(event) {
+    // Send event to your backend
+    fetch("https://analytics.example.com/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }).catch(() => {});
+  },
+  identify(userId, traits) {
+    // Optional — link user identity to future events
+  },
+  flush() {
+    // Optional — called on graceful shutdown
+  },
+});
+```
+
+### `flushTracking()` {#flush}
+
+Flush all providers. Call before process exit to ensure pending events are sent.
+
+```ts
+import { flushTracking } from "@agent-native/core/tracking";
+
+await flushTracking();
+```
+
+### `unregisterTrackingProvider(name)` {#unregister}
+
+Remove a provider by name. Returns `true` if the provider was found and removed.
+
+### `listTrackingProviders()` {#list}
+
+Returns the names of all registered providers.
+
+### The TrackingProvider interface {#provider-interface}
+
+```ts
+interface TrackingProvider {
+  name: string;
+  track(event: TrackingEvent): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
+  flush?(): void | Promise<void>;
+}
+
+interface TrackingEvent {
+  name: string;
+  properties?: Record<string, unknown>;
+  timestamp?: string;
+  userId?: string;
+}
+```
+
+Only `name` and `track` are required. `identify` and `flush` are optional — implement them if your backend supports user identity and batched delivery.
+
+### How it works {#internals}
+
+- **Batched HTTP** — built-in providers enqueue events and flush every 10 seconds or when 50 events accumulate, whichever comes first. This minimizes outbound requests without losing data.
+- **No SDK dependencies** — all built-in providers use raw `fetch()`. No PostHog SDK, no Mixpanel SDK, no Amplitude SDK. Keeps the framework lightweight.
+- **Best-effort delivery** — provider errors are caught and logged. A failing analytics integration never crashes the caller or blocks request handling.
+- **Global singleton** — the registry uses a `Symbol.for` key on `globalThis` so multiple ESM graph instances (dev-mode Vite + Nitro, symlinks) share one provider set.
+
+### Browser defaults {#browser-defaults}
+
+This covers the framework's own internal telemetry — mostly relevant to framework contributors and advanced template authors.
 
 Template roots call `configureTracking()` once at startup. Browser events sent with `trackEvent()` automatically include app/template context plus the current LLM connection when the app can resolve it:
 
@@ -196,6 +205,8 @@ Template roots call `configureTracking()` once at startup. Browser events sent w
 - `llm_connection_configured` — whether an LLM connection is available
 
 The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
+
+</details>
 
 ## What's next
 

@@ -321,7 +321,7 @@ Use `screen={false}` if you only want explicit semantic context. Use `screen={{ 
 
 For non-React hosts, call `createAgentNativeHostBridge()` directly and pass the same `getContext`, `actions`, and `commands` options.
 
-## Iframe Side
+### Iframe Side
 
 Inside the Agent-Native sidecar, use the frame helpers to request host context, discover live browser-session actions, run them, or ask the host to do UI work. Always pass the expected `hostOrigin` in production:
 
@@ -362,7 +362,7 @@ const hostTools = createAgentNativeHostTools({
 });
 ```
 
-## Server-Mediated Tool Bridge
+### Server-Mediated Tool Bridge
 
 For a CLAW-style coworker, the iframe can also register its live browser tab with the sidecar backend. The agent then gets normal backend tools that enqueue a request, the iframe claims it, the host page executes it, and the backend returns the result to the agent.
 
@@ -397,7 +397,7 @@ The framework mounts `/_agent-native/browser-sessions` automatically. Once the b
 
 This is the bridge to use when the agent is running on the backend, in Slack/Telegram/email, or as an A2A callee but still needs to touch the user's current browser tab when it is open. If the browser is closed, backend actions should still handle durable work and the browser-session tools will report that no active tab is connected.
 
-## Actions
+### Actions
 
 There are two action classes:
 
@@ -410,7 +410,11 @@ Backend actions should be the default for anything that must survive refreshes, 
 
 Client actions are a live bridge to one browser tab. The host advertises them with `source: "client"` and `availability: "browser-session"`, and the sidecar should treat that manifest as temporary. Re-list actions when route or selection changes, and fall back to backend actions when the tab disappears.
 
-## Portable Extensions
+### Portable Extensions
+
+> Prefer the batteries-included plugin when you want Agent-Native to manage
+> extension definitions, approval, storage, and agent-created extensions. Use
+> the portable slot below only when the SaaS already owns those concerns.
 
 The SDK also supports user-defined extensions: sandboxed Alpine.js mini-apps that a host SaaS can render in named slots. Use this when the customer wants to build their own small panels, calculators, dashboards, or workflow helpers against the same action/context surface that the agent uses.
 
@@ -528,13 +532,13 @@ Security model:
 - Risky actions should set `destructive` or `requiresApproval` so the host can show an approval flow.
 - Treat user-authored extension HTML as untrusted. Review marketplace installs, log action usage, and scope backend storage by user/org.
 
-## Sessions And Tabs
+### Sessions And Tabs
 
 The host bridge is scoped to one iframe/host-window pair. If the same user opens multiple tabs, each tab has its own `session`, context, selection, client actions, and pending command responses. Do not assume a client action discovered in one tab can run in another tab, or that it will still exist after navigation.
 
 For multi-tab products, keep durable state in SQL/backend actions and use client actions only for the tab-local parts: focusing a row, copying visible editor state, selecting a canvas element, or refreshing the current React Query cache. Include enough `route`, `resource`, and `selection` context for the sidecar to decide whether the current tab is the right place to run a browser-session action.
 
-## Command Model
+### Command Model
 
 Built-in command names are deliberately app-shaped, not database-shaped:
 
@@ -549,7 +553,7 @@ Built-in command names are deliberately app-shaped, not database-shaped:
 
 If no handler is provided, safe defaults dispatch browser events like `agentNative:refresh-data` and `agentNative:remount-view`. `requestApproval` has no default handler; register one before relying on it.
 
-## Approval Guidance
+### Approval Guidance
 
 Mark risky client actions with `destructive: true` in their manifest and require host approval before running operations that delete, publish, send, charge, invite, share, or otherwise affect users outside the current view. Backend actions should enforce their own authorization and approval checks too; host approval is useful UX, not the security boundary.
 
@@ -559,7 +563,7 @@ Prefer this shape:
 - Host command opens an approval UI or focuses the affected resource.
 - Client action handles only the live UI step that cannot happen on the backend.
 
-## Runtime Integration
+### Runtime Integration
 
 Use `createAgentNativeHostTools()` inside the sidecar iframe when your agent runtime accepts plain tool descriptors. It returns four framework-agnostic tools:
 

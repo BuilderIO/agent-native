@@ -298,10 +298,10 @@ export default defineAction({
 });
 ```
 
-`needsApproval` accepts a boolean or a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold). The predicate **fails closed**: a throw is treated as "approval required". When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and stops the turn — the side effect never happens — and the action runs only once a human approves via the chat UI's Approve affordance.
+`needsApproval` also accepts a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold); it **fails closed**, so a throw counts as "approval required". When the gate is truthy and unapproved, the loop stops the turn and the side effect never fires until a human approves in the chat UI.
 
 > [!WARNING]
-> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the full flow.
+> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full flow.
 
 ## Calling it from the UI {#ui}
 
@@ -385,12 +385,11 @@ export default defineAction({
 ```
 
 The built-in discriminants are `"data-table"`, `"data-chart"`, and
-`"data-insights"`. Their server-safe builders and schemas are exported from
-`@agent-native/core/data-widgets`, and native renderer ids are exported from
-`@agent-native/core`. See [Native Chat UI](/docs/native-chat-ui) for the full
-result contract and BYO runtime guidance, or [Agent Surfaces](/docs/agent-surfaces)
-for how this same action can stay headless, render in chat, or grow into a full
-screen.
+`"data-insights"`, with server-safe builders and schemas in
+`@agent-native/core/data-widgets`. See [Native Chat UI](/docs/native-chat-ui)
+for the full result contract and BYO runtime guidance, or
+[Agent Surfaces](/docs/agent-surfaces) for how the same action can stay
+headless, render in chat, or grow into a full screen.
 
 ## Calling it from the CLI {#cli}
 
@@ -408,9 +407,9 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — code/stdio developer clients, the local CLI proxy, and chat-style app hosts (OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers) alike — containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers) plus the template-declared app actions; action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `tool-search` is always present (call it with no query for the full tool menu, or with a query for ranked matches), so any tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`). `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`), and `publicAgent.expose` opts a safe read/ingest tool onto the public surface. See [MCP Protocol](/docs/mcp-protocol) for catalog tiers, auth, and the `mcpApp` resource details.
 
-For UI-capable MCP hosts, an action can also declare an optional MCP Apps resource via the `mcpApp` field (and a matching `link`) so capable hosts render the result inline. The pattern mirrors the focused link we already return for external agents: the action exposes the operation, `link` points at the route with the right URL or deep-link params, and the embed helper uses that same target as the inline app. When an action's `link` and `mcpApp` should point at the same route, use `embedRoute()` to build both from one pure path builder.
+For UI-capable MCP hosts, an action can declare an optional MCP Apps resource via the `mcpApp` field (plus a matching `link`) so capable hosts render the result inline. When `link` and `mcpApp` should point at the same route, `embedRoute()` builds both from one pure path builder:
 
 ```ts
 import { embedRoute } from "@agent-native/core";

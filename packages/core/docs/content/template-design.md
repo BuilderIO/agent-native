@@ -52,10 +52,13 @@ Live demo: [design.agent-native.com](https://design.agent-native.com).
 
 The rest of this doc is for anyone forking the Design template or extending it.
 
-### Scaffolding
+### Quick start
 
 ```bash
 npx @agent-native/core@latest create my-design --standalone --template design
+cd my-design
+pnpm install
+pnpm dev
 ```
 
 ### Data model
