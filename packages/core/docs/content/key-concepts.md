@@ -5,20 +5,7 @@ description: "How agent-native apps work: actions first, SQL database, app-agent
 
 # Key Concepts
 
-How agent-native apps work under the hood — the principles, the architecture, and why they're built this way.
-
-## Why agent-native {#why-agent-native}
-
-Teams today have four options for AI-powered work, and none of them are ideal:
-
-1. **Chat apps** (Claude Projects, ChatGPT) — accessible but not built for structured workflows. No persistent UI, no dashboards, no team collaboration.
-2. **Raw agent interfaces** (Claude Code, Cursor) — powerful but inaccessible to non-devs. No guardrails, no onboarding, no structured UI.
-3. **Custom AI apps** — limited. The AI can't see what you see, can't react to what you click, and can't update the app itself. No conversation history, no rollback, no skills.
-4. **Existing SaaS** (Amplitude, HubSpot, Google Slides) — bolting AI onto architectures that weren't designed for it. You can feel the seams.
-
-Agent-native apps solve this by making the agent and any UI equal citizens of the same system. Think of it as Claude Code, but with durable actions, SQL state, and visual interfaces when the workflow needs them. A workflow can start as one callable action, then grow into chat, screens, schedules, or a full app without rewriting the operation.
-
-See [What Is Agent-Native?](/docs/what-is-agent-native) for the full vision and philosophy.
+How agent-native apps work under the hood — the principles and the architecture. This page is the contract; for the vision and the case for building this way, see [What Is Agent-Native?](/docs/what-is-agent-native).
 
 ## The architecture {#the-architecture}
 
@@ -56,7 +43,7 @@ A feature with only UI is invisible to the agent. A full UI feature with only ac
 
 ## Data in SQL {#data-in-sql}
 
-All application state lives in a SQL database via Drizzle ORM. The framework supports multiple databases — SQLite, Postgres (Neon, Supabase), Turso, Cloudflare D1. Users configure `DATABASE_URL` to choose their database.
+All application state lives in a SQL database via Drizzle ORM. Schemas are provider-agnostic; the supported databases, `DATABASE_URL` config, and portability rules live in [Database](/docs/database).
 
 Core SQL stores are auto-created and available in every template:
 
