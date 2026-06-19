@@ -208,6 +208,7 @@ export function normalizeCodexCliAuthConfig(
   const input = typeof config === "object" ? config : {};
   const codexHome =
     input.codexHome ??
+    // guard:allow-env-credential -- CODEX_HOME is a local auth-directory path override, not a credential value.
     process.env.CODEX_HOME ??
     path.join(os.homedir(), ".codex");
   return {

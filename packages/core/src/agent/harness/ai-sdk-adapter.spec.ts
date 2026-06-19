@@ -158,8 +158,8 @@ describe("codexCliAuth sandbox hook", () => {
   });
 
   it("resolves the default auth path from CODEX_HOME before ~/.codex", () => {
-    const previousCodexHome = process.env.CODEX_HOME;
-    process.env.CODEX_HOME = "/tmp/codex-home";
+    const previousCodexHome = process.env.CODEX_HOME; // guard:allow-env-credential -- test covers local auth-directory path selection.
+    process.env.CODEX_HOME = "/tmp/codex-home"; // guard:allow-env-credential -- test covers local auth-directory path selection.
 
     try {
       expect(normalizeCodexCliAuthConfig(true)).toEqual({
@@ -167,8 +167,9 @@ describe("codexCliAuth sandbox hook", () => {
         authJsonPath: "/tmp/codex-home/auth.json",
       });
     } finally {
-      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
-      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousCodexHome === undefined)
+        delete process.env.CODEX_HOME; // guard:allow-env-credential -- restore local auth-directory path env in test.
+      else process.env.CODEX_HOME = previousCodexHome; // guard:allow-env-credential -- restore local auth-directory path env in test.
     }
   });
 });
