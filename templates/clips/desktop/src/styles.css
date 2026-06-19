@@ -515,34 +515,6 @@ body[data-clips-route="recording-pill"] #root {
   color: var(--fg);
 }
 
-.row-select {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 0;
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-  outline: none;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.row-select:disabled {
-  cursor: not-allowed;
-}
-
-.row-select:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
-  border-radius: 4px;
-}
-
 /* Custom device picker — button + popover menu (replaces native <select>). */
 .row-button {
   flex: 1;

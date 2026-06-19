@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
+import { useRowMenu } from "./useRowMenu";
 
 function Toggle({
   on,
@@ -39,6 +40,7 @@ export function MediaDeviceRow({
   kind,
   devices,
   selectedId,
+  selectedLabel,
   onSelect,
   onRefresh,
   on,
@@ -49,7 +51,8 @@ export function MediaDeviceRow({
   kind: "camera" | "mic";
   devices: MediaDeviceInfo[];
   selectedId: string;
-  onSelect: (id: string) => void;
+  selectedLabel?: string;
+  onSelect: (id: string, label: string) => void;
   onRefresh: () => void;
   on: boolean;
   onToggle: (v: boolean) => void;
@@ -64,37 +67,24 @@ export function MediaDeviceRow({
     [devices, selectedId],
   );
   const label =
+    // Prefer the live label from the enumerated device.
     current?.label ||
     (selectedId
-      ? kind === "camera"
-        ? "Selected camera unavailable"
-        : "Selected mic unavailable"
+      ? devices.length > 0
+        ? // List is loaded but the saved device isn't in it — genuinely gone.
+          kind === "camera"
+          ? "Selected camera unavailable"
+          : "Selected mic unavailable"
+        : // List is still locked (no getUserMedia grant yet this session,
+          // e.g. a cold launch). Fall back to the label we persisted with
+          // the id last time so the user still sees their device by name.
+          selectedLabel || (kind === "camera" ? "Camera" : "Microphone")
       : kind === "camera"
         ? "Default camera"
         : "Default mic");
   const Icon = kind === "camera" ? CameraIcon : MicIcon;
 
-  const [open, setOpen] = useState(false);
-  const rowRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click — native-feeling popover behavior.
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(ev: MouseEvent) {
-      const el = rowRef.current;
-      if (!el) return;
-      if (!el.contains(ev.target as Node)) setOpen(false);
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { open, setOpen, rowRef } = useRowMenu();
 
   const disabled = !on;
   const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
@@ -136,7 +126,7 @@ export function MediaDeviceRow({
             role="menuitemradio"
             aria-checked={!selectedId}
             onClick={() => {
-              onSelect("");
+              onSelect("", "");
               setOpen(false);
             }}
           >
@@ -170,7 +160,7 @@ export function MediaDeviceRow({
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
-                      onSelect(d.deviceId);
+                      onSelect(d.deviceId, d.label);
                       setOpen(false);
                     }}
                   >

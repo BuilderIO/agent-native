@@ -114,6 +114,8 @@ const AUTH_TOKEN_KEY = "clips:auth-token";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
+const CAM_LABEL_KEY = "clips:last-camera-label";
+const MIC_LABEL_KEY = "clips:last-mic-label";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
@@ -145,6 +147,15 @@ function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
 function concreteMediaDeviceId(value: string | null | undefined): string {
   const id = normalizedMediaDeviceId(value);
   return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
+// Prefer this page's own enumeration; fall back to the bubble-relayed list
+// when the popover can't see labels itself (local-camera path).
+function preferEnumerated(
+  own: MediaDeviceInfo[],
+  relayed: MediaDeviceInfo[],
+): MediaDeviceInfo[] {
+  return own.length > 0 ? own : relayed;
 }
 
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
@@ -563,10 +574,25 @@ export function App() {
   );
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  // Device lists relayed from the bubble page when IT owns the camera grant
+  // (full-screen / local-camera path). The popover page can't enumerate device
+  // labels itself there without muting the live bubble, so we use these lists
+  // when our own enumeration comes back empty.
+  const [bubbleCameras, setBubbleCameras] = useState<MediaDeviceInfo[]>([]);
+  const [bubbleMics, setBubbleMics] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>(() =>
     loadString(CAM_KEY, ""),
   );
   const [micId, setMicId] = useState<string>(() => loadString(MIC_KEY, ""));
+  // Remembered human labels for the saved ids, so a cold launch (device list
+  // still locked behind a getUserMedia grant) can show the device by name
+  // instead of "Selected camera unavailable".
+  const [cameraLabel, setCameraLabel] = useState<string>(() =>
+    loadString(CAM_LABEL_KEY, ""),
+  );
+  const [micLabel, setMicLabel] = useState<string>(() =>
+    loadString(MIC_LABEL_KEY, ""),
+  );
   const [cameraOn, setCameraOn] = useState<boolean>(() =>
     loadBool(CAM_ON_KEY, false),
   );
@@ -652,6 +678,14 @@ export function App() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
+  const cameraDevices = useMemo(
+    () => preferEnumerated(cameras, bubbleCameras),
+    [cameras, bubbleCameras],
+  );
+  const micDevices = useMemo(
+    () => preferEnumerated(mics, bubbleMics),
+    [mics, bubbleMics],
+  );
   const selectedMicLabel = useMemo(
     () =>
       selectedMicId
@@ -1108,7 +1142,10 @@ export function App() {
     // popover. If the user has picked a concrete mic, use that exact device;
     // otherwise leave labels locked until a real user action needs access.
     try {
-      if (!selectedMicId) {
+      // While the bubble owns the camera, even this audio-only probe trips
+      // WebKit's single-page capture-exclusion and blacks the bubble. Don't
+      // probe — leave mic labels locked until the bubble is gone.
+      if (bubbleActiveRef.current || !selectedMicId) {
         await loadDevices();
         return;
       }
@@ -1128,6 +1165,26 @@ export function App() {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("Device selection is not available in this WebView.");
+        }
+        // When the camera bubble is live, ANY getUserMedia in this page —
+        // camera OR mic — hits WebKit's single-page capture-exclusion (one
+        // process, one webview): the bubble page's camera stream gets muted
+        // and goes black with no reliable unmute. The exclusion is not
+        // per-kind, so an audio-only probe blacks the bubble just the same.
+        // So we never probe here while the bubble owns the camera. Instead the
+        // bubble page — the only page that can capture without muting its own
+        // camera — does the probe and relays the device list back to us.
+        if (bubbleActiveRef.current) {
+          if (kind === "mic") {
+            // Ask the bubble to probe + relay the mic list (it has no mic
+            // grant of its own, so it must open a transient mic stream).
+            emit("clips:refresh-mics", {
+              micId: selectedMicId || null,
+            }).catch(() => {});
+          }
+          // Cameras are already relayed when the bubble's local camera starts.
+          await loadDevices();
+          return;
         }
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
@@ -1156,7 +1213,7 @@ export function App() {
         await loadDevices();
       }
     },
-    [loadDevices],
+    [loadDevices, selectedMicId],
   );
 
   // ---- Esc closes the popover --------------------------------------------
@@ -1222,6 +1279,20 @@ export function App() {
         setCameraOn(false);
       }),
     );
+    // The bubble relays its device lists (it holds the grant in the
+    // local-camera path). Used by the picker when our own enumeration is empty.
+    const trackRelay = (
+      event: string,
+      set: (devices: MediaDeviceInfo[]) => void,
+    ) =>
+      track(
+        listen<{ devices?: Array<{ deviceId: string; label: string }> }>(
+          event,
+          (ev) => set((ev.payload?.devices ?? []) as MediaDeviceInfo[]),
+        ),
+      );
+    trackRelay("clips:camera-devices", setBubbleCameras);
+    trackRelay("clips:mic-devices", setBubbleMics);
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
@@ -1689,9 +1760,24 @@ export function App() {
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
+  useEffect(() => saveString(CAM_LABEL_KEY, cameraLabel), [cameraLabel]);
+  useEffect(() => saveString(MIC_LABEL_KEY, micLabel), [micLabel]);
   useEffect(() => saveBool(CAM_ON_KEY, cameraOn), [cameraOn]);
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
   useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
+
+  // Once the device list unlocks (after a grant), refresh the remembered
+  // label for the saved id so the persisted name stays current.
+  useEffect(() => {
+    if (!cameraId) return;
+    const match = cameraDevices.find((d) => d.deviceId === cameraId);
+    if (match?.label) setCameraLabel(match.label);
+  }, [cameraDevices, cameraId]);
+  useEffect(() => {
+    if (!micId) return;
+    const match = micDevices.find((d) => d.deviceId === micId);
+    if (match?.label) setMicLabel(match.label);
+  }, [micDevices, micId]);
 
   // ---- actions -----------------------------------------------------------
 
@@ -2322,9 +2408,13 @@ export function App() {
         {showCameraRow ? (
           <MediaDeviceRow
             kind="camera"
-            devices={cameras}
+            devices={cameraDevices}
             selectedId={cameraId}
-            onSelect={setCameraId}
+            selectedLabel={cameraLabel}
+            onSelect={(id, label) => {
+              setCameraId(id);
+              setCameraLabel(label);
+            }}
             onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={setCameraOn}
@@ -2333,9 +2423,13 @@ export function App() {
 
         <MediaDeviceRow
           kind="mic"
-          devices={mics}
+          devices={micDevices}
           selectedId={selectedMicId}
-          onSelect={setMicId}
+          selectedLabel={micLabel}
+          onSelect={(id, label) => {
+            setMicId(id);
+            setMicLabel(label);
+          }}
           onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
