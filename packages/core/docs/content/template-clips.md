@@ -7,15 +7,12 @@ description: "Async screen recording, calendar-synced meeting notes, and push-to
 
 A capture-everything app: screen recordings, meeting notes from your calendar, and Fn-hold voice dictation. The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
 
-<!-- screenshot:
-  app: clips
-  view: /library
-  shows: Library with Acme Co. organization, folders (Onboarding videos / Customer calls / Bug repros) and spaces (Engineering / Design / Sales) in the sidebar, six recordings in a 3-column grid (Q3 OKRs review meeting, Walkthrough of new onboarding flow, Eng standup May 4, Dictation - Ideas for landing page copy, Customer call - Acme Corp pricing review, Bug repro - drag-and-drop in Safari)
-  account: screenshot-account (recordings imported into this org via the standard upload + meetings flow)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
-
-![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>Share</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+}
+```
 
 Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
 
@@ -141,17 +138,15 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
 
-### Key features (technical)
+### Key features
 
-**One library, three capture types.** Screen recordings, calendar-sourced meetings, and push-to-talk dictations all live in the same searchable library. Recordings and transcripts are deliberately split into separate tables so the library grid and the transcript view each render fast.
+**One library, three capture types.** Screen recordings, calendar meetings, and push-to-talk dictations share one searchable library.
 
-**Transcript and AI pipeline.** Each recording gets timestamped transcript segments (`{startMs, endMs, text}`), an auto-generated title, summary, and chapter markers. `cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features (titles, summaries, quotes) delegate to the agent chat.
+**Transcript and AI pipeline.** Recordings get timestamped transcript segments, generated titles, summaries, and chapter markers.
 
-**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching accumulate in a recording's `edits_json` rather than re-encoding. The client concatenates and exports through ffmpeg.wasm, so the original media stays intact.
+**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
 
-**Agent-readable share links.** A public Clips share link advertises a compact agent context URL that points at the transcript and frame APIs, so text- and image-only models can understand a recording without ingesting raw video — see [Agent-readable clips](#agent-readable-clips) above.
-
-**Meetings compose with recordings.** A meeting owns the recording it captures, but the `recordings` row stays the source of truth for the video and per-segment transcript instead of duplicating media.
+**Agent-readable share links.** Public share links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
 
 ### Data model
 

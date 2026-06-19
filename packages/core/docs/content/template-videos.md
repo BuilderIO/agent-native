@@ -7,15 +7,12 @@ description: "A programmatic video studio for motion graphics, product demos, an
 
 A programmatic video studio for the kind of motion graphics, product demos, and kinetic-text videos that are a pain to keyframe by hand. Ask the agent for "a 6-second logo reveal that fades in at 2 seconds" and it builds the animation. Tune timing, easing, and camera moves on a timeline, then render to MP4 or WebM.
 
-<!-- screenshot:
-  app: video
-  view: /c/<composition-id>
-  shows: Video studio with 4 compositions (Logo reveal, Q3 product demo, Pricing animation, Onboarding walkthrough) in the sidebar; Logo reveal loaded with timeline + Remotion preview + camera tools and the agent chat sidebar
-  account: screenshot-account (compositions authored on this account)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
-
-![Video studio with timeline, composition, and agent sidebar](/screenshots/videos.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo reveal</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion preview</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>New track</button></div><div class='wf-box'>Title fade · 0-48 frames</div><div class='wf-box'>Logo scale · 48-120 frames</div><div class='wf-box'>Camera push · 72-144 frames</div></div></div>"
+}
+```
 
 When you open the studio, you'll see a list of compositions on the home screen. Click into one and you get a player on top, a timeline at the bottom, and a properties panel on the right. The agent always knows which composition you have open.
 
@@ -82,53 +79,15 @@ pnpm dev
 
 Open the studio in your browser, create a composition, and start from blank. Ask the agent something like "add a logo reveal that fades in at 2 seconds" and it will edit the composition for you.
 
-### Key features (technical)
+### Key features
 
-#### React-based compositions
+**React-based compositions.** Videos are Remotion-backed React components, with SQL-backed user compositions and an optional code registry for local defaults.
 
-Every video is a React component built on Remotion primitives (`AbsoluteFill`, `useCurrentFrame`, `useVideoConfig`). The template ships one in-code composition — `BlankComposition` in `app/remotion/compositions/BlankComposition.tsx` — and `app/remotion/registry.ts` exports an empty `compositions` array by default. User and example compositions (kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows) live in SQL and load through `app/hooks/use-database-compositions.ts`. You can still add a code composition by dropping a `.tsx` file in `app/remotion/compositions/` and registering it in `app/remotion/registry.ts`.
+**Timeline-first animation.** Duration tracks, keyframes, easing curves, camera moves, and programmatic expression tracks all edit the same composition data.
 
-#### Timeline tracks
+**Adjustable motion systems.** Parameters, cursor tracks, interactive hover zones, range navigation, and repeat playback make generated animations tunable without code.
 
-Animations are tracks, not hardcoded frame checks. A track has `startFrame`, `endFrame`, `easing`, and a list of `animatedProps` (`opacity`, `translateY`, `scale`, rotation, colors, etc.). Three track shapes:
-
-- **Duration tracks** — bars you can drag and resize in the timeline.
-- **Keyframe tracks** — diamond markers at specific frames for instant state changes (`startFrame === endFrame`).
-- **Expression tracks** — programmatic animations (typing reveals, particle bursts) flagged with `programmatic: true` and shown with a purple `fx` badge.
-
-Helper utilities in `app/remotion/trackAnimation.ts` (`findTrack`, `trackProgress`, `getPropValue`) wire a track's values into a component's render.
-
-#### Easing curves
-
-30+ easing curves ship in `app/types.ts` — linear, power1-4 in/out/inOut, back, bounce, circ, elastic, expo, sine, and Remotion's `spring`. The Properties panel shows a visual preview of the curve shape for each one.
-
-#### Camera controls
-
-Each composition has a dedicated `camera` track with six animatable properties: `translateX`, `translateY`, `scale`, `rotateX`, `rotateY`, `perspective`. The camera toolbar above the player has pan, zoom, and tilt tools — click a tool, drag on the preview, and a keyframe is auto-created at the current frame. `CameraHost` (in `app/remotion/CameraHost.tsx`) applies the chained CSS 3D transform to everything inside.
-
-#### Multi-keyframe editing
-
-Every animated property supports an optional `keyframes` array. Interpolation is linear between keyframes, with hold-at-first and hold-at-last at the edges. In the timeline you can box-select keyframes, shift-click to add or remove, and drag groups while keeping relative timing.
-
-#### Adjustable parameters
-
-Programmatic animations expose internal magic numbers as user-editable `parameters` — character width, drift distance, particle count, stagger delay. Inputs appear in the Properties panel with min/max/step bounds and save to localStorage automatically.
-
-#### Interactive cursor system
-
-The `cursor` track drives a visible cursor that moves across the composition. Hover zones on interactive elements (buttons, tabs, inputs, cards) change the cursor appearance — arrow, pointer, or I-beam. See `app/remotion/hooks/useInteractiveComponent.ts` and `app/remotion/ui-components/InteractiveCard.tsx`.
-
-#### View range and repeat playback
-
-The timeline has a range navigator at the bottom (AE-style triangular handles). Drag to zoom and pan the visible time window. Playback in the player is constrained to that range, with a repeat toggle that loops inside it.
-
-#### Render output
-
-Composition size, fps, and render quality are per-composition in the Properties panel. Render quality is supersampling — 1x, 2x, or 3x internal resolution to keep text and vectors crisp during camera zoom. Final render happens via the Remotion CLI to MP4 or WebM.
-
-#### Composition persistence
-
-User edits (track values, parameter values, prop overrides, composition settings) persist to localStorage per composition. The **Save** button in the top-right of the composition view can write the current state back to `app/remotion/registry.ts` as TypeScript — so new users and sessions pick up the changes. That source-write path runs through `POST /api/save-composition-defaults`, which is gated to local development only; in production it returns a 403, and durable composition state lives in SQL instead.
+**Render and persistence.** Composition settings, quality, fps, track values, and overrides persist per composition and render to MP4 or WebM through Remotion.
 
 ### Working with the agent
 

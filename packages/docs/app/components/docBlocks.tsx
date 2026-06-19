@@ -321,12 +321,21 @@ function DocBlockError({ alias, message }: { alias: string; message: string }) {
   );
 }
 
+function hashDocBlockSource(source: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /** Render one embedded block from a parsed {@link DocSegment}. */
 export function DocBlock({
   alias,
   attrs,
   body,
-  index = 0,
+  index,
 }: {
   alias: string;
   attrs: Record<string, string>;
@@ -374,8 +383,14 @@ export function DocBlock({
     );
   }
 
+  const generatedId =
+    index == null
+      ? `doc-block-${hashDocBlockSource(
+          JSON.stringify([alias, attrs.title ?? "", attrs.summary ?? "", body]),
+        )}`
+      : `doc-block-${index}`;
   const block = {
-    id: attrs.id || `doc-block-${index}`,
+    id: attrs.id || generatedId,
     title: attrs.title || undefined,
     summary: attrs.summary || undefined,
     data: parsed.data,

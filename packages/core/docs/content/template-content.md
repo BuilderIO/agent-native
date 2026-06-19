@@ -11,17 +11,14 @@ you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a
 page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" - same
 result whether you do it yourself or ask.
 
-<!-- screenshot:
-  app: content
-  view: /<doc-id>
-  shows: Workspace with sidebar tree (Q3 Roadmap favorited and expanded with Goals/Metrics/Risks, Engineering Wiki with On-call playbook + Architecture overview + Deployment guide, Personal section with Reading list and Ideas, Weekly sync — May 1) and the Q3 Roadmap document open in the editor with the agent sidebar
-  account: screenshot-account (page tree authored on this account; the doc body should NOT begin with the page title — the page chrome already renders it)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+}
+```
 
-![Content workspace with the page tree, an open document, and the agent sidebar](/screenshots/content.png)
-
-When you open the app, you'll see a sidebar tree of pages on the left, the editor in the middle, and the agent in the sidebar on the right. The agent always knows which page you're viewing and what text you have selected.
+When you open the app, you'll see a page tree next to the editor. The agent always knows which page you're viewing and what text you have selected, so document edits can stay grounded in the current page.
 
 ```an-diagram title="One document, many editors" summary="You and the agent both write through the same Yjs pipeline. SQL is the canonical store; local files and Notion are optional sync surfaces."
 {
@@ -108,50 +105,19 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8083` and create your first page. The agent panel is on the right — try asking it to "create a page called Onboarding and add three sub-pages under it".
+Open `http://localhost:8083` and create your first page. Then ask the agent to "create a page called Onboarding and add three sub-pages under it".
 
-### Key features (technical) {#key-features}
+### Key features {#key-features}
 
-### Hierarchical pages
+**Nested pages.** Documents form a draggable tree with favorites, icons, ordering, and page-level sharing.
 
-Documents nest infinitely via a `parent_id` column. The sidebar renders a draggable tree; children move with their parents and ordering uses an integer `position` field. See `app/components/sidebar/DocumentSidebar.tsx` and `app/components/sidebar/DocumentTreeItem.tsx`.
+**Rich MDX editor.** Tiptap powers headings, lists, tables, code blocks, images, links, slash commands, selection toolbars, and local React components.
 
-### Rich-text editor
+**Live collaboration.** Yjs keeps multiple editors and agent edits in sync without clobbering each other.
 
-The editor is built on Tiptap with a custom extension set. It supports headings, lists, tables, code blocks with syntax highlighting, images, and links. Implementation lives in `app/components/editor/DocumentEditor.tsx` and `app/components/editor/VisualEditor.tsx`, with custom nodes under `app/components/editor/extensions/` (`CodeBlockNode.tsx`, `ImageNode.ts`, `DragHandle.tsx`, `NotionExtensions.tsx`).
+**Search and comments.** Full-text search, anchored comments, version history, and restore flows are built into the document surface.
 
-Interactive surfaces include:
-
-- `BubbleToolbar.tsx` — formatting toolbar that appears over a selection
-- `SlashCommandMenu.tsx` — slash-command inserter for blocks
-- `LinkHoverPreview.tsx` — hover previews for inline links
-- `TableHoverControls.tsx` — add/remove table rows and columns
-- `EmojiPicker.tsx` — emoji picker for page icons
-
-### Collaborative editing
-
-Content is edited through Yjs CRDT so multiple users and the agent can type into the same document at once without clobbering each other. The agent's `edit-document` action writes through the same pipeline as a human keystroke, so changes appear live in every open editor. See [Real-time collaboration](/docs/real-time-collaboration) for the sync model.
-
-### Search
-
-Full-text search across titles and markdown content, powered by `actions/search-documents.ts`. The sidebar exposes a search box; the agent uses the same action via `pnpm action search-documents --query "..."`.
-
-### Favorites and icons
-
-Each document can be favorited (`is_favorite`) and given an emoji `icon`. The index route auto-opens your first favorite on load — see `app/routes/_app._index.tsx`.
-
-### Notion sync
-
-Documents can be linked to a Notion page and synced in either direction:
-
-- `connect-notion-status` — check whether a Notion integration is connected
-- `link-notion-page` — link a local doc to a Notion page
-- `pull-notion-page` — overwrite local content from Notion
-- `push-notion-page` — overwrite Notion content from local
-- `list-notion-links` — list all linked documents
-- `sync-notion-comments` — bidirectionally sync comment threads
-
-Sync state is tracked in the `document_sync_links` table (last synced time, conflict flag, last error). Markdown-to-Notion block conversion lives in `shared/notion-markdown.ts`. Conflict and status UI is in `app/components/editor/NotionConflictBanner.tsx` and `NotionSyncBar.tsx`. See the `notion-integration` skill for the full flow.
+**Sync surfaces.** Documents can sync with Notion or local Markdown/MDX folders, with SQL acting as the collaborative cache/history layer.
 
 ### Local file sync
 
