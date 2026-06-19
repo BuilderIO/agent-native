@@ -17,7 +17,7 @@ A fresh `npx @agent-native/core@latest create` scaffold already ships with:
 - **Org switching** — the session tracks the active org (`session.orgId`), and switching it changes the data the user and agent see.
 - **Per-org data isolation** — every query is automatically scoped to the active org.
 
-There is nothing to enable or opt into. If you're evaluating agent-native for a CRM, project tracker, support inbox, or any team tool, the multi-tenant foundation is already there. All first-party templates are multi-tenant — see [Cloneable SaaS templates](/docs/cloneable-saas) for the list.
+If you're evaluating agent-native for a CRM, project tracker, support inbox, or any team tool, the multi-tenant foundation is already there. All first-party templates are multi-tenant — see [Cloneable SaaS templates](/docs/cloneable-saas) for the list.
 
 ## The org switcher UI {#org-switcher}
 

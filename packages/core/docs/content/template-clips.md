@@ -89,6 +89,18 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
 
+### Key features (technical)
+
+**One library, three capture types.** Screen recordings, calendar-sourced meetings, and push-to-talk dictations all live in the same searchable library. Recordings and transcripts are deliberately split into separate tables so the library grid and the transcript view each render fast.
+
+**Transcript and AI pipeline.** Each recording gets timestamped transcript segments (`{startMs, endMs, text}`), an auto-generated title, summary, and chapter markers. `cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features (titles, summaries, quotes) delegate to the agent chat.
+
+**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching accumulate in a recording's `edits_json` rather than re-encoding. The client concatenates and exports through ffmpeg.wasm, so the original media stays intact.
+
+**Agent-readable share links.** A public Clips share link advertises a compact agent context URL that points at the transcript and frame APIs, so text- and image-only models can understand a recording without ingesting raw video — see [Agent-readable clips](#agent-readable-clips) above.
+
+**Meetings compose with recordings.** A meeting owns the recording it captures, but the `recordings` row stays the source of truth for the video and per-segment transcript instead of duplicating media.
+
 ### Data model
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
