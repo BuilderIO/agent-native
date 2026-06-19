@@ -840,6 +840,7 @@ body[data-clips-route="recording-pill"] #root {
   border: 1px solid transparent;
   border-radius: var(--radius);
   overflow: hidden;
+  flex-shrink: 0;
   transition:
     border-color 120ms,
     background 120ms;
