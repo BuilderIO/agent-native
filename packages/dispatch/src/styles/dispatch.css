@@ -59,18 +59,14 @@
   border-color: hsl(var(--border));
   border-radius: 1rem;
   background: hsl(var(--card));
-  box-shadow:
-    0 20px 60px hsl(220 10% 2% / 0.12),
-    0 0 0 1px hsl(var(--border) / 0.45);
+  box-shadow: none;
 }
 
 .dark
   .dispatch-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-root {
-  box-shadow:
-    0 24px 80px hsl(220 10% 2% / 0.4),
-    0 0 0 1px hsl(var(--border) / 0.7);
+  box-shadow: none;
 }
 
 .dispatch-chat-panel
