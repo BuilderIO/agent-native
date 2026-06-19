@@ -103,15 +103,15 @@ authenticated org routes whenever possible.
 pnpm exec agent-native create crm --template=chat
 ```
 
-The CLI detects the workspace root and scaffolds a minimal chat app that already
+The CLI detects the workspace root and scaffolds a minimal starter app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
-Chat is only the source scaffold: the finished app should use its own name,
+The source template is only a scaffold: the finished app should use its own name,
 home screen, navigation, package metadata, and manifest rather than leaving
-chat or new-app UI in place.
+starter or new-app UI in place.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
-app rather than adding files to `apps/chat`.
+app rather than editing an existing app directory.
 Dispatch discovers ready apps from `apps/<app-id>/package.json`; there is no
 separate workspace app registry to edit. React Router apps must preserve
 `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in `app/entry.client.tsx` via
