@@ -31,6 +31,22 @@ function buildLocalCameraConstraints(
   return { video, audio: false };
 }
 
+// This page holds a capture grant, so it can enumerate the full device list
+// WITH labels — something the popover page can't do without its own
+// getUserMedia (which would mute this bubble via WebKit's single-page
+// capture-exclusion). Relay the labelled list so the popover's picker can show
+// every device
+async function relayDeviceList(
+  kind: MediaDeviceKind,
+  event: string,
+): Promise<void> {
+  const all = await navigator.mediaDevices.enumerateDevices();
+  const devices = all
+    .filter((d) => d.kind === kind && d.deviceId)
+    .map((d) => ({ deviceId: d.deviceId, label: d.label }));
+  emit(event, { devices }).catch(() => {});
+}
+
 async function getLocalCameraStream(
   cameraId: string | null,
 ): Promise<MediaStream> {
@@ -242,6 +258,7 @@ export function Bubble() {
     let stopped = false;
     let startUnlisten: (() => void) | null = null;
     let stopUnlisten: (() => void) | null = null;
+    let refreshMicsUnlisten: (() => void) | null = null;
     let renderedFrames = 0;
     let lastFpsLogAt = 0;
 
@@ -407,6 +424,8 @@ export function Bubble() {
             console.warn("[bubble] local camera video.play() rejected", err);
           });
           setLocalCameraActive(true);
+          // The bubble now holds the camera grant — relay the full camera list.
+          relayDeviceList("videoinput", "clips:camera-devices").catch(() => {});
           startLocalCanvasRenderer(stream);
           if (firstFrameAtRef.current == null) {
             firstFrameAtRef.current = Date.now();
@@ -453,6 +472,43 @@ export function Bubble() {
       })
       .catch(() => {});
 
+    // The popover can't probe the mic itself while this bubble is live —
+    // WebKit mutes our camera the moment another page in this process calls
+    // getUserMedia. But THIS page opening a mic doesn't mute its own camera
+    // (the exclusion is cross-page). So when the popover asks, we open a
+    // transient mic stream here to unlock the labels, enumerate, relay the
+    // audioinput list back, then drop the stream. The camera stays live.
+    listen<{ micId?: string | null }>("clips:refresh-mics", async (event) => {
+      if (stopped) return;
+      const micId = event.payload?.micId?.trim() || null;
+      let micStream: MediaStream | null = null;
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: micId ? { deviceId: { exact: micId } } : true,
+          video: false,
+        });
+        await relayDeviceList("audioinput", "clips:mic-devices");
+      } catch (err) {
+        console.warn("[bubble] mic refresh probe failed", err);
+      } finally {
+        // Drop the probe stream immediately — we only needed the grant to
+        // read labels, not to keep the mic hot.
+        micStream?.getTracks().forEach((t) => t.stop());
+      }
+    })
+      .then((u) => {
+        if (stopped) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+        } else {
+          refreshMicsUnlisten = u;
+        }
+      })
+      .catch(() => {});
+
     return () => {
       stopped = true;
       try {
@@ -462,6 +518,11 @@ export function Bubble() {
       }
       try {
         stopUnlisten?.();
+      } catch {
+        // ignore
+      }
+      try {
+        refreshMicsUnlisten?.();
       } catch {
         // ignore
       }
