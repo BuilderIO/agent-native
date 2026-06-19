@@ -129,13 +129,13 @@ The agent-native runtime reads skills from `.agents/skills/`. Claude Code reads 
 
 This replaces the old hack of relying on Claude Code only reading `.claude/skills` — `scope: dev` makes the dev-vs-runtime split a first-class, explicit choice.
 
-```an-diagram title="Which agent loads which skill" summary="`scope`decides whether the in-app runtime agent sees a skill.`dev` skills are visible only to your coding agent."
+```an-diagram title="Which agent loads which skill" summary="scopedecides whether the in-app runtime agent sees a skill.dev skills are visible only to your coding agent."
 {
 "html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Coding agent<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
 "css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
 }
 
-````
+```
 
 > **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean.
 
@@ -184,7 +184,7 @@ Each app-backed skill starts with `agent-native.app-skill.json` at the app root:
     }
   ]
 }
-````
+```
 
 Skill visibility controls what ships:
 

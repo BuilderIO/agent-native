@@ -215,13 +215,13 @@ A slot is a named widget area a template ships:
 
 When an extension is **installed into a slot**, the host pushes the relevant context — the contact's email, the dashboard id, the event id — into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
 
-```an-diagram title="Slots push context into the widget" summary="The host template owns named slots; installing an extension into one feeds it `window.slotContext` for whatever the user is currently viewing."
+```an-diagram title="Slots push context into the widget" summary="The host template owns named slots; installing an extension into one feeds it window.slotContext for whatever the user is currently viewing."
 {
 "html": "<div class=\"slot\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Mail thread</span><small class=\"diagram-muted\">slot <code>mail.contact-sidebar.bottom</code></small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box accent\"><code>window.slotContext</code><br><small class=\"diagram-muted\">{ contactEmail }</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Contact notes</span><small class=\"diagram-muted\">loads notes for that contact &mdash; same widget, different context</small></div></div>",
 "css": ".slot{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.slot .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.slot .diagram-arrow{font-size:22px}"
 }
 
-````
+```
 
 ### A concrete example
 
@@ -248,7 +248,7 @@ extensions/
   doc-status/
     extension.json
     index.html
-````
+```
 
 ```json
 {
