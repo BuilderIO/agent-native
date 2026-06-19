@@ -14,6 +14,11 @@ export {
   type AgentChatEvent,
   type AgentChatAttachment,
   DEFAULT_MODEL,
+  // In-loop processors (observers/guardrails for runAgentLoop)
+  TripWire,
+  type Processor,
+  type ProcessorState,
+  type ProcessorAbort,
 } from "./agent/index.js";
 export {
   defineAction,
