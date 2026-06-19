@@ -78,7 +78,7 @@ Create `actions/<verb>-<resource>.ts` with `defineAction`. Run with `pnpm action
 **From UI:**
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 sendToAgentChat({
   message: "Generate something",
   context: "...",

@@ -1,4 +1,4 @@
-export { cn } from "@agent-native/core";
+export { cn } from "@agent-native/core/client";
 
 export function isMacPlatform(): boolean {
   return (

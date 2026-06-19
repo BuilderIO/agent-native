@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useDbSync } from "@agent-native/core";
+import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   CommandMenu,

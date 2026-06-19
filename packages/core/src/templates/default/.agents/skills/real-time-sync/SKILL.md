@@ -25,7 +25,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 2. **Client** listens for sync events and updates per-source change counters:
 
    ```ts
-   import { useDbSync } from "@agent-native/core";
+   import { useDbSync } from "@agent-native/core/client";
    useDbSync({ queryClient });
    ```
 
