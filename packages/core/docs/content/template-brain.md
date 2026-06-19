@@ -81,7 +81,7 @@ exclusion, and honest not-found behavior without connecting a real workspace.
 
 ## For developers
 
-The rest of this section is for anyone forking or extending the Brain template.
+The rest of this doc is for anyone forking the Brain template or extending it.
 
 ### Quick start
 
@@ -190,25 +190,7 @@ so Dispatch and sibling apps can ask company-memory questions — the A2A agent
 card is public discovery metadata, while retrieval still happens inside Brain's
 authenticated action surface.
 
-## Data model
-
-Brain intentionally uses SQL text search and agentic query expansion. There is
-no vector database requirement, so the template stays portable across SQLite,
-Postgres, Neon, D1, Turso, and similar hosts.
-
-- **Sources** hold connector configuration: provider, allow-listed channels or
-  repositories, sync cursors, review posture, and distillation state.
-- **Raw captures** store transcripts, channel exports, notes, and webhook
-  imports in portable SQL with dedupe keys and source metadata. Raw content is
-  redacted from listing/search surfaces by default.
-- **Distilled knowledge** holds atomic entries with kind, topic, entities,
-  confidence, exact evidence quotes, and supersede links.
-- **Proposals** queue company-tier or sensitive entries for review before they
-  become durable company memory.
-- **Application state** mirrors route, filters, and selected IDs so the agent
-  always knows the current navigation and selection.
-
-## Privacy and gating
+### Privacy and gating
 
 Brain is designed for company memory, not personal surveillance:
 

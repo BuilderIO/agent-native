@@ -5,7 +5,7 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 # Workspace
 
-> **See also:** Deploying multiple apps as one workspace? See [Multi-App Workspaces](/docs/multi-app-workspace). Governance, branching, and CODEOWNERS? See [Workspace Governance](/docs/workspace-management).
+> **Which workspace doc?** This page covers the **customization layer** — what a workspace _is_. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
 
 Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
@@ -63,7 +63,7 @@ Change how the agent behaves, in 60 seconds.
 
 - **Skills** (`+` → **Skill**) — focused how-to files invoked in chat with `/skill-name`.
 - **Agents** (`+` → **Agent**) — reusable sub-agent personas invoked with `@agent-name`.
-- **Scheduled Tasks** (`+` → **Scheduled Task**) — prompts that run on a cron.
+- **Scheduled Tasks** (`+` → **Scheduled Task**) — prompts that run on a cron. See [Recurring Jobs](/docs/recurring-jobs) for schedules and triggers.
 - **Memory** — shared `LEARNINGS.md` and personal `memory/MEMORY.md` keep durable context available across conversations.
 
 ## Global resources and canonical paths {#global-resources}
@@ -257,49 +257,17 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 | `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant |
 | `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                     |
 
-> A personal `LEARNINGS.md` is seeded for back-compat with older workspaces, but the chat preload path reads the shared copy. Put personal context in `memory/MEMORY.md` instead.
-
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
 ## Skills {#skills}
 
-Skills are Markdown resource files that give the agent deep domain knowledge for specific tasks. They live under the `skills/` path prefix in resources, preferably as `skills/<name>/SKILL.md` (e.g. `skills/data-analysis/SKILL.md`, `skills/code-review/SKILL.md`). Flat `skills/<name>.md` files still work for compatibility.
+Skills are Markdown resource files under the `skills/` path (preferably `skills/<name>/SKILL.md`) that give the agent on-demand domain knowledge, invoked in chat with `/skill-name`. Add them from the Workspace tab or, in Code mode, from `.agents/skills/`.
 
-When the agent encounters a task that matches a skill, it reads the skill file and follows its guidance. Skills referenced in `AGENTS.md` are discovered automatically.
-
-### Creating Skills {#creating-skills}
-
-There are two ways to add skills:
-
-1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill/SKILL.md`. This works in both Code mode and App mode.
-2. **Via code (Code mode only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in Code mode.
-
-### Skill Format {#skill-format}
-
-Skills are Markdown files with optional YAML frontmatter for metadata:
-
-```markdown
----
-name: data-analysis
-description: BigQuery queries, data transforms, and visualization
----
-
-# Data Analysis
-
-## When to use
-
-Use this skill when the user asks about data, queries, or analytics.
-
-## Rules
-
-- Always validate SQL before executing
-- Prefer CTEs over subqueries
-- Include LIMIT on exploratory queries
-```
+See the [Skills Guide](/docs/skills-guide) — the single source for skill format, scope, discovery, and authoring.
 
 ## Custom Agents {#custom-agents}
 
-Custom agents are reusable local sub-agent profiles stored as Markdown resources under `agents/*.md`. Agent-teams.md and agent-mentions.md use `/docs/workspace#custom-agents` as the canonical reference for this pattern.
+Custom agents are reusable local sub-agent profiles stored as Markdown resources under `agents/*.md`. This is the canonical home for the custom-agent format.
 
 Use them when you want a focused delegate with its own name, description, model preference, and instruction set. Unlike skills, custom agents are not passive guidance — they are operational personas the main agent can invoke through `@` mentions or by selecting them during sub-agent spawning.
 
@@ -386,6 +354,10 @@ The resource system works identically in both modes. The difference is what addi
 Workspace Connections let apps share the same provider account (Slack, GitHub, HubSpot, etc.) without duplicating credentials. A connection records provider identity, account labels, status, scopes, app grants, and credential references in SQL. Secrets stay in the credential store; connections only point at credential key names such as `SLACK_BOT_TOKEN`.
 
 See [Workspace Connections](/docs/workspace-connections) for the quickstart, connection/grant/credentialRef API, and concrete Slack, HubSpot, and GitHub examples.
+
+---
+
+# Reference
 
 ## Resource API {#resource-api}
 

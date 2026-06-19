@@ -7,7 +7,7 @@ description: "Event-triggered and scheduled automations with natural-language co
 
 An **automation** is a rule: _when X happens, do Y_ — described in natural language. The agent executes the instructions, so automations have access to every action, tool, and MCP server the agent can use in an interactive chat.
 
-Automations extend [recurring jobs](/docs/recurring-jobs) with **event triggers**, **natural-language conditions**, and **outbound HTTP** via the `web-request` tool. They live as markdown resources under `jobs/` — the same storage and format as recurring jobs, with extra frontmatter fields.
+Automations extend [recurring jobs](/docs/recurring-jobs) with **event triggers**, **natural-language conditions**, and **outbound HTTP** via the `web-request` tool. They use the same `jobs/<name>.md` file format, storage, and "create three ways" workflow as recurring jobs — see [Recurring Jobs](/docs/recurring-jobs#job-file) for the shared format. This page covers only what's new for event-driven automations.
 
 ## Two trigger types {#trigger-types}
 
@@ -30,17 +30,10 @@ The agent discovers available events, confirms the plan, and writes the automati
 
 Automations appear in the settings panel. Users can view, enable/disable, and delete them there.
 
-### Via the API
+The third path — writing the `jobs/<name>.md` file by hand via `resourcePut` — works exactly as it does for [recurring jobs](/docs/recurring-jobs#creating). For an event-driven automation you add the event-trigger frontmatter below to that same file. An event-triggered job sets `schedule: ""` and supplies `triggerType: event`, an `event` name, and an optional `condition`:
 
-Write a `jobs/<name>.md` resource directly:
-
-```ts
-import { resourcePut } from "@agent-native/core/resources";
-
-await resourcePut(
-  ownerEmail,
-  "jobs/slack-on-builder-booking.md",
-  `---
+```yaml
+---
 schedule: ""
 enabled: true
 triggerType: event
@@ -48,36 +41,25 @@ event: calendar.booking.created
 condition: "attendee email ends with @builder.io"
 mode: agentic
 domain: calendar
-createdBy: steve@builder.io
 runAs: creator
 ---
-
 Send a Slack message to #sales with the booking details.
-Use the web-request tool to POST to \${keys.SLACK_WEBHOOK}.`,
-);
+Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.
 ```
 
-## The markdown format {#format}
+## Automation frontmatter {#frontmatter}
 
-Each automation is a markdown file with YAML frontmatter and a body containing natural-language instructions.
+Automations share every field in the [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). These additional fields control event triggers, conditions, and the execution mode:
 
-### Frontmatter fields {#frontmatter}
+| Field         | Type                             | Default      | Description                                                                                                                                                  |
+| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | How the automation fires                                                                                                                                     |
+| `event`       | string                           | _(optional)_ | Event name to subscribe to (event triggers only)                                                                                                             |
+| `condition`   | string                           | _(optional)_ | Natural-language condition evaluated before dispatch                                                                                                         |
+| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Full agent loop. (`"deterministic"` is reserved but not yet implemented — automations that set it are skipped. Use `"agentic"` for all current automations.) |
+| `domain`      | string                           | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                                   |
 
-| Field         | Type                                                   | Default      | Description                                                                                                                                                  |
-| ------------- | ------------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `schedule`    | cron expression                                        | `""`         | Cron expression (required for schedule triggers)                                                                                                             |
-| `enabled`     | boolean                                                | `true`       | Whether the automation is active                                                                                                                             |
-| `triggerType` | `"schedule"` \| `"event"`                              | `"schedule"` | How the automation fires                                                                                                                                     |
-| `event`       | string                                                 | _(optional)_ | Event name to subscribe to (event triggers only)                                                                                                             |
-| `condition`   | string                                                 | _(optional)_ | Natural-language condition evaluated before dispatch                                                                                                         |
-| `mode`        | `"agentic"` \| `"deterministic"`                       | `"agentic"`  | Full agent loop. (`"deterministic"` is reserved but not yet implemented — automations that set it are skipped. Use `"agentic"` for all current automations.) |
-| `domain`      | string                                                 | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                                   |
-| `createdBy`   | email                                                  | _(auto)_     | Owner email                                                                                                                                                  |
-| `orgId`       | string                                                 | _(auto)_     | Org scope; inherited from the creator's active org                                                                                                           |
-| `runAs`       | `"creator"` \| `"shared"`                              | `"creator"`  | Whose API key and permissions to use                                                                                                                         |
-| `lastRun`     | ISO timestamp                                          | _(managed)_  | Written by the dispatcher after each run                                                                                                                     |
-| `lastStatus`  | `"success"` \| `"error"` \| `"running"` \| `"skipped"` | _(managed)_  | Latest outcome                                                                                                                                               |
-| `lastError`   | string                                                 | _(managed)_  | Error message if the last run failed                                                                                                                         |
+For an event trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false.
 
 ## The event bus {#event-bus}
 

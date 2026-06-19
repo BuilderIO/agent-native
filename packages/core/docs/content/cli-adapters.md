@@ -1,21 +1,16 @@
 ---
 title: "CLI Adapters"
-description: "Connect any CLI tool to your agent-native app with a standard adapter interface for discovery and execution."
+description: "Give the agent structured access to any CLI tool (gh, ffmpeg, stripe) through a standard adapter interface — one of the two adapter seams covered in the Adapters guide."
 ---
 
 # CLI Adapters
 
-Give your agent structured access to any CLI tool — with discovery, execution, and consistent output handling.
+> **Where this fits:** CLI adapters are one of two adapter seams in the
+> framework. The canonical guide is [Adapters](/docs/sandbox-adapters), which
+> covers both this seam and the `run-code` sandbox seam — including the shared
+> edge/serverless constraint. This page is the quick reference for the CLI side.
 
-## Overview {#overview}
-
-Agents are great at running CLI commands. But without structure, every script reinvents how to invoke a CLI, check if it's installed, and parse its output.
-
-CLI adapters solve this with a small interface — similar to file sync adapters but for command-line tools. Each adapter wraps a single CLI (`gh`, `ffmpeg`, `stripe`, `aws`) and provides:
-
-- **Discovery** — the agent can list what CLIs are available and what they do
-- **Availability checks** — is the CLI installed?
-- **Consistent execution** — stdout, stderr, and exit code in a standard format
+A CLI adapter wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Without this seam, every script reinvents how to invoke a CLI and parse its output.
 
 ## The interface {#the-interface}
 
@@ -40,7 +35,7 @@ interface CliResult {
 
 ## ShellCliAdapter {#shell-adapter}
 
-For most CLIs, you don't need a custom class. `ShellCliAdapter` wraps any CLI binary with sensible defaults:
+For most CLIs you don't need a custom class — `ShellCliAdapter` wraps any binary with sensible defaults:
 
 ```ts
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
@@ -54,177 +49,37 @@ const ffmpeg = new ShellCliAdapter({
   command: "ffmpeg",
   description: "Audio/video processing and transcoding",
   timeoutMs: 120_000, // 2 min for long encodes
-});
-
-const stripe = new ShellCliAdapter({
-  command: "stripe",
-  description: "Stripe CLI — manage payments, webhooks, and customers",
   env: { STRIPE_API_KEY: process.env.STRIPE_SECRET_KEY! },
 });
 ```
 
-### Options {#shell-adapter-options}
+Options: `command` (required), `description` (required), `name` (defaults to `command`), `env` (merged with `process.env`), `cwd` (defaults to `process.cwd()`), and `timeoutMs` (default `30000`).
 
-| Option        | Type   | Description                                         |
-| ------------- | ------ | --------------------------------------------------- |
-| `command`     | string | Binary name or path (required)                      |
-| `description` | string | What the CLI does — shown to the agent (required)   |
-| `name`        | string | Display name (defaults to `command`)                |
-| `env`         | Record | Extra environment variables merged with process.env |
-| `cwd`         | string | Working directory (defaults to process.cwd())       |
-| `timeoutMs`   | number | Execution timeout (default: 30000)                  |
+For custom auth, output parsing, or pre/post processing, implement `CliAdapter` directly instead of using `ShellCliAdapter`.
 
 ## Registry {#registry}
 
-The `CliRegistry` collects adapters so the agent can discover what's available at runtime:
+`CliRegistry` collects adapters so the agent can discover what's available at runtime:
 
 ```ts
 import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
 
 const cliRegistry = new CliRegistry();
-
 cliRegistry.register(
-  new ShellCliAdapter({
-    command: "gh",
-    description: "GitHub CLI — manage repos, PRs, issues, and releases",
-  }),
+  new ShellCliAdapter({ command: "gh", description: "GitHub CLI" }),
 );
 
-cliRegistry.register(
-  new ShellCliAdapter({
-    command: "ffmpeg",
-    description: "Audio/video processing and transcoding",
-  }),
-);
+cliRegistry.list(); // all registered
+await cliRegistry.listAvailable(); // only installed
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
 
-// List all registered CLIs
-cliRegistry.list();
-// → [{ name: "gh", ... }, { name: "ffmpeg", ... }]
-
-// List only installed CLIs
-await cliRegistry.listAvailable();
-// → [{ name: "gh", ... }]  (if ffmpeg isn't installed)
-
-// Get a full summary for agent discovery
-await cliRegistry.describe();
-// → [{ name: "gh", description: "...", available: true },
-//    { name: "ffmpeg", description: "...", available: false }]
-
-// Execute a command
 const gh = cliRegistry.get("gh");
 const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
-console.log(result?.stdout);
-```
-
-## Custom adapters {#custom-adapter}
-
-When you need more than `ShellCliAdapter` provides — custom auth, output parsing, or pre/post processing — implement `CliAdapter` directly:
-
-```ts
-import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
-import { execFile } from "node:child_process";
-
-export class DockerAdapter implements CliAdapter {
-  name = "docker";
-  description =
-    "Docker container management — build, run, and manage containers";
-
-  async isAvailable(): Promise<boolean> {
-    try {
-      const result = await this.execute([
-        "info",
-        "--format",
-        "{{.ServerVersion}}",
-      ]);
-      return result.exitCode === 0;
-    } catch {
-      return false;
-    }
-  }
-
-  async execute(args: string[]): Promise<CliResult> {
-    return new Promise((resolve) => {
-      execFile(
-        "docker",
-        args,
-        {
-          timeout: 60_000,
-          maxBuffer: 10 * 1024 * 1024,
-          encoding: "utf-8",
-        },
-        (error, stdout, stderr) => {
-          resolve({
-            stdout: stdout ?? "",
-            stderr: stderr ?? "",
-            exitCode: (error as any)?.code ?? 0,
-          });
-        },
-      );
-    });
-  }
-}
-```
-
-> [!WARNING]
-> **Edge and Serverless Compatibility:**
-> CLI adapters (both `ShellCliAdapter` and custom adapters using `node:child_process`) rely on Node.js-specific system bindings (`child_process.execFile` or `child_process.spawn`).
-> These APIs **do not exist** on edge/worker runtimes (e.g., Cloudflare Workers, Netlify Edge Functions). If you deploy your server routes to these edge presets, executing CLI adapters will throw runtime exceptions. Always ensure CLI adapter endpoints and tasks run in standard Node.js environments (like traditional server containers or serverless Node functions).
-
-## Server route {#server-route}
-
-Expose the registry to the UI via an API route so actions and components can discover and invoke CLIs:
-
-`createServer()` returns an H3 `{ app, router }`. Mount routes on `router` with H3 handlers (`defineEventHandler`, `readBody`, `getRouterParam`):
-
-```ts
-// server/index.ts
-import { createServer } from "@agent-native/core";
-import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
-import {
-  defineEventHandler,
-  readBody,
-  getRouterParam,
-  setResponseStatus,
-} from "h3";
-
-const { router } = createServer();
-const cliRegistry = new CliRegistry();
-
-cliRegistry.register(
-  new ShellCliAdapter({
-    command: "gh",
-    description: "GitHub CLI",
-  }),
-);
-
-// Discovery endpoint — agent can query this
-router.get(
-  "/api/cli",
-  defineEventHandler(async () => {
-    return await cliRegistry.describe();
-  }),
-);
-
-// Execution endpoint
-router.post(
-  "/api/cli/:name",
-  defineEventHandler(async (event) => {
-    const name = getRouterParam(event, "name");
-    const adapter = name ? cliRegistry.get(name) : undefined;
-    if (!adapter) {
-      setResponseStatus(event, 404);
-      return { error: "CLI not found" };
-    }
-
-    const { args } = await readBody(event);
-    return await adapter.execute(args ?? []);
-  }),
-);
 ```
 
 ## Using from actions {#from-actions}
 
-Actions can use CLI adapters directly for structured access:
+Wrap a CLI call in `defineAction` to expose it on the action surface — `defineAction` is required when the code runs inside the server action surface; use an adapter directly in a `scripts/` file otherwise. Never call `process.exit` in an action; throw an error instead.
 
 ```ts
 // actions/list-prs.ts
@@ -232,10 +87,7 @@ import { defineAction } from "@agent-native/core/action";
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
 import { z } from "zod";
 
-const gh = new ShellCliAdapter({
-  command: "gh",
-  description: "GitHub CLI",
-});
+const gh = new ShellCliAdapter({ command: "gh", description: "GitHub CLI" });
 
 export default defineAction({
   description: "List open pull requests via the GitHub CLI.",
@@ -244,7 +96,6 @@ export default defineAction({
     if (!(await gh.isAvailable())) {
       throw new Error("GitHub CLI not installed. Run: brew install gh");
     }
-
     const result = await gh.execute([
       "pr",
       "list",
@@ -253,14 +104,19 @@ export default defineAction({
       "--limit",
       "10",
     ]);
-
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || "gh pr list failed");
     }
-
     return JSON.parse(result.stdout);
   },
 });
 ```
 
-Or use CLI adapters directly in a script under `scripts/` — adapters are useful when you want discovery, availability checks, and consistent error handling, but `defineAction` is required when the code runs inside the server action surface. Never call `process.exit` in an action; throw an error instead.
+## Edge and serverless {#edge-serverless}
+
+CLI adapters use `node:child_process`, which does not exist on edge/worker runtimes (Cloudflare Workers, Netlify Edge Functions). Run CLI adapter endpoints and tasks in a standard Node.js environment. This constraint is shared with the sandbox seam — see the full discussion in [Adapters](/docs/sandbox-adapters#edge-serverless).
+
+## What's next
+
+- [**Adapters**](/docs/sandbox-adapters) — the canonical guide to both adapter seams.
+- [**Actions**](/docs/actions) — the action surface CLI adapters are usually wrapped in.

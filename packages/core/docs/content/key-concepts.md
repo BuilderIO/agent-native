@@ -191,7 +191,7 @@ There's no shared codebase to break. You own the app, and the agent evolves it f
 4. "Connect to our Stripe account" — the agent writes the integration
 5. Your app keeps improving without manual development
 
-## Portable by default {#portability}
+## Portable by default {#hosting-agnostic}
 
 Two architectural rules keep apps portable across databases and hosts:
 
@@ -202,17 +202,13 @@ Two architectural rules keep apps portable across databases and hosts:
 
 Every user gets a personal **workspace** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Workspace](/docs/workspace).
 
-## Dispatch {#dispatch}
+## Related building blocks {#building-blocks}
 
-**Dispatch** is the workspace control plane: a central inbox for Slack/email/Telegram, a shared secrets vault, scheduled jobs, and an orchestrator agent that delegates domain work to specialist apps over A2A. Run it alongside your domain apps when you have more than one. See [Dispatch](/docs/dispatch).
+These sit on top of the same contract and have their own deep dives:
 
-## Extensions {#extensions}
-
-**Extensions** are sandboxed mini-apps the agent can create at runtime — Alpine.js HTML rendered inside an iframe, with built-in helpers for persistent storage (`extensionData`), calling app actions (`appAction`), and proxied external APIs (`extensionFetch`). No source-code changes, no schema migrations. (Distinct from LLM "tools" — the function-call surface area the agent uses, e.g. `defineAction` entries and MCP tools. See [Extensions](/docs/extensions).)
-
-## A2A {#a2a}
-
-Agent-to-agent (**A2A**) is how apps in the same workspace discover and call each other. Each app publishes an agent card with skill metadata; other agents can invoke its actions over JSON-RPC. Same-origin deploys skip JWT; cross-origin uses a shared secret. See [A2A Protocol](/docs/a2a-protocol).
+- **[Dispatch](/docs/dispatch)** — the workspace control plane: shared inbox, secrets vault, scheduled jobs, and an orchestrator that delegates to specialist apps over A2A.
+- **[Extensions](/docs/extensions)** — sandboxed Alpine.js mini-apps the agent creates at runtime, no source changes or migrations.
+- **[A2A Protocol](/docs/a2a-protocol)** — how apps in the same workspace discover and call each other over JSON-RPC.
 
 ## What you get for free {#what-you-get-for-free}
 
