@@ -158,9 +158,22 @@ Every action the agent can see is a tool in the model's context window, and a lo
 
 A repo-level advisory helper, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`), statically scans a template's `actions/` and flags likely UI-dead actions and redundant per-field clusters. It is advisory only (always exits 0, never fails CI) and uses conservative heuristics, so review its suggestions rather than treating them as errors.
 
-### Agent tool exposure {#agent-tool}
+### Exposure flags {#exposure-flags}
 
-By default every action is exposed to the agent — the in-app assistant plus the app's MCP / A2A tool surfaces — as a callable tool. For an action that only the frontend (or an HTTP / cron caller) needs, set `agentTool: false` to keep it behind the framework's auth + action surface while removing it from every agent tool list:
+Four flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
+
+| Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                     |
+| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → UI, HTTP, CLI only — **hidden from the model**, MCP, and A2A      | UI-only / programmatic actions that shouldn't spend a tool slot |
+| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Auth-adjacent ops (delete account, change org membership/roles) |
+| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read/ingest tools reachable without authentication         |
+| `needsApproval` | `false`       | `true` → the agent **pauses**; a human must approve the specific call       | Consequential side effects (send email, charge a card, delete)  |
+
+These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), and `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below.
+
+#### `agentTool` — hide from the model {#agent-tool}
+
+By default every action is a callable agent tool. Set `agentTool: false` to keep it behind the framework's auth + action surface while removing it from every agent tool list — it stays callable from the UI (`useActionMutation` / `callAction`), CLI, and `/_agent-native/actions/<name>`:
 
 ```ts
 export default defineAction({
@@ -174,24 +187,11 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `true`      | Allow (same as undefined). Useful for documenting intent.                                                                                                                                  |
-| `false`     | **Hidden from the model entirely** — not in the agent's tool list, MCP, or A2A. Still callable from the UI (`useActionMutation` / `callAction`), CLI, and `/_agent-native/actions/<name>`. |
-| `undefined` | **Default-allow.** The action is a normal agent tool.                                                                                                                                      |
+Reach for it when you add a UI-only or purely programmatic action, or when the UI stops using an action you'd otherwise leave exposed to the model.
 
-`agentTool: false` is **not** the same as [`toolCallable: false`](#tool-callable):
+#### `toolCallable` — block the extension iframe {#tool-callable}
 
-- **`agentTool: false`** removes the action from the **model's** view. The model can no longer see or call it; the UI and HTTP can.
-- **`toolCallable: false`** only blocks the sandboxed **extension iframe bridge** (`appAction(...)`). The action stays fully visible to the model, UI, CLI, MCP, and A2A. It exists for high-blast-radius operations (account/org/auth changes), not for trimming the tool list.
-
-Reach for `agentTool: false` when you find yourself adding a UI-only or purely programmatic action, or when the UI stops using an action you'd otherwise leave exposed to the model.
-
-### Extension callability {#tool-callable}
-
-Extensions (Alpine.js mini-apps that run inside sandboxed iframes — see [Extensions](/docs/extensions)) call actions via `appAction(name, params)`. Because a shared extension's HTML/JS executes inside the _viewer's_ session, an action invoked from an extension runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
-
-Use the `toolCallable` flag to control this (the flag name is kept for backward compatibility — it gates extension iframe callability):
+Extensions ([Alpine.js mini-apps in sandboxed iframes](/docs/extensions)) call actions via `appAction(name, params)`, running with the _viewer's_ permissions, secrets, and SQL scope. For high-blast-radius operations that is too much trust by default. Set `toolCallable: false` to make the extension bridge return 403 while keeping the action callable from the UI, agent, CLI, MCP, and A2A:
 
 ```ts
 export default defineAction({
@@ -204,20 +204,7 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                                                                          |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                                    |
-| `false`     | Explicit deny. The extension bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                     |
-| `undefined` | **Default-allow.** Extensions are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
-
-Enforcement: the parent host tags every outbound action call from an extension iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
-
-Set `toolCallable: false` for actions that:
-
-- delete or transfer ownership of any account/org,
-- change auth state (sign-out-all sessions, rotate tokens),
-- modify org membership (invite/remove members, change roles),
-- change resource visibility or grant share access (the framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out).
+Use it for actions that delete or transfer accounts/orgs, change auth state, modify org membership, or grant share access. The framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out. Enforcement is by an unspoofable host-set header on iframe calls; regular UI/agent/CLI/MCP/A2A calls are unaffected — see [Security](/docs/security) for details.
 
 ### Run context (second argument) {#run-context}
 

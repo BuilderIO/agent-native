@@ -7,9 +7,16 @@ description: "An agent-native HTML prototyping studio — generate, refine, prev
 
 Design is an agent-native HTML prototyping studio. Instead of a layered drawing canvas, the agent generates complete self-contained Alpine/Tailwind HTML prototypes, renders them in an iframe, and lets you refine the result with prompts and tweak controls.
 
-Use it when you want a polished landing page concept, product UI direction, brand exploration, or interactive prototype that can leave the tool as real HTML.
-
 ![Design studio showing generated HTML prototypes and tweak controls](https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=1200)
+
+When you open the app, you see your designs on the left, the generated prototype rendered in an iframe in the middle, and the agent plus tweak controls on the right. Everything the agent produces is real HTML you can refine, export, or hand off.
+
+## When to pick it
+
+- **You want a polished landing-page concept, product UI direction, or brand exploration** that can leave the tool as real HTML — not a layered drawing canvas.
+- **You want a working interactive prototype**, with Alpine interactions and Tailwind styling, instead of static mockups.
+- **You want to compare directions fast**, generate a few variants, pick the strongest, and keep refining.
+- **You want design output you own** — export HTML, ZIP, or PDF, or hand the prototype to a coding tool.
 
 ## What you can do with it
 
@@ -77,6 +84,12 @@ Every agent-callable operation is a TypeScript file in `templates/design/actions
 - **Import** — `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` to lift a design system out of an existing project.
 - **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
 - **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
+
+### Working with the agent
+
+The agent always knows what you have open. The current design, the open file, the active view, and any pending question or variant grid are returned by `view-screen` and injected into every message, so you can say "make this denser" or "export this variant" without naming the design.
+
+Because a design is just standalone HTML/JSX files, the agent edits the same source the iframe renders and every export comes from — there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` the agent honors on every generation pass. Select text or a region in the preview and hit Cmd+I to focus the agent on exactly that part.
 
 ### Customizing it
 

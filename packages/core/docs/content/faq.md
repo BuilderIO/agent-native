@@ -26,7 +26,7 @@ Agent-native is for people who want a real app and an AI agent to work from the 
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 
-Most apps bolt AI on as an afterthought — an autocomplete here, a chat sidebar there. The AI can't actually _do_ things in the app. In an agent-native app, the agent is a first-class citizen. It can create emails, schedule events, build forms, generate slides, and modify the app's own code. The architecture is designed for this from the ground up.
+Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can — and modify the app's own code. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 ### Is it open source? {#is-this-open-source}
 
@@ -117,12 +117,12 @@ Anywhere. The server runs on Nitro, which compiles to any deployment target: Nod
 
 ### Why SSE plus polling instead of WebSockets? {#why-polling-not-websockets}
 
-SSE gives same-process writes an immediate path to the browser without requiring a bidirectional socket server. Polling remains the fallback because it works in every deployment environment — including serverless, edge, and container platforms where persistent connections may not be available. The fallback uses a lightweight version counter; when changes are detected, React Query caches are invalidated and components re-render.
+SSE gives same-process writes an immediate path to the browser, and a lightweight version-counter poll remains the fallback because it works in every deployment environment — including serverless and edge, where persistent sockets may not be available. See [Key Concepts — Live sync](/docs/key-concepts#polling-sync).
 
 ### Why can't the UI call an LLM directly? {#why-no-inline-llm-calls}
 
-AI is non-deterministic — you need conversation flow to give feedback and iterate, not one-shot buttons. The agent has your full codebase, instructions, skills, and conversation history. An inline LLM call has none of that. Plus, routing everything through the agent means the app can be driven from Slack, Telegram, or another agent via [A2A](/docs/a2a-protocol) — not just the UI.
+AI is non-deterministic, so you need conversation flow to give feedback and iterate — not one-shot buttons — and the agent already has your codebase, instructions, skills, and history that an inline call lacks. Routing everything through the agent is also what lets the app be driven from Slack, Telegram, or another agent. See [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge).
 
 ### Why is this a framework and not a library? {#why-framework-not-library}
 
-The shared database, polling sync, actions system, and application state all need to work together as a cohesive architecture. A library could give you pieces, but agent-native requires that the agent and UI are wired together from the ground up. Multiple agents need to be able to communicate, the UI needs to react to agent changes instantly, and the agent needs to understand what the user is looking at. That's an architecture, not a utility.
+The shared database, live sync, actions system, and application state only work because they're wired together from the ground up — the UI reacts to agent changes instantly, agents communicate, and the agent understands what the user is looking at. A library gives you pieces; this is an architecture. See [Key Concepts](/docs/key-concepts).

@@ -164,117 +164,30 @@ import { useSendToAgentChat } from "@agent-native/core/client";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
-## Custom chat UI layers {#custom-chat-ui}
+## When the stock sidebar isn't the fit {#custom-chat-ui}
 
-If you do not want `<AgentSidebar>`, choose the lowest layer that still lets the
-framework own the agent runtime:
+`<AgentSidebar>` and `<AgentPanel>` cover most apps. When you need to own the
+layout around the agent, or you want to power the conversation with an agent
+you built elsewhere, drop down a layer — but keep letting the framework own the
+runtime, actions, and SQL-backed state:
 
-- **`<AgentChatSurface>`** — use this for a dedicated chat route or embedded
-  panel. It keeps the standard chat/runtime wiring without the sidebar wrapper.
-- **`<AssistantChat>`** — use this when you want to own surrounding chrome,
-  tabs, headers, empty states, or composer slots while keeping the standard
-  conversation renderer and adapter.
-- **`@agent-native/core/client/chat`** — use this focused subpath when building
-  a custom surface from pieces: `AssistantChat`, `MultiTabAssistantChat`,
-  `useChatThreads`, `AgentConversation`, composer exports, and the standard
-  chat adapters.
-- **`@agent-native/core/client/composer`** — use this for the chat field itself:
-  `PromptComposer` for the complete field, or `TiptapComposer` only when you
-  are already wiring assistant-ui primitives yourself.
-- **`@agent-native/core/client/conversation`** — use this for transcript
-  rendering without the full chat runtime.
-- **`createAgentChatAdapter()`** — use this only when building a custom
-  assistant-ui transport for the built-in Agent-Native chat endpoint. It
-  connects to the same `/_agent-native/agent-chat` stream and preserves
-  run-manager recovery, attachments, model selection, native widgets, and
-  thread metadata.
-- **`createHttpAgentChatRuntime()`** — use this when a BYO agent exposes a
-  POST endpoint that streams `AgentChatRuntime` events. Pass the runtime to
-  `<AssistantChat runtime={runtime} />`.
+- **Own the chrome around the standard runtime.** Use `<AgentChatSurface>` for
+  a dedicated chat route, or `<AssistantChat>` when you want custom headers,
+  tabs, and empty states around the standard conversation. The full layer map —
+  every component, hook, composer, and adapter, with import paths — lives in
+  [Component API](/docs/components#agent-chat-ui).
+- **Bring your own agent runtime.** If an agent you built elsewhere should
+  power the conversation while Agent-Native keeps the composer, transcript, tool
+  cards, approvals, and native widgets, pass an `AgentChatRuntime` to
+  `<AssistantChat runtime={...} />`. The connectors
+  (`createHttpAgentChatRuntime()` and the OpenAI / Claude / Vercel AI / AG-UI
+  helpers) and the event contract are documented in
+  [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 
-Avoid posting directly to `/_agent-native/agent-chat` from product UI. If a
-lower-level helper is missing for a real custom surface, add that named helper
-first so client code does not learn a second, ad hoc transport.
-
-For BYO agent runtimes, keep actions and SQL-backed app state as the contract.
-Adapt the runtime into `<AssistantChat runtime={...} />` when you want
-Agent-Native chat behavior. Use `<AssistantChat createAdapter={...} />` only
-for lower-level assistant-ui transports, or `PromptComposer` by itself only
-when the external runtime owns the transcript and loop. See
-[Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) and
-[Agent Surfaces](/docs/agent-surfaces#byo-agent).
-
-### Build your own sidebar from pieces {#build-your-own-sidebar}
-
-The stock sidebar is optional. This example builds the agent-side UI itself.
-Render it inside your own shell, drawer, split pane, or route when you want to
-own the layout around the agent runtime:
-
-```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
-
-function MyAgentSidebar({ projectSlug }: { projectSlug: string }) {
-  const threads = useChatThreads(undefined, projectSlug);
-  const threadId = threads.activeThreadId ?? undefined;
-
-  return (
-    <aside className="grid h-full grid-cols-[220px_1fr]">
-      <ThreadList
-        threads={threads.threads}
-        activeThreadId={threadId}
-        onSelect={threads.switchThread}
-      />
-      <AssistantChat threadId={threadId} />
-    </aside>
-  );
-}
-```
-
-If you only need the field for a custom runtime, use the composer subpath:
-
-```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
-
-<PromptComposer
-  placeholder="Ask the agent..."
-  onSubmit={async (text, files, references, options) => {
-    await sendToYourRuntime({ text, files, references, options });
-  }}
-/>;
-```
-
-`TiptapComposer` is also public, but it is intentionally lower-level: render it
-inside an assistant-ui thread/composer context. Most app code should use
-`PromptComposer` or `AssistantChat`.
-
-### Raw text completion escape hatch {#raw-text-completion}
-
-For narrow server-side transforms that intentionally do not need tools, chat
-history, run state, or user steering, use `completeText()` from
-`@agent-native/core/server`. Keep it server-only and wrap user-facing usage in
-an action so the UI and agent share the same operation.
-
-```ts
-import { defineAction } from "@agent-native/core/action";
-import { completeText } from "@agent-native/core/server";
-
-export default defineAction({
-  description: "Classify a message",
-  run: async ({ body }: { body: string }) => {
-    const result = await completeText({
-      systemPrompt: "Return exactly one label.",
-      input: body,
-      maxOutputTokens: 12,
-      temperature: 0,
-    });
-    return { label: result.text.trim() };
-  },
-});
-```
-
-If the work needs actions, files, database writes, auditability, or multi-step
-reasoning, use `sendToAgentChat()` instead, optionally with `background: true`
-and `openSidebar: false`.
+Whichever layer you pick, keep actions and SQL-backed app state as the contract,
+and avoid posting directly to `/_agent-native/agent-chat` from product UI. If a
+named helper is missing for a real custom surface, add that helper first so
+client code does not learn a second, ad hoc transport.
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 
