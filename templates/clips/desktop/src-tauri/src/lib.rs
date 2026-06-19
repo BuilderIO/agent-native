@@ -14,6 +14,7 @@ mod meetings_watcher;
 mod native_screen;
 mod native_speech;
 mod notifications;
+mod permission_status;
 mod recording_indicator;
 mod shortcuts;
 mod silence_detector;
@@ -142,6 +143,8 @@ pub fn run() {
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            // permission status (silent checks for all TCC permissions)
+            permission_status::check_permission_statuses,
             // persistent log file (production debugging)
             logfile::frontend_log,
             logfile::open_logs,

@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.63.2
+
+### Patch Changes
+
+- d9e93a3: Add an explicit `codexCliAuth` opt-in for `ai-sdk-harness:codex` so trusted sandboxes can reuse local Codex CLI login, and document how it differs from Agent-Native Code/Desktop auth.
+- d9e93a3: Fix headless app onboarding so plain Node action discovery can load generated
+  TypeScript actions, and avoid Tailwind peer warnings for headless installs.
+- d9e93a3: Show the first code or diff annotation by default when Plan has room for margin notes, while keeping additional annotations available on hover. Add contextual controls for switching wireframe and diagram visuals between sketchy and clean styles.
+
 ## 0.63.1
 
 ### Patch Changes

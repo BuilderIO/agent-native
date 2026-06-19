@@ -1,12 +1,22 @@
-# Agent Native for VS Code
+# Agent Native Plans for VS Code
 
-Open Agent Native handoff links inside VS Code.
+Open Agent-Native Plans and handoff links inside VS Code.
+
+## Install
+
+Install
+[Agent Native Plans](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+from the Visual Studio Marketplace, or run:
+
+```bash
+code --install-extension Builder.agent-native
+```
 
 ## Commands
 
 - **Agent Native: Open Agent Native** opens the configured default app.
 - **Agent Native: Open Agent Native URL** opens any `http(s)` Agent Native app
-  URL or `vscode://builderio.agent-native/open?url=...` handoff link.
+  URL or `vscode://builder.agent-native/open?url=...` handoff link.
 - **Agent Native: Connect Workspace to Agent Native MCP** runs the existing
   `@agent-native/core` connect flow for VS Code / GitHub Copilot MCP.
 
@@ -15,7 +25,7 @@ Open Agent Native handoff links inside VS Code.
 External agents can open a focused Agent Native app view with:
 
 ```text
-vscode://builderio.agent-native/open?url=https%3A%2F%2Fdispatch.agent-native.com
+vscode://builder.agent-native/open?url=https%3A%2F%2Fplan.agent-native.com
 ```
 
 The embedded URL must be `http` or `https`.

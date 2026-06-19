@@ -74,6 +74,10 @@ export type ComposeAttachment = {
   mimeType: string;
   size: number;
   url: string;
+  source?: "upload" | "gmail";
+  gmailMessageId?: string;
+  gmailAttachmentId?: string;
+  accountEmail?: string;
 };
 
 export type ComposeState = {

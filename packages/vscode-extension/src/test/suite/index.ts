@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as vscode from "vscode";
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension("builderio.agent-native");
+  const extension = vscode.extensions.getExtension("Builder.agent-native");
   assert.ok(extension, "Agent Native extension should be discoverable");
   await extension.activate();
 
@@ -26,7 +26,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand(
     "agentNative._openUri",
     vscode.Uri.parse(
-      `vscode://builderio.agent-native/open?url=${encodeURIComponent(uriTarget)}`,
+      `vscode://builder.agent-native/open?url=${encodeURIComponent(uriTarget)}`,
     ),
   );
   const uriLastOpened = await vscode.commands.executeCommand<string>(

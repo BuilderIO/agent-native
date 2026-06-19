@@ -16,6 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   appBasePath,
+  callAction,
   captureClientException,
 } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -683,6 +684,7 @@ export default function RecordRoute() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
   // Surfaced during the post-stop compression pass so the spinner can show
@@ -1392,6 +1394,45 @@ export default function RecordRoute() {
     [navigate, probeVideoMetadata],
   );
 
+  const importLoom = useCallback(
+    async (url: string) => {
+      startSessionRef.current += 1;
+      fileUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
+      fileUploadAbortRef.current = null;
+      setError(null);
+      setLoomImporting(true);
+
+      try {
+        const result = (await callAction(
+          "import-loom-recording" as any,
+          {
+            url,
+            spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+            folderId: folderIdFromUrl ?? undefined,
+          } as any,
+        )) as { recordingId?: string };
+        const recordingId = result?.recordingId;
+        if (!recordingId) {
+          throw new Error("Loom import did not return a recording id.");
+        }
+
+        toast.success("Loom imported");
+        await writeAppState("navigate", {
+          view: "recording",
+          recordingId,
+        }).catch(() => {});
+        navigate(`/r/${recordingId}`);
+      } catch (err) {
+        throw new Error(
+          err instanceof Error ? err.message : "Could not import that Loom.",
+        );
+      } finally {
+        setLoomImporting(false);
+      }
+    },
+    [folderIdFromUrl, navigate, spaceIdFromUrl],
+  );
+
   // -------------------------------------------------------------------------
   // After countdown → actually start MediaRecorder.
   // -------------------------------------------------------------------------
@@ -1857,6 +1898,8 @@ export default function RecordRoute() {
                       initialRecorderOptions.surface
                     }
                     onUpload={uploadFile}
+                    onImportLoom={importLoom}
+                    importingLoom={loomImporting}
                     cameraSize={cameraSize}
                     onCameraSizeChange={setCameraSize}
                   />

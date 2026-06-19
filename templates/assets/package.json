@@ -49,6 +49,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@react-router/dev": "^7.16.0",
     "@react-router/fs-routes": "^7.16.0",
+    "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",

@@ -18,7 +18,7 @@
  */
 
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -29,6 +29,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -162,24 +163,9 @@ export default defineAction({
     //      Owners are skipped — the blob route bypasses the password gate
     //      for them, so they don't need the token. Real provider URLs
     //      (R2/S3/Builder) are left untouched; those are already signed.
-    let resolvedVideoUrl = rec.videoUrl ?? null;
-    if (resolvedVideoUrl) {
-      const legacyMatch = resolvedVideoUrl.match(
-        /^\/api\/uploads\/([^/]+)\/blob$/,
-      );
-      if (legacyMatch) {
-        resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
-      }
-      if (
-        rec.password &&
-        access.role !== "owner" &&
-        resolvedVideoUrl.startsWith("/api/video/")
-      ) {
-        const token = signShortLivedToken({ resourceId: args.recordingId });
-        const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-        resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
-      }
-    }
+    const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
+      addPasswordToken: access.role !== "owner",
+    });
 
     return {
       role: access.role,
@@ -190,6 +176,8 @@ export default defineAction({
         description: rec.description,
         thumbnailUrl: rec.thumbnailUrl,
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
+        sourceAppName: rec.sourceAppName,
+        sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
         editsJson: rec.editsJson,
         videoUrl: resolvedVideoUrl,

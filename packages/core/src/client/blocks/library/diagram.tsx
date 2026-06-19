@@ -1,10 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import {
-  IconArrowsMaximize,
-  IconPencil,
-  IconVectorBezier2,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArrowsMaximize, IconPencil, IconX } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
@@ -616,42 +611,19 @@ function ExpandableDiagramBody({
   ctx: BlockRenderContext;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const style = useWireframeStyle();
-  const sketchy = style === "sketchy";
+  const supportsStyleToggle = Boolean(data.html);
   return (
     <div className="group/diagram relative">
       <DiagramBody data={data} ctx={ctx} />
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
-        <button
-          type="button"
-          data-plan-interactive
-          onClick={() => toggleWireframeStyle()}
-          aria-label={
-            sketchy
-              ? "Switch to clean diagrams"
-              : "Switch to hand-drawn diagrams"
-          }
-          aria-pressed={sketchy}
-          title={
-            sketchy
-              ? "Hand-drawn — switch to clean"
-              : "Clean — switch to hand-drawn"
-          }
-          className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
-        >
-          {sketchy ? (
-            <IconPencil className="size-4" />
-          ) : (
-            <IconVectorBezier2 className="size-4" />
-          )}
-        </button>
+      <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/diagram:opacity-100">
+        {supportsStyleToggle && <DiagramStyleToggleButton />}
         <button
           type="button"
           data-plan-interactive
           onClick={() => setExpanded(true)}
           aria-label="Expand diagram"
           title="Expand diagram"
-          className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+          className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <IconArrowsMaximize className="size-4" />
         </button>
@@ -662,6 +634,30 @@ function ExpandableDiagramBody({
         </DiagramLightbox>
       ) : null}
     </div>
+  );
+}
+
+function DiagramStyleToggleButton() {
+  const style = useWireframeStyle();
+  const nextStyle = style === "sketchy" ? "clean" : "sketchy";
+  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
+  const description = `Switch to ${label.toLowerCase()} visual style`;
+
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      aria-label={description}
+      title={description}
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleWireframeStyle();
+      }}
+      className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <IconPencil className="size-3.5" aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 

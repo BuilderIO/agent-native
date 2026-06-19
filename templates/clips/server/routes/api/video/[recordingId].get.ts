@@ -50,11 +50,19 @@ import {
   runWithRequestContext,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
+import {
+  LOOM_START_MS_QUERY_PARAM,
+  isLoomRecordingSource,
+  loomEmbedUrlWithTimestamp,
+  loomEmbedUrlForRecording,
+} from "../../../../shared/loom.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
   password?: string | null;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
   videoUrl?: string | null;
   visibility?: string | null;
 }
@@ -133,6 +141,67 @@ function providerResponse(upstream: Response): Response {
   });
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+}
+
+function loomEmbedResponse(embedUrl: string): Response {
+  const safeEmbedUrl = escapeHtmlAttribute(embedUrl);
+  const body = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loom recording</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <iframe src="${safeEmbedUrl}" title="Loom video" allow="autoplay; fullscreen; picture-in-picture; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
+</body>
+</html>`;
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "private, max-age=0, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy":
+        "default-src 'none'; frame-src https://www.loom.com; style-src 'unsafe-inline'",
+    },
+  });
+}
+
+function firstQueryValue(value: unknown): string {
+  if (Array.isArray(value)) return firstQueryValue(value[0]);
+  return typeof value === "string" ? value : "";
+}
+
+function parseLoomStartMs(value: unknown): number | null {
+  const raw = firstQueryValue(value).trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
@@ -172,8 +241,12 @@ export default defineEventHandler(async (event: H3Event) => {
       //   - `?password=<pw>` — legacy fallback so existing share pages /
       //     bookmarks keep working during rollout.
       // (audit 11 F-07)
+      const q = getQuery(event) as {
+        [LOOM_START_MS_QUERY_PARAM]?: unknown;
+        password?: string;
+        t?: string;
+      };
       if (rec.password && access.role !== "owner") {
-        const q = getQuery(event) as { password?: string; t?: string };
         const token = typeof q.t === "string" ? q.t : "";
         const supplied = typeof q.password === "string" ? q.password : "";
 
@@ -193,6 +266,20 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
+      }
+
+      if (isLoomRecordingSource(rec)) {
+        let embedUrl = loomEmbedUrlForRecording(rec);
+        if (!embedUrl) {
+          setResponseStatus(event, 404);
+          return { error: "Loom embed URL not found" };
+        }
+        const loomStartMs = parseLoomStartMs(q[LOOM_START_MS_QUERY_PARAM]);
+        if (loomStartMs !== null) {
+          embedUrl =
+            loomEmbedUrlWithTimestamp(embedUrl, loomStartMs) ?? embedUrl;
+        }
+        return loomEmbedResponse(embedUrl);
       }
 
       const blob = await readAppState(`recording-blob-${recordingId}`);

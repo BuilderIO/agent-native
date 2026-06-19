@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type PointerEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7605,7 +7606,32 @@ function SignedInPlanAccessActions({
 }
 
 const PLAN_SKILL_INSTALL_COMMAND =
-  "npx @agent-native/core@latest skills add visual-plan";
+  "npx @agent-native/core@latest skills add visual-plans";
+
+type PlanSkillDemo = {
+  command: string;
+  label: string;
+  description: string;
+  videoAriaLabel: string;
+  videoUrl?: string;
+};
+
+const PLAN_SKILL_DEMOS: PlanSkillDemo[] = [
+  {
+    command: "/visual-plan",
+    label: "Visual Plan",
+    description: "Review the implementation shape before code changes land.",
+    videoAriaLabel: "Visual Plan skill demo video",
+    videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
+  },
+  {
+    command: "/visual-recap",
+    label: "Visual Recap",
+    description: "Turn a PR or diff into a shareable review recap.",
+    videoAriaLabel: "Visual Recap skill demo video",
+    videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
+  },
+];
 
 function EmptyPlan({
   onCreate,
@@ -7651,6 +7677,70 @@ function EmptyPlan({
   );
 }
 
+function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  if (!demo.videoUrl) return null;
+
+  const handleVideoReady = useCallback(
+    (event: SyntheticEvent<HTMLVideoElement>) => {
+      setIsLoaded(true);
+      void event.currentTarget.play().catch(() => {
+        // Muted autoplay can still be blocked by browser settings.
+      });
+    },
+    [],
+  );
+
+  return (
+    <article className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card text-left">
+      <div className="flex items-start justify-between gap-3 p-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{demo.label}</p>
+          <p className="mt-1 min-h-10 text-xs leading-5 text-muted-foreground">
+            {demo.description}
+          </p>
+        </div>
+        <code className="shrink-0 rounded bg-muted/70 px-1.5 py-1 font-mono text-[11px] text-muted-foreground">
+          {demo.command}
+        </code>
+      </div>
+      <div className="relative aspect-[1189/1080] overflow-hidden bg-muted">
+        <video
+          src={demo.videoUrl}
+          aria-label={demo.videoAriaLabel}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          onCanPlay={handleVideoReady}
+          onLoadedData={handleVideoReady}
+          onPlaying={() => setIsLoaded(true)}
+          className="block size-full object-cover"
+        />
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
+            isLoaded ? "opacity-0" : "opacity-100"
+          }`}
+        >
+          <div className="flex size-full animate-pulse flex-col justify-between p-4">
+            <div className="space-y-2">
+              <div className="h-3 w-1/3 rounded-full bg-border" />
+              <div className="h-2.5 w-2/3 rounded-full bg-border/80" />
+            </div>
+            <div className="grid gap-2">
+              <div className="h-16 rounded-md bg-border/70 sm:h-20" />
+              <div className="h-8 rounded-md bg-border/50 sm:h-10" />
+            </div>
+            <div className="h-7 w-1/4 rounded-full bg-border" />
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function LoggedOutEmptyPlan() {
   const [installCommandCopied, setInstallCommandCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -7680,48 +7770,43 @@ function LoggedOutEmptyPlan() {
   }, []);
 
   return (
-    <div className="flex h-full items-center justify-center p-6 sm:p-8">
-      <div className="flex w-full max-w-lg -translate-y-10 flex-col items-center gap-3 text-center sm:-translate-y-16">
+    <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
+      <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
           Start with /visual-plan
         </h2>
         <p className="max-w-md text-sm leading-6 text-muted-foreground">
-          Install the Plan skill in your coding agent, then use the slash
+          Install the Plan skills in your coding agent, then use the slash
           command to create your first review plan.
         </p>
-        <div className="mt-1 w-full rounded-lg border border-border bg-card p-4 text-left shadow-sm">
-          <p className="text-xs font-medium text-muted-foreground">
-            Install once
-          </p>
-          <div className="mt-2 flex items-center gap-2 rounded-md bg-muted/40 p-1.5">
-            <code className="min-w-0 flex-1 overflow-x-auto px-2 py-1 font-mono text-xs leading-5 text-foreground">
-              {PLAN_SKILL_INSTALL_COMMAND}
-            </code>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={copyInstallCommand}
-              className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-              aria-label={
-                installCommandCopied
-                  ? "Install command copied"
-                  : "Copy install command"
-              }
-            >
-              {installCommandCopied ? (
-                <IconCircleCheck className="size-3.5 text-emerald-600" />
-              ) : (
-                <IconCopy className="size-3.5" />
-              )}
-              {installCommandCopied ? "Copied" : "Copy"}
-            </Button>
-          </div>
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">
-            Then ask for <code>/visual-plan</code> to create a plan, or{" "}
-            <code>/visual-recap</code> for a PR recap, from Codex, Claude Code,
-            or Cursor.
-          </p>
+        <div className="mt-1 flex w-full max-w-xl items-center gap-2 rounded-md bg-muted/40 p-1.5 text-left">
+          <code className="min-w-0 flex-1 overflow-x-auto px-2 py-1 font-mono text-xs leading-5 text-foreground">
+            {PLAN_SKILL_INSTALL_COMMAND}
+          </code>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={copyInstallCommand}
+            className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            aria-label={
+              installCommandCopied
+                ? "Install command copied"
+                : "Copy install command"
+            }
+          >
+            {installCommandCopied ? (
+              <IconCircleCheck className="size-3.5 text-emerald-600" />
+            ) : (
+              <IconCopy className="size-3.5" />
+            )}
+            {installCommandCopied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+        <div className="grid w-full gap-3 pt-2 sm:grid-cols-2">
+          {PLAN_SKILL_DEMOS.filter((demo) => demo.videoUrl).map((demo) => (
+            <PlanSkillDemoVideo key={demo.command} demo={demo} />
+          ))}
         </div>
         <Button
           variant="ghost"

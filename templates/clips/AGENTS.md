@@ -15,6 +15,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Recording start/stop/pause are UI gestures because browser media capture needs
   user activation; navigate the user to the recording view instead of trying a
   server action.
+- Use `import-loom-recording` for Loom share/embed URLs. It creates a ready,
+  playable Loom-backed recording and imports Loom's public transcript when the
+  share page exposes one. Use "Upload video" instead when Clips-native editing,
+  frame extraction, or upload-based transcription is required.
 - Native transcript first. Cleanup and title generation can run in the
   background; do not hide a usable native transcript behind a failed cleanup.
 - Cloud transcription is fallback-only for Clips recordings and should use the
@@ -42,6 +46,8 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 
 - `navigation` exposes library, recording, share, meeting, dictation, settings,
   selected ids, and transcript context.
+- `recording-setup.import` exposes Loom import UI state while the `/record`
+  surface is open, without storing the pasted URL in ambient screen context.
 - `navigate` moves the UI to recording/library/meeting/share surfaces.
 - Use data actions for full transcripts and media metadata.
 - For the in-app Clips agent, prefer `get-recording-player-data` for full

@@ -35,8 +35,12 @@ review before code changes happen.
 
 ## Application State
 
-- `navigation.view` is `plans`, `plan`, `extensions`, or `team`.
+- `navigation.view` is `chat`, `plans`, `plan`, `extensions`, or `team`.
 - `navigation.planId` identifies the active visual plan when present.
+- `local-codebase` is written by the Ask Plan browser folder picker when a user
+  links a local codebase. It includes the selected folder name plus personal
+  resource paths for the latest code index, file tree, and captured source
+  snapshots.
 - `navigate` moves the UI to the plan list or a specific visual plan.
 
 ## Normal Planning Flow
@@ -119,6 +123,25 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
   non-required `Visual Recap` check while it runs, then posts a sticky comment
   with an inline screenshot. The recap is informational and must not imply the
   diff has been reviewed.
+
+## Local Codebase Chat
+
+- The Ask Plan page can link a browser-selected local codebase folder. The UI
+  indexes safe text files, skips generated/secret-looking paths, writes a small
+  personal instruction resource under `instructions/local-codebases/`, and
+  stores captured file snapshots under `codebases/<id>/snapshots/<timestamp>/`.
+- For live codebase questions, call `view-screen` when context is unclear and
+  inspect `localCodebase`. First read its `indexPath` with the `resources` tool
+  using `scope: "personal"`, then read relevant captured file `resourcePath`s
+  before making claims. Do not infer API contracts, schema shape, or UI behavior
+  from file names alone.
+- If the file needed to answer is absent or skipped, ask the user to sync again
+  or attach the file instead of guessing.
+- For API/schema/UI visualization from a local codebase, call
+  `get-plan-blocks` or `list-plan-components` before `visual-answer`, then
+  publish blocks such as `openapi-spec`, `api-endpoint`, `data-model`,
+  `diagram`, `file-tree`, `tabs`, and `annotated-code` grounded in the files
+  you read.
 
 ## Source Sync
 

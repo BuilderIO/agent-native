@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   IconBrowser,
   IconCamera,
   IconChevronDown,
   IconDeviceDesktop,
   IconDeviceScreen,
+  IconLink,
   IconMicrophone,
   IconPlayerRecord,
   IconUpload,
@@ -12,6 +20,12 @@ import {
 } from "@tabler/icons-react";
 import { agentNativePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Collapsible,
   CollapsibleContent,
@@ -51,6 +65,9 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
+  /** Called when the user submits a Loom URL to import. */
+  onImportLoom?: (url: string) => Promise<void> | void;
+  importingLoom?: boolean;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
@@ -86,25 +103,21 @@ const MODE_OPTIONS: Array<{
   value: RecordingMode;
   label: string;
   icon: typeof IconDeviceScreen;
-  sub: string;
 }> = [
   {
     value: "screen+camera",
-    label: "Screen + camera",
+    label: "Screen + cam",
     icon: IconVideo,
-    sub: "Show your face while sharing",
   },
   {
     value: "screen",
     label: "Screen only",
     icon: IconDeviceScreen,
-    sub: "Narrate without camera",
   },
   {
     value: "camera",
     label: "Camera only",
     icon: IconCamera,
-    sub: "Talk directly to camera",
   },
 ];
 
@@ -161,12 +174,15 @@ export function PreRecordPanel({
   initialMode,
   initialDisplaySurface,
   onUpload,
+  onImportLoom,
+  importingLoom,
   onCancel,
   busy,
   cameraSize = "md",
   onCameraSizeChange,
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loomInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<RecordingMode>(
     () => initialMode ?? "screen+camera",
   );
@@ -175,6 +191,9 @@ export function PreRecordPanel({
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
+  const [loomImportOpen, setLoomImportOpen] = useState(false);
+  const [loomUrl, setLoomUrl] = useState("");
+  const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>("default");
@@ -293,6 +312,7 @@ export function PreRecordPanel({
     mode === "camera" ||
     (mode === "screen+camera" && cameraId !== NO_CAMERA_DEVICE_ID);
   const needsScreen = mode === "screen" || mode === "screen+camera";
+  const showCameraControls = supportsCameraToggle || needsCamera;
   const audioEnabled = micId !== NO_MIC_DEVICE_ID;
 
   const selectedMicLabel = useMemo(() => {
@@ -319,10 +339,6 @@ export function PreRecordPanel({
         ?.label ?? "Window"
     );
   }, [displaySurface]);
-  const selectedMode = useMemo(
-    () => MODE_OPTIONS.find((option) => option.value === mode),
-    [mode],
-  );
 
   const deviceSummary = useMemo(() => {
     const parts = [audioEnabled ? selectedMicLabel : "No audio"];
@@ -386,6 +402,34 @@ export function PreRecordPanel({
     setCameraTest((prev) => ({ ...prev, hasPreview }));
   }, []);
 
+  const handleLoomImport = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const url = loomUrl.trim();
+      if (!url || !onImportLoom) return;
+
+      setLoomError(null);
+      try {
+        await onImportLoom(url);
+        setLoomUrl("");
+        setLoomImportOpen(false);
+      } catch (err) {
+        setLoomError(
+          err instanceof Error ? err.message : "Could not import that Loom.",
+        );
+      }
+    },
+    [loomUrl, onImportLoom],
+  );
+
+  useEffect(() => {
+    if (!loomImportOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      loomInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loomImportOpen]);
+
   useEffect(() => {
     if (needsCamera) return;
     setCameraTest({ status: "idle", error: null, hasPreview: false });
@@ -425,6 +469,13 @@ export function PreRecordPanel({
         testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
+      import: onImportLoom
+        ? {
+            loomPanelOpen: loomImportOpen,
+            loomUrlPresent: loomUrl.trim().length > 0,
+            loomImporting: Boolean(importingLoom),
+          }
+        : undefined,
     }).catch(() => {});
   }, [
     cameraId,
@@ -442,6 +493,10 @@ export function PreRecordPanel({
     mics.length,
     mode,
     needsCamera,
+    importingLoom,
+    loomImportOpen,
+    loomUrl,
+    onImportLoom,
     selectedCameraLabel,
     selectedMicLabel,
   ]);
@@ -464,30 +519,7 @@ export function PreRecordPanel({
 
   return (
     <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-      <div className="border-b border-border p-6">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
-            <IconPlayerRecord className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Record a clip</h2>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              {selectedMode?.label ?? "Screen + camera"} is selected. Choose the
-              exact tab, window, or screen after you start.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3 p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Capture mode
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {selectedMode?.sub}
-          </div>
-        </div>
+      <div className="p-6">
         <div className="grid gap-2 sm:grid-cols-3">
           {MODE_OPTIONS.map((opt) => {
             const Icon = opt.icon;
@@ -506,7 +538,7 @@ export function PreRecordPanel({
                   }
                 }}
                 className={cn(
-                  "flex min-h-24 min-w-0 flex-col rounded-xl border p-3 text-left transition-colors",
+                  "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-left transition-colors",
                   active
                     ? "border-primary bg-primary text-primary-foreground shadow-sm"
                     : "border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted/45",
@@ -525,16 +557,6 @@ export function PreRecordPanel({
                 </span>
                 <span className="text-sm font-medium leading-tight">
                   {opt.label}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 text-[11px] leading-snug",
-                    active
-                      ? "text-primary-foreground/70"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {opt.sub}
                 </span>
               </button>
             );
@@ -625,7 +647,7 @@ export function PreRecordPanel({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">
-                {needsCamera ? "Audio & camera" : "Audio"}
+                {showCameraControls ? "Audio & camera" : "Audio"}
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 {deviceSummary}
@@ -643,139 +665,132 @@ export function PreRecordPanel({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="space-y-4 px-6 pb-5">
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
-                  Include audio
-                </div>
-                <div className="text-xs leading-snug text-muted-foreground">
-                  {audioEnabled
-                    ? "Microphone and available tab audio will be recorded."
-                    : "Create a silent clip for quick visual notes."}
-                </div>
-              </div>
-              <Switch
-                checked={audioEnabled}
-                onCheckedChange={(checked) =>
-                  setMicId(checked ? "default" : NO_MIC_DEVICE_ID)
-                }
-                disabled={busy}
-                aria-label="Include audio in this recording"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <IconMicrophone className="h-4 w-4 text-muted-foreground" />
-              <Select value={micId} onValueChange={handleMicIdChange}>
-                <SelectTrigger className="flex-1" disabled={!audioEnabled}>
-                  <SelectValue placeholder="Default mic" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Default microphone</SelectItem>
-                  {!microphoneLabelsUnlocked && audioEnabled && (
-                    <SelectItem value={REQUEST_MIC_ACCESS_VALUE}>
-                      {micAccessStatus === "requesting"
-                        ? "Opening microphone..."
-                        : "Choose microphone..."}
-                    </SelectItem>
-                  )}
-                  <SelectItem value={NO_MIC_DEVICE_ID}>No audio</SelectItem>
-                  {microphoneLabelsUnlocked &&
-                    mics.map((m) => (
-                      <SelectItem key={m.deviceId} value={m.deviceId}>
-                        {m.label || `Mic ${m.deviceId.slice(0, 4)}`}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <MicrophoneVisualizer
-              deviceId={micId === "default" ? null : micId}
-              disabled={busy || !audioEnabled}
-              selectedLabel={selectedMicLabel}
-              idleActionLabel={
-                microphoneLabelsUnlocked ? "Test mic" : "Choose mic"
-              }
-              idleHelper={
-                microphoneLabelsUnlocked
-                  ? undefined
-                  : "Allow access to list your microphone hardware, then speak to check the input."
-              }
-              onStatusChange={handleMicStatusChange}
-              onSignalChange={handleMicSignalChange}
-            />
-
-            {micAccessError && (
-              <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                <p>{micAccessError}</p>
-                <a
-                  href={appPath("/download")}
-                  className="mt-1 inline-flex text-foreground underline-offset-4 hover:underline"
-                >
-                  Try Clips Desktop if the browser still cannot see your input.
-                </a>
-              </div>
-            )}
-
-            {supportsCameraToggle && (
-              <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">
-                    Include camera
+          <div className="px-6 pb-5">
+            <div className="overflow-visible rounded-xl border border-border bg-background">
+              <div className="space-y-2 p-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <IconMicrophone className="h-4 w-4" />
                   </div>
-                  <div className="text-xs leading-snug text-muted-foreground">
-                    {needsCamera
-                      ? "Camera bubble overlay records alongside your screen."
-                      : "Screen-only — your camera stays off."}
-                  </div>
-                </div>
-                <Switch
-                  checked={needsCamera}
-                  onCheckedChange={(checked) =>
-                    setCameraId(checked ? "default" : NO_CAMERA_DEVICE_ID)
-                  }
-                  disabled={busy}
-                  aria-label="Include camera in this recording"
-                />
-              </div>
-            )}
-
-            {needsCamera && (
-              <>
-                <div className="flex items-center gap-3">
-                  <IconCamera className="h-4 w-4 text-muted-foreground" />
-                  <Select value={cameraId} onValueChange={setCameraId}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Default camera" />
+                  <Select value={micId} onValueChange={handleMicIdChange}>
+                    <SelectTrigger
+                      className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none hover:bg-muted/45 focus:ring-0 focus:ring-offset-0"
+                      disabled={!audioEnabled}
+                    >
+                      <SelectValue placeholder="Default mic" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">Default camera</SelectItem>
-                      {cameras.map((c) => (
-                        <SelectItem key={c.deviceId} value={c.deviceId}>
-                          {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
+                      <SelectItem value="default">
+                        Default microphone
+                      </SelectItem>
+                      {!microphoneLabelsUnlocked && audioEnabled && (
+                        <SelectItem value={REQUEST_MIC_ACCESS_VALUE}>
+                          {micAccessStatus === "requesting"
+                            ? "Opening microphone..."
+                            : "Choose microphone..."}
                         </SelectItem>
-                      ))}
+                      )}
+                      <SelectItem value={NO_MIC_DEVICE_ID}>No audio</SelectItem>
+                      {microphoneLabelsUnlocked &&
+                        mics.map((m) => (
+                          <SelectItem key={m.deviceId} value={m.deviceId}>
+                            {m.label || `Mic ${m.deviceId.slice(0, 4)}`}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
+                  <Switch
+                    checked={audioEnabled}
+                    onCheckedChange={(checked) =>
+                      setMicId(checked ? "default" : NO_MIC_DEVICE_ID)
+                    }
+                    disabled={busy}
+                    aria-label="Include audio in this recording"
+                  />
                 </div>
 
-                <CameraVisualizer
-                  deviceId={cameraId === "default" ? null : cameraId}
-                  disabled={busy}
-                  selectedLabel={selectedCameraLabel}
-                  size={cameraSize}
-                  onSizeChange={onCameraSizeChange}
-                  onStatusChange={handleCameraStatusChange}
-                  onPreviewChange={handleCameraPreviewChange}
-                />
-              </>
-            )}
+                {audioEnabled ? (
+                  <MicrophoneVisualizer
+                    deviceId={micId === "default" ? null : micId}
+                    disabled={busy}
+                    idleActionLabel={
+                      microphoneLabelsUnlocked ? "Check" : "Choose"
+                    }
+                    onStatusChange={handleMicStatusChange}
+                    onSignalChange={handleMicSignalChange}
+                  />
+                ) : null}
 
-            {enumError && (
-              <p className="text-[11px] text-muted-foreground">{enumError}</p>
-            )}
+                {micAccessError ? (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {micAccessError}{" "}
+                    <a
+                      href={appPath("/download")}
+                      className="text-foreground underline-offset-4 hover:underline"
+                    >
+                      Try Clips Desktop.
+                    </a>
+                  </p>
+                ) : null}
+              </div>
+
+              {showCameraControls ? (
+                <div className="space-y-2 border-t border-border p-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      <IconCamera className="h-4 w-4" />
+                    </div>
+                    <Select
+                      value={cameraId}
+                      onValueChange={setCameraId}
+                      disabled={!needsCamera}
+                    >
+                      <SelectTrigger className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none hover:bg-muted/45 focus:ring-0 focus:ring-offset-0 disabled:opacity-60">
+                        <SelectValue placeholder="Default camera" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_CAMERA_DEVICE_ID}>
+                          Camera off
+                        </SelectItem>
+                        <SelectItem value="default">Default camera</SelectItem>
+                        {cameras.map((c) => (
+                          <SelectItem key={c.deviceId} value={c.deviceId}>
+                            {c.label || `Camera ${c.deviceId.slice(0, 4)}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {supportsCameraToggle ? (
+                      <Switch
+                        checked={needsCamera}
+                        onCheckedChange={(checked) =>
+                          setCameraId(checked ? "default" : NO_CAMERA_DEVICE_ID)
+                        }
+                        disabled={busy}
+                        aria-label="Include camera in this recording"
+                      />
+                    ) : null}
+                  </div>
+
+                  {needsCamera ? (
+                    <CameraVisualizer
+                      deviceId={cameraId === "default" ? null : cameraId}
+                      disabled={busy}
+                      size={cameraSize}
+                      onSizeChange={onCameraSizeChange}
+                      onStatusChange={handleCameraStatusChange}
+                      onPreviewChange={handleCameraPreviewChange}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
+              {enumError ? (
+                <p className="border-t border-border p-2.5 text-[11px] text-muted-foreground">
+                  {enumError}
+                </p>
+              ) : null}
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -814,28 +829,101 @@ export function PreRecordPanel({
           </Button>
         </div>
 
-        {onUpload && (
+        {(onUpload || onImportLoom) && (
           <>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            <div
+              className={cn(
+                "grid gap-2",
+                onUpload && onImportLoom && "sm:grid-cols-2",
+              )}
             >
-              <IconUpload className="h-4 w-4" />
-              Upload a video file instead
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/mp4,video/webm,video/quicktime,video/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUpload(file);
-                if (fileInputRef.current) fileInputRef.current.value = "";
-              }}
-            />
+              {onUpload ? (
+                <button
+                  type="button"
+                  disabled={busy || importingLoom}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <IconUpload className="h-4 w-4" />
+                  Upload video
+                </button>
+              ) : null}
+
+              {onImportLoom ? (
+                <Popover
+                  open={loomImportOpen}
+                  onOpenChange={(open) => {
+                    setLoomImportOpen(open);
+                    setLoomError(null);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy || importingLoom}
+                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <IconLink className="h-4 w-4" />
+                      Import Loom
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-80 max-w-[calc(100vw-2rem)] p-3"
+                    onOpenAutoFocus={(event) => {
+                      event.preventDefault();
+                      window.requestAnimationFrame(() => {
+                        loomInputRef.current?.focus();
+                      });
+                    }}
+                  >
+                    <form onSubmit={handleLoomImport}>
+                      <div className="flex gap-2">
+                        <Input
+                          ref={loomInputRef}
+                          value={loomUrl}
+                          onChange={(event) => {
+                            setLoomUrl(event.target.value);
+                            setLoomError(null);
+                          }}
+                          disabled={busy || importingLoom}
+                          placeholder="https://www.loom.com/share/..."
+                          className="h-9 text-sm"
+                          inputMode="url"
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="h-9 shrink-0"
+                          disabled={busy || importingLoom || !loomUrl.trim()}
+                        >
+                          {importingLoom ? "Importing..." : "Import"}
+                        </Button>
+                      </div>
+                      {loomError ? (
+                        <p className="mt-2 text-xs leading-relaxed text-destructive">
+                          {loomError}
+                        </p>
+                      ) : null}
+                    </form>
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+            </div>
+
+            {onUpload ? (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUpload(file);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              />
+            ) : null}
           </>
         )}
       </div>

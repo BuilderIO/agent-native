@@ -70,6 +70,12 @@ import {
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
 import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
+import { isLoomRecording } from "./lib/native-media.js";
+import {
+  fetchLoomTranscript,
+  loomTranscriptUnavailableMessage,
+} from "./lib/loom-transcript.js";
+import { normalizeLoomShareUrl } from "../shared/loom.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -94,6 +100,9 @@ type RecordingMediaRow = {
   videoUrl: string | null;
   videoFormat?: "webm" | "mp4" | null;
   hasAudio?: boolean | null;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  durationMs?: number | null;
 };
 
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -275,6 +284,93 @@ async function failEmptyProviderTranscript({
     recordingId,
     status: "failed" as const,
     failureReason: reason,
+  };
+}
+
+function resolveLoomTranscriptShareUrl(
+  recording: RecordingMediaRow,
+): string | null {
+  return (
+    normalizeLoomShareUrl(recording.sourceWindowTitle ?? "") ??
+    normalizeLoomShareUrl(recording.videoUrl ?? "")
+  );
+}
+
+export async function importLoomTranscriptForRecording({
+  db,
+  recordingId,
+  ownerEmail,
+  recording,
+  now,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  recording: RecordingMediaRow;
+  now: string;
+}) {
+  const shareUrl = resolveLoomTranscriptShareUrl(recording);
+  let reason = shareUrl
+    ? loomTranscriptUnavailableMessage()
+    : "Loom transcript unavailable because this recording is missing its original Loom share URL. Re-import the Loom URL, or upload the original video file to use Clips transcription.";
+
+  if (shareUrl) {
+    try {
+      const transcript = await fetchLoomTranscript({
+        shareUrl,
+        durationMs: recording.durationMs,
+      });
+      if (transcript) {
+        await upsertTranscriptRow(db, {
+          recordingId,
+          ownerEmail,
+          status: "ready",
+          failureReason: null,
+          language: transcript.language,
+          segmentsJson: JSON.stringify(transcript.segments),
+          fullText: transcript.fullText,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        queueBrainExport(recordingId);
+        return {
+          recordingId,
+          status: "ready" as const,
+          segments: transcript.segments.length,
+          provider: "loom" as const,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        `[clips] Loom transcript import failed for ${recordingId}:`,
+        (err as Error)?.message ?? String(err),
+      );
+      reason = loomTranscriptUnavailableMessage();
+    }
+  }
+
+  const preserved = await preserveReadyTranscriptIfAvailable({
+    db,
+    recordingId,
+    ownerEmail,
+  });
+  if (preserved) return preserved;
+
+  await upsertTranscriptRow(db, {
+    recordingId,
+    ownerEmail,
+    status: "failed",
+    failureReason: reason,
+    segmentsJson: "[]",
+    fullText: "",
+    now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+  return {
+    recordingId,
+    status: "failed" as const,
+    failureReason: reason,
+    provider: "loom" as const,
   };
 }
 
@@ -771,6 +867,9 @@ export default defineAction({
           videoUrl: schema.recordings.videoUrl,
           videoFormat: schema.recordings.videoFormat,
           hasAudio: schema.recordings.hasAudio,
+          sourceAppName: schema.recordings.sourceAppName,
+          sourceWindowTitle: schema.recordings.sourceWindowTitle,
+          durationMs: schema.recordings.durationMs,
           title: schema.recordings.title,
         })
         .from(schema.recordings)
@@ -793,6 +892,15 @@ export default defineAction({
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
         throw new Error(reason);
+      }
+      if (isLoomRecording(rec)) {
+        return importLoomTranscriptForRecording({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          recording: rec,
+          now,
+        });
       }
 
       let audioMedia: AudioOnlyTranscriptionMedia;
@@ -985,6 +1093,9 @@ export default defineAction({
         videoUrl: schema.recordings.videoUrl,
         videoFormat: schema.recordings.videoFormat,
         hasAudio: schema.recordings.hasAudio,
+        sourceAppName: schema.recordings.sourceAppName,
+        sourceWindowTitle: schema.recordings.sourceWindowTitle,
+        durationMs: schema.recordings.durationMs,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
       })
@@ -1008,6 +1119,15 @@ export default defineAction({
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
       throw new Error(reason);
+    }
+    if (isLoomRecording(rec)) {
+      return importLoomTranscriptForRecording({
+        db,
+        recordingId: args.recordingId,
+        ownerEmail,
+        recording: rec,
+        now,
+      });
     }
 
     let audioMedia: AudioOnlyTranscriptionMedia;

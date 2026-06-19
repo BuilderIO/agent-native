@@ -17,6 +17,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../shared/transcript-segments.js";
+import { isLoomRecordingSource } from "../../shared/loom.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 
@@ -325,28 +326,39 @@ export function buildPublicAgentContext({
     token: access.apiToken,
   });
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
-  const suggestedFrames = buildRecommendedFrames({
-    durationMs: recording.durationMs,
-    chapters,
-    segments: agentSegments,
-  }).map((frame) => ({
-    ...frame,
-    url: api.frameUrl(frame.atMs),
-  }));
+  const isLoomRecording = isLoomRecordingSource(recording);
+  const suggestedFrames = isLoomRecording
+    ? []
+    : buildRecommendedFrames({
+        durationMs: recording.durationMs,
+        chapters,
+        segments: agentSegments,
+      }).map((frame) => ({
+        ...frame,
+        url: api.frameUrl(frame.atMs),
+      }));
+  const instructions = [
+    "Use transcript.segments for timestamped spoken context.",
+    ...(isLoomRecording
+      ? [
+          "This clip is imported from Loom and uses Loom embedded playback; frame extraction is not available through Clips.",
+        ]
+      : [
+          "Use apis.frame.urlTemplate with atMs to fetch a JPEG frame when the spoken transcript references something visible on screen.",
+          "Prefer recommendedFrames first, then request additional frames around transcript timestamps that matter for the task.",
+        ]),
+  ];
 
   return {
     type: "agent-native.clip.context",
     version: CLIP_AGENT_CONTEXT_VERSION,
-    instructions: [
-      "Use transcript.segments for timestamped spoken context.",
-      "Use apis.frame.urlTemplate with atMs to fetch a JPEG frame when the spoken transcript references something visible on screen.",
-      "Prefer recommendedFrames first, then request additional frames around transcript timestamps that matter for the task.",
-    ],
+    instructions,
     clip: {
       id: recording.id,
       title: recording.title,
       description: recording.description,
       publicPageUrl,
+      sourceProvider: isLoomRecording ? "loom" : null,
       thumbnailUrl: recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
@@ -364,13 +376,17 @@ export function buildPublicAgentContext({
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      frame: {
-        method: "GET",
-        urlTemplate: api.frameUrlTemplate,
-        query: {
-          atMs: "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
-        },
-      },
+      ...(isLoomRecording
+        ? {}
+        : {
+            frame: {
+              method: "GET",
+              urlTemplate: api.frameUrlTemplate,
+              query: {
+                atMs: "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
+              },
+            },
+          }),
     },
     transcript: {
       status: transcript?.status ?? "missing",
@@ -409,6 +425,11 @@ export async function loadRecordingMediaBytes(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const videoUrl = recording.videoUrl ?? "";
   if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (isLoomRecordingSource(recording)) {
+    throw new Error(
+      "Frame extraction is not available for Loom embed imports.",
+    );
+  }
   assertFrameMediaSize(recording.videoSizeBytes);
 
   const fallbackMimeType = recordingFallbackMimeType(recording);

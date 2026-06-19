@@ -91,6 +91,16 @@ describe("wireframe auto-height frame", () => {
     expect(style).not.toMatch(/box-shadow/i);
   });
 
+  it("renders a contextual visual style toggle", () => {
+    const html = render({
+      surface: "browser",
+      html: "<div>Mockup with style control</div>",
+    });
+
+    expect(html).toContain('aria-label="Switch to clean visual style"');
+    expect(html).toContain(">Clean</span>");
+  });
+
   it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {
     const html = render({
       surface: "popover",

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUDIO_LOUDNESS_FILTER,
+  pickAudioFilters,
   pickCompressedDimensions,
   pickVideoFilters,
   pickVideoRateLimit,
@@ -69,5 +71,11 @@ describe("pickVideoFilters", () => {
 
   it("does not resize smaller recordings", () => {
     expect(pickVideoFilters(1280, 720)).toEqual([]);
+  });
+});
+
+describe("pickAudioFilters", () => {
+  it("normalizes recording loudness during ffmpeg compression", () => {
+    expect(pickAudioFilters()).toEqual(["-af", AUDIO_LOUDNESS_FILTER]);
   });
 });

@@ -18,6 +18,7 @@ const INITIAL_TOOL_NAMES = [
   "search-recordings",
   "get-recording-player-data",
   "create-recording",
+  "import-loom-recording",
   "update-recording",
   "finalize-recording",
   "cleanup-transcript",

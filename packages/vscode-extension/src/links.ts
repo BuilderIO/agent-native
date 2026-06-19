@@ -1,5 +1,5 @@
-export const DEFAULT_APP_URL = "https://dispatch.agent-native.com";
-export const VSCODE_OPEN_AUTHORITY = "builderio.agent-native";
+export const DEFAULT_APP_URL = "https://plan.agent-native.com";
+export const VSCODE_OPEN_AUTHORITY = "builder.agent-native";
 
 export function normalizeOpenUrl(input: string | undefined): string | null {
   const trimmed = input?.trim();
