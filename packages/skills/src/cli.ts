@@ -2,7 +2,11 @@
 
 import { runSkillsCli } from "./index.js";
 
-runSkillsCli(process.argv.slice(2)).catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+runSkillsCli(process.argv.slice(2))
+  .then(() => {
+    process.exit(process.exitCode ?? 0);
+  })
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
