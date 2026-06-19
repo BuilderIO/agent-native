@@ -15,6 +15,7 @@ import {
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
   queryString,
+  type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
   extractJpegFrame,
@@ -66,6 +67,27 @@ function setCachedFrame(key: string, frame: Buffer) {
   }
 }
 
+function isPubliclyCacheableFrame(access: PublicAgentAccess): boolean {
+  return (
+    access.recording.visibility === "public" &&
+    !access.recording.password &&
+    !access.apiToken
+  );
+}
+
+function cacheControlForAccess(access: PublicAgentAccess): string {
+  return isPubliclyCacheableFrame(access)
+    ? "public, max-age=300"
+    : "private, max-age=0, no-store";
+}
+
+function applyFrameHeaders(event: H3Event, access: PublicAgentAccess) {
+  setResponseHeader(event, "Content-Type", "image/jpeg");
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  setResponseHeader(event, "Cache-Control", cacheControlForAccess(access));
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const id = queryString(query.id);
@@ -98,18 +120,11 @@ export default defineEventHandler(async (event: H3Event) => {
     atMs,
   });
 
-  const cached = getCachedFrame(key);
+  const access = accessResult.access;
+  const cacheable = isPubliclyCacheableFrame(access);
+  const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    setResponseHeader(event, "Content-Type", "image/jpeg");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    setResponseHeader(event, "Referrer-Policy", "no-referrer");
-    setResponseHeader(
-      event,
-      "Cache-Control",
-      accessResult.access.apiToken
-        ? "private, max-age=0, no-store"
-        : "public, max-age=300",
-    );
+    applyFrameHeaders(event, access);
     return cached;
   }
 
@@ -121,18 +136,9 @@ export default defineEventHandler(async (event: H3Event) => {
       atMs,
     });
 
-    setResponseHeader(event, "Content-Type", "image/jpeg");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    setResponseHeader(event, "Referrer-Policy", "no-referrer");
-    setResponseHeader(
-      event,
-      "Cache-Control",
-      accessResult.access.apiToken
-        ? "private, max-age=0, no-store"
-        : "public, max-age=300",
-    );
+    applyFrameHeaders(event, access);
     const buffer = Buffer.from(frame);
-    setCachedFrame(key, buffer);
+    if (cacheable) setCachedFrame(key, buffer);
     return buffer;
   } catch (err) {
     const isFrameError = err instanceof VideoFrameExtractionError;

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { IconLink, IconMail, IconCode } from "@tabler/icons-react";
 import {
   appBasePath,
@@ -247,14 +247,46 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const agentShareDisabled = isPending || !isPublic || hasPassword;
-  const agentContextUrl =
+  const publicAgentContextUrl =
     typeof window === "undefined"
       ? ""
       : buildAgentApiUrls(recordingId, {
           origin: window.location.origin,
           basePath: appBasePath(),
         }).contextUrl;
+  const [tokenizedAgentContextUrl, setTokenizedAgentContextUrl] = useState("");
+
+  useEffect(() => {
+    if (!isPublic || !hasPassword || typeof window === "undefined") {
+      setTokenizedAgentContextUrl("");
+      return;
+    }
+
+    let cancelled = false;
+    async function loadTokenizedAgentContextUrl() {
+      setTokenizedAgentContextUrl("");
+      const res = await fetch(publicAgentContextUrl, {
+        credentials: "include",
+      }).catch(() => null);
+      if (!res?.ok) return;
+      const payload = await res.json().catch(() => null);
+      const contextUrl =
+        typeof payload?.apis?.context?.url === "string"
+          ? payload.apis.context.url
+          : "";
+      if (!cancelled) setTokenizedAgentContextUrl(contextUrl);
+    }
+
+    void loadTokenizedAgentContextUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPassword, isPublic, publicAgentContextUrl]);
+
+  const agentContextUrl = hasPassword
+    ? tokenizedAgentContextUrl
+    : publicAgentContextUrl;
+  const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
 
   return (
     <div className="space-y-4">
@@ -280,7 +312,8 @@ function LinkTab({
 
       {isPublic && hasPassword ? (
         <p className="text-xs text-muted-foreground">
-          Remove the clip password to enable an agent-readable public URL.
+          This agent URL uses a short-lived token, so agents can read the clip
+          without exposing the password.
         </p>
       ) : null}
 

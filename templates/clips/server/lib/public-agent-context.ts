@@ -69,14 +69,75 @@ function maxAgentFrameMediaBytes(): number {
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES;
 }
 
+function frameMediaTooLargeMessage(size: number, maxBytes: number) {
+  return `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`;
+}
+
 function assertFrameMediaSize(size: number | null | undefined) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
   const maxBytes = maxAgentFrameMediaBytes();
   if ((size ?? 0) > maxBytes) {
-    throw new Error(
-      `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`,
-    );
+    throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
   }
+}
+
+function normalizeBase64Payload(value: string): string {
+  return value
+    .trim()
+    .replace(/^data:[^,]*;base64,/i, "")
+    .replace(/\s/g, "");
+}
+
+function estimateBase64DecodedByteLength(value: string): number {
+  const normalized = normalizeBase64Payload(value);
+  if (!normalized) return 0;
+  const padding = normalized.endsWith("==")
+    ? 2
+    : normalized.endsWith("=")
+      ? 1
+      : 0;
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+}
+
+async function readResponseBytesWithLimit(
+  response: Response,
+): Promise<Uint8Array> {
+  const maxBytes = maxAgentFrameMediaBytes();
+  const contentLength = Number(response.headers.get("content-length"));
+  assertFrameMediaSize(contentLength);
+
+  if (!response.body) {
+    const arrayBuffer = await response.arrayBuffer();
+    assertFrameMediaSize(arrayBuffer.byteLength);
+    return new Uint8Array(arrayBuffer);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
+      }
+
+      chunks.push(
+        Buffer.from(value.buffer, value.byteOffset, value.byteLength),
+      );
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const buffer = Buffer.concat(chunks, totalBytes);
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
 export async function loadPublicAgentAccess(
@@ -139,6 +200,14 @@ export async function loadPublicAgentAccess(
   }
 
   let apiToken: string | null = null;
+  if (
+    recording.password &&
+    recording.visibility === "public" &&
+    viewerIsOwner
+  ) {
+    apiToken = signShortLivedToken({ resourceId: recording.id });
+  }
+
   if (recording.password && !viewerIsOwner) {
     const suppliedToken = options.token ?? "";
     const suppliedPassword = options.password ?? "";
@@ -354,7 +423,8 @@ export async function loadRecordingMediaBytes(
     );
     const b64 = typeof stash?.data === "string" ? stash.data : null;
     if (!b64) throw new Error("recording-blob app-state missing");
-    const bytes = Buffer.from(b64, "base64");
+    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
+    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
     assertFrameMediaSize(bytes.byteLength);
     const mimeType =
       typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
@@ -390,12 +460,9 @@ export async function loadRecordingMediaBytes(
     );
   }
 
-  const contentLength = Number(response.headers.get("content-length"));
-  assertFrameMediaSize(contentLength);
-  const arrayBuffer = await response.arrayBuffer();
-  assertFrameMediaSize(arrayBuffer.byteLength);
+  const bytes = await readResponseBytesWithLimit(response);
   return {
-    bytes: new Uint8Array(arrayBuffer),
+    bytes,
     mimeType: pickSourceMimeType(
       response.headers.get("content-type"),
       fallbackMimeType,

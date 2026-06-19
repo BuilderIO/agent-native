@@ -35,8 +35,10 @@ function ResolvedTitle() {
 }
 
 export function Header() {
+  const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+  const showAgentToggle = location.pathname !== "/";
 
   return (
     <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
@@ -45,7 +47,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <AgentToggleButton />
+        {showAgentToggle ? <AgentToggleButton /> : null}
       </div>
     </header>
   );

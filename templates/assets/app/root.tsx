@@ -15,6 +15,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -65,8 +66,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     </html>
   );
 }
-
-const TAB_ID = Math.random().toString(36).slice(2, 10);
 
 function DbSyncSetup() {
   const qc = useQueryClient();
