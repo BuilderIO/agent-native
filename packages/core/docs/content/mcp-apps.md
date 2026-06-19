@@ -5,9 +5,16 @@ description: "Author and embed interactive MCP App UIs inside Claude, ChatGPT, a
 
 # MCP Apps
 
-MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compatible hosts — Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam, and Cursor — render interactive UIs inline in chat. In agent-native apps, every MCP App is a **real React route**, not a separate plain-HTML widget.
+**This page: inline UIs in Claude/ChatGPT.** Authoring MCP App resources and the embed bridge that renders a real app route inside a compatible host's chat. This page is also the single home for the **client support matrix** ([below](#client-support)).
 
-For connecting external agents and the broader MCP server setup, see [External Agents](/docs/external-agents) and [MCP Protocol](/docs/mcp-protocol). This page covers authoring MCP App resources and the embed bridge that powers them.
+| If you want to…                                              | Read                                     |
+| ------------------------------------------------------------ | ---------------------------------------- |
+| Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
+| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)         |
+| Build inline UIs that render in Claude/ChatGPT               | **This page** — MCP Apps                 |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol)       |
+
+MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compatible hosts — Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam, and Cursor — render interactive UIs inline in chat. In agent-native apps, every MCP App is a **real React route**, not a separate plain-HTML widget.
 
 Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, typed results, and approval affordances. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
 

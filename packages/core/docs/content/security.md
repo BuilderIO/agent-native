@@ -236,23 +236,22 @@ This was previously a "warn and accept" stance — set the secret you'd otherwis
 ### Auth & secrets
 
 - [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
-- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
-- [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic
-- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback)
+- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`) — see [OAuth State Signing](#oauth-state)
+- [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic — see [A2A Identity Verification](#a2a-identity)
+- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback) — see [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
 
 ### Webhook secrets (set the ones for integrations you use)
 
-- [ ] `EMAIL_INBOUND_WEBHOOK_SECRET` if Resend / SendGrid inbound is enabled
-- [ ] `SLACK_SIGNING_SECRET` if Slack is enabled
-- [ ] `TELEGRAM_WEBHOOK_SECRET` / `WHATSAPP_APP_SECRET` for those integrations
+- [ ] Signing secret set for each enabled inbound integration — see [Inbound Webhooks](#webhooks) and [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full list
 - [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
 
 ### Schema
 
-- [ ] Every user-facing table has `owner_email`
-- [ ] Multi-user tables also have `org_id`
-- [ ] All actions use `defineAction` with Zod `schema:`
+- [ ] Every user-facing table has `owner_email`, multi-user tables also `org_id` — see [Data Scoping](#data-scoping)
+- [ ] Ownable-table reads/writes go through the [access guards](#access-guards)
+- [ ] All actions use `defineAction` with Zod `schema:` — see [Input Validation](#input-validation)
+- [ ] Server-side fetches of user/agent URLs go through `ssrfSafeFetch` — see [SSRF](#ssrf)
 - [ ] No `dangerouslySetInnerHTML` with user content (or output is run through DOMPurify)
 - [ ] No string-concatenated SQL
 - [ ] `pnpm guards` is clean (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
@@ -261,5 +260,33 @@ This was previously a "warn and accept" stance — set the secret you'd otherwis
 ### Misc hardening
 
 - [ ] `AGENT_NATIVE_DEBUG_ERRORS` is **not** set in real prod (only on debug previews)
-- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys — see [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var
+
+---
+
+The sections below cover niche environment flags you only reach for in specific deployments. Most apps never touch them.
+
+## OAuth State Signing {#oauth-state}
+
+OAuth flows (Google, Atlassian, Zoom) sign their state envelope with a dedicated HMAC key:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+This used to fall back to `GOOGLE_CLIENT_SECRET` (a credential shared with Google) — a leak of the Google secret would have let attackers forge OAuth state envelopes. The dedicated key is independent of any third-party secret. If `OAUTH_STATE_SECRET` is unset, the framework falls back to `BETTER_AUTH_SECRET`; hosted workspace deploys can also derive a per-purpose OAuth key from the already-required `A2A_SECRET`. If none of those server secrets are available, OAuth flows fail in production.
+
+`redirect_uri` query parameters are also validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use the framework's `isAllowedOAuthRedirectUri()` helper before signing state.
+
+## Cross-User Tooling Secrets {#tooling-secrets}
+
+Tools and automations that reference `${keys.NAME}` resolve secrets per-user by default. Workspace-scope fallback is **off by default** in this version — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' API calls.
+
+If your org genuinely shares workspace-wide keys (e.g. a single corporate Stripe key), opt back into the old behavior with:
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+Workspace-scope secret writes still require org owner/admin role regardless of this flag.

@@ -170,14 +170,9 @@ components in the chat, without iframes. See [Native Chat UI](/docs/native-chat-
 ## Rich chat on your agent {#byo-agent}
 
 Use this path when your agent is already built with another framework or
-runtime and you want Agent-Native's chat UI around it.
-
-The [Chat template](/docs/template-chat) is still useful here: keep its app
-shell and thread UI, then swap the runtime behind the chat plugin or route.
-
-`AgentChatRuntime` is the boundary. Your runtime streams normalized events;
-Agent-Native renders the composer, transcript, tool calls, approvals, native
-widgets, and app layout.
+runtime and you want Agent-Native's chat UI around it. `AgentChatRuntime` is the
+boundary: your runtime streams normalized events, and Agent-Native renders the
+composer, transcript, tool calls, approvals, native widgets, and app layout.
 
 ```tsx
 import {
@@ -186,10 +181,7 @@ import {
 } from "@agent-native/core/client/chat";
 
 const runtime = createHttpAgentChatRuntime({
-  id: "external:support-agent",
-  label: "Support agent",
   endpoint: "/api/support-agent/chat",
-  headers: async () => ({ Authorization: `Bearer ${await getToken()}` }),
 });
 
 export function SupportAgentChat() {
@@ -197,40 +189,15 @@ export function SupportAgentChat() {
 }
 ```
 
-Use `createOpenAIAgentsChatRuntime()`,
-`createOpenAIResponsesChatRuntime()`, `createClaudeAgentChatRuntime()`,
-`createVercelAiChatRuntime()`, or `createAgUiChatRuntime()` when your endpoint
-already streams one of those event shapes. Use `createHttpAgentChatRuntime()`
-when your agent streams Agent-Native's normalized event shape directly:
+Ready-made runtime helpers exist for OpenAI Agents, OpenAI Responses, the Claude
+Agent SDK, the Vercel AI SDK, and AG-UI, plus the normalized HTTP runtime above
+for any other agent (Mastra, Flue, Eve, LangGraph, or a custom service). ACP is
+not the default end-user app chat protocol, and Agent-Native does not currently
+claim A2UI support.
 
-```ts
-import { createOpenAIAgentsChatRuntime } from "@agent-native/core/client/chat";
-
-const runtime = createOpenAIAgentsChatRuntime({
-  endpoint: "/api/openai-agent/chat",
-});
-```
-
-The endpoint can stream SSE or NDJSON events:
-
-```text
-data: {"type":"message-delta","messageId":"m1","delta":{"type":"text","text":"I found 34 submissions."}}
-data: {"type":"tool-start","toolCall":{"id":"t1","name":"query","input":{"formId":"form_123"}}}
-data: {"type":"tool-done","toolCallId":"t1","toolName":"query","status":"completed","resultText":"34 rows"}
-data: {"type":"done","reason":"complete"}
-```
-
-For a trivial integration, returning `{ "text": "..." }` also works. For richer
-integrations, stream `message-*`, `tool-*`, `approval-request`, `status`,
-`artifact`, `file`, `usage`, `error`, and `done` events. Tool results can carry
-`chatUI` metadata so the same native table/chart/card renderers work with your
-agent too.
-
-This is the right place to adapt the OpenAI Agents SDK, Claude Agent SDK, Vercel
-AI SDK, Mastra, Flue, Eve, LangGraph, a custom service, or an AG-UI-compatible
-event stream. Do not use ACP as the default end-user app chat protocol; ACP is
-better framed as coding-agent/editor interoperability. Agent-Native does not
-currently claim A2UI support.
+[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+is the canonical home for the event shapes, the runtime helpers, and `chatUI`
+tool-result metadata. Start there when wiring an external agent into the chat.
 
 ## Embedded sidecar {#embedded-sidecar}
 

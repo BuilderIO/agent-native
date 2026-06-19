@@ -164,25 +164,7 @@ The workspace has two current memory surfaces:
 
 The resource system also seeds a personal `LEARNINGS.md` for compatibility with older workspaces, but the chat preload path is shared `LEARNINGS.md` plus personal `memory/MEMORY.md`.
 
-**What gets saved.** When you correct the agent ("no, always use X instead of Y"), share a preference ("I prefer concise answers"), or reveal context ("my team calls this 'the dispatch layer'"), the agent can capture that learning so it doesn't repeat the mistake or have to re-ask next time. Project-wide learnings belong in shared `LEARNINGS.md`; user-specific memory belongs under `memory/`. This behavior lives in the framework system prompt and the `capture-learnings` skill spells out the rules for when and how.
-
-**What it looks like.**
-
-```markdown
-# Learnings
-
-## Tone
-
-- Be concise; skip preamble. (corrected 2026-01-14)
-
-## Naming
-
-- "Dispatch" refers to our internal event-routing service, not the template app.
-
-## Preferences
-
-- Prefer named exports over default exports in TypeScript.
-```
+**What gets saved.** When you correct the agent ("always use X instead of Y"), share a preference ("I prefer concise answers"), or reveal context ("my team calls this 'the dispatch layer'"), the agent captures that learning so it doesn't repeat the mistake or re-ask. Project-wide learnings go in shared `LEARNINGS.md`; user-specific memory goes under `memory/`. The `capture-learnings` skill spells out when and how.
 
 **Where it fits.**
 
@@ -254,31 +236,15 @@ Use custom agents for delegation within one app. Use connected agents when you n
 
 Type `@` in the chat input to reference workspace items. A dropdown appears at the cursor showing matching agents and files. Use arrow keys to navigate and Enter to select. The selected item appears as an inline chip in the input.
 
-When you send a message:
-
-- **Files/resources** are passed as references the agent can read
-- **Custom agents** run locally with their profile instructions
-- **Connected agents** are called over A2A
-
-What shows up depends on the mode:
-
-- **Code mode** — Codebase files, workspace resources, custom agents, and connected agents
-- **App mode** — Workspace resources, custom agents, and connected agents
+When you send a message, **files/resources** are passed as references the agent can read, **custom agents** run locally with their profile instructions, and **connected agents** are called over A2A.
 
 ## / Slash Commands {#slash-commands}
 
-Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions. Selecting a skill adds it as an inline chip, and its content is included as context when the message is sent.
-
-What shows up depends on the mode:
-
-- **Code mode** — Skills from `.agents/skills/` (codebase) and skills from resources
-- **App mode** — Skills from resources only
-
-If no skills are configured, the dropdown shows a hint with a link to these docs.
+Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions; selecting one adds an inline chip and includes its content as context when the message is sent. If no skills are configured, the dropdown links to these docs.
 
 ## Code vs App Mode {#dev-vs-prod}
 
-The resource system works identically in both modes. The difference is what additional sources are available for `@` tagging and `/` commands:
+The resource system works identically in both modes. What differs is the additional sources available for `@` tagging and `/` commands:
 
 | Feature            | Code Mode                                                               | App Mode                                               |
 | ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |

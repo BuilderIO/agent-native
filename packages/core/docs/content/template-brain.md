@@ -182,22 +182,31 @@ Brain is designed for company memory, not personal surveillance:
   approval, citation requirements, email redaction, and connector error
   notifications.
 
-## Customizing it
+### Customizing it
 
-The template follows the agent-native four-area contract:
+Brain follows the agent-native four-area contract — change behavior by editing
+the matching area, and the agent can make these edits for you:
 
-- **UI:** Ask, Search, Knowledge, Review, Sources, and Settings routes.
-- **Actions:** imports, source management, pilot reports, distillation, proposal
-  review, cited search, and navigation/context actions.
-- **Skills/instructions:** Brain-specific guidance for distillation and
-  retrieval in `templates/brain/.agents/skills/`.
-- **Application state:** route, filters, and selected IDs mirror into
-  `application_state` for agent context.
+- `templates/brain/app/routes/` — the UI surface: Ask, Search, Knowledge,
+  Review, Sources, Settings, and Team routes.
+- `templates/brain/actions/` — every agent-callable operation (imports, source
+  management, pilot reports, distillation, proposal review, cited search,
+  navigation/context). Add a new file with `defineAction` to expose a new
+  capability.
+- `templates/brain/.agents/skills/` — Brain-specific guidance for distillation
+  and retrieval. Update or add a skill when you teach the agent a new workflow.
+- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major
+  features.
+- `templates/brain/server/db/schema.ts` — data model. Additive migrations only;
+  route, filters, and selected IDs mirror into `application_state` for agent
+  context.
 
 Ask the agent to make changes for you — it can edit its own source. See
 [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
 
-See [Dispatch](/docs/dispatch) for the workspace control plane, the
-[Dispatch template](/docs/template-dispatch) for the scaffolded app,
-[Workspace](/docs/workspace) for shared resources, and
-[A2A Protocol](/docs/a2a-protocol) for cross-app delegation.
+## What's next
+
+- [**Dispatch**](/docs/dispatch) — the workspace control plane
+- [**Dispatch template**](/docs/template-dispatch) — the scaffolded coordination app
+- [**Workspace**](/docs/workspace) — shared resources across apps
+- [**A2A Protocol**](/docs/a2a-protocol) — cross-app delegation

@@ -5,9 +5,14 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 # MCP Clients
 
-Agent-native apps can also act as MCP **clients** — connecting to locally installed MCP servers and exposing their tools to the agent chat. This is the symmetric counterpart to the [MCP Protocol](/docs/mcp-protocol) (which makes your app an MCP server).
+**This page: give your agent more tools.** Point an agent-native app at MCP servers — local or remote — so their tools show up in the agent chat. This is the _client_ direction, the mirror image of [MCP Protocol](/docs/mcp-protocol) (which makes your app an MCP _server_).
 
-Looking for the other direction — connecting Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to an agent-native app? Use [External Agents](/docs/external-agents).
+| If you want to…                                              | Read                                     |
+| ------------------------------------------------------------ | ---------------------------------------- |
+| Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
+| Give your agent more tools (consume other MCP servers)       | **This page** — MCP Clients              |
+| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol)       |
 
 With one config file, every agent-native app in your workspace gains access to tools provided by MCP servers on your machine: `claude-in-chrome` for browser automation, `@modelcontextprotocol/server-filesystem` for reading files, `@playwright/mcp` for browser testing, and anything else that speaks MCP.
 
