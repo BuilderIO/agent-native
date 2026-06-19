@@ -89,53 +89,53 @@ Ask the agent for a deck and it builds one slide at a time. Slides stream into t
 
 Under the hood, this is powered by the `add-slide` and `create-deck` actions in `templates/slides/actions/`.
 
-### Seven slide layouts
+#### Seven slide layouts
 
 Built-in layouts: title, section divider, content with bullets, two-column, statement or quote, metrics or stats, and closing or CTA. Each layout is a pure HTML template with inline styles — the agent picks the right one based on slide purpose. The exact templates live inside `templates/slides/.agents/skills/create-deck/SKILL.md` so the agent can reference them without exploring the codebase.
 
-### Visual and code editing
+#### Visual and code editing
 
 - Double-click any text to edit inline.
 - Click a block to open the bubble menu for styles, alignment, and layout.
 - Switch to the code editor (`app/components/editor/CodeEditor.tsx`) to edit raw slide HTML.
 - Use the slash menu (`SlideSlashMenu.tsx`) to insert blocks by typing `/`.
 
-### AI image generation
+#### AI image generation
 
 Generate images through the Assets app when brand libraries matter; once the managed backend is deployed, that path can use Builder-managed image generation and keep the audit trail with the source library. Direct provider-key generation remains the fallback for standalone decks.
 
 Actions: `generate-image`, `edit-image`, `image-search`, `logo-lookup`. UI panels: `ImageGenPanel.tsx`, `ImageSearchPanel.tsx`, `LogoSearchPanel.tsx`.
 
-### Logo and stock image search
+#### Logo and stock image search
 
 - `logo-lookup --domain acme.com` fetches a company logo via Logo.dev or Brandfetch.
 - `image-search --query "mountain landscape"` searches Google Images for stock photos.
 
-### Comments and threads
+#### Comments and threads
 
 Leave comments on specific slides, quote selected text, and reply in threads. Stored in the `slide_comments` table. Actions: `add-slide-comment`, `list-slide-comments`.
 
-### Drag and drop reordering
+#### Drag and drop reordering
 
 Reorder slides in the sidebar, duplicate, or delete with hover controls. The sidebar lives in `app/components/editor/EditorSidebar.tsx`.
 
-### Presentation mode
+#### Presentation mode
 
 Full-screen presentation at `/deck/:id/present` with keyboard navigation (arrow keys, space, escape), auto-hiding controls, and speaker notes. See `app/routes/deck.$id_.present.tsx` and `app/components/presentation/PresentationView.tsx`.
 
-### Share links
+#### Share links
 
 Generate a public read-only URL for a deck so reviewers can view without an account. The share page is `app/routes/share.$token.tsx`. Fine-grained sharing (viewer, editor, admin roles, per-user or org-wide) is also available via the framework's `share-resource` action.
 
-### Real-time collaboration
+#### Real-time collaboration
 
 Multiple people can edit the same deck simultaneously. Text edits sync through Yjs CRDT so there are no conflicts, and the agent sees and edits the same live document via the `update-slide --find/--replace` action.
 
-### Undo and redo
+#### Undo and redo
 
 Cmd+Z and Cmd+Shift+Z work across the whole deck, with a labeled history panel (`HistoryPanel.tsx`) you can scrub through.
 
-### Extract from PDF
+#### Extract from PDF
 
 Turn a PDF into a starter deck. The `extract-pdf` action parses the file and hands the content to the agent for layout.
 
@@ -143,7 +143,7 @@ Turn a PDF into a starter deck. The `extract-pdf` action parses the file and han
 
 The agent chat lives in the sidebar. It can create decks, edit individual slides, generate images, search logos, and navigate the UI — all using the same actions you'd run from the CLI.
 
-### What the agent sees
+#### What the agent sees
 
 When a deck is open, the agent automatically sees:
 
@@ -153,11 +153,11 @@ When a deck is open, the agent automatically sees:
 
 This is injected into every message as a `current-screen` block, so the agent never has to guess what "this slide" means. The data comes from the `navigation` application-state key, which the UI writes on every navigation. See `templates/slides/actions/view-screen.ts`.
 
-### Selecting text for focused edits
+#### Selecting text for focused edits
 
 Select text on a slide and hit Cmd+I to focus the agent with that selection pre-loaded. The agent will act only on what you selected.
 
-### Inline slide previews in chat
+#### Inline slide previews in chat
 
 The agent can embed a live slide preview directly in a chat reply using the framework's embed fence. It renders a chromeless iframe via `app/routes/slide.tsx` so you can see the result without leaving the conversation.
 
