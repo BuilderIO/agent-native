@@ -7613,7 +7613,7 @@ type PlanSkillDemo = {
   label: string;
   description: string;
   videoAriaLabel: string;
-  videoUrl: string;
+  videoUrl?: string;
 };
 
 const PLAN_SKILL_DEMOS: PlanSkillDemo[] = [
@@ -7622,16 +7622,14 @@ const PLAN_SKILL_DEMOS: PlanSkillDemo[] = [
     label: "Visual Plan",
     description: "Review the implementation shape before code changes land.",
     videoAriaLabel: "Visual Plan skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a",
+    videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
   },
   {
     command: "/visual-recap",
     label: "Visual Recap",
     description: "Turn a PR or diff into a shareable review recap.",
     videoAriaLabel: "Visual Recap skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77",
+    videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
   },
 ];
 
@@ -7681,6 +7679,7 @@ function EmptyPlan({
 
 function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  if (!demo.videoUrl) return null;
 
   const handleVideoReady = useCallback(
     (event: SyntheticEvent<HTMLVideoElement>) => {
@@ -7805,7 +7804,7 @@ function LoggedOutEmptyPlan() {
           </Button>
         </div>
         <div className="grid w-full gap-3 pt-2 sm:grid-cols-2">
-          {PLAN_SKILL_DEMOS.map((demo) => (
+          {PLAN_SKILL_DEMOS.filter((demo) => demo.videoUrl).map((demo) => (
             <PlanSkillDemoVideo key={demo.command} demo={demo} />
           ))}
         </div>
