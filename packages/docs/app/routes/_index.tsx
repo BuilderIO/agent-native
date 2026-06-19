@@ -154,7 +154,7 @@ const homepageTemplateSlugs = [
   "plan",
   "slides",
   "analytics",
-  "mail",
+  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>

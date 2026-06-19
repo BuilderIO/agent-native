@@ -1,5 +1,4 @@
 ---
-"@agent-native/code-agents-ui": patch
 "@agent-native/core": patch
 ---
 
