@@ -65,13 +65,20 @@ function findReadonlyHeadingElement(
   return directDocumentHeadings(block)[item.headingIndex] ?? null;
 }
 
+function findMainEditorProse(root: HTMLElement): HTMLElement | null {
+  const editor = root.querySelector<HTMLElement>(".plan-document-editor");
+  if (!editor) return null;
+  // Tiptap wraps the ProseMirror root in a div, so `.an-rich-md-prose` isn't a
+  // direct child — match at any depth. First in document order is the top-level
+  // prose (nested-block editors live deeper inside it).
+  return editor.querySelector<HTMLElement>(".an-rich-md-prose");
+}
+
 function findEditableHeadingElement(
   root: HTMLElement,
   item: PlanHeadingTocItem,
 ) {
-  const prose = root.querySelector<HTMLElement>(
-    ".plan-document-editor > .an-rich-md-prose",
-  );
+  const prose = findMainEditorProse(root);
   if (!prose) return null;
 
   let currentRunId = "";
