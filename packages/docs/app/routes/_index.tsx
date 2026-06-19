@@ -149,12 +149,12 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
-  "chat",
   "calendar",
   "content",
   "plan",
   "slides",
   "analytics",
+  "mail",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>

@@ -8,18 +8,6 @@ export { trackEvent };
 
 export const templates = [
   {
-    name: "Chat",
-    slug: "chat",
-    replaces: "A minimal ChatGPT-style app for your own agent",
-    cliCommand:
-      "npx @agent-native/core@latest create my-chat-app --template chat",
-    demoUrl: "https://chat.agent-native.com",
-    description:
-      "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
-    color: "#18181B",
-    screenshot: "/screenshots/chat.png",
-  },
-  {
     name: "Calendar",
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
@@ -188,6 +176,18 @@ export const templates = [
     color: "#14B8A6",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
+  },
+  {
+    name: "Chat",
+    slug: "chat",
+    replaces: "A minimal ChatGPT-style app for your own agent",
+    cliCommand:
+      "npx @agent-native/core@latest create my-chat-app --template chat",
+    demoUrl: "https://chat.agent-native.com",
+    description:
+      "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
+    color: "#18181B",
+    screenshot: "/screenshots/chat.png",
   },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in

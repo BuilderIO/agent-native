@@ -259,16 +259,12 @@
   border-radius: 1rem;
   border-color: hsl(var(--border) / 0.75);
   background: hsl(var(--muted) / 0.62);
-  box-shadow:
-    0 18px 55px hsl(var(--foreground) / 0.08),
-    0 1px 0 hsl(var(--foreground) / 0.04);
+  box-shadow: none;
 }
 
 .agent-composer-root--hero:focus-within {
   border-color: hsl(var(--ring) / 0.9);
-  box-shadow:
-    0 20px 60px hsl(var(--foreground) / 0.1),
-    0 1px 0 hsl(var(--foreground) / 0.04);
+  box-shadow: none;
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-wrap"] {
