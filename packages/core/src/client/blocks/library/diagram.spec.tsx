@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiagramRead } from "./diagram.js";
+import { setWireframeStyle } from "./wireframe-kit.js";
 
 describe("DiagramBlock expand affordance", () => {
   let container: HTMLDivElement;
@@ -11,6 +12,7 @@ describe("DiagramBlock expand affordance", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setWireframeStyle("sketchy");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -22,12 +24,18 @@ describe("DiagramBlock expand affordance", () => {
     });
     container.remove();
     document.body.style.overflow = "";
+    setWireframeStyle("sketchy");
     vi.unstubAllGlobals();
   });
 
   const expandButton = () =>
     container.querySelector<HTMLButtonElement>(
       'button[aria-label="Expand diagram"]',
+    );
+
+  const styleButton = () =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Switch to clean visual style"], button[aria-label="Switch to sketchy visual style"]',
     );
 
   const lightbox = () =>
@@ -48,6 +56,30 @@ describe("DiagramBlock expand affordance", () => {
     expect(lightbox()).toBeNull();
   });
 
+  it("renders a contextual style toggle for the html/css variant", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-style"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{ html: "<div class='diagram-node'>Service</div>" }}
+        />,
+      );
+    });
+
+    const button = styleButton();
+    expect(button).toBeTruthy();
+    expect(button?.textContent).toContain("Clean");
+
+    act(() => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(styleButton()?.textContent).toContain("Sketchy");
+  });
+
   it("renders the expand control for the legacy node-graph variant", () => {
     act(() => {
       root.render(
@@ -66,6 +98,7 @@ describe("DiagramBlock expand affordance", () => {
     });
 
     expect(expandButton()).toBeTruthy();
+    expect(styleButton()).toBeNull();
   });
 
   it("opens a lightbox on click and closes it on Escape", () => {

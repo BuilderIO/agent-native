@@ -227,9 +227,6 @@ importers:
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
-      '@tailwindcss/typography':
-        specifier: ^0.5.19
-        version: 0.5.19(tailwindcss@4.3.0)
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -435,6 +432,9 @@ importers:
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.44.0(react@19.2.7)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -1557,6 +1557,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -1681,6 +1684,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@25.8.0)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -2082,6 +2088,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -2302,6 +2311,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -2824,6 +2836,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -2960,6 +2975,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -3867,6 +3885,9 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.16.0
         version: 7.16.0(@react-router/dev@7.16.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.16.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)(yaml@2.9.0))(typescript@6.0.3)
+      '@tailwindcss/typography':
+        specifier: ^0.5.20
+        version: 0.5.20(tailwindcss@4.3.0)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.0(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -10335,6 +10356,11 @@ packages:
     resolution: {integrity: sha512-w31dd8HOx3k9vPtcQh5QHP9GwKcgbMp87j58qi6xgiBnFFtKEAgCWnDw4qUT8aHwkCp8bKvb/KGKWWHedP0AAg==}
     peerDependencies:
       tailwindcss: '>=3.0.0 || insiders || >=4.0.0-alpha.20 || >=4.0.0-beta.1'
+
+  '@tailwindcss/typography@0.5.20':
+    resolution: {integrity: sha512-hwbzQuNUfcPvbegQFatVPl/MY/tcM9KLl963hQ5laJKPh81TEZ1+dNG9PirGvcaDBkp+BCshExAyKVPW91dozw==}
+    peerDependencies:
+      tailwindcss: '>=3.0.0 || >=4.0.0 || insiders'
 
   '@tailwindcss/vite@4.3.0':
     resolution: {integrity: sha512-t6J3OrB5Fc0ExuhohouH0fWUGMYL6PTLhW+E7zIk/pdbnJARZDCwjBznFnkh5ynRnIRSI4YjtTH0t6USjJISrw==}
@@ -24131,6 +24157,11 @@ snapshots:
       '@tailwindcss/oxide-win32-x64-msvc': 4.3.0
 
   '@tailwindcss/typography@0.5.19(tailwindcss@4.3.0)':
+    dependencies:
+      postcss-selector-parser: 6.0.10
+      tailwindcss: 4.3.0
+
+  '@tailwindcss/typography@0.5.20(tailwindcss@4.3.0)':
     dependencies:
       postcss-selector-parser: 6.0.10
       tailwindcss: 4.3.0

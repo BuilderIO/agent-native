@@ -9,7 +9,6 @@ export type CameraTestStatus = "idle" | "starting" | "live" | "error";
 export interface CameraVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
-  selectedLabel?: string | null;
   className?: string;
   size?: CameraBubbleSize;
   onSizeChange?: (size: CameraBubbleSize) => void;
@@ -119,7 +118,6 @@ async function friendlyCameraError(err: unknown): Promise<string> {
 export function CameraVisualizer({
   deviceId,
   disabled,
-  selectedLabel,
   className,
   size = "md",
   onSizeChange,
@@ -291,48 +289,17 @@ export function CameraVisualizer({
   const starting = status === "starting";
   const showBubble = live || starting;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
-  const helper = disabled
-    ? "Camera is off for this recording mode."
-    : error
-      ? error
-      : live
-        ? hasFrame
-          ? "Preview is live in the bottom-left bubble — this size carries into recording."
-          : "Camera is connected. Waiting for the first frame…"
-        : starting
-          ? "Opening camera…"
-          : "Click Test camera to show the camera bubble before recording.";
-
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-muted/25 p-3",
-        disabled && "opacity-70",
-        className,
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground">
-            Camera check
-          </div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {selectedLabel ?? "Selected camera"}
-          </div>
+    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 pl-2 pr-0.5">
+          <span className="text-[11px] text-muted-foreground">Bubble</span>
+          {live || starting ? (
+            <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
+              {live ? (hasFrame ? "Live" : "Waiting") : "Opening"}
+            </span>
+          ) : null}
         </div>
-        <Button
-          type="button"
-          variant={live ? "outline" : "secondary"}
-          size="sm"
-          disabled={disabled || starting}
-          onClick={live ? stopTest : startTest}
-          className="h-8 px-2.5 text-xs"
-        >
-          {live ? "Stop" : starting ? "Starting…" : "Test camera"}
-        </Button>
-      </div>
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1.5">
-        <span className="text-[11px] text-muted-foreground">Bubble size</span>
         <div className="flex rounded-md bg-muted p-0.5">
           {CAMERA_SIZE_OPTIONS.map((option) => (
             <button
@@ -351,6 +318,16 @@ export function CameraVisualizer({
             </button>
           ))}
         </div>
+        <Button
+          type="button"
+          variant={live ? "outline" : "secondary"}
+          size="sm"
+          disabled={disabled || starting}
+          onClick={live ? stopTest : startTest}
+          className="ml-auto h-7 shrink-0 px-2.5 text-xs"
+        >
+          {live ? "Stop" : starting ? "Opening..." : "Test"}
+        </Button>
       </div>
       {showBubble && (
         <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
@@ -410,14 +387,9 @@ export function CameraVisualizer({
           </div>
         </div>
       )}
-      <p
-        className={cn(
-          "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-foreground",
-        )}
-      >
-        {helper}
-      </p>
+      {error ? (
+        <p className="text-[11px] leading-snug text-foreground">{error}</p>
+      ) : null}
     </div>
   );
 }

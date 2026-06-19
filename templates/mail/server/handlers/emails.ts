@@ -31,6 +31,7 @@ import {
   peopleListOtherContacts,
   calendarGetEvent,
   calendarPatchEvent,
+  gmailGetAttachment,
 } from "../lib/google-api.js";
 import {
   isConnected,
@@ -314,6 +315,51 @@ async function writeEmails(
   await putUserSetting(email, "local-emails", { emails }, options);
 }
 
+async function readGmailComposeAttachment(
+  ownerEmail: string,
+  requestAccountEmail: string | undefined,
+  attachment: {
+    gmailMessageId?: string;
+    gmailAttachmentId?: string;
+    accountEmail?: string;
+  },
+): Promise<Buffer | null> {
+  if (!attachment.gmailMessageId || !attachment.gmailAttachmentId) return null;
+  const accountTokens = await getAccountTokens(ownerEmail);
+  const requestedAccountEmail = requestAccountEmail ?? attachment.accountEmail;
+  const requestedAccount = requestedAccountEmail
+    ? await resolveAccountEmail(requestedAccountEmail, ownerEmail)
+    : undefined;
+  const candidates = requestedAccount
+    ? accountTokens.filter((account) => account.email === requestedAccount)
+    : accountTokens;
+
+  for (const { accessToken } of candidates) {
+    try {
+      const res = await gmailGetAttachment(
+        accessToken,
+        attachment.gmailMessageId,
+        attachment.gmailAttachmentId,
+      );
+      if (res?.data) return Buffer.from(res.data, "base64url");
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function resolveEmailComposeAttachments(
+  attachments: unknown,
+  ownerEmail: string,
+  requestAccountEmail?: string,
+) {
+  return resolveComposeAttachments(attachments, ownerEmail, {
+    readGmailAttachment: (attachment) =>
+      readGmailComposeAttachment(ownerEmail, requestAccountEmail, attachment),
+  });
+}
+
 async function readLabels(email: string): Promise<Label[]> {
   const data = await getUserSetting(email, "labels");
   if (data && Array.isArray((data as any).labels)) {
@@ -439,7 +485,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
         await listGmailMessages(searchQuery, pageLimit, email, pageTokens, {
           mode: "threads",
-          threadFormat: "metadata",
+          threadFormat: view === "drafts" ? "full" : "metadata",
           threadCandidateLimit: q ? 80 : undefined,
           threadRecentMessageCandidateLimit:
             !q && (view === "inbox" || view === "unread")
@@ -1002,7 +1048,11 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
 
   let attachments;
   try {
-    attachments = await resolveComposeAttachments(reqBody.attachments, email);
+    attachments = await resolveEmailComposeAttachments(
+      reqBody.attachments,
+      email,
+      accountEmail,
+    );
   } catch {
     setResponseStatus(event, 400);
     return { error: "One or more attachments could not be read" };
@@ -1260,7 +1310,11 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
   let attachments;
   try {
-    attachments = await resolveComposeAttachments(reqBody.attachments, email);
+    attachments = await resolveEmailComposeAttachments(
+      reqBody.attachments,
+      email,
+      accountEmail,
+    );
   } catch {
     setResponseStatus(event, 400);
     return { error: "One or more attachments could not be read" };

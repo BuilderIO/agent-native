@@ -29,9 +29,11 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const navigation = await readAppState("navigation");
+    const localCodebase = await readAppState("local-codebase");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (localCodebase) screen.localCodebase = localCodebase;
     const nav = navigation as {
       planId?: string;
       localPlanSlug?: string;

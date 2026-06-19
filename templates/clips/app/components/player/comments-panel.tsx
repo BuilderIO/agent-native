@@ -345,7 +345,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
         )}
       >
         {sortedThreads.length === 0 ? (
-          <EmptyCommentsState isSharePresentation={isSharePresentation} />
+          <EmptyCommentsState
+            enableComments={enableComments}
+            isSharePresentation={isSharePresentation}
+          />
         ) : (
           <ul className="divide-y divide-border">
             {sortedThreads.map((thread) => {
@@ -415,10 +418,27 @@ export function CommentsPanel(props: CommentsPanelProps) {
 }
 
 function EmptyCommentsState({
+  enableComments,
   isSharePresentation,
 }: {
+  enableComments: boolean;
   isSharePresentation: boolean;
 }) {
+  if (!enableComments) {
+    return (
+      <div
+        className={cn(
+          "text-center text-sm text-muted-foreground",
+          isSharePresentation
+            ? "flex flex-1 items-center justify-center px-8 py-12"
+            : "p-6",
+        )}
+      >
+        Comments are disabled for this recording.
+      </div>
+    );
+  }
+
   if (!isSharePresentation) {
     return (
       <div className="p-6 text-center text-sm text-muted-foreground">

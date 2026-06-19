@@ -3,7 +3,6 @@ import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   IconShare3,
-  IconSettings,
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
@@ -48,6 +47,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { isLoomRecordingSource } from "@shared/loom";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];
@@ -73,6 +73,18 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
     return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
   }
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
+}
+
+function InsightsUnavailableState() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
+        Views, completion, and viewer details are visible to editors of this
+        clip.
+      </p>
+    </div>
+  );
 }
 
 function parseTimeParam(raw: string | null): number {
@@ -112,7 +124,7 @@ export default function RecordingPage() {
   const { session } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel>("transcript");
+  const [panel, setPanel] = useState<SidePanel>("agent");
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
@@ -124,7 +136,13 @@ export default function RecordingPage() {
   const [retryingFinalize, setRetryingFinalize] = useState(false);
 
   useEffect(() => {
-    if (panelParam === "comments" || panelParam === "transcript") {
+    if (
+      panelParam === "agent" ||
+      panelParam === "comments" ||
+      panelParam === "transcript" ||
+      panelParam === "insights" ||
+      panelParam === "settings"
+    ) {
       setPanel(panelParam);
     }
   }, [panelParam]);
@@ -182,6 +200,8 @@ export default function RecordingPage() {
     : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const isLoomRecording = isLoomRecordingSource(recording);
+  const canUseNativeEditor = canEdit && !isLoomRecording;
   const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
@@ -268,8 +288,12 @@ export default function RecordingPage() {
   });
 
   useEffect(() => {
-    if (!canEdit && editing) setEditing(false);
-  }, [canEdit, editing]);
+    if (recording && panel === "settings" && !canEdit) setPanel("agent");
+  }, [canEdit, panel, recording]);
+
+  useEffect(() => {
+    if (!canUseNativeEditor && editing) setEditing(false);
+  }, [canUseNativeEditor, editing]);
 
   useEffect(() => {
     if (!recording) return;
@@ -525,7 +549,7 @@ export default function RecordingPage() {
             </p>
           </div>
 
-          {canEdit ? (
+          {canUseNativeEditor ? (
             <Button
               variant={editing ? "secondary" : "outline"}
               size="sm"
@@ -654,6 +678,7 @@ export default function RecordingPage() {
             recordingTitle={recording.title}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
             hasPassword={Boolean(recording.hasPassword)}
           >
             <Button
@@ -676,10 +701,10 @@ export default function RecordingPage() {
         <div
           className={cn(
             "flex-1 flex flex-col overflow-hidden",
-            editing && canEdit ? "min-h-0" : "p-4 gap-4",
+            editing && canUseNativeEditor ? "min-h-0" : "p-4 gap-4",
           )}
         >
-          {editing && canEdit ? (
+          {editing && canUseNativeEditor ? (
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
@@ -688,6 +713,7 @@ export default function RecordingPage() {
                   ref={playerRef}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
+                  embedProvider={isLoomRecording ? "loom" : null}
                   durationMs={recording.durationMs}
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}
@@ -785,155 +811,159 @@ export default function RecordingPage() {
       {/* Side panel */}
       {!editing ? (
         <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
-          {panel === "settings" && canEdit ? (
-            <SettingsPanel
-              recording={recording}
-              visibility={recording.visibility}
-              ctas={ctas}
-              onClose={() => setPanel("transcript")}
-              onRefetch={() => playerDataQ.refetch()}
-            />
-          ) : (
-            <>
-              <Tabs
-                value={panel}
-                onValueChange={(v) => setPanel(v as SidePanel)}
-                className="flex flex-col h-full"
+          <Tabs
+            value={panel}
+            onValueChange={(v) => setPanel(v as SidePanel)}
+            className="flex flex-col h-full"
+          >
+            <TabsList
+              className={cn(
+                "mx-3 mt-3 grid w-auto",
+                canEdit ? "grid-cols-5" : "grid-cols-4",
+              )}
+            >
+              <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
+                Agent
+              </TabsTrigger>
+              <TabsTrigger
+                value="comments"
+                className="min-w-0 gap-1 px-2 text-xs"
               >
-                <TabsList
-                  className={cn(
-                    "mx-3 mt-3 grid w-auto",
-                    canEdit ? "grid-cols-4" : "grid-cols-2",
-                  )}
-                >
-                  <TabsTrigger value="transcript" className="text-xs">
-                    Transcript
-                  </TabsTrigger>
-                  <TabsTrigger value="comments" className="text-xs gap-1">
-                    Comments
-                    {comments.length > 0 ? (
-                      <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
-                        {comments.length}
-                      </span>
-                    ) : null}
-                  </TabsTrigger>
-                  {canEdit ? (
-                    <TabsTrigger value="insights" className="text-xs">
-                      Insights
-                    </TabsTrigger>
-                  ) : null}
-                  {canEdit ? (
-                    <TabsTrigger value="agent" className="text-xs">
-                      Agent
-                    </TabsTrigger>
-                  ) : null}
-                </TabsList>
-
-                <TabsContent
-                  value="transcript"
-                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-                >
-                  <TranscriptPanel
-                    segments={transcriptSegments}
-                    fullText={transcriptFullText}
-                    durationMs={recording.durationMs}
-                    currentMs={currentMs}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    status={transcriptStatus}
-                    failureReason={transcriptFailureReason}
-                    cleanup={transcriptCleanup}
-                    recordingTitle={recording.title}
-                    onRetry={() => {
-                      // Re-run transcription now that the user may have
-                      // connected Builder/Gemini or after a one-off network
-                      // error. The action flips the row to 'pending' first,
-                      // so the UI swaps back to "Transcribing…".
-                      fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/request-transcript",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId: recording.id,
-                            force: true,
-                          }),
-                        },
-                      )
-                        .then((res) => {
-                          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        })
-                        .catch((err) =>
-                          toast.error(
-                            `Retry failed: ${err?.message ?? "network error"}`,
-                          ),
-                        )
-                        .finally(() => playerDataQ.refetch());
-                    }}
-                  />
-                </TabsContent>
-                <TabsContent
-                  value="comments"
-                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-                >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={currentMs}
-                    currentUserEmail={session?.email}
-                    enableComments={recording.enableComments}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    queryKey={[
-                      "action",
-                      "get-recording-player-data",
-                      { recordingId: recordingId ?? "" },
-                    ]}
-                  />
-                </TabsContent>
-                {canEdit ? (
-                  <TabsContent
-                    value="insights"
-                    className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-                  >
-                    <InsightsPanel
-                      recordingId={recording.id}
-                      durationMs={recording.durationMs}
-                    />
-                  </TabsContent>
+                Activity
+                {comments.length > 0 ? (
+                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                    {comments.length}
+                  </span>
                 ) : null}
-                {canEdit ? (
-                  <TabsContent
-                    value="agent"
-                    className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
-                  >
-                    <AgentPanel
-                      emptyStateText="Ask about this clip…"
-                      suggestions={[
+              </TabsTrigger>
+              <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
+                Transcript
+              </TabsTrigger>
+              <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
+                Insights
+              </TabsTrigger>
+              {canEdit ? (
+                <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
+                  Settings
+                </TabsTrigger>
+              ) : null}
+            </TabsList>
+
+            <TabsContent
+              value="agent"
+              className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+            >
+              <AgentPanel
+                emptyStateText="Ask about this clip…"
+                dynamicSuggestions={false}
+                suggestions={
+                  canEdit
+                    ? [
                         "Summarize this clip",
                         "Generate chapters from the transcript",
-                        "Remove filler words and silences",
-                      ]}
-                    />
-                  </TabsContent>
-                ) : null}
-              </Tabs>
-
+                        "Find action items and follow-ups",
+                        "Draft a shareable recap",
+                      ]
+                    : [
+                        "Summarize this clip",
+                        "Find the key moments",
+                        "List follow-up actions",
+                        "Draft questions for the author",
+                      ]
+                }
+              />
+            </TabsContent>
+            <TabsContent
+              value="transcript"
+              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+            >
+              <TranscriptPanel
+                segments={transcriptSegments}
+                fullText={transcriptFullText}
+                durationMs={recording.durationMs}
+                currentMs={currentMs}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                status={transcriptStatus}
+                failureReason={transcriptFailureReason}
+                cleanup={transcriptCleanup}
+                recordingTitle={recording.title}
+                onRetry={() => {
+                  // Re-run transcription now that the user may have connected
+                  // Builder/Gemini or after a one-off network error. The action
+                  // flips the row to 'pending' first, so the UI swaps back to
+                  // "Transcribing…".
+                  fetch(
+                    agentNativePath(
+                      "/_agent-native/actions/request-transcript",
+                    ),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        recordingId: recording.id,
+                        force: true,
+                      }),
+                    },
+                  )
+                    .then((res) => {
+                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    })
+                    .catch((err) =>
+                      toast.error(
+                        `Retry failed: ${err?.message ?? "network error"}`,
+                      ),
+                    )
+                    .finally(() => playerDataQ.refetch());
+                }}
+              />
+            </TabsContent>
+            <TabsContent
+              value="comments"
+              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+            >
+              <CommentsPanel
+                recordingId={recording.id}
+                comments={comments}
+                currentMs={currentMs}
+                currentUserEmail={session?.email}
+                enableComments={recording.enableComments}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                queryKey={[
+                  "action",
+                  "get-recording-player-data",
+                  { recordingId: recordingId ?? "" },
+                ]}
+              />
+            </TabsContent>
+            <TabsContent
+              value="insights"
+              className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+            >
               {canEdit ? (
-                <div className="border-t border-border p-2">
-                  <Button
-                    onClick={() => setPanel("settings")}
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                  >
-                    <IconSettings className="h-4 w-4" />
-                    Settings
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
+                <InsightsPanel
+                  recordingId={recording.id}
+                  durationMs={recording.durationMs}
+                />
+              ) : (
+                <InsightsUnavailableState />
+              )}
+            </TabsContent>
+            {canEdit ? (
+              <TabsContent
+                value="settings"
+                className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+              >
+                <SettingsPanel
+                  recording={recording}
+                  visibility={recording.visibility}
+                  ctas={ctas}
+                  onClose={() => setPanel("agent")}
+                  onRefetch={() => playerDataQ.refetch()}
+                  showHeader={false}
+                />
+              </TabsContent>
+            ) : null}
+          </Tabs>
         </aside>
       ) : null}
     </div>

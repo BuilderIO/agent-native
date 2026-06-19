@@ -28,8 +28,8 @@ export const OPEN_ROUTE_SUBPATH = "/open";
 /** Custom URL scheme the desktop app registers (`agentnative://open?...`). */
 export const DESKTOP_OPEN_URL = "agentnative://open";
 
-/** VS Code extension URI used by builderio.agent-native to open a webview. */
-export const VSCODE_OPEN_URL = "vscode://builderio.agent-native/open";
+/** VS Code extension URI used by Builder.agent-native to open a webview. */
+export const VSCODE_OPEN_URL = "vscode://builder.agent-native/open";
 
 export interface DeepLinkInput {
   /** App id (informational + multi-app/desktop routing), e.g. "mail". */

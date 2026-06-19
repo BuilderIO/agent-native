@@ -10,12 +10,7 @@ import {
   useComposeState,
 } from "@/hooks/use-compose-state";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import {
-  useEmails,
-  useMarkRead,
-  useDeleteDraft,
-  useSettings,
-} from "@/hooks/use-emails";
+import { useEmails, useMarkRead, useSettings } from "@/hooks/use-emails";
 
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -555,8 +550,6 @@ export function InboxPage() {
     [compose],
   );
 
-  const deleteDraft = useDeleteDraft();
-
   // Open a saved draft in the compose window
   const handleDraftOpen = useCallback(
     (email: EmailMessage) => {
@@ -566,15 +559,29 @@ export function InboxPage() {
         bcc: email.bcc?.map((r) => r.email).join(", ") ?? "",
         subject: email.subject === "(no subject)" ? "" : email.subject,
         body: email.body,
+        attachments: email.attachments?.map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.filename,
+          originalName: attachment.filename,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          url: `/api/attachments?messageId=${encodeURIComponent(
+            email.id,
+          )}&id=${encodeURIComponent(
+            attachment.id,
+          )}&mimeType=${encodeURIComponent(attachment.mimeType)}`,
+          source: "gmail",
+          gmailMessageId: email.id,
+          gmailAttachmentId: attachment.id,
+          accountEmail: email.accountEmail,
+        })),
         mode: "compose",
         replyToId: (email as any).replyToId,
         replyToThreadId: (email as any).replyToThreadId,
         savedDraftId: email.id,
       });
-      // Delete the persistent draft (it's now in the compose window)
-      deleteDraft.mutate(email.id);
     },
-    [compose, deleteDraft],
+    [compose],
   );
 
   const isMobile = useIsMobile();

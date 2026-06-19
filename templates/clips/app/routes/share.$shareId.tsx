@@ -20,7 +20,6 @@ import {
   agentNativePath,
   appBasePath,
   appPath,
-  PoweredByBadge,
   useSession,
 } from "@agent-native/core/client";
 import {
@@ -41,6 +40,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
 import {
@@ -51,6 +56,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
+import { isLoomRecordingSource } from "../../shared/loom";
 
 type SharePageMetaRecording = {
   id: string;
@@ -215,12 +221,27 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
 };
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
+const CLIPS_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
+const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
+const CLIPS_AGENT_DOCS_URL =
+  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+
+type ViewerPlatform = "mac" | "windows";
+
+function detectViewerPlatform(): ViewerPlatform | null {
+  if (typeof navigator === "undefined") return null;
+  const ua = navigator.userAgent;
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Mac/i.test(ua)) return "mac";
+  return null;
+}
 
 function AgentDiscovery({
   recording,
   agentContextUrl,
 }: {
-  recording: SharePageMetaRecording | null;
+  recording: Pick<SharePageMetaRecording, "id" | "title"> | null;
   agentContextUrl: string | null;
 }) {
   if (!recording || !agentContextUrl) return null;
@@ -317,10 +338,15 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const isLoomRecording = isLoomRecordingSource(recording);
+  const unlockedAgentContextUrl =
+    typeof dataQ.data?.data?.agentContextUrl === "string"
+      ? dataQ.data.data.agentContextUrl
+      : null;
   const agentDiscovery = (
     <AgentDiscovery
-      recording={loaderData.recording}
-      agentContextUrl={loaderData.agentContextUrl}
+      recording={recording ?? loaderData.recording}
+      agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
     />
   );
 
@@ -365,6 +391,7 @@ export default function ShareRoute() {
       },
     } as any,
     durationMs: recording?.durationMs ?? 0,
+    trackOpenWithoutVideo: isLoomRecording,
   });
 
   // If the backend returned 401 with passwordRequired, prompt.
@@ -611,12 +638,6 @@ export default function ShareRoute() {
             ) : (
               <h1 className="truncate text-sm font-medium">{visibleTitle}</h1>
             )}
-            <p className="truncate text-xs text-muted-foreground">
-              Shared with Clips
-              {recording.visibility !== "private" ? (
-                <> · {capitalize(recording.visibility)}</>
-              ) : null}
-            </p>
           </div>
 
           <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
@@ -650,6 +671,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomRecording}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
@@ -667,6 +689,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              embedProvider={isLoomRecording ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -710,7 +733,9 @@ export default function ShareRoute() {
                       return;
                     }
                     tracking.reportReaction(emoji);
-                    const liveCt = playerRef.current?.video?.currentTime;
+                    const liveCt = isLoomRecording
+                      ? null
+                      : playerRef.current?.video?.currentTime;
                     const liveMs =
                       typeof liveCt === "number" &&
                       Number.isFinite(liveCt) &&
@@ -737,7 +762,9 @@ export default function ShareRoute() {
                   }}
                 />
               ) : null}
-              {recording.enableDownloads && recording.videoUrl ? (
+              {recording.enableDownloads &&
+              recording.videoUrl &&
+              !isLoomRecording ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -755,38 +782,35 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
-        <Tabs
-          defaultValue={recording.enableComments ? "comments" : "transcript"}
-          className="flex h-full flex-col"
-        >
-          <TabsList
-            className={`grid h-14 w-full rounded-none border-b border-border bg-transparent p-0 px-6 ${
-              recording.enableComments ? "grid-cols-2" : "grid-cols-1"
-            }`}
-          >
-            {recording.enableComments ? (
-              <TabsTrigger
-                value="comments"
-                className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-              >
-                Activity
-                {comments.length > 0 ? (
-                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-foreground tabular-nums">
-                    {comments.length}
-                  </span>
-                ) : null}
-              </TabsTrigger>
-            ) : null}
-            <TabsTrigger
-              value="transcript"
-              className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-            >
+        <Tabs defaultValue="agent" className="flex h-full flex-col">
+          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+            <TabsTrigger value="agent" className="text-xs">
+              Agent
+            </TabsTrigger>
+            <TabsTrigger value="comments" className="text-xs gap-1">
+              Comments
+              {comments.length > 0 ? (
+                <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                  {comments.length}
+                </span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="transcript" className="text-xs">
               Transcript
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="text-xs">
+              Insights
             </TabsTrigger>
           </TabsList>
           <TabsContent
+            value="agent"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <PublicAgentEmptyState />
+          </TabsContent>
+          <TabsContent
             value="transcript"
-            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
           >
             <TranscriptPanel
               segments={transcriptSegments}
@@ -799,33 +823,33 @@ export default function ShareRoute() {
               recordingTitle={recording.title}
             />
           </TabsContent>
-          {recording.enableComments ? (
-            <TabsContent
-              value="comments"
-              className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
-            >
-              <CommentsPanel
-                recordingId={recording.id}
-                comments={comments}
-                currentMs={currentMs}
-                currentUserEmail={session?.email}
-                enableComments={recording.enableComments}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                onUnauthenticated={requireSignIn}
-                queryKey={["public-recording", shareId, password]}
-                selectComments={(d: any) => d?.data?.comments}
-                applyComments={(d: any, next) =>
-                  d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
-                }
-                presentation="share"
-              />
-            </TabsContent>
-          ) : null}
+          <TabsContent
+            value="comments"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <CommentsPanel
+              recordingId={recording.id}
+              comments={comments}
+              currentMs={currentMs}
+              currentUserEmail={session?.email}
+              enableComments={recording.enableComments}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+              onUnauthenticated={requireSignIn}
+              queryKey={["public-recording", shareId, password]}
+              selectComments={(d: any) => d?.data?.comments}
+              applyComments={(d: any, next) =>
+                d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
+              }
+              presentation="share"
+            />
+          </TabsContent>
+          <TabsContent
+            value="insights"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <PublicInsightsState />
+          </TabsContent>
         </Tabs>
-
-        <div className="flex justify-center border-t border-border p-3">
-          <PoweredByBadge />
-        </div>
       </aside>
 
       <SignInPromptDialog
@@ -849,8 +873,98 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function PublicAgentEmptyState() {
+  const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
+
+  useEffect(() => {
+    setPlatform(detectViewerPlatform());
+  }, []);
+
+  const downloadLabel =
+    platform === "mac"
+      ? "Download for Mac"
+      : platform === "windows"
+        ? "Download for Windows"
+        : "Download desktop app";
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt="Agent-Native"
+            className="block h-8 w-auto dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt="Agent-Native"
+            className="hidden h-8 w-auto dark:block"
+          />
+        </div>
+        <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
+          <a
+            href={CLIPS_TEMPLATE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+          >
+            Agent-Native Clips
+          </a>{" "}
+          is a free,{" "}
+          <a
+            href={CLIPS_SOURCE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+          >
+            open-source
+          </a>
+          ,{" "}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href={CLIPS_AGENT_DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+              >
+                agent-friendly
+              </a>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[260px] text-left text-xs leading-5">
+              Paste a Clips link into an agent and it can see timestamped
+              screenshots, hear the transcript, and fetch the context it needs.
+            </TooltipContent>
+          </Tooltip>{" "}
+          Loom alternative
+        </p>
+        <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
+          <Button asChild className="w-full gap-2">
+            <a href={appPath("/download")}>
+              <IconDownload className="h-4 w-4" />
+              {downloadLabel}
+            </a>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <a href={appPath("/signup")}>Sign up</a>
+          </Button>
+        </div>
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function PublicInsightsState() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
+        Views, completion, and viewer details are visible to editors of this
+        clip.
+      </p>
+    </div>
+  );
 }
 
 function EndState({

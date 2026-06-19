@@ -325,6 +325,95 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
+  it("shows only the first plan-mode annotation by default when requested", () => {
+    setViewport(1200);
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{
+            codeAnnotationLayout: {
+              hoverSide: "left",
+              hoverFallbackSide: "right",
+              showByDefaultWhenRoom: true,
+              defaultVisibleAnnotations: "first",
+              marginSide: "auto",
+            },
+          }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first note is visible in the margin.",
+              },
+              {
+                lines: "2",
+                label: "Exit",
+                note: "The second note still opens on hover.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 80 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-code-line]"),
+    );
+    rows.forEach((row, index) => {
+      stubRect(row, rect({ left: 360, top: 100 + index * 22, height: 22 }));
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const anchor = container.querySelector(
+      "[data-annotation-inline-overlay-anchor]",
+    );
+    expect(anchor).toBeTruthy();
+    stubRect(anchor!, rect({ left: 850, top: 100, width: 0, height: 22 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toContain(
+      "The first note is visible in the margin.",
+    );
+    expect(overlay?.textContent).not.toContain(
+      "The second note still opens on hover.",
+    );
+
+    act(() => {
+      rows[1]!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const hoverCard = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(hoverCard).toBeTruthy();
+    expect(hoverCard?.textContent).toContain(
+      "The second note still opens on hover.",
+    );
+  });
+
   it("renders static annotation overlays when screenshot mode requests them", () => {
     act(() => {
       root.render(

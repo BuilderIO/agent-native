@@ -202,18 +202,30 @@ function AnnotatedCodeRead({
   const annotationHoverFallbackSide =
     annotationLayout?.hoverFallbackSide ?? "right";
   const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
+  const defaultVisibleAnnotations =
+    annotationLayout?.defaultVisibleAnnotations ??
+    (annotationLayout?.showByDefaultWhenRoom ? "all" : undefined);
   const showMarginAnnotations = useAnnotationMarginNotesAvailable({
     containerRef: codeRef,
     enabled: Boolean(
-      hasAnnotations &&
-      !showAnnotationOverlays &&
-      annotationLayout?.showByDefaultWhenRoom,
+      hasAnnotations && !showAnnotationOverlays && defaultVisibleAnnotations,
     ),
     side: annotationMarginSide,
     preferredSide: annotationHoverSide,
   });
   const showPersistentAnnotations =
     showAnnotationOverlays || showMarginAnnotations;
+  const persistentAnnotationIndexes = useMemo(() => {
+    if (!showMarginAnnotations || !defaultVisibleAnnotations) {
+      return new Set<number>();
+    }
+    const visible = resolved.filter((item) => item.range);
+    if (defaultVisibleAnnotations === "first") {
+      const first = visible[0];
+      return first ? new Set([first.index]) : new Set<number>();
+    }
+    return new Set(visible.map((item) => item.index));
+  }, [defaultVisibleAnnotations, resolved, showMarginAnnotations]);
   const captureOverlayAnnotationIndex = useMemo(
     () => resolved.find((item) => item.range)?.index ?? null,
     [resolved],
@@ -231,6 +243,11 @@ function AnnotatedCodeRead({
           : (resolved.find((item) => item.index === activeIndex) ?? null),
       [activeIndex, resolved],
     );
+  const activeItemIsPersistentlyVisible = Boolean(
+    activeItem &&
+    !showAnnotationOverlays &&
+    persistentAnnotationIndexes.has(activeItem.index),
+  );
 
   // Line-collapse state: a set of collapsed segment start lines that have been
   // expanded by the reader. Starts empty (all segments in their default state).
@@ -253,10 +270,14 @@ function AnnotatedCodeRead({
         ? markers.filter(
             (item) =>
               item.range?.start === lineNo &&
-              (!showAnnotationOverlays ||
-                item.index === captureOverlayAnnotationIndex),
+              (showAnnotationOverlays
+                ? item.index === captureOverlayAnnotationIndex
+                : persistentAnnotationIndexes.has(item.index)),
           )
         : [];
+    const rowHasPersistentAnnotation = Boolean(
+      markers?.some((item) => persistentAnnotationIndexes.has(item.index)),
+    );
 
     const buildAnchorForRow = (el: HTMLElement) => {
       if (!markers) return null;
@@ -281,11 +302,13 @@ function AnnotatedCodeRead({
           isAnnotated && "cursor-pointer",
           isActive
             ? "bg-amber-400/[0.12] dark:bg-amber-300/[0.10]"
-            : isAnnotated && showAnnotationOverlays
+            : rowHasPersistentAnnotation
               ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
-              : isAnnotated
-                ? "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]"
-                : null,
+              : isAnnotated && showAnnotationOverlays
+                ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
+                : isAnnotated
+                  ? "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]"
+                  : null,
         )}
         onMouseEnter={
           isAnnotated && markers
@@ -440,7 +463,8 @@ function AnnotatedCodeRead({
       {codeSurface}
       {hasAnnotations && <AnnotationHiddenStack items={resolved} ctx={ctx} />}
       {hasAnnotations &&
-        !showPersistentAnnotations &&
+        !showAnnotationOverlays &&
+        !activeItemIsPersistentlyVisible &&
         activeItem &&
         hover.anchor && (
           <AnnotationHoverCard

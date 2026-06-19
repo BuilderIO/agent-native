@@ -27,6 +27,8 @@ export interface UseViewTrackingOpts {
   durationMs: number;
   /** Disable tracking entirely (e.g. for the recording's owner viewing their own clip). */
   disabled?: boolean;
+  /** Count an open as a view when playback is iframe-backed and there is no native video element. */
+  trackOpenWithoutVideo?: boolean;
 }
 
 /**
@@ -35,17 +37,44 @@ export interface UseViewTrackingOpts {
  * seek/pause/resume events and a final flush on unmount.
  */
 export function useViewTracking(opts: UseViewTrackingOpts) {
-  const { recordingId, videoRef, durationMs, disabled } = opts;
+  const { recordingId, videoRef, durationMs, disabled, trackOpenWithoutVideo } =
+    opts;
   const watchMsRef = useRef(0);
   const lastTickRef = useRef<number | null>(null);
   const startedRef = useRef(false);
+  const openTrackedRecordingRef = useRef<string | null>(null);
   const lastSentProgressRef = useRef(0);
   const maxPctRef = useRef(0);
 
   useEffect(() => {
     if (disabled) return;
     const video = videoRef.current;
-    if (!video) return;
+    if (!video) {
+      if (
+        !trackOpenWithoutVideo ||
+        !recordingId ||
+        openTrackedRecordingRef.current === recordingId
+      ) {
+        return;
+      }
+      openTrackedRecordingRef.current = recordingId;
+      fetch(`${appBasePath()}/api/view-event`, {
+        method: "POST",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordingId,
+          kind: "view-start",
+          timestampMs: 0,
+          sessionId: getSessionId(),
+          totalWatchMs: 0,
+          completedPct: 0,
+          scrubbedToEnd: false,
+          payload: { source: "iframe-open" },
+        }),
+      }).catch(() => {});
+      return;
+    }
 
     const sessionId = getSessionId();
     let progressTimer: ReturnType<typeof setInterval> | null = null;
@@ -141,7 +170,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       // Flush final progress.
       if (startedRef.current) post("watch-progress");
     };
-  }, [recordingId, videoRef, durationMs, disabled]);
+  }, [recordingId, videoRef, durationMs, disabled, trackOpenWithoutVideo]);
 
   return {
     reportCtaClick: () => {

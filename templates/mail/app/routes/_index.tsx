@@ -1,14 +1,23 @@
 import { redirect } from "react-router";
 import { Spinner } from "@/components/ui/spinner";
 
+const SEO_TITLE =
+  "Agent-Native Mail - Open Source AI email client and Superhuman alternative";
+const SEO_DESCRIPTION =
+  "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Mail" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent reads, drafts, and organizes email alongside you.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

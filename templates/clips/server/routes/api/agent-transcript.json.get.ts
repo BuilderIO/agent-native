@@ -19,6 +19,7 @@ import {
   loadPublicAgentAccess,
   queryString,
 } from "../../lib/public-agent-context.js";
+import { isLoomRecordingSource } from "../../../shared/loom.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   applyAgentJsonHeaders(event);
@@ -45,6 +46,7 @@ export default defineEventHandler(async (event: H3Event) => {
     basePath: getServerAppBasePath(),
     token: accessResult.access.apiToken,
   });
+  const isLoomRecording = isLoomRecordingSource(recording);
 
   return {
     type: "agent-native.clip.transcript",
@@ -55,10 +57,14 @@ export default defineEventHandler(async (event: H3Event) => {
     },
     apis: {
       context: { method: "GET", url: api.contextUrl },
-      frame: {
-        method: "GET",
-        urlTemplate: api.frameUrlTemplate,
-      },
+      ...(isLoomRecording
+        ? {}
+        : {
+            frame: {
+              method: "GET",
+              urlTemplate: api.frameUrlTemplate,
+            },
+          }),
     },
     transcript: {
       status: transcript?.status ?? "missing",

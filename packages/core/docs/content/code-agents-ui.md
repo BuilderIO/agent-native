@@ -89,8 +89,9 @@ codex login status
 Desktop and the CLI read `codex login status` and run `codex exec`, so they
 reuse whatever ChatGPT subscription or API-key auth your installed Codex CLI
 reports. This is separate from the `@ai-sdk/harness-codex` package used by
-[Harness Agents](/docs/harness-agents); the harness adapter does not add a
-separate Agent-Native OAuth flow.
+[Harness Agents](/docs/harness-agents); the harness adapter can copy local
+Codex CLI auth into a trusted sandbox only when `codexCliAuth: true` is
+explicitly enabled.
 
 ## Browser Host
 

@@ -2,14 +2,23 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { appPath } from "@agent-native/core/client";
 import { Spinner } from "@/components/ui/spinner";
 
+const SEO_TITLE =
+  "Agent-Native Dispatch - Open Source workspace control plane for AI agents";
+const SEO_DESCRIPTION =
+  "Open Source workspace control plane for AI agents to manage apps, secrets, approvals, messages, jobs, and cross-app delegation.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Dispatch" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

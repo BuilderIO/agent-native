@@ -55,12 +55,38 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
-Codex auth has two paths. The `ai-sdk-harness:codex` adapter loads the AI SDK
-Codex harness package and does not implement a separate Agent-Native OAuth flow.
-For Agent-Native Code or Desktop coding sessions, Agent-Native can use the
-local Codex CLI after the user runs `codex login`; that reuses whatever
-ChatGPT subscription or API-key auth the installed Codex CLI reports through
-`codex login status`.
+## Codex auth: Code UI vs harness sandboxes {#codex-auth}
+
+There are two Codex surfaces, and they authenticate differently:
+
+- **Agent-Native Code / Desktop** runs `codex exec` on the user's machine. If
+  the user has run `codex login`, this local run reuses whatever ChatGPT
+  subscription or API-key auth the installed Codex CLI reports through
+  `codex login status`.
+- **`ai-sdk-harness:codex`** loads `@ai-sdk/harness-codex`, which drives Codex
+  inside the harness sandbox through `@openai/codex-sdk`. It does not silently
+  inherit the user's Desktop `~/.codex` login because the sandbox may be remote
+  or isolated. For trusted/private sandboxes, opt in with `codexCliAuth: true`;
+  Agent-Native copies the local Codex CLI auth file into the sandbox before the
+  harness starts. For hosted or shared sandboxes, configure API-key / gateway
+  auth instead.
+
+So if someone asks which package carries the Codex OAuth path: for local coding
+sessions, use `@agent-native/core` / Desktop plus the installed
+`@openai/codex` CLI and `codex login`. For sandboxed `ai-sdk-harness:codex`,
+use the explicit `codexCliAuth` opt-in when copying that login into the sandbox
+is acceptable.
+
+```ts
+const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
+  codexCliAuth: true,
+});
+```
+
+`codexCliAuth: true` reads `CODEX_HOME/auth.json` or `~/.codex/auth.json`. To
+point at a different local login, pass
+`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` or
+`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
 
 ## Register and resolve {#register-resolve}
 
@@ -77,8 +103,9 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` returns an `AgentHarnessAdapter`. The
 optional `config` is forwarded to the adapter factory — for the AI SDK adapters
 that maps to `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions`). Use `listAgentHarnesses()`
-to enumerate what is registered for a picker.
+`permissionMode`, `harnessOptions`, `agentOptions`, and the Codex-only
+`codexCliAuth`). Use `listAgentHarnesses()` to enumerate what is registered for
+a picker.
 
 ## Run a turn {#run-a-turn}
 

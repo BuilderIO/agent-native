@@ -119,6 +119,10 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(hello).toContain('http: { method: "GET" }');
     expect(hello).toContain("readOnly: true");
 
+    const run = fs.readFileSync(path.join(root, "actions", "run.ts"), "utf-8");
+    expect(run).toContain("CLI dispatcher");
+    expect(run).toContain("not exposed as an agent tool");
+
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );

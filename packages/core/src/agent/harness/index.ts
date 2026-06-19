@@ -45,6 +45,7 @@ export {
   createAiSdkHarnessAdapter,
   type AiSdkHarnessAdapterOptions,
   type AiSdkHarnessRuntime,
+  type CodexCliAuthConfig,
 } from "./ai-sdk-adapter.js";
 export { registerBuiltinAgentHarnesses } from "./builtin.js";
 export {
