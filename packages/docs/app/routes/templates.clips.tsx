@@ -13,7 +13,7 @@ export const meta = () =>
       {
         name: "description",
         content:
-          "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Auto-transcripts, AI summaries, and shareable links — open source alternative to Loom, Granola, and Wisprflow.",
+          "Screen recording, calendar-synced meeting notes, and Fn-hold voice dictation in one app you own. Paste Clips links into agents so they can read transcripts and see timestamped frames.",
       },
       {
         property: "og:title",
@@ -22,12 +22,12 @@ export const meta = () =>
       {
         property: "og:description",
         content:
-          "Screen recordings, meeting notes from your calendar, and push-to-talk voice dictation — all transcribed, summarized, and yours to own.",
+          "Screen recordings, meeting notes, and dictation — all transcribed, summarized, and shareable with agents as transcript plus timestamped visuals.",
       },
       {
         name: "keywords",
         content:
-          "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
+          "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-readable video links, agent-friendly Loom, agent-native clips, meeting notes, meeting recorder, granola alternative, wisprflow alternative, loom alternative, voice dictation, voice to text, push to talk dictation, calendar sync, action items, transcription, video messaging, async communication, shareable video links",
       },
     ],
     "Clips",
@@ -137,9 +137,10 @@ export default function ClipsTemplate() {
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               One-click screen recording, calendar-synced meeting notes with AI
               summaries and action items, and Fn-hold voice dictation — all in
-              one app, all transcribed, all agent-readable. Share a clip and an
-              agent can hear the transcript and see timestamped frames even if
-              its model cannot ingest raw video or audio.
+              one app, all transcribed, all agent-readable. Paste a Clips link
+              into an agent and it can hear the transcript, read summaries, and
+              see timestamped frames even if its model cannot ingest raw video
+              or audio.
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -453,9 +454,10 @@ export default function ClipsTemplate() {
               Agent-powered video workflows
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              Ask the agent anything about your library — it reads transcripts,
-              inspects timestamped frames, clips highlights, and drafts written
-              follow-ups from your recordings.
+              Ask the agent anything about your library, or paste a shared Clips
+              link into another agent — it can read transcripts, inspect
+              timestamped frames, clip highlights, and draft written follow-ups
+              from your recordings.
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -632,7 +634,7 @@ export default function ClipsTemplate() {
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Agent-readable media context
+                  Pasteable agent media links
                 </td>
                 <td className="px-5 py-3">Transcript only</td>
                 <td className="px-5 py-3">Notes only</td>
