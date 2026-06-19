@@ -18,6 +18,13 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionsSidebarSection: () => null,
 }));
 vi.mock("@agent-native/core/client", () => ({
+  // `@/lib/utils` re-exports `cn` from `@agent-native/core/client`, so the
+  // client mock must provide it or components crash on first render.
+  cn: (...args: unknown[]) =>
+    args
+      .flat(Infinity)
+      .filter((v) => typeof v === "string" && v.length > 0)
+      .join(" "),
   appPath: (path: string) => path,
   DevDatabaseLink: () => null,
   FeedbackButton: () => null,
