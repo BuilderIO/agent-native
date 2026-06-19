@@ -8,8 +8,14 @@ description: "Create an agent app — with a chat UI or headless — add an acti
 Agent-Native apps give an AI agent and your UI the same actions, data, and
 state. The smallest useful app is a single action.
 
-The only choice up front is whether you want a UI. Everything after it — defining
-actions, running the agent — is exactly the same either way.
+**Want a complete app to start from?** Clone one of our rich templates —
+[Chat](/docs/template-chat), [Mail](/docs/template-mail),
+[Calendar](/docs/template-calendar), [Content](/docs/template-content),
+[Analytics](/docs/template-analytics), and [many more](/docs/cloneable-saas) —
+each a full-featured app you customize.
+
+Building from scratch? The only choice up front is whether you want a UI —
+everything after (defining actions, running the agent) is the same either way.
 
 ## 1. Create your app
 
