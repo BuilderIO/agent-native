@@ -374,7 +374,6 @@ const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
   "input-monitoring": "ms-settings:privacy",
 };
 
-
 function openPrivacySettings(pane: MacosPrivacyPane): void {
   if (isMacPlatform()) {
     invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {

@@ -1015,7 +1015,9 @@ body[data-clips-route="recording-pill"] #root {
   color: var(--fg-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: color 120ms, background 120ms;
+  transition:
+    color 120ms,
+    background 120ms;
   flex-shrink: 0;
 }
 
@@ -1034,7 +1036,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 @keyframes readiness-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .readiness-empty {
