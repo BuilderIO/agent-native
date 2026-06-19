@@ -110,26 +110,9 @@ Keep `context/` files short and factual — a few bullets the agent can skim:
 
 ## Workspace Panel {#workspace-panel}
 
-The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.
+The agent panel includes a **Workspace** tab alongside Chat and CLI. It shows a folder-organized tree of all resources, an inline editor for any text file (Markdown, JSON, YAML, plain text), and the `+` menu's typed creation flows (Files, Skills, Agents, Scheduled Tasks). Users can browse inherited workspace defaults and create/edit/delete personal or organization resources.
 
-Resources can be any text file — Markdown, JSON, YAML, plain text. The panel includes an inline editor for viewing and modifying resource content directly.
-
-The `+` menu in Workspace supports typed creation flows for:
-
-- **Files** — arbitrary resources
-- **Skills** — reusable instruction files under `skills/`
-- **Agents** — custom sub-agent profiles under `agents/*.md`
-- **Scheduled Tasks** — recurring jobs under `jobs/`
-
-When you open a resource, the editor shows an **Effective context** strip with the precedence stack:
-
-```text
-workspace default -> organization/app override -> personal override
-```
-
-If the same path exists at multiple levels, the later level wins. Workspace resources are still visible in the stack so users can see what was inherited and why an override is active.
-
-Dispatch shows the same model from the control-plane side. On the **Resources** page, expand a resource and use **Effective in app** to choose an app and optional user email. From an app card's **Context** dialog, expand **Stack** on any resource row to see the same winner/override chain for that app.
+When you open a resource, the editor shows an **Effective context** strip with the `workspace default -> organization/app override -> personal override` stack, so you can see what was inherited and why an override is active. Dispatch shows the same model from the control-plane side: on the **Resources** page use **Effective in app**, or expand **Stack** on a resource row in an app card's **Context** dialog.
 
 When Dispatch approval policy is enabled, creating, updating, or deleting an **All apps** resource queues an approval request instead of applying immediately. The create/edit/delete dialogs show an impact preview before save.
 

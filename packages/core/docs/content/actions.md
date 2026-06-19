@@ -19,6 +19,10 @@ One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-ag
 If you are deciding whether to expose an operation headlessly, in chat, in an
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
+If the UI and agent both need to do something, reach for an action — not a custom
+route. For when a route-shaped protocol _is_ the right call, see [Prefer Actions
+For App Operations](/docs/server#actions-first).
+
 ## Start with one action {#hello-action}
 
 The primitive-first on-ramp is one action, not a template. In a headless

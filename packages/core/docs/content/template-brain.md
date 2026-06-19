@@ -21,10 +21,34 @@ surfaces for connecting data, approving proposals, and inspecting cited memory.
 
 ![Brain company chat with cited memory sources](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200)
 
+When you open the app, **Ask** is front and center — a clean chat over reviewed
+company memory. **Sources**, **Review**, and **Knowledge** sit alongside it as
+admin surfaces for connecting data, approving proposals, and inspecting cited
+entries.
+
+## When to pick it
+
 Use Brain when your team wants agents to answer questions like "why did we make
 this product decision?", "how does this in-development feature work?", or "what
 changed in this process?" with links back to the source conversation, meeting,
 or issue.
+
+Brain and Dispatch are complementary but do different jobs:
+
+- **Brain owns company memory.** It ingests sources, reviews raw captures,
+  distills durable facts/decisions/processes, answers from cited evidence, and
+  exposes approved knowledge to agents.
+- **Dispatch owns the workspace control plane.** It centralizes messaging,
+  secrets, recurring jobs, approvals, A2A orchestration, and the distribution
+  and approval of workspace-wide resources.
+
+In a multi-app workspace, Dispatch can route a question to Brain over A2A and
+can grant Brain shared provider credentials. Brain remains the specialist for
+approved source ingestion, review, retrieval, and cited Company Brain answers.
+Brain exposes read-only, citation-backed retrieval as its public A2A capability
+so Dispatch and sibling apps can ask company-memory questions — the A2A agent
+card is public discovery metadata, while retrieval still happens inside Brain's
+authenticated action surface.
 
 ## What you can do with it
 
@@ -51,14 +75,6 @@ or issue.
   apps can use them as context. Both flows preview the exact Markdown before the
   resource is written or removed.
 
-## Useful prompts
-
-- "What did we decide about annual pricing, and where was that discussed?"
-- "Find the most recent onboarding-process change and cite the source."
-- "Summarize what this GitHub discussion means for the launch plan."
-- "Review the pending memory proposals and flag anything too vague to publish."
-- "Which sources are stale or failing sync?"
-
 ## Getting started
 
 Live demo: [brain.agent-native.com](https://brain.agent-native.com).
@@ -78,6 +94,14 @@ Live demo: [brain.agent-native.com](https://brain.agent-native.com).
 For a public demo, the seeded corpus demonstrates product-decision recall,
 citation links, supersede behavior, review gating, redaction, personal-content
 exclusion, and honest not-found behavior without connecting a real workspace.
+
+### Useful prompts
+
+- "What did we decide about annual pricing, and where was that discussed?"
+- "Find the most recent onboarding-process change and cite the source."
+- "Summarize what this GitHub discussion means for the launch plan."
+- "Review the pending memory proposals and flag anything too vague to publish."
+- "Which sources are stale or failing sync?"
 
 ## For developers
 

@@ -31,6 +31,43 @@ Use the headless path when no one needs to stare at a custom app screen while
 the work runs: scheduled jobs, integrations, backend workflows, CLI loops,
 another agent, or an existing product calling into Agent-Native.
 
+This is also the shape to reach for when **the agent _is_ the product** — the
+app-agent loop is the front door, not a dashboard. You send a request from the
+terminal, Slack, email, a scheduled job, another agent, or Chat — "summarize my
+unread emails," "post the daily metrics to Slack," "find the candidates who
+replied last week" — and the agent acts and returns the result wherever it
+belongs. It is still a real app, not a stateless prompt: actions, auth sessions,
+app state, thread/run history, settings, credentials, and share records all live
+in SQL.
+
+Pick this pattern when:
+
+- **The work happens in the background.** Most of the value is created while the user isn't looking — triage agents, daily-report agents, on-call responders.
+- **The output leaves the app.** The agent posts to Slack, sends email, or updates a third-party system; there's nothing to browse in-app.
+- **The domain is one-shot.** Research bot, summary generator, report writer — no persistent object that needs a list view.
+- **You're prototyping.** Ship the agent now; add richer UI later if users want one.
+
+If your product is built around persistent objects users browse, pivot, and
+share — emails, events, documents, charts — pick a [full application](#full-application)
+or a [template](/docs/cloneable-saas) instead; those add a full UI _plus_ the agent.
+
+### What ships in the box {#in-the-box}
+
+A headless app skips weeks of dashboard work, and it's channel-agnostic from day
+one — the same agent runs from the web, Slack, Telegram, email, and other agents
+because everything goes through the agent, not the UI. The trade-off is there's
+no "browse-everything-at-a-glance" view; if users need that, mix patterns and
+add a small status page or list view.
+
+When you add the built-in Chat shell, the framework provides five management
+surfaces you don't have to build: **Chat** (the main input), **Workspace**
+(skills, memory, instructions, sub-agents, connected MCP servers, scheduled
+jobs), **Job history**, **Thread history**, and **Settings**. Those are usually
+enough — talk to it, see what it's done, configure how it behaves. Reach for
+[Chat](/docs/template-chat) when you're ready to add that browser UI, or the
+[Dispatch template](/docs/template-dispatch) for a workspace-style starting
+point with Slack/Telegram, scheduled jobs, and shared secrets out of the box.
+
 The smallest local path is a headless agent scaffold plus one action:
 
 ```bash
