@@ -62,15 +62,9 @@ Even when the agent does all the heavy lifting, humans still need to:
 - **Inspect its work** — review drafts, audit history, roll back mistakes
 - **Share its output** — dashboards, reports, forms, links to send to teammates
 
-At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Templates](/docs/cloneable-saas) for the maximal end.
+At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native, and the surface can grow from one without a rewrite.
 
-There are three useful shapes:
-
-- **Headless** — call the agent and actions from code, HTTP, CLI, MCP, or A2A.
-- **Rich chat** — give the agent a first-class chat UI with native tool widgets such as tables, charts, typed results, approvals, and links into app views. See [Native Chat UI](/docs/native-chat-ui).
-- **Whole app** — put a full application around the agent, with SQL state, context awareness, deep links, and live sync so humans and agents stay in the same workspace.
-
-Agent-native is designed so those are stages, not rewrites. You can start headless, add rich chat, and grow into a full app around the same action surface. See [Agent Surfaces](/docs/agent-surfaces) for the concrete APIs behind each shape.
+You don't have to choose a shape up front. The agent can run headless, sit behind a rich chat, or live inside a full application around the same action surface — see [Agent Surfaces](/docs/agent-surfaces) for the concrete shapes and APIs.
 
 ## Why every app benefits from an agent {#why-every-app-benefits-from-an-agent}
 
@@ -186,7 +180,7 @@ One action, many surfaces: the agent calls it as a tool, the UI calls it as a ty
 
 ## What's next {#whats-next}
 
-- [**Getting Started**](/docs) — start with one action, pick a template, or install a skill
+- [**Getting Started**](/docs/getting-started) — start with one action, pick a template, or install a skill
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own
