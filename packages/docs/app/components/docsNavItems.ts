@@ -57,6 +57,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Voice Input", to: "/docs/voice-input" as const },
       { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
       { label: "Component API", to: "/docs/components" as const },
+      { label: "Native Chat UI", to: "/docs/native-chat-ui" as const },
       {
         label: "Real-Time Collaboration",
         to: "/docs/real-time-collaboration" as const,
