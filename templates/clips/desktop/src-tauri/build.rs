@@ -18,6 +18,7 @@ fn add_swift_runtime_rpaths() {
     // CMTime symbols we touch via raw `msg_send!` / `extern "C"`.
     println!("cargo:rustc-link-lib=framework=AVFoundation");
     println!("cargo:rustc-link-lib=framework=CoreMedia");
+    println!("cargo:rustc-link-lib=framework=IOKit");
 
     // The screencapturekit crate builds a Swift bridge. Its build script adds
     // these rpaths for its own crate, but Cargo does not propagate them to the
