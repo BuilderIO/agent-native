@@ -123,7 +123,7 @@ pub async fn accessibility_request_permission() -> Result<bool, String> {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use super::ActiveWindowContext;
     use core_foundation::array::CFArray;
     use core_foundation::base::{CFType, TCFType};

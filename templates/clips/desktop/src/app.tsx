@@ -53,6 +53,7 @@ import {
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { normalizeServerUrl } from "./lib/url";
+import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -373,20 +374,6 @@ const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
   "input-monitoring": "ms-settings:privacy",
 };
 
-function isMacPlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-}
-
-function isWindowsPlatform(): boolean {
-  return (
-    typeof navigator !== "undefined" &&
-    (/Win/i.test(navigator.platform) ||
-      /Win/i.test(
-        (navigator as { userAgentData?: { platform?: string } }).userAgentData
-          ?.platform ?? "",
-      ))
-  );
-}
 
 function openPrivacySettings(pane: MacosPrivacyPane): void {
   if (isMacPlatform()) {
@@ -414,9 +401,6 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
     return;
   }
 }
-
-// Keep backward-compatible alias so all existing call-sites continue to work.
-const openMacosPrivacySettings = openPrivacySettings;
 
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
@@ -1920,7 +1904,7 @@ export function App() {
         if (!granted) {
           setReadinessOpen(true);
           setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
-          openMacosPrivacySettings("screen");
+          openPrivacySettings("screen");
           return;
         }
       } catch (err) {
@@ -2447,7 +2431,7 @@ export function App() {
         includeFnMonitoring={fnShortcutEnabled}
         open={readinessOpen}
         onOpenChange={updateReadinessOpen}
-        onOpenPermission={openMacosPrivacySettings}
+        onOpenPermission={openPrivacySettings}
       />
 
       <button
@@ -2606,7 +2590,7 @@ function PermissionRecoveryBanner({
           <button
             type="button"
             key={pane}
-            onClick={() => openMacosPrivacySettings(pane)}
+            onClick={() => openPrivacySettings(pane)}
           >
             {permissionPaneLabel(pane)}
           </button>
@@ -3140,6 +3124,7 @@ function Setup({
   onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
+  const [readinessOpen, setReadinessOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const featureConfig = useFeatureConfig();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -3835,51 +3820,22 @@ function Setup({
         ) : null}
       </div>
 
-      {isMacPlatform() ? (
-        <div className="setup-section">
-          <SettingLabel
-            label="macOS permissions"
-            hint="Open the exact Privacy & Security pane for each permission Clips can need."
-          />
-          <div className="setup-permission-grid">
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("camera")}
-            >
-              Camera
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("microphone")}
-            >
-              Microphone
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("screen")}
-            >
-              Screen Recording
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("speech")}
-            >
-              Speech Recognition
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("accessibility")}
-            >
-              Accessibility
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <div className="setup-section">
+        <SettingLabel
+          label="Privacy permissions"
+          hint="Open the exact Privacy & Security pane for each permission Clips can need."
+        />
+        <ReadinessPanel
+          mode="screen-camera"
+          cameraOn={true}
+          micOn={true}
+          includeVoicePaste={voiceEnabled}
+          includeFnMonitoring={fnShortcutSelected}
+          open={readinessOpen}
+          onOpenChange={setReadinessOpen}
+          onOpenPermission={openPrivacySettings}
+        />
+      </div>
 
       {voiceEnabled ? (
         <>
@@ -4044,7 +4000,7 @@ function Setup({
               <button
                 type="button"
                 className="secondary"
-                onClick={() => openMacosPrivacySettings("input-monitoring")}
+                onClick={() => openPrivacySettings("input-monitoring")}
               >
                 Open Input Monitoring
               </button>
