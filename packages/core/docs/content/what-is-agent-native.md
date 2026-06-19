@@ -72,7 +72,7 @@ The flip side is just as important. Existing SaaS products keep hitting the same
 
 Agent-native flips that. Because every action in the app is defined once and exposed as both a button and an agent tool, the agent can do everything the buttons can — and more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
 
-The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." See [Pure-Agent Apps](/docs/pure-agent-apps) for the full discussion of why agents still need a UI.
+The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Even an app where the agent _is_ the product still needs a UI for humans to supervise, configure, and steer it — see [Agent Surfaces — Headless](/docs/agent-surfaces#headless).
 
 ## Agent + UI parity {#agent-ui-parity}
 
