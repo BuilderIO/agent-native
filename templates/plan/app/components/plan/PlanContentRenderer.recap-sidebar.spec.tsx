@@ -194,13 +194,15 @@ describe("PlanContentRenderer recap files sidebar", () => {
     const flow = container.querySelector(".plan-document-flow");
     expect(flow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
 
-    // A breakpoint-scoped rule hides the in-flow copy at wide widths.
+    // A container-query-scoped rule hides the in-flow copy when the rail shows
+    // (keyed off the surface container, not the viewport).
     const styles = Array.from(container.querySelectorAll("style"))
       .map((node) => node.textContent ?? "")
       .join("\n");
     expect(styles).toContain('[data-block-id="tree-1"]');
     expect(styles).toContain("display:none");
-    expect(styles).toContain("min-width: 1400px");
+    expect(styles).toContain("@container plan-doc");
+    expect(styles).toContain("min-width: 58rem");
 
     // The contents rail drops the relocated block but keeps the prose sections.
     const toc = container.querySelector(".plan-document-toc");
