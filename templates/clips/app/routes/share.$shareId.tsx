@@ -43,7 +43,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
@@ -136,6 +139,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
+      ownerEmail: schema.recordings.ownerEmail,
       password: schema.recordings.password,
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
@@ -164,19 +168,26 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     trashedAt: rec.trashedAt,
   };
   const canExposeAgentContext =
-    rec.visibility === "public" &&
-    !rec.password &&
-    !rec.archivedAt &&
-    !rec.trashedAt;
+    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
+  const token =
+    canExposeAgentContext &&
+    rec.password &&
+    getRequestUserEmail() === rec.ownerEmail
+      ? signShortLivedToken({ resourceId: id })
+      : undefined;
+  const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
+  const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
-    agentContextUrl: canExposeAgentContext
-      ? buildAgentApiUrls(id, {
-          origin: new URL(request.url).origin,
-          basePath:
-            process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
-        }).contextUrl
-      : null,
+    agentContextUrl:
+      canExposeAnonymousAgentContext || canExposeOwnerAgentContext
+        ? buildAgentApiUrls(id, {
+            origin: new URL(request.url).origin,
+            basePath:
+              process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
+            token,
+          }).contextUrl
+        : null,
   };
 }
 
