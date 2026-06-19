@@ -1710,9 +1710,15 @@ function createAuthGuardFn(): (
     if (p === "/login" || p === "/signup") {
       const session = await getSession(event);
       if (session) {
+        const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
+        const safeReturn = safeReturnPath(
+          new URLSearchParams(queryStr).get("return"),
+        );
         return new Response("", {
           status: 302,
-          headers: { Location: getAppBasePath() || "/" },
+          headers: {
+            Location: safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
+          },
         });
       }
       return loginHtmlResponse(loginHtml, event);

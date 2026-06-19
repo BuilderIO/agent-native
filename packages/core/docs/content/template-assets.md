@@ -7,9 +7,14 @@ description: "An agent-native digital asset manager and cross-agent generation s
 
 Assets is an agent-native workspace for creating and managing brand-consistent media. It organizes uploads and generated results into libraries and folders, lets teams collect examples for blog heroes, diagrams, landing pages, product shots, videos, and logos, then routes generation through the agent chat so every asset can be reviewed and refined.
 
-![Assets library for brand media and generated output](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch brand</h1><span class='wf-pill accent'>Blog heroes</span><span class='wf-pill'>Product shots</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Create brand media</strong><div class='wf-box'>Three homepage hero options using the approved logo and product references.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web export</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Reference set</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo safe</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+}
+```
 
-When you open the app, you see your libraries and folders on the left, the assets in the selected library in the middle, and a chat composer for generating new media. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
+When you open the app, the selected library, prompt, references, and generated candidates stay in one workspace. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
 
 ```an-diagram title="Generate, review, reuse" summary="References and prompts feed a generate-and-choose session; chosen assets land in a library and flow out to other apps via the picker or A2A."
 {
@@ -41,7 +46,7 @@ Live demo: [assets.agent-native.com](https://assets.agent-native.com).
 
 ## Useful prompts
 
-- "Generate three blog hero options using the Acme product screenshots as references."
+- "Generate three blog hero options using the Acme product references."
 - "Create a square social image in the launch-campaign style."
 - "Find all approved assets for the onboarding redesign."
 - "Turn this uploaded diagram into a cleaner product explainer image."

@@ -42,6 +42,9 @@ import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
  * pairs, so it reads correctly in BOTH light and dark mode. Code lines render as
  * `<span>`s (never one `<pre>` per line) so they don't pick up document
  * code/pre chrome. Lives in core so any app can register the dev-doc block.
+ * Each annotated range also gets a small sticky glowing indicator at the top
+ * right of its first line, making the hover affordance visible without a note
+ * column.
  *
  * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
  * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
@@ -278,13 +281,24 @@ function AnnotatedCodeRead({
     const rowHasPersistentAnnotation = Boolean(
       markers?.some((item) => persistentAnnotationIndexes.has(item.index)),
     );
+    const rangeStartMarkers =
+      markers?.filter((item) => item.range?.start === lineNo) ?? [];
 
-    const buildAnchorForRow = (el: HTMLElement) => {
-      if (!markers) return null;
-      const primaryMarker = markers[0];
-      const anchorLine = primaryMarker.range?.start ?? lineNo;
-      const anchorRow = lineRefs.current.get(anchorLine) ?? el;
+    const buildAnchorForItem = (
+      item: ResolvedAnnotation<AnnotatedCodeAnnotation>,
+      fallbackRow: HTMLElement,
+    ) => {
+      const anchorLine = item.range?.start ?? lineNo;
+      const anchorRow = lineRefs.current.get(anchorLine) ?? fallbackRow;
       return anchorFromElements(codeRef.current, anchorRow);
+    };
+
+    const openAnnotation = (
+      item: ResolvedAnnotation<AnnotatedCodeAnnotation>,
+      row: HTMLElement,
+    ) => {
+      const anchor = buildAnchorForItem(item, row);
+      if (anchor) hover.open(item.index, anchor);
     };
 
     return (
@@ -313,8 +327,7 @@ function AnnotatedCodeRead({
         onMouseEnter={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -322,8 +335,7 @@ function AnnotatedCodeRead({
         onClick={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -332,16 +344,14 @@ function AnnotatedCodeRead({
             ? (event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
         onFocus={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -366,6 +376,39 @@ function AnnotatedCodeRead({
         <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
           {highlightedLines[lineNo - 1]}
         </span>
+        {rangeStartMarkers.length > 0 && (
+          <span
+            aria-hidden
+            className="sticky right-0.5 z-10 ml-2 flex h-[22px] shrink-0 items-center gap-1 self-start pr-0.5"
+            data-annotated-code-marker-stack
+          >
+            {rangeStartMarkers.map((item) => (
+              <span
+                key={item.index}
+                title={`Annotation ${item.marker}`}
+                data-annotated-code-marker={item.marker}
+                onMouseEnter={(event) => {
+                  event.stopPropagation();
+                  const row =
+                    event.currentTarget.closest<HTMLElement>(
+                      "[data-code-line]",
+                    ) ?? event.currentTarget;
+                  openAnnotation(item, row);
+                }}
+                className="group inline-flex size-3 cursor-pointer items-center justify-center rounded-full outline-none transition-transform hover:scale-110"
+              >
+                <span
+                  className={cn(
+                    "block rounded-full ring-1 transition-all duration-150",
+                    activeIndex === item.index
+                      ? "size-[6px] bg-yellow-300 ring-yellow-200 shadow-[0_0_0_3px_rgba(250,204,21,0.30),0_0_16px_rgba(250,204,21,0.92)] dark:bg-yellow-200 dark:ring-yellow-100/70 dark:shadow-[0_0_0_3px_rgba(253,224,71,0.26),0_0_16px_rgba(253,224,71,0.76)]"
+                      : "size-1 bg-yellow-300/95 ring-yellow-200/65 shadow-[0_0_0_2px_rgba(250,204,21,0.18),0_0_11px_rgba(250,204,21,0.56)] group-hover:size-[6px] group-hover:bg-yellow-300 group-hover:ring-yellow-200 group-hover:shadow-[0_0_0_3px_rgba(250,204,21,0.30),0_0_16px_rgba(250,204,21,0.90)] dark:bg-yellow-200/78 dark:ring-yellow-100/38 dark:shadow-[0_0_0_2px_rgba(253,224,71,0.16),0_0_11px_rgba(253,224,71,0.46)] dark:group-hover:bg-yellow-200 dark:group-hover:ring-yellow-100/68 dark:group-hover:shadow-[0_0_0_3px_rgba(253,224,71,0.26),0_0_16px_rgba(253,224,71,0.74)]",
+                  )}
+                />
+              </span>
+            ))}
+          </span>
+        )}
         {overlayItems.length > 0 && (
           <AnnotationInlineOverlayStack
             items={overlayItems}

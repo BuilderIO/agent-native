@@ -114,4 +114,18 @@ describe("docs visual blocks", () => {
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
   });
+
+  it("renders stable fallback ids across repeated SSR renders", () => {
+    const element = (
+      <DocBlocksProvider>
+        <DocBlock
+          alias="an-callout"
+          attrs={{}}
+          body='{ "tone": "info", "body": "Stable id" }'
+        />
+      </DocBlocksProvider>
+    );
+
+    expect(renderToStaticMarkup(element)).toBe(renderToStaticMarkup(element));
+  });
 });

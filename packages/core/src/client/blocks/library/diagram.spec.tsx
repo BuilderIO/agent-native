@@ -35,7 +35,7 @@ describe("DiagramBlock expand affordance", () => {
 
   const styleButton = () =>
     container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Switch to clean visual style"], button[aria-label="Switch to sketchy visual style"]',
+      'button[aria-label="Switch to clean diagrams"], button[aria-label="Switch to hand-drawn diagrams"]',
     );
 
   const lightbox = () =>
@@ -69,7 +69,8 @@ describe("DiagramBlock expand affordance", () => {
 
     const button = styleButton();
     expect(button).toBeTruthy();
-    expect(button?.textContent).toContain("Clean");
+    expect(button?.getAttribute("aria-label")).toBe("Switch to clean diagrams");
+    expect(button?.getAttribute("aria-pressed")).toBe("true");
 
     act(() => {
       button?.dispatchEvent(
@@ -77,7 +78,10 @@ describe("DiagramBlock expand affordance", () => {
       );
     });
 
-    expect(styleButton()?.textContent).toContain("Sketchy");
+    expect(styleButton()?.getAttribute("aria-label")).toBe(
+      "Switch to hand-drawn diagrams",
+    );
+    expect(styleButton()?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("renders the expand control for the legacy node-graph variant", () => {

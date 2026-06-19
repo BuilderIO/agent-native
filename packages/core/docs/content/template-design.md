@@ -7,9 +7,14 @@ description: "An agent-native HTML prototyping studio — generate, refine, prev
 
 Design is an agent-native HTML prototyping studio. Instead of a layered drawing canvas, the agent generates complete self-contained Alpine/Tailwind HTML prototypes, renders them in an iframe, and lets you refine the result with prompts and tweak controls.
 
-![Design studio showing generated HTML prototypes and tweak controls](https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=1200)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+}
+```
 
-When you open the app, you see your designs on the left, the generated prototype rendered in an iframe in the middle, and the agent plus tweak controls on the right. Everything the agent produces is real HTML you can refine, export, or hand off.
+When you open the app, the generated prototype is the center of the workspace, with preview modes, prompt revisions, and export controls close at hand. Everything the agent produces is real HTML you can refine, export, or hand off.
 
 ```an-diagram title="One artifact, no translation" summary="The agent generates standalone Alpine/Tailwind HTML; the iframe, the editable source, and every export all read the same files. A linked design system feeds tokens into each pass."
 {

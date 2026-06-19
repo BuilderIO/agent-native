@@ -9,15 +9,12 @@ description: "Dispatch is the workspace control plane — central inbox, cross-a
 
 Dispatch is the **workspace control plane**. Where other templates are domain apps (Mail, Calendar, Analytics, Brain), Dispatch is the app you run _alongside_ them to coordinate everything: a central inbox, a secrets vault, scheduled jobs, Slack/Telegram integration, and an orchestrator agent that delegates domain work to the right specialist app over [A2A](/docs/a2a-protocol).
 
-<!-- screenshot:
-  app: dispatch
-  view: /overview
-  shows: Overview with "What should we do next?" composer, prompt suggestions (Create a lightweight customer onboarding app / Ask Slides to draft a board update from our latest metrics / Schedule a Monday morning analytics digest), and the Workspace apps grid (Mail / Calendar / Slides / Analytics / Forms / Content + Create app placeholder) showing each mounted path + description
-  account: screenshot-account (workspace seeded with the six sibling apps registered as A2A peers)
-  capture: 1400x900 viewport, cropped 90px from bottom (final 1400x810)
--->
-
-![Dispatch overview with the orchestrator chat and workspace apps grid](/screenshots/dispatch.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
+}
+```
 
 If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
