@@ -626,7 +626,11 @@ function ExpandableDiagramBody({
           type="button"
           data-plan-interactive
           onClick={() => toggleWireframeStyle()}
-          aria-label={sketchy ? "Switch to clean diagrams" : "Switch to hand-drawn diagrams"}
+          aria-label={
+            sketchy
+              ? "Switch to clean diagrams"
+              : "Switch to hand-drawn diagrams"
+          }
           aria-pressed={sketchy}
           title={
             sketchy

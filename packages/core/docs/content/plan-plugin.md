@@ -82,6 +82,13 @@ This keeps plan content out of the Agent-Native Plan database. Hosted sharing,
 comments, screenshots, and plan history are unavailable until you explicitly
 publish later.
 
+```an-diagram title="Hosted vs. local-files mode" summary="By default skills publish through the connector; local-files mode writes MDX to disk and previews via a localhost bridge instead."
+{
+  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default · hosted</span><strong>Publish to the Plan app</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Local-files privacy</span><strong>Write MDX to disk</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB writes until <code>publish-visual-plan</code>.</small></div></div>",
+  "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
+}
+```
+
 Agent Native Desktop has a separate local-file sync path for hosted plans: the
 Desktop app can mirror a hosted plan to local MDX files and import edits back
 without cloning the Plan app or running a CLI. That workflow keeps the hosted

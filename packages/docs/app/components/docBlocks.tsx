@@ -204,7 +204,10 @@ export function validateDocBlock(
       try {
         data = JSON.parse(trimmed);
       } catch (error) {
-        return { ok: false, error: `invalid JSON — ${(error as Error).message}` };
+        return {
+          ok: false,
+          error: `invalid JSON — ${(error as Error).message}`,
+        };
       }
     }
   }
@@ -213,7 +216,10 @@ export function validateDocBlock(
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
-    return { ok: false, error: `schema — ${path}${issue?.message ?? "invalid"}` };
+    return {
+      ok: false,
+      error: `schema — ${path}${issue?.message ?? "invalid"}`,
+    };
   }
   return { ok: true };
 }
@@ -294,10 +300,8 @@ export function DocBlocksProvider({ children }: { children: ReactNode }) {
 function DocBlockError({ alias, message }: { alias: string; message: string }) {
   return (
     <div className="my-6 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--fg-secondary)]">
-      <strong className="font-semibold text-[var(--fg)]">
-        {alias} block
-      </strong>
-      : {message}
+      <strong className="font-semibold text-[var(--fg)]">{alias} block</strong>:{" "}
+      {message}
     </div>
   );
 }
@@ -317,9 +321,7 @@ export function DocBlock({
   const spec = type ? registry.get(type) : undefined;
 
   if (!spec) {
-    return (
-      <DocBlockError alias={alias} message="unknown block type" />
-    );
+    return <DocBlockError alias={alias} message="unknown block type" />;
   }
 
   let data: unknown;
