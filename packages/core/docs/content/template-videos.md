@@ -19,6 +19,13 @@ A programmatic video studio for the kind of motion graphics, product demos, and 
 
 When you open the studio, you'll see a list of compositions on the home screen. Click into one and you get a player on top, a timeline at the bottom, and a properties panel on the right. The agent always knows which composition you have open.
 
+```an-diagram title="Animation as data" summary="A composition is a React component; every animation reads from a track so the agent and the timeline edit the same data."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">drag, resize, scrub</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React composition<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## What you can do with it
 
 - **Generate animations from a prompt.** "Add a title card that fades in at 2 seconds and holds until 5." The agent edits the composition.
@@ -132,6 +139,61 @@ Under the hood the agent calls actions like `navigate`, `save-composition`, and 
 ### Data model
 
 Server-side schema is in `templates/videos/server/db/schema.ts`:
+
+```an-schema title="Video data model" summary="SQL-backed compositions plus design systems and nestable folders, each with a framework shares table."
+{
+  "entities": [
+    {
+      "id": "compositions",
+      "name": "compositions",
+      "note": "User-created compositions and overrides; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "type", "type": "text" },
+        { "name": "data", "type": "text", "note": "Full composition JSON blob" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "folders",
+      "name": "folders",
+      "note": "Nestable folders; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "name", "type": "text" }
+      ]
+    },
+    {
+      "id": "folder_memberships",
+      "name": "folder_memberships",
+      "note": "Many-to-many join",
+      "fields": [
+        { "name": "folder_id", "type": "text", "fk": "folders.id" },
+        { "name": "composition_id", "type": "text", "fk": "compositions.id" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "folders", "to": "folder_memberships", "kind": "1-n", "label": "members" },
+    { "from": "compositions", "to": "folder_memberships", "kind": "1-n", "label": "in folders" }
+  ]
+}
+```
+
+Each table also has a matching framework shares table (`composition_shares`, `design_system_shares`, `folder_shares`) produced by `createSharesTable()`.
 
 - `compositions` — id, title, type, `data` (full composition JSON blob), ownership columns, timestamps.
 - `composition_shares` — standard share grants produced by `createSharesTable()`.

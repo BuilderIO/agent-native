@@ -1,5 +1,5 @@
 import DocsLayout from "../components/DocsLayout";
-import MarkdownRenderer from "../components/MarkdownRenderer";
+import DocContent from "../components/DocContent";
 import { getDoc } from "../components/docs-content";
 import { withDocsSocialImage } from "../seo";
 
@@ -26,7 +26,7 @@ export default function DocsIndex() {
 
   return (
     <DocsLayout toc={toc}>
-      <MarkdownRenderer markdown={doc.body} />
+      <DocContent markdown={doc.body} />
     </DocsLayout>
   );
 }

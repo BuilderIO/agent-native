@@ -13,6 +13,13 @@ Hosted agent runs get interrupted: a serverless function hits its hard timeout m
 
 Durable resume closes that gap. On resume, the framework knows which side-effecting tool calls already completed and refuses to re-run them — at two layers.
 
+```an-diagram title="Two layers block duplicate side effects on resume" summary="The journal reads the durable ledger and classifies prior calls; layer 1 tells the model, layer 2 hard-blocks a re-dispatched write that matches a completed entry."
+{
+  "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">Layer 2 · hard-block re-dispatched write</div></div></div>",
+  "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## The tool-call journal {#journal}
 
 The journal is a **pure read over the durable run-event ledger** — there is no new recording hook in the hot path. It classifies the tool calls already recorded for the current turn:
@@ -44,7 +51,12 @@ Key properties:
 - **Consume-once.** Each completed entry is claimed when matched, so two genuinely-distinct identical fresh calls in the same turn don't both short-circuit on one journaled completion.
 - **Fresh calls untouched.** A first-turn call sees an empty journal; nothing changes for normal runs.
 
-Together the two layers mean an interrupted run that already had a real side effect resumes without repeating it — no duplicate emails, charges, or tickets — while genuinely new work still runs.
+```an-callout
+{
+  "tone": "success",
+  "body": "Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe."
+}
+```
 
 ## Related
 

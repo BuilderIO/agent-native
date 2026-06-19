@@ -11,6 +11,13 @@ Dispatch is the central app that sits in front of every other app in your worksp
 
 Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
 
+```an-diagram title="Dispatch as the workspace control plane" summary="One inbox, one vault, one MCP gateway, and shared resources sit in front of the domain apps, which Dispatch reaches as A2A peers."
+{
+  "html": "<div class=\"dsp-hub\"><div class=\"diagram-node\">Users &amp; external agents<br><small class=\"diagram-muted\">Slack · email · Telegram · WhatsApp · MCP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel dsp-control\" data-rough><span class=\"diagram-pill accent\">Dispatch &mdash; control plane</span><div class=\"dsp-caps\"><span class=\"diagram-pill\">Central inbox</span><span class=\"diagram-pill\">Secret vault</span><span class=\"diagram-pill\">Cross-app delegation</span><span class=\"diagram-pill\">MCP gateway</span><span class=\"diagram-pill\">Workspace resources</span></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"dsp-peers\"><div class=\"diagram-box\" data-rough>Mail</div><div class=\"diagram-box\" data-rough>Calendar</div><div class=\"diagram-box\" data-rough>Analytics</div></div><small class=\"diagram-muted\">domain apps &mdash; A2A peers</small></div>",
+  "css": ".dsp-hub{display:flex;flex-direction:column;align-items:center;gap:10px}.dsp-hub .dsp-control{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}.dsp-hub .dsp-caps{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.dsp-hub .dsp-peers{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}"
+}
+```
+
 ## When you want Dispatch {#when}
 
 Reach for Dispatch when any of these are true:
@@ -55,6 +62,19 @@ Dispatch auto-discovers the other apps in your workspace as A2A peers — no man
 
 Dispatch can be the single MCP connector for external agents: add `https://dispatch.agent-native.com/_agent-native/mcp` once in Claude, ChatGPT, Codex, or Cursor, and one authorization reaches every granted workspace app instead of one connector per app. See [External Agents](/docs/external-agents) for the full connect flow, app grants, OAuth, and inline MCP App previews.
 
+```an-api
+{
+  "method": "POST",
+  "path": "/_agent-native/mcp",
+  "summary": "Unified MCP gateway endpoint",
+  "description": "The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).",
+  "auth": "Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach.",
+  "responses": [
+    { "status": "200", "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps." }
+  ]
+}
+```
+
 ### Workspace resources
 
 Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally.
@@ -89,6 +109,13 @@ Walk through one example end-to-end. A user DMs the bot: _"summarize last week's
 3. **Dispatch agent decides.** The agent reads the message, recognizes "signups" as an analytics intent, and invokes `call-agent` against the analytics app's [A2A endpoint](/docs/a2a-protocol). The actual SQL work runs over there.
 4. **Reply posted in thread.** The analytics agent returns a result. Dispatch formats it and posts back into the same Slack thread the user wrote in, using the linked identity if there is one (so the agent acts with the requester's permissions, not the workspace owner's).
 5. **Recovery if anything dies.** If the processor crashes mid-flight — A2A timeout, downstream agent error, function freeze — a retry job sweeps stuck tasks every 60 seconds and re-fires the processor. Up to three attempts before the task is marked `failed`.
+
+```an-diagram title="A Slack message through Dispatch" summary="Slack enqueues into SQL, a fresh execution drains it, the Dispatch agent delegates the domain work over A2A, and the reply lands back in the originating thread. A 60s retry job recovers anything that dies mid-flight."
+{
+  "html": "<div class=\"dsp-flow\"><div class=\"dsp-row\"><div class=\"diagram-node\">Slack DM<br><small class=\"diagram-muted\">\"summarize last week's signups\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/slack/webhook</strong><br><small class=\"diagram-muted\">verify + INSERT pending task</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">200</div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough><strong>fresh processor</strong><br><small class=\"diagram-muted\">claim task · start agent loop</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch agent decides</span><small class=\"diagram-muted\">analytics intent &rarr; call-agent</small></div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough>Analytics app<br><small class=\"diagram-muted\">A2A peer · runs the SQL work</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">reply posted in thread</div></div><div class=\"diagram-panel dsp-retry\" data-rough><span class=\"diagram-pill warn\">recovery</span> <span class=\"diagram-muted\">if the processor crashes &mdash; A2A timeout, downstream error, freeze &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply still arrives</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</span></div></div>",
+  "css": ".dsp-flow{display:flex;flex-direction:column;gap:12px}.dsp-flow .dsp-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.dsp-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.dsp-flow .dsp-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+}
+```
 
 The same flow applies for email, Telegram, and WhatsApp — only the adapter changes.
 

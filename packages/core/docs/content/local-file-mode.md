@@ -46,29 +46,36 @@ The UI and agent actions should stay the same shape in both modes. A Content
 editor still edits documents; the difference is whether those documents resolve
 to SQL rows or local files.
 
+```an-diagram title="Same actions, two sources of truth" summary="The UI and agent call identical actions in both modes. The action layer decides whether each call resolves to SQL rows or repo files."
+{
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
+  "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
 ## Example Repo
 
 A Content workspace can be as small as this:
 
-```text
-my-content-repo/
-  agent-native.json
-  docs/
-    getting-started.mdx
-    guides/
-      custom-components.mdx
-  blog/
-    launch-post.mdx
-  resources/
-    messaging/
-      positioning.md
-  components/
-    FrameworkTabs.tsx
-    Callout.tsx
-  extensions/
-    doc-status/
-      extension.json
-      index.html
+```an-file-tree title="A Content workspace repo"
+{
+  "entries": [
+    { "path": "agent-native.json", "note": "declares which folders are content roots and their kinds" },
+    { "path": "docs/", "note": "content root — shows in the sidebar as pages" },
+    { "path": "docs/getting-started.mdx" },
+    { "path": "docs/guides/custom-components.mdx" },
+    { "path": "blog/", "note": "content root" },
+    { "path": "blog/launch-post.mdx" },
+    { "path": "resources/", "note": "content root" },
+    { "path": "resources/messaging/positioning.md" },
+    { "path": "components/", "note": "NOT a content root — preview component library MDX can import" },
+    { "path": "components/FrameworkTabs.tsx" },
+    { "path": "components/Callout.tsx" },
+    { "path": "extensions/", "note": "NOT a content root — local extension library (sandboxed widgets)" },
+    { "path": "extensions/doc-status/extension.json" },
+    { "path": "extensions/doc-status/index.html" }
+  ]
+}
 ```
 
 In Local File Mode, the Content sidebar shows the `docs/`, `blog/`, and

@@ -19,6 +19,13 @@ Forms is an agent-native form builder. Describe the form you want, refine it in 
 
 When you open the app, you see your forms, the current editor, and a live preview. The agent can create a form from a prompt, update field labels and options, change validation, and connect submission destinations using the same actions the UI uses.
 
+```an-diagram title="Build, publish, collect" summary="The agent and the visual editor edit one SQL-backed form definition. The public fill page is unauthenticated, and submissions route server-side to your destinations."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## What you can do with it
 
 - **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." The agent updates the form schema and the preview updates from SQL-backed state.
@@ -89,6 +96,58 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema
 | `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
 
 The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
+
+```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+{
+  "entities": [
+    {
+      "id": "forms",
+      "name": "forms",
+      "note": "A form definition (ownable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string", "nullable": true },
+        { "name": "slug", "type": "string", "note": "unique; public URL" },
+        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
+        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
+        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "responses",
+      "name": "responses",
+      "note": "One submission per row",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "data", "type": "json", "note": "{ fieldId: value }" },
+        { "name": "submitted_at", "type": "datetime" },
+        { "name": "ip", "type": "string", "nullable": true },
+        { "name": "submitter_email", "type": "string", "nullable": true }
+      ]
+    },
+    {
+      "id": "form_shares",
+      "name": "form_shares",
+      "note": "Framework shares table — principals to roles per form",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "principal", "type": "string", "note": "user or org" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "forms", "to": "responses", "kind": "1-n", "label": "has responses" },
+    { "from": "forms", "to": "form_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
 
 ### Key actions
 

@@ -19,6 +19,13 @@ Generate full presentation decks from a prompt, edit slides visually, and presen
 
 When you open a deck, you get a slide editor in the middle, a sidebar of slides on the left, and the agent on the right.
 
+```an-diagram title="Prompt to deck" summary="Ask for a deck and the agent streams slides in one at a time through the same actions you could call from the CLI."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">picks layouts</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">parallel, streaming</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Editor renders live</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## What you can do with it
 
 - **Generate decks from a prompt.** "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
@@ -164,6 +171,81 @@ The agent can embed a live slide preview directly in a chat reply using the fram
 ### Data model
 
 All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/schema.ts`.
+
+```an-schema title="Slides data model" summary="A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+{
+  "entities": [
+    {
+      "id": "decks",
+      "name": "decks",
+      "note": "Slides live as JSON in data; carries ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true, "note": "e.g. deck-1712345-abc" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "JSON: { title, slides: [{ id, content, layout }] }" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "slide_comments",
+      "name": "slide_comments",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "slide_id", "type": "text", "note": "Slide the comment lives on" },
+        { "name": "thread_id", "type": "text", "note": "Threading" },
+        { "name": "parent_id", "type": "text", "nullable": true },
+        { "name": "content", "type": "text" },
+        { "name": "quoted_text", "type": "text", "nullable": true },
+        { "name": "author_email", "type": "text" },
+        { "name": "author_name", "type": "text" },
+        { "name": "resolved", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_versions",
+      "name": "deck_versions",
+      "note": "Point-in-time snapshots for restore",
+      "fields": [
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "Full deck JSON" },
+        { "name": "change_label", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_share_links",
+      "name": "deck_share_links",
+      "note": "Persisted public share-link snapshots",
+      "fields": [
+        { "name": "token", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "slides", "type": "text", "note": "JSON slides snapshot" },
+        { "name": "aspect_ratio", "type": "text", "nullable": true },
+        { "name": "created_at", "type": "text" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "decks", "to": "slide_comments", "kind": "1-n", "label": "comments" },
+    { "from": "decks", "to": "deck_versions", "kind": "1-n", "label": "snapshots" }
+  ]
+}
+```
+
+Framework shares tables (`deck_shares`, `design_system_shares`) map principals to viewer / editor / admin roles per resource.
 
 #### decks
 

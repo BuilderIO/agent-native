@@ -18,6 +18,13 @@ await notify(
 );
 ```
 
+```an-diagram title="One call, many destinations" summary="notify() always writes the owner-scoped inbox row, fans out to every registered channel in parallel (best-effort), then emits notification.sent on the event bus."
+{
+  "html": "<div class=\"diagram-notify\"><div class=\"diagram-node\">notify(input, { owner })<br><small class=\"diagram-muted\">any server code &middot; action, automation, plugin</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel fan\" data-rough><div class=\"fan-row\"><span class=\"diagram-pill accent\">inbox</span><div class=\"diagram-box\" data-rough>notifications table &rarr; bell UI<br><small class=\"diagram-muted\">always on &middot; owner-scoped</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">webhook</span><div class=\"diagram-box\" data-rough>POST JSON to NOTIFICATIONS_WEBHOOK_URL<br><small class=\"diagram-muted\">best-effort</small></div></div><div class=\"fan-row\"><span class=\"diagram-pill\">custom</span><div class=\"diagram-box\" data-rough>registerNotificationChannel(...)<br><small class=\"diagram-muted\">best-effort &middot; runs in parallel</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">notification.sent</span><small class=\"diagram-muted\">event bus &middot; automations can chain</small></div></div>",
+  "css": ".diagram-notify{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-notify .fan{display:flex;flex-direction:column;gap:10px;padding:14px}.diagram-notify .fan-row{display:flex;align-items:center;gap:10px}.diagram-notify .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-notify .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## Severities {#severities}
 
 | Severity   | Use for                                 |
@@ -36,6 +43,13 @@ Severity drives the badge styling in the dropdown and is passed through to chann
 | `webhook` | POST JSON to a configured URL                             | `NOTIFICATIONS_WEBHOOK_URL` env var set at startup. |
 
 The webhook channel resolves `${keys.NAME}` references in both the URL and `NOTIFICATIONS_WEBHOOK_AUTH` against the owner's ad-hoc [secrets](/docs/security), so the raw value never enters the agent's context. Per-key URL allowlists are enforced — same rule the automations `web-request` tool uses.
+
+```an-diagram title="Channels and severity" summary="inbox is always on; webhook needs an env var; custom channels register at startup. Severity drives badge styling and is passed through to every channel."
+{
+  "html": "<div class=\"diagram-channels\"><div class=\"diagram-panel col\" data-rough><strong>Channels</strong><div class=\"diagram-box\" data-rough>inbox<br><small class=\"diagram-muted\">always on &mdash; part of the primitive</small></div><div class=\"diagram-box\" data-rough>webhook<br><small class=\"diagram-muted\">needs NOTIFICATIONS_WEBHOOK_URL</small></div><div class=\"diagram-box\" data-rough>custom<br><small class=\"diagram-muted\">registerNotificationChannel()</small></div></div><div class=\"diagram-panel col\" data-rough><strong>Severity drives the badge</strong><div class=\"sev-row\"><span class=\"diagram-pill\">info</span><span class=\"diagram-muted\">confirmations, FYI</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">warning</span><span class=\"diagram-muted\">look at soon</span></div><div class=\"sev-row\"><span class=\"diagram-pill accent\">critical</span><span class=\"diagram-muted\">needs immediate attention</span></div></div></div>",
+  "css": ".diagram-channels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}.diagram-channels .col{display:flex;flex-direction:column;gap:10px;padding:14px;min-width:240px}.diagram-channels .sev-row{display:flex;align-items:center;gap:10px}"
+}
+```
 
 ## API {#api}
 
@@ -140,6 +154,22 @@ Mounted at `/_agent-native/notifications/*` by the core-routes plugin. All route
 | `POST`   | `/_agent-native/notifications/:id/read`             |
 | `POST`   | `/_agent-native/notifications/read-all`             |
 | `DELETE` | `/_agent-native/notifications/:id`                  |
+
+```an-api title="List notifications" summary="The route behind listNotifications() — scoped to the authenticated session's email."
+{
+  "method": "GET",
+  "path": "/_agent-native/notifications?unread=true&limit=50",
+  "summary": "List recent notifications for the current user",
+  "auth": "Authenticated session; results are scoped to the session's email.",
+  "params": [
+    { "name": "unread", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only unread notifications." },
+    { "name": "limit", "in": "query", "type": "number", "required": false, "description": "Max rows to return." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Owner-scoped notification rows, newest first." }
+  ]
+}
+```
 
 ## UI component {#ui}
 

@@ -19,6 +19,13 @@ The product surface stays simple on purpose: **Ask** is the primary chat
 experience, while **Sources**, **Review**, and **Knowledge** are admin/support
 surfaces for connecting data, approving proposals, and inspecting cited memory.
 
+```an-diagram title="From source to cited answer" summary="Brain ingests approved sources into raw captures, distills durable memory, gates it through review, and only then answers with citations."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Raw captures<br><small class=\"diagram-muted\">deduped, redacted</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">facts · decisions · processes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">approved, atomic</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ![Brain company chat with cited memory sources](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200)
 
 When you open the app, **Ask** is front and center — a clean chat over reviewed
@@ -140,6 +147,65 @@ Brain's schema lives in `templates/brain/server/db/schema.ts`. Eight tables:
 | `brain_sync_runs`        | Sync audit log — provider, status, stats JSON, error, start/end timestamps                                                                     |
 | `brain_ingest_queue`     | Background distillation queue — operation, status, priority, retry count, `run_after`                                                          |
 
+```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+{
+  "entities": [
+    { "id": "sources", "name": "brain_sources", "note": "Connector config", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "provider", "type": "text", "note": "slack / granola / github / clips / webhook" },
+      { "name": "ingest_token_hash", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "last_synced_at", "type": "timestamp", "nullable": true }
+    ] },
+    { "id": "source_shares", "name": "brain_source_shares", "note": "viewer / editor / admin", "fields": [
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" }
+    ] },
+    { "id": "captures", "name": "brain_raw_captures", "note": "Ingested raw payloads", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
+      { "name": "external_id", "type": "text", "note": "dedupe key" },
+      { "name": "content_hash", "type": "text" },
+      { "name": "kind", "type": "text" }
+    ] },
+    { "id": "knowledge", "name": "brain_knowledge", "note": "Distilled atomic entries", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "kind", "type": "text", "note": "decision / fact / process" },
+      { "name": "topic", "type": "text" },
+      { "name": "entities", "type": "json" },
+      { "name": "confidence", "type": "real" },
+      { "name": "publish_tier", "type": "text" }
+    ] },
+    { "id": "knowledge_shares", "name": "brain_knowledge_shares", "fields": [
+      { "name": "knowledge_id", "type": "id", "fk": "brain_knowledge.id" }
+    ] },
+    { "id": "proposals", "name": "brain_proposals", "note": "Pending review items", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "op", "type": "text", "note": "create / update / archive" }
+    ] },
+    { "id": "proposal_shares", "name": "brain_proposal_shares", "fields": [
+      { "name": "proposal_id", "type": "id", "fk": "brain_proposals.id" }
+    ] },
+    { "id": "sync_runs", "name": "brain_sync_runs", "note": "Sync audit log", "fields": [
+      { "name": "source_id", "type": "id", "fk": "brain_sources.id" },
+      { "name": "status", "type": "text" },
+      { "name": "stats", "type": "json" }
+    ] },
+    { "id": "ingest_queue", "name": "brain_ingest_queue", "note": "Background distillation queue", "fields": [
+      { "name": "operation", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "priority", "type": "int" },
+      { "name": "run_after", "type": "timestamp", "nullable": true }
+    ] }
+  ],
+  "relations": [
+    { "from": "sources", "to": "captures", "kind": "1-n", "label": "ingested into" },
+    { "from": "knowledge", "to": "captures", "kind": "n-n", "label": "evidence" },
+    { "from": "knowledge", "to": "proposals", "kind": "1-n", "label": "gated by" },
+    { "from": "sources", "to": "sync_runs", "kind": "1-n", "label": "audited by" }
+  ]
+}
+```
+
 ### Key actions
 
 Grouped by area (`templates/brain/actions/`):
@@ -187,6 +253,23 @@ a source with a `sourceKey` to receive a bearer token, then send a
 `RawCapturePayload` with `Authorization: Bearer <ingestToken>`. Generic sources
 use the same payload shape for call transcripts, customer research, imported
 notes, or any other source that can produce a bounded capture.
+
+```an-api title="Signed ingest webhook" summary="Clips and generic transcript/capture imports post a RawCapturePayload with a per-source bearer token."
+{
+  "method": "POST",
+  "path": "/api/_agent-native/brain/ingest",
+  "summary": "Import a raw capture from Clips or a generic source",
+  "auth": "Bearer <ingestToken> issued per source via its sourceKey",
+  "request": {
+    "contentType": "application/json",
+    "example": "RawCapturePayload — bounded transcript / capture body"
+  },
+  "responses": [
+    { "status": "200", "description": "Capture accepted and queued for distillation" },
+    { "status": "401", "description": "Missing or invalid ingest bearer token" }
+  ]
+}
+```
 
 Slack, Granola, and GitHub sources can opt into background `autoSync` with a
 poll cadence once review quality is proven.

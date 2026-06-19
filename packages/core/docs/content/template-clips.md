@@ -19,6 +19,13 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
 
+```an-diagram title="Capture, transcribe, reuse" summary="Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."
+{
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">Share</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## What you can do with it
 
 - **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
@@ -48,6 +55,51 @@ The endpoints follow the same public/password/expiry rules as the share page.
 Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
+
+```an-api title="Agent context entry point"
+{
+  "method": "GET",
+  "path": "/api/agent-context.json",
+  "summary": "Compact, agent-readable description of a shared clip",
+  "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
+  "auth": "Same public / password / expiry rules as the share page",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Clip metadata plus transcript and frame API links" }
+  ]
+}
+```
+
+```an-api title="Timestamped transcript"
+{
+  "method": "GET",
+  "path": "/api/agent-transcript.json",
+  "summary": "Timestamped transcript segments for a shared clip",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels" }
+  ]
+}
+```
+
+```an-api title="Frame at a timestamp"
+{
+  "method": "GET",
+  "path": "/api/agent-frame.jpg",
+  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
+    { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
+  ],
+  "responses": [
+    { "status": "200", "description": "image/jpeg frame" }
+  ]
+}
+```
 
 ## Getting started
 
@@ -104,6 +156,67 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 ### Data model
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+{
+  "entities": [
+    {
+      "id": "recordings",
+      "name": "recordings",
+      "note": "Core resource; source of truth for media. ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
+        { "name": "status", "type": "text" },
+        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "chapters_json", "type": "text", "nullable": true },
+        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+      ]
+    },
+    {
+      "id": "recording_transcripts",
+      "name": "recording_transcripts",
+      "note": "Split out so the library and transcript views render fast",
+      "fields": [
+        { "name": "recording_id", "type": "text", "fk": "recordings.id" },
+        { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
+        { "name": "full_text", "type": "text" },
+        { "name": "language", "type": "text" },
+        { "name": "status", "type": "text" }
+      ]
+    },
+    {
+      "id": "clips_meetings",
+      "name": "clips_meetings",
+      "note": "Calendar-sourced or ad-hoc; owns a recording",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "recording_id", "type": "text", "fk": "recordings.id", "nullable": true },
+        { "name": "summary_md", "type": "text", "nullable": true },
+        { "name": "bullets_json", "type": "text", "nullable": true },
+        { "name": "action_items_json", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "clips_dictations",
+      "name": "clips_dictations",
+      "note": "Push-to-talk dictation history; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "cleaned_text", "type": "text", "nullable": true },
+        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "target_app", "type": "text", "nullable": true }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "recordings", "to": "recording_transcripts", "kind": "1-1", "label": "transcript" },
+    { "from": "recordings", "to": "clips_meetings", "kind": "1-1", "label": "captured by" }
+  ]
+}
+```
 
 | Table                                           | What it holds                                                                                                                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

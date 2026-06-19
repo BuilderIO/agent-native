@@ -20,6 +20,13 @@ Key concepts:
 - **Tasks** — each message creates a task with a lifecycle (submitted, working, completed, failed, canceled)
 - **JWT bearer auth** — production A2A requires `A2A_SECRET` or an explicit legacy `apiKeyEnv`
 
+```an-diagram title="One agent hands work to another" summary="A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."
+{
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
+  "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
 ## Server setup {#server-setup}
 
 Most templates get A2A through the framework agent chat plugin. If you are mounting it yourself, call `mountA2A()` in a server plugin:
@@ -112,24 +119,55 @@ All methods are called via `POST /_agent-native/a2a` with JSON-RPC 2.0 format:
 | `tasks/get`      | Fetch a task by ID — used to poll an async task to completion                                                         | `id`                          |
 | `tasks/cancel`   | Cancel a running task                                                                                                 | `id`                          |
 
+```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
+{
+  "method": "POST",
+  "path": "/_agent-native/a2a",
+  "summary": "Send a message and wait for the completed task",
+  "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
+  "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
+  "params": [
+    { "name": "Authorization", "in": "header", "type": "string", "required": false, "description": "Bearer token. Required in hosted production runtimes; optional in local dev." },
+    { "name": "method", "in": "body", "type": "string", "required": true, "description": "One of message/send, message/stream, tasks/get, tasks/cancel." },
+    { "name": "params.message", "in": "body", "type": "object", "required": false, "description": "{ role, parts[] } for message/send and message/stream." },
+    { "name": "params.async", "in": "body", "type": "boolean", "required": false, "description": "Return immediately in working state and poll via tasks/get. Use on serverless hosts." },
+    { "name": "params.id", "in": "body", "type": "string", "required": false, "description": "Task id for tasks/get and tasks/cancel." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"message/send\",\n  \"params\": {\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"Show signups by source\" }]\n    },\n    \"async\": true\n  }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "JSON-RPC result containing the task. With async:true the task returns in working state.", "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": { \"id\": \"task_123\", \"status\": { \"state\": \"working\" } }\n}" },
+    { "status": "503", "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated." }
+  ]
+}
+```
+
 When `message/send` is called with `async: true`, the JSON-RPC handler enqueues the task and self-fires a POST to an internal `/_agent-native/a2a/_process-task` route so the handler runs in a fresh function execution with its own full timeout. This route is authenticated with an HMAC token bound to the task ID (5-minute lifetime, signed with `A2A_SECRET`). It is mounted before the `/_agent-native/a2a` JSON-RPC route so h3's prefix matching does not swallow it.
+
+```an-diagram title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls."
+{
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
+  "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
+}
+```
 
 > [!IMPORTANT]
 > **Serverless Webhook & Gateway Timeouts:**
 > Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Pages) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
 
-Messages contain typed parts:
+Messages contain typed parts — text, structured data, and files can all travel in one message:
 
-```json
+```an-annotated-code title="A2A message with typed parts"
 {
-  "role": "user",
-  "parts": [
-    { "type": "text", "text": "Show signups by source" },
-    { "type": "data", "data": { "dateRange": "last-30d" } },
-    {
-      "type": "file",
-      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }
-    }
+  "language": "json",
+  "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
+  "annotations": [
+    { "lines": "4", "label": "text part", "note": "Plain natural-language instruction the agent reads." },
+    { "lines": "5", "label": "data part", "note": "Structured JSON arguments — e.g. a date range — passed alongside the prompt." },
+    { "lines": "6-9", "label": "file part", "note": "Attach a file by name, `mimeType`, and base64 `bytes`." }
   ]
 }
 ```

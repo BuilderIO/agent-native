@@ -9,6 +9,13 @@ description: "Branching, CODEOWNERS, PR review, and how Dispatch handles runtime
 
 This guide covers the operational side of running an agent-native workspace — how to branch, who reviews what, how to set up code ownership, and how the Dispatch control plane fits into your governance model.
 
+```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+{
+  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
+  "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
+}
+```
+
 ## Branching
 
 ### Feature Branches
@@ -37,6 +44,19 @@ Keep branches short-lived. Long-lived branches diverge from main and create pain
 Not everyone who needs to make changes is comfortable with git. [Builder.io](https://www.builder.io) supports a visual branching model that maps to git branches under the hood — useful for content and copy changes, layout adjustments, design iterations, and A/B testing without a dev environment.
 
 ## Code Ownership
+
+Code governance is configured by a handful of files at the repo root:
+
+```an-file-tree title="Governance config in the repo"
+{
+  "entries": [
+    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
+    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
+    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
+    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+  ]
+}
+```
 
 GitHub's CODEOWNERS file auto-assigns reviewers to PRs based on which files changed. Create `.github/CODEOWNERS` at the repo root:
 
@@ -95,6 +115,10 @@ Then add the [actions/labeler](https://github.com/actions/labeler) action — se
 ### Concurrent Agent Work
 
 Agent-native workspaces often have multiple AI agents working on the same branch simultaneously. This is by design — the agents share a branch and push independently.
+
+```an-callout
+{ "tone": "warning", "body": "**The later commit wins.** Two agents touching the same file won't conflict at commit time — the conflict surfaces at review. Run `pnpm run prep` (typecheck + test + format) before pushing, and don't revert changes you didn't make unless they're clearly broken." }
+```
 
 When reviewing PRs in this environment:
 

@@ -11,6 +11,13 @@ Design is an agent-native HTML prototyping studio. Instead of a layered drawing 
 
 When you open the app, you see your designs on the left, the generated prototype rendered in an iframe in the middle, and the agent plus tweak controls on the right. Everything the agent produces is real HTML you can refine, export, or hand off.
 
+```an-diagram title="One artifact, no translation" summary="The agent generates standalone Alpine/Tailwind HTML; the iframe, the editable source, and every export all read the same files. A linked design system feeds tokens into each pass."
+{
+  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Design system</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generate</span><small class=\"diagram-muted\">standalone HTML / JSX files</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">tweak knobs · Cmd+I refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · handoff</small></div></div>",
+  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## When to pick it
 
 - **You want a polished landing-page concept, product UI direction, or brand exploration** that can leave the tool as real HTML — not a layered drawing canvas.
@@ -72,6 +79,54 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schem
 | `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
 | `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
 | `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
+
+```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
+{
+  "entities": [
+    { "id": "designs", "name": "designs", "note": "A design project (ownable)", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "description", "type": "text", "nullable": true },
+      { "name": "project_type", "type": "text", "note": "prototype / other" },
+      { "name": "data", "type": "json", "note": "starts as {}" },
+      { "name": "design_system_id", "type": "id", "fk": "design_systems.id", "nullable": true }
+    ] },
+    { "id": "files", "name": "design_files", "note": "Files in a design", "fields": [
+      { "name": "design_id", "type": "id", "fk": "designs.id" },
+      { "name": "filename", "type": "text" },
+      { "name": "content", "type": "text" },
+      { "name": "file_type", "type": "text", "note": "defaults to html" }
+    ] },
+    { "id": "versions", "name": "design_versions", "note": "History / rollback", "fields": [
+      { "name": "design_id", "type": "id", "fk": "designs.id" },
+      { "name": "snapshot", "type": "json" },
+      { "name": "label", "type": "text", "nullable": true }
+    ] },
+    { "id": "systems", "name": "design_systems", "note": "Reusable brand tokens (ownable)", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "data", "type": "json", "note": "colors / typography / spacing" },
+      { "name": "assets", "type": "json", "nullable": true },
+      { "name": "custom_instructions", "type": "text", "nullable": true },
+      { "name": "is_default", "type": "boolean" }
+    ] },
+    { "id": "design_shares", "name": "design_shares", "note": "Framework shares table", "fields": [
+      { "name": "design_id", "type": "id", "fk": "designs.id" },
+      { "name": "role", "type": "text", "note": "viewer / editor / admin" }
+    ] },
+    { "id": "system_shares", "name": "design_system_shares", "note": "Framework shares table", "fields": [
+      { "name": "design_system_id", "type": "id", "fk": "design_systems.id" },
+      { "name": "role", "type": "text", "note": "viewer / editor / admin" }
+    ] }
+  ],
+  "relations": [
+    { "from": "designs", "to": "files", "kind": "1-n" },
+    { "from": "designs", "to": "versions", "kind": "1-n" },
+    { "from": "systems", "to": "designs", "kind": "1-n", "label": "applied to" },
+    { "from": "designs", "to": "design_shares", "kind": "1-n" },
+    { "from": "systems", "to": "system_shares", "kind": "1-n" }
+  ]
+}
+```
 
 A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
 

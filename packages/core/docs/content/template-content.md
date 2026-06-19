@@ -23,6 +23,13 @@ result whether you do it yourself or ask.
 
 When you open the app, you'll see a sidebar tree of pages on the left, the editor in the middle, and the agent in the sidebar on the right. The agent always knows which page you're viewing and what text you have selected.
 
+```an-diagram title="One document, many editors" summary="You and the agent both write through the same Yjs pipeline. SQL is the canonical store; local files and Notion are optional sync surfaces."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## What you can do with it
 
 - **Write rich text** with headings, lists, tables, code blocks, images, and links. Slash commands (`/`) insert blocks; selecting text pops up a formatting toolbar.
@@ -268,6 +275,132 @@ Nine tables, all defined in `server/db/schema.ts`:
 - **`content_database_items`** — rows in an inline database, each linking a `database_id` to a `document_id`.
 - **`document_property_values`** — per-document property values (`property_id` → `value_json`).
 - **`document_shares`** — per-user and per-org grants created via `createSharesTable`.
+
+```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+{
+  "entities": [
+    {
+      "id": "documents",
+      "name": "documents",
+      "note": "The page tree (ownable, markdown body)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "parent_id", "type": "id", "fk": "documents.id", "nullable": true, "note": "infinite nesting" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" },
+        { "name": "icon", "type": "string", "nullable": true },
+        { "name": "position", "type": "int", "note": "sibling ordering" },
+        { "name": "is_favorite", "type": "bool" },
+        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "document_versions",
+      "name": "document_versions",
+      "note": "Full title/content snapshots for version history",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" }
+      ]
+    },
+    {
+      "id": "document_comments",
+      "name": "document_comments",
+      "note": "Threaded comments with quoted-text anchors",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "thread_id", "type": "id" },
+        { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
+        { "name": "quoted_text", "type": "string", "nullable": true },
+        { "name": "resolved", "type": "bool" },
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+      ]
+    },
+    {
+      "id": "document_sync_links",
+      "name": "document_sync_links",
+      "note": "One row per Notion-linked document",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "notion_page_id", "type": "string" },
+        { "name": "conflict", "type": "bool" },
+        { "name": "content_hash", "type": "string" }
+      ]
+    },
+    {
+      "id": "content_databases",
+      "name": "content_databases",
+      "note": "Inline database objects attached to a document",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "view_config", "type": "json" }
+      ]
+    },
+    {
+      "id": "content_database_items",
+      "name": "content_database_items",
+      "note": "Rows in an inline database (each row is a document)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "database_id", "type": "id", "fk": "content_databases.id" },
+        { "name": "document_id", "type": "id", "fk": "documents.id" }
+      ]
+    },
+    {
+      "id": "document_property_definitions",
+      "name": "document_property_definitions",
+      "note": "Column definitions for inline databases",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "options", "type": "json", "nullable": true },
+        { "name": "position", "type": "int" }
+      ]
+    },
+    {
+      "id": "document_property_values",
+      "name": "document_property_values",
+      "note": "Per-document property values",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "property_id", "type": "id", "fk": "document_property_definitions.id" },
+        { "name": "value_json", "type": "json" }
+      ]
+    },
+    {
+      "id": "document_shares",
+      "name": "document_shares",
+      "note": "Per-user and per-org grants (createSharesTable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "principal", "type": "string" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
+    { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
+    { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
+    { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
+    { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },
+    { "from": "documents", "to": "document_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
 
 Content is stored as markdown. The editor converts to and from the Tiptap JSON model in memory; the SQL row is always markdown so actions, search, and Notion sync can operate on a single canonical format.
 

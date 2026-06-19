@@ -19,6 +19,13 @@ Ask analytics questions in plain English, get charts and dashboards back. The ag
 
 It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
 
+```an-diagram title="Question to chart" summary="The agent consults the data dictionary, writes SQL, validates it against the warehouse, then renders a chart or saves a panel."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## What you can do with it
 
 - **Ask data questions in plain English.** "What percent of signups last month converted to paid?" or "Show me weekly active users for the past 6 months." The agent picks the right source, writes the SQL, and renders the chart.
@@ -179,6 +186,59 @@ Note: the BigQuery OAuth credential for Google sign-in is a **separate** credent
 ### Data model
 
 Core tables (see `templates/analytics/server/db/schema.ts`):
+
+```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+{
+  "entities": [
+    {
+      "id": "dashboards",
+      "name": "dashboards",
+      "note": "Explorer and SQL dashboards",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
+        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+      ]
+    },
+    {
+      "id": "dashboard_views",
+      "name": "dashboard_views",
+      "note": "Saved filter presets per dashboard",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
+      ]
+    },
+    {
+      "id": "analyses",
+      "name": "analyses",
+      "note": "Re-runnable ad-hoc investigations",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "question", "type": "text" },
+        { "name": "instructions", "type": "text", "note": "Re-run steps" },
+        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "resultMarkdown", "type": "text" },
+        { "name": "resultData", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "bigquery_cache",
+      "name": "bigquery_cache",
+      "note": "Result cache keyed by SQL hash",
+      "fields": [
+        { "name": "sql_hash", "type": "text", "pk": true },
+        { "name": "bytes_processed", "type": "integer" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "dashboards", "to": "dashboard_views", "kind": "1-n", "label": "saved views" }
+  ]
+}
+```
+
+Plus per-resource share tables (`dashboard_shares`, `analysis_shares`) and the org tables (`organizations`, `org_members`, `org_invitations`) provided by `@agent-native/core/org`. The data dictionary lives in the framework's `settings` table under scoped keys.
 
 - **`dashboards`** — both Explorer and SQL dashboards. `kind` is `"explorer"` or `"sql"`; `config` is a JSON blob matching `SqlDashboardConfig`.
 - **`dashboard_shares`** — per-resource share grants (principal, role).

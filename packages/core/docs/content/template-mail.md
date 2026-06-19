@@ -19,6 +19,13 @@ An agent-powered email client. Connect your Gmail account and the agent can read
 
 When you open the app, you'll see your inbox on the left, the open thread in the middle, and the agent in the sidebar on the right. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
 
+```an-diagram title="How a mail request flows" summary="Keyboard shortcuts and agent prompts run the same actions. Email lives in Gmail; drafts, automations, and tracking live in SQL and application_state."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You drive<br><small class=\"diagram-muted\">J/K/E/R shortcuts</small></div><div class=\"diagram-node\">You ask the agent<br><small class=\"diagram-muted\">\"draft a friendly decline\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">multi-account, via OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">drafts · automations · tracking</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Inbox refreshes live</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## What you can do with it
 
 - **Read and triage email** with keyboard shortcuts (`J`/`K` to move, `E` to archive, `R` to reply, `C` to compose).
@@ -163,6 +170,61 @@ When a Google account is connected, email lives in Gmail — the app is a view o
 | `oauth_tokens` table          | Google OAuth tokens (provider `"google"`, one row per account) |
 
 Emails flowing through the API have the shape `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
+
+```an-schema title="Mail SQL tables" summary="Email itself lives in Gmail. The SQL tables hold what Gmail doesn't: queued drafts, send-tracking events, and OAuth tokens. Settings and ephemeral state live in the settings and application_state stores."
+{
+  "entities": [
+    {
+      "id": "queued_email_drafts",
+      "name": "queued_email_drafts",
+      "note": "Teammate/Slack-requested drafts awaiting owner review",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "markdown" },
+        { "name": "status", "type": "enum", "note": "review at /draft-queue/<id>" }
+      ]
+    },
+    {
+      "id": "email_tracking",
+      "name": "email_tracking",
+      "note": "Open-pixel events for sent messages",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string" },
+        { "name": "openedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "email_link_tracking",
+      "name": "email_link_tracking",
+      "note": "Link-click events for sent messages",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
+        { "name": "url", "type": "string" },
+        { "name": "clickedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "oauth_tokens",
+      "name": "oauth_tokens",
+      "note": "Framework table — one row per connected Google account",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "provider", "type": "string", "note": "\"google\"" },
+        { "name": "accountEmail", "type": "string" },
+        { "name": "accessToken", "type": "string" },
+        { "name": "refreshToken", "type": "string" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "email_tracking", "to": "email_link_tracking", "kind": "1-n", "label": "click events" }
+  ]
+}
+```
 
 Routes in the UI:
 

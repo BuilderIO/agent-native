@@ -27,6 +27,13 @@ Coarse visibility lives on the resource itself; fine-grained grants live in a co
 
 `public` is a deliberately quiet level: a public resource is reachable by direct link, but it does **not** show up in other users' sidebars, lists, or search. That keeps "public for sharing the URL" separate from "public for cross-user discovery." Galleries and template catalogs that genuinely want cross-user discovery opt in explicitly.
 
+```an-diagram title="Visibility, widening outward" summary="Coarse visibility on the resource sets the floor; explicit share grants in the companion table add named people on top."
+{
+  "html": "<div class=\"share-tiers\"><div class=\"diagram-card\"><span class=\"diagram-pill\">private</span><small class=\"diagram-muted\">owner + explicit grants only &middot; <strong>default</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">org</span><small class=\"diagram-muted\">+ anyone in the same org (read-only)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">public</span><small class=\"diagram-muted\">+ anyone with the link (read-only) &middot; hidden from others' lists/search</small></div></div>",
+  "css": ".share-tiers{display:flex;flex-direction:column;align-items:stretch;gap:8px}.share-tiers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.share-tiers .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+}
+```
+
 ## Roles on a share grant {#roles}
 
 When you share with a specific user or org, you pick a role:
@@ -120,6 +127,42 @@ export const decks = table("decks", {
 export const deckShares = createSharesTable("deck_shares");
 ```
 
+```an-schema title="Resource + companion shares table" summary="Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+{
+  "entities": [
+    {
+      "id": "deck",
+      "name": "decks",
+      "note": "...ownableColumns()",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text", "nullable": false },
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "The single source of truth for ownership." },
+        { "name": "org_id", "type": "text", "nullable": true },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public" }
+      ]
+    },
+    {
+      "id": "deckShare",
+      "name": "deck_shares",
+      "note": "createSharesTable() — one row per grant",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "resource_id", "type": "text", "fk": "decks.id", "nullable": false },
+        { "name": "principal_type", "type": "enum", "note": "user | org" },
+        { "name": "principal_id", "type": "text", "note": "email (user) or org id (org)" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" },
+        { "name": "created_by", "type": "text" },
+        { "name": "created_at", "type": "text" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "deckShare", "to": "deck", "kind": "n-n", "label": "grants access to" }
+  ]
+}
+```
+
 One registration call in `server/db/index.ts`:
 
 ```ts
@@ -154,6 +197,13 @@ registerShareableResource({
 ```
 
 `allowPublic: false` prevents any caller — agent or UI — from setting the resource's visibility to `public`. `requireOrgMemberForUserShares: true` rejects individual user grants to email addresses outside the resource owner's org. Extensions set both: an extension's HTML runs inside an iframe that calls actions and DB as the _viewer_, so public access would be arbitrary code with the viewer's credentials.
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "For resources that execute code or carry elevated trust (like extensions), set `allowPublic: false` and `requireOrgMemberForUserShares: true`. Otherwise a public share becomes arbitrary code running with the *viewer's* credentials."
+}
+```
 
 `getResourcePath` gives notification emails a direct fallback link when a share is created by the agent or another non-UI caller. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
 

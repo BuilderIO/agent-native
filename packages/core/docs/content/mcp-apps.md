@@ -30,6 +30,14 @@ On rare occasions the right target is a focused app route that renders one share
 
 Do not hand-write one-off plain HTML MCP Apps for product UI; if the action needs a custom surface, add or reuse a real app route/component first and embed that route.
 
+```an-diagram title="MCP App embed round-trip" summary="The action's link target is also the embed target. Capable hosts load the same signed app route inline; everyone else falls back to the deep link."
+{
+  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">exchanges one-time SQL ticket</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">real React route</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">no MCP Apps support</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
+"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
+}
+
+```
+
 ```ts
 import { embedApp } from "@agent-native/core";
 
@@ -46,6 +54,19 @@ export default defineAction({
 });
 ```
 
+```an-annotated-code title="The mcpApp resource config"
+{
+  "filename": "actions/review-draft.ts",
+  "language": "ts",
+  "code": "import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});",
+  "annotations": [
+    { "lines": "6", "label": "Progressive enhancement", "note": "`mcpApp.resource` advertises an inline UI for hosts that support the MCP Apps extension. Keep the action's `link` builder too — CLI-only and older hosts ignore the UI metadata and still need the deep link." },
+    { "lines": "7", "label": "Embed = the link target", "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route." },
+    { "lines": "11", "label": "Universal fallback label", "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe." }
+  ]
+}
+```
+
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and also emits ChatGPT Apps SDK compatibility metadata (`openai/outputTemplate`, widget CSP/description/accessibility). It exposes the HTML through `resources/list`, `resources/templates/list`, and `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the target route with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
@@ -56,7 +77,17 @@ Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware. Auto-submi
 
 ## First-class MCP App bridge {#mcp-app-bridge}
 
-MCP App embeds are route embeds, not separate mini-products. `embedApp()` starts from the action's `link` target, creates a short-lived embed session, and launches that signed app route. Standard MCP Apps hosts can navigate the MCP App frame itself when the host can hydrate the route directly. Claude web uses a single-frame transplant path: the resource document fetches the signed app HTML and hydrates it inside Claude's MCP App iframe because Claude does not reliably allow app-owned child iframes or external frame navigation. ChatGPT web gets a controlled route iframe because its Apps bridge gives us stable `window.openai` host APIs and bounded height control. All paths point at the same signed app route and render the normal route and React components. Design embedded routes so a reload with the same signed URL reconstructs the same view.
+MCP App embeds are route embeds, not separate mini-products. `embedApp()` starts from the action's `link` target, creates a short-lived embed session, and launches that signed app route. Standard MCP Apps hosts can navigate the MCP App frame itself when the host can hydrate the route directly.
+
+```an-diagram title="Two host bridge paths, one signed route" summary="Claude transplants the hydrated route and uses the direct ui/_bridge; ChatGPT gets a controlled iframe via window.openai and relays host actions over postMessage. Both point at the same signed app route."
+{
+  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">hydrates signed app HTML in Claude's iframe, then direct`ui/_` host bridge</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">normal route + React components</small></div></div>",
+"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
+}
+
+```
+
+Claude web uses a single-frame transplant path: the resource document fetches the signed app HTML and hydrates it inside Claude's MCP App iframe because Claude does not reliably allow app-owned child iframes or external frame navigation. ChatGPT web gets a controlled route iframe because its Apps bridge gives us stable `window.openai` host APIs and bounded height control. All paths point at the same signed app route and render the normal route and React components. Design embedded routes so a reload with the same signed URL reconstructs the same view.
 
 For same-app `open_app({ embed: true })`, the framework mints the embed-start ticket during the original tool call and stores the signed start URL in hidden tool metadata. Custom actions can return `embedStartUrl` for the same fast path; the MCP layer strips that ticket-bearing URL from model-visible `structuredContent` and normal open-link metadata. When no embed start URL is present, the resource falls back to the app-only `create_embed_session` helper. This keeps production hosts that restrict iframe-initiated tool calls on the direct route without leaking one-time app session URLs into the transcript. If a user reopens an old chat after a one-time start ticket has expired, the start route returns a small refresh page and posts `agentNative.embedSessionExpired` to the wrapper; `embedApp()` clears the stale start URL and mints a fresh ticket through `create_embed_session` when it still has the original app route.
 
@@ -110,3 +141,7 @@ Test MCP Apps with the lightweight fixtures around `embedApp()` and `McpAppRende
 - [External Agents](/docs/external-agents) — connecting Claude, ChatGPT, Codex, and Cursor to hosted apps; MCP Apps compatibility matrix; catalog tiers; deep links.
 - [MCP Protocol](/docs/mcp-protocol) — the auto-mounted MCP server, auth, tools, and `ask-agent`.
 - [Actions](/docs/actions) — `defineAction`, the `link` builder, `publicAgent`.
+
+```
+
+```

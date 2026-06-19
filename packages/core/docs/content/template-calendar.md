@@ -19,6 +19,13 @@ An agent-powered calendar app. Connect your Google Calendar and the agent can re
 
 When you open the app, you'll see your calendar in the middle and the agent in the sidebar. The agent always knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
 
+```an-diagram title="How a scheduling request flows" summary="Whether you click in the calendar or ask the agent, the same actions read live from Google Calendar and write back to the same view."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You click<br><small class=\"diagram-muted\">drag, toolbar, shortcuts</small></div><div class=\"diagram-node\">You ask the agent<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">live, multi-account</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">bookings · availability</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Calendar view updates live</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## What you can do with it
 
 - **See your real Google Calendar** in day, week, or month view, with multiple accounts overlayed.
@@ -149,6 +156,73 @@ Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stor
 - `booking_links` — the Calendly-style link definitions. Slug, title, description, primary `duration`, optional `durations` list, `customFields`, `conferencing`, `color`, and an `isActive` flag. Uses the framework's `ownableColumns` so the sharing system applies.
 - `booking_slug_redirects` — remembers old slugs when a link is renamed so existing public URLs keep working.
 - `booking_link_shares` — share grants for booking links.
+
+```an-schema title="Calendar data model" summary="Only non-event data is stored locally — events live in Google Calendar. Booking links use ownableColumns so the sharing system applies."
+{
+  "entities": [
+    {
+      "id": "booking_links",
+      "name": "booking_links",
+      "note": "Calendly-style link definitions (ownable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "slug", "type": "string", "note": "public page at /book/{slug}" },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string", "nullable": true },
+        { "name": "duration", "type": "int", "note": "primary duration in minutes" },
+        { "name": "durations", "type": "json", "nullable": true, "note": "alternative durations" },
+        { "name": "customFields", "type": "json", "nullable": true },
+        { "name": "conferencing", "type": "string", "note": "Google Meet / Zoom / custom" },
+        { "name": "color", "type": "string", "nullable": true },
+        { "name": "isActive", "type": "bool", "note": "pause without deleting" }
+      ]
+    },
+    {
+      "id": "bookings",
+      "name": "bookings",
+      "note": "Confirmed appointments from public booking pages",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "slug", "type": "string", "fk": "booking_links.slug" },
+        { "name": "name", "type": "string" },
+        { "name": "email", "type": "string" },
+        { "name": "start", "type": "datetime" },
+        { "name": "end", "type": "datetime" },
+        { "name": "notes", "type": "string", "nullable": true },
+        { "name": "customFields", "type": "json", "nullable": true, "note": "custom field responses" },
+        { "name": "meetingLink", "type": "string", "nullable": true },
+        { "name": "cancelToken", "type": "string", "note": "powers /booking/manage/{token}" },
+        { "name": "status", "type": "enum", "note": "confirmed | cancelled" }
+      ]
+    },
+    {
+      "id": "booking_slug_redirects",
+      "name": "booking_slug_redirects",
+      "note": "Keeps old public URLs working after a link is renamed",
+      "fields": [
+        { "name": "oldSlug", "type": "string", "pk": true },
+        { "name": "linkId", "type": "id", "fk": "booking_links.id" }
+      ]
+    },
+    {
+      "id": "booking_link_shares",
+      "name": "booking_link_shares",
+      "note": "Share grants for booking links",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "linkId", "type": "id", "fk": "booking_links.id" },
+        { "name": "principal", "type": "string", "note": "user or org" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "booking_links", "to": "bookings", "kind": "1-n", "label": "has bookings" },
+    { "from": "booking_links", "to": "booking_slug_redirects", "kind": "1-n", "label": "has old slugs" },
+    { "from": "booking_links", "to": "booking_link_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
 
 Availability rules and per-user configuration live in the settings table, keyed by `calendar-availability`. Google OAuth tokens live in the framework `oauth_tokens` table. Ephemeral UI state (current view, date, selected event) lives in `application_state` under the `navigation` key.
 
