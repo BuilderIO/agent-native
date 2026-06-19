@@ -3,7 +3,7 @@ import Index from "@/pages/Index";
 const SEO_TITLE =
   "Agent-Native Slides - Open Source AI presentation builder and Google Slides alternative";
 const SEO_DESCRIPTION =
-  "Generate, edit, refine, and export React presentations with an AI slide editor built for agent workflows.";
+  "Open Source AI presentation builder for generating, editing, refining, and exporting React decks as Google Slides-ready presentations.";
 
 export function meta() {
   return [

@@ -4,7 +4,7 @@ import { DefaultSpinner } from "@agent-native/core/client";
 const SEO_TITLE =
   "Agent-Native Clips - Open Source, agent-friendly Loom alternative";
 const SEO_DESCRIPTION =
-  "Record screens, capture meeting notes, and dictate voice notes with AI transcription, summaries, search, and agent-readable share links.";
+  "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 
 export function meta() {
   return [

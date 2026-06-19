@@ -8,7 +8,7 @@ import { TAB_ID } from "@/lib/tab-id";
 const SEO_TITLE =
   "Agent-Native Brain - Open Source company knowledge base for AI agents";
 const SEO_DESCRIPTION =
-  "Turn Slack, meetings, transcripts, docs, and decisions into cited company knowledge your AI agents can trust.";
+  "Open Source company knowledge base that turns Slack, meetings, transcripts, docs, and decisions into cited answers for AI agents.";
 
 export function meta() {
   return [

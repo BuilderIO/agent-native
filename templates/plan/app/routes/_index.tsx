@@ -4,7 +4,7 @@ import { APP_TITLE } from "@/lib/app-config";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =
-  "Ask product and code questions across merged PR recaps, visual plans, diagrams, wireframes, API specs, and prototypes.";
+  "Open Source planning workspace for coding agents with visual plans, PR recaps, diagrams, wireframes, API specs, and prototypes.";
 
 export function meta() {
   return [

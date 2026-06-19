@@ -8,7 +8,7 @@ import {
 const SEO_TITLE =
   "Agent-Native Dispatch - Open Source workspace control plane for AI agents";
 const SEO_DESCRIPTION =
-  "Manage workspace apps, secrets, approvals, messages, scheduled jobs, and cross-app agent delegation from one control plane.";
+  "Open Source workspace control plane for AI agents to manage apps, secrets, approvals, messages, jobs, and cross-app delegation.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const threadId = new URL(request.url).searchParams.get("thread");

@@ -3,7 +3,7 @@ import CalendarView from "@/pages/CalendarView";
 const SEO_TITLE =
   "Agent-Native Calendar - Open Source AI scheduling and Google Calendar automation";
 const SEO_DESCRIPTION =
-  "Manage events, public booking links, scheduling workflows, and Google Calendar updates with an AI agent.";
+  "Open Source AI calendar app for Google Calendar scheduling, booking links, meeting coordination, and agent-managed event updates.";
 
 export function meta() {
   return [

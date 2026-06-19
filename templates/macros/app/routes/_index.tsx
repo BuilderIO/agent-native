@@ -29,7 +29,7 @@ import type { Meal, Exercise } from "@shared/types";
 const SEO_TITLE =
   "Agent-Native Macros - Open Source AI calorie and macro tracker";
 const SEO_DESCRIPTION =
-  "Log meals, exercises, weight, calories, and macros by typing or voice while an AI agent estimates nutrition.";
+  "Open Source AI macro tracker for logging meals, exercise, weight, calories, and nutrition by text or voice.";
 
 export function meta() {
   return [

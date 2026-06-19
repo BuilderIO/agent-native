@@ -8,7 +8,7 @@ import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
 const SEO_DESCRIPTION =
-  "Start from a chat-first agent-native app where actions, UI, state, and your agent backend can grow together.";
+  "Open Source starter for agent-native apps with durable chat, shared actions, UI state, tools, and a backend your agent can extend.";
 
 export function meta() {
   return [

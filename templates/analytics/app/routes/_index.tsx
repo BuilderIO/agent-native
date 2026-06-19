@@ -3,7 +3,7 @@ import Index from "@/pages/Index";
 const SEO_TITLE =
   "Agent-Native Analytics - Open Source, agent-friendly Amplitude alternative";
 const SEO_DESCRIPTION =
-  "Connect analytics, warehouse, and CRM data so AI agents can query metrics, build dashboards, and answer business questions.";
+  "Open Source analytics app where AI agents connect to warehouses, product analytics, and CRM data to answer questions and build dashboards.";
 
 export function meta() {
   return [

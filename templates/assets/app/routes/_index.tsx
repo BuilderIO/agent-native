@@ -10,7 +10,7 @@ import { TAB_ID } from "@/lib/tab-id";
 const SEO_TITLE =
   "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
 const SEO_DESCRIPTION =
-  "Upload, organize, search, and generate on-brand images and videos in an asset library built for AI agents.";
+  "Open Source asset manager for AI teams to organize brand libraries, search creative work, and generate on-brand images and videos.";
 
 export function meta() {
   return [

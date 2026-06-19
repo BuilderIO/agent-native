@@ -7,7 +7,7 @@ import { useDocuments } from "@/hooks/use-documents";
 const SEO_TITLE =
   "Agent-Native Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
-  "Edit local MDX docs, knowledge bases, and content systems with an open-source editor built for AI agents.";
+  "Open Source MDX editor for local docs, knowledge bases, and content systems, with custom blocks and agent-assisted editing.";
 
 export function meta() {
   return [
