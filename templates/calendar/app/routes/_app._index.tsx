@@ -1,7 +1,7 @@
 import CalendarView from "@/pages/CalendarView";
 
 const SEO_TITLE =
-  "Agent-Native Calendar - AI scheduling and Google Calendar automation";
+  "Agent-Native Calendar - Open Source AI scheduling and Google Calendar automation";
 const SEO_DESCRIPTION =
   "Manage events, public booking links, scheduling workflows, and Google Calendar updates with an AI agent.";
 

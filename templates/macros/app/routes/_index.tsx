@@ -26,7 +26,8 @@ import {
 import { toast } from "sonner";
 import type { Meal, Exercise } from "@shared/types";
 
-const SEO_TITLE = "Agent-Native Macros - AI calorie and macro tracker";
+const SEO_TITLE =
+  "Agent-Native Macros - Open Source AI calorie and macro tracker";
 const SEO_DESCRIPTION =
   "Log meals, exercises, weight, calories, and macros by typing or voice while an AI agent estimates nutrition.";
 

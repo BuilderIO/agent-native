@@ -6,7 +6,7 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE =
-  "Agent-Native Brain - Cited company knowledge base for AI agents";
+  "Agent-Native Brain - Open Source company knowledge base for AI agents";
 const SEO_DESCRIPTION =
   "Turn Slack, meetings, transcripts, docs, and decisions into cited company knowledge your AI agents can trust.";
 

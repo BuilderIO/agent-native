@@ -2,7 +2,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { PlanChatPage } from "@/pages/PlanChatPage";
 import { APP_TITLE } from "@/lib/app-config";
 
-const SEO_TITLE = `${APP_TITLE} - Visual planning and PR recaps for coding agents`;
+const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =
   "Ask product and code questions across merged PR recaps, visual plans, diagrams, wireframes, API specs, and prototypes.";
 

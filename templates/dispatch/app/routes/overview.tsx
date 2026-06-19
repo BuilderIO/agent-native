@@ -6,7 +6,7 @@ import {
 } from "@agent-native/dispatch/lib/thread-link-preview";
 
 const SEO_TITLE =
-  "Agent-Native Dispatch - Workspace control plane for AI agents";
+  "Agent-Native Dispatch - Open Source workspace control plane for AI agents";
 const SEO_DESCRIPTION =
   "Manage workspace apps, secrets, approvals, messages, scheduled jobs, and cross-app agent delegation from one control plane.";
 

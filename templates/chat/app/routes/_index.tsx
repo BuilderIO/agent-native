@@ -6,7 +6,7 @@ import {
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
-const SEO_TITLE = `${APP_TITLE} - Open source AI app starter with actions`;
+const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
 const SEO_DESCRIPTION =
   "Start from a chat-first agent-native app where actions, UI, state, and your agent backend can grow together.";
 

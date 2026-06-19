@@ -1,7 +1,7 @@
 import { LibraryGrid } from "@/components/library/library-grid";
 
 const SEO_TITLE =
-  "Agent-Native Clips - Open source, agent-friendly Loom alternative";
+  "Agent-Native Clips - Open Source, agent-friendly Loom alternative";
 const SEO_DESCRIPTION =
   "Record screens, capture meeting notes, and dictate voice notes with AI transcription, summaries, search, and agent-readable share links.";
 

@@ -5,7 +5,7 @@ export function meta() {
   return [
     {
       title:
-        "Agent-Native Content - Open source, agent-friendly Obsidian alternative",
+        "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
     },
   ];
 }

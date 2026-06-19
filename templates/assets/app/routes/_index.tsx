@@ -8,7 +8,7 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE =
-  "Agent-Native Assets - AI asset library for brand-safe images and video";
+  "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
 const SEO_DESCRIPTION =
   "Upload, organize, search, and generate on-brand images and videos in an asset library built for AI agents.";
 

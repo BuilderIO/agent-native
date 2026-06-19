@@ -1,7 +1,7 @@
 export { default } from "../pages/Index";
 
 const SEO_TITLE =
-  "Agent-Native Design - AI design tool for agent-built prototypes";
+  "Agent-Native Design - Open Source AI design tool for agent-built prototypes";
 const SEO_DESCRIPTION =
   "Create, remix, and hand off interactive responsive designs with an AI design agent.";
 

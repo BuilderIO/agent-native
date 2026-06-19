@@ -1,7 +1,7 @@
 import Index from "@/pages/Index";
 
 const SEO_TITLE =
-  "Agent-Native Analytics - Open source, agent-friendly Amplitude alternative";
+  "Agent-Native Analytics - Open Source, agent-friendly Amplitude alternative";
 const SEO_DESCRIPTION =
   "Connect analytics, warehouse, and CRM data so AI agents can query metrics, build dashboards, and answer business questions.";
 

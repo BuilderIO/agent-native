@@ -1,7 +1,7 @@
 import Studio from "@/pages/Index";
 
 const SEO_TITLE =
-  "Agent-Native Videos - AI video editor for programmatic video";
+  "Agent-Native Videos - Open Source AI video editor for programmatic video";
 const SEO_DESCRIPTION =
   "Build, animate, edit, and render programmatic videos with an AI video editor powered by React and Remotion.";
 

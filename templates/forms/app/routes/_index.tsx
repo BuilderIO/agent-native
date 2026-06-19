@@ -23,7 +23,8 @@ import {
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
-const SEO_TITLE = "Agent-Native Forms - AI form builder and response analytics";
+const SEO_TITLE =
+  "Agent-Native Forms - Open Source AI form builder and response analytics";
 const SEO_DESCRIPTION =
   "Create, publish, edit, and analyze forms with a chat-first AI form builder.";
 
