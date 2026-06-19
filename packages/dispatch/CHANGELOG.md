@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.11.4
+
+### Patch Changes
+
+- 7157583: Wire Dispatch's full-page chat into the shared chat handoff flow so it can morph into the agent sidebar while preserving the active thread.
+- 7157583: Remove the broad shadow from Dispatch's centered chat composer.
+
 ## 0.11.3
 
 ### Patch Changes
