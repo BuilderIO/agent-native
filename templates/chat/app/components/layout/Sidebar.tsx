@@ -384,7 +384,7 @@ export function Sidebar({
       <div
         className={cn(
           "flex h-14 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center gap-1 px-1" : "gap-2 px-3",
+          collapsed ? "justify-center px-1" : "px-3",
         )}
       >
         <Link
@@ -413,7 +413,6 @@ export function Sidebar({
             </p>
           </div>
         </Link>
-        {collapseButton}
       </div>
 
       <nav
@@ -492,6 +491,17 @@ export function Sidebar({
             align={collapsed ? "center" : "end"}
           />
         </div>
+
+        {collapseButton ? (
+          <div
+            className={cn(
+              "border-t border-sidebar-border py-2",
+              collapsed ? "flex justify-center px-2" : "flex justify-end px-3",
+            )}
+          >
+            {collapseButton}
+          </div>
+        ) : null}
       </div>
     </aside>
   );
