@@ -9,7 +9,7 @@
 
 ```bash
 git clone https://github.com/BuilderIO/agent-native.git
-cd agent-native/framework
+cd agent-native
 pnpm install
 ```
 
