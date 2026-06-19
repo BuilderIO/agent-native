@@ -228,4 +228,44 @@ describe("buildRawEmail — attachments", () => {
       await resolveComposeAttachments([{ filename: "sub/file.pdf" }]),
     ).toEqual([]);
   });
+
+  it("resolveComposeAttachments can hydrate Gmail-backed draft attachments", async () => {
+    const resolved = await resolveComposeAttachments(
+      [
+        {
+          id: "att-1",
+          filename: "invoice.pdf",
+          originalName: "invoice.pdf",
+          mimeType: "application/pdf",
+          size: 5,
+          url: "/api/attachments?messageId=msg-1&id=att-1",
+          source: "gmail",
+          gmailMessageId: "msg-1",
+          gmailAttachmentId: "att-1",
+          accountEmail: "sender@example.com",
+        },
+      ],
+      "owner@example.com",
+      {
+        readGmailAttachment: async (attachment) => {
+          expect(attachment.gmailMessageId).toBe("msg-1");
+          expect(attachment.gmailAttachmentId).toBe("att-1");
+          expect(attachment.accountEmail).toBe("sender@example.com");
+          return Buffer.from("hello");
+        },
+      },
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({
+      filename: "invoice.pdf",
+      originalName: "invoice.pdf",
+      mimeType: "application/pdf",
+      source: "gmail",
+      gmailMessageId: "msg-1",
+      gmailAttachmentId: "att-1",
+      accountEmail: "sender@example.com",
+    });
+    expect(resolved[0].data.toString("utf8")).toBe("hello");
+  });
 });

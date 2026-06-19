@@ -223,6 +223,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const CLIPS_SOURCE_URL =
   "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
+const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
 const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 
@@ -896,7 +897,15 @@ function PublicAgentEmptyState() {
           />
         </div>
         <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
-          Agent-Native is a free,{" "}
+          <a
+            href={CLIPS_TEMPLATE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+          >
+            Agent-Native Clips
+          </a>{" "}
+          is a free,{" "}
           <a
             href={CLIPS_SOURCE_URL}
             target="_blank"
