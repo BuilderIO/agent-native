@@ -185,10 +185,7 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
     const synthetic: PlanTocItem[] = [];
     const usedBlockIds = new Set(items.map((item) => item.blockId));
 
-    // Semantic label map: block type → TOC label. Only the FIRST occurrence of
-    // each type is synthesized (second file-tree, second data-model, etc. get no
-    // separate entry — they're assumed to be the same semantic category).
-    const seenSynthTypes = new Set<string>();
+    // Semantic label map: block type → TOC label.
     const SYNTH_LABELS: Partial<Record<PlanBlock["type"], string>> = {
       "file-tree": "Files changed",
       "data-model": "Schema",
@@ -198,16 +195,21 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       "question-form": "Open questions",
     };
 
+    // Skip any label already used — seeded with real heading/title labels so a
+    // synthetic entry never duplicates a section the document already names
+    // (e.g. a "## Key changes" heading next to a diff block), then growing as
+    // synthetics are added so each label appears at most once.
+    const usedLabels = new Set(
+      items.map((item) => item.label.trim().toLowerCase()),
+    );
+
     for (const block of blocks) {
       if (usedBlockIds.has(block.id)) continue;
       if (block.type === "tabs" || block.type === "columns") continue;
       const label = SYNTH_LABELS[block.type];
       if (!label) continue;
-      // De-duplicate: file-tree+file-tree both map to "Files changed", so only
-      // emit the first. But api-endpoint and diff both can synthesize (different
-      // labels), so key by label not type.
-      if (seenSynthTypes.has(label)) continue;
-      seenSynthTypes.add(label);
+      if (usedLabels.has(label.toLowerCase())) continue;
+      usedLabels.add(label.toLowerCase());
       synthetic.push({
         id: tocIdForBlock(block.id),
         blockId: block.id,
