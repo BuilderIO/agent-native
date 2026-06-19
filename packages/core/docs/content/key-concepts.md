@@ -116,7 +116,7 @@ When the agent needs to do something complex — call an API, process data, quer
 
 ```ts
 // actions/fetch-data.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({

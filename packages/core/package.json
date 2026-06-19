@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.58.5",
+  "version": "0.62.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -38,6 +38,18 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
+    "./action": {
+      "types": "./dist/action.d.ts",
+      "default": "./dist/action.js"
+    },
+    "./action-ui": {
+      "types": "./dist/action-ui.d.ts",
+      "default": "./dist/action-ui.js"
+    },
+    "./agent-native": {
+      "types": "./dist/agent-native/index.d.ts",
+      "default": "./dist/agent-native/index.js"
+    },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",

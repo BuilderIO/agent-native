@@ -346,6 +346,14 @@ export function normalizeDatePropertyValue(
 ): DocumentPropertyDateValue | null {
   if (value === undefined || value === null || value === "") return null;
 
+  // Accept epoch timestamps (e.g. Builder CMS date fields come back as
+  // milliseconds-since-epoch numbers) by coercing to an ISO string first.
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const epoch = new Date(value);
+    if (Number.isNaN(epoch.getTime())) return null;
+    value = epoch.toISOString();
+  }
+
   const includeTime = documentPropertyDateIncludesTime(value);
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
@@ -468,7 +476,31 @@ export function evaluatePropertyFormula(
   );
 }
 
+/**
+ * Evaluate a source-key normalization formula into its canonical-key string.
+ *
+ * Unlike `evaluatePropertyFormula`, this does NOT fall back to literal
+ * `{token}` substitution when the expression yields null — a broken or
+ * null-producing formula returns `null` (an un-joinable key) so it fails
+ * visibly as "no match" instead of silently producing a garbage key. An empty
+ * result also collapses to `null`, so empty keys never match each other.
+ */
+export function evaluateNormalizationFormula(
+  formula: string | null | undefined,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): string | null {
+  const trimmed = sanitizeNormalizationFormula(formula);
+  if (!trimmed) return null;
+  const value = evaluateFormulaExpression(trimmed, valuesByName);
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+}
+
 type FormulaPrimitive = string | number | boolean | null;
+
+const MAX_NORMALIZATION_FORMULA_LENGTH = 1000;
+const MAX_REGEX_PATTERN_LENGTH = 160;
 
 type FormulaToken =
   | { type: "number"; value: number }
@@ -798,9 +830,167 @@ function evaluateFormulaFunction(
     }
     case "length":
       return formulaTextValue(args[0]).length;
+    case "lower":
+      return formulaTextValue(args[0]).toLowerCase();
+    case "upper":
+      return formulaTextValue(args[0]).toUpperCase();
+    case "trim":
+      return formulaTextValue(args[0]).trim();
+    case "replace": {
+      const subject = formulaTextValue(args[0]);
+      const find = formulaTextValue(args[1]);
+      if (find === "") return subject;
+      return subject.split(find).join(formulaTextValue(args[2]));
+    }
+    case "slug":
+      return slugifyFormulaText(formulaTextValue(args[0]));
+    case "striphost":
+      return stripUrlHost(formulaTextValue(args[0]));
+    case "regexextract":
+      return regexExtractFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        args.length > 2 ? formulaNumberValue(args[2]) : null,
+      );
+    case "regexreplace":
+      return regexReplaceFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        formulaTextValue(args[2]),
+      );
     default:
       return null;
   }
+}
+
+// URL-style slug (lowercase, non-alphanumeric runs → "-", trimmed). Distinct
+// from `slugifySourceField` in _database-source-utils, which slugs field *keys*
+// with "_" — different output space, kept separate on purpose.
+export function slugifyFormulaText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Reduce a URL to its path so a host-qualified URL normalizes to the same key
+// as a relative one.
+function stripUrlHost(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const urlLike = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[^/\s?#]+\.[^/\s?#]+(?:[/?#]|$)/i.test(trimmed)
+      ? `http://${trimmed}`
+      : trimmed;
+  try {
+    const path = new URL(urlLike, "http://agent-native.local").pathname;
+    return path.length > 1 ? path.replace(/\/+$/, "") : path;
+  } catch {
+    return trimmed.replace(/[?#].*$/, "").replace(/\/+$/, "");
+  }
+}
+
+function isSafeRegexPattern(pattern: string) {
+  if (!pattern || pattern.length > MAX_REGEX_PATTERN_LENGTH) return false;
+  if (/\\[1-9]/.test(pattern)) return false;
+  if (/\(\?<?[=!]/.test(pattern)) return false;
+  const quantifier = "(?:[+*]|\\{\\d+(?:,\\d*)?\\})";
+  const nestedQuantifier = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*${quantifier}(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (nestedQuantifier.test(pattern)) return false;
+  const quantifiedAlternation = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*\\|(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (quantifiedAlternation.test(pattern)) return false;
+  return true;
+}
+
+function safeRegExp(pattern: string, flags = "") {
+  if (!isSafeRegexPattern(pattern)) return null;
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+function regexPatternStringsFromFormula(expression: string) {
+  const tokens = tokenizeFormulaExpression(expression);
+  if (!tokens) return null;
+  const patterns: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (
+      token.type !== "identifier" ||
+      !["regexextract", "regexreplace"].includes(token.value.toLowerCase()) ||
+      tokens[index + 1]?.type !== "punctuation" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    let depth = 0;
+    let argIndex = 0;
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      const inner = tokens[cursor];
+      if (inner.type === "punctuation" && inner.value === "(") {
+        depth += 1;
+        continue;
+      }
+      if (inner.type === "punctuation" && inner.value === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+        continue;
+      }
+      if (depth === 1 && inner.type === "punctuation" && inner.value === ",") {
+        argIndex += 1;
+        continue;
+      }
+      if (depth === 1 && argIndex === 1 && inner.type === "string") {
+        patterns.push(inner.value);
+      }
+    }
+  }
+  return patterns;
+}
+
+export function sanitizeNormalizationFormula(
+  formula: string | null | undefined,
+): string | null {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed || trimmed.length > MAX_NORMALIZATION_FORMULA_LENGTH) {
+    return null;
+  }
+  const patterns = regexPatternStringsFromFormula(trimmed);
+  if (!patterns) return null;
+  if (patterns.some((pattern) => !isSafeRegexPattern(pattern))) return null;
+  return trimmed;
+}
+
+// A bad pattern yields null (an un-joinable key) rather than throwing on the
+// read path — a broken formula fails visibly as "no match", never silently.
+function regexExtractFormula(
+  value: string,
+  pattern: string,
+  group: number | null,
+): FormulaPrimitive {
+  const regex = safeRegExp(pattern);
+  if (!regex) return null;
+  const match = regex.exec(value);
+  if (!match) return null;
+  const index = group === null ? 0 : Math.trunc(group);
+  return match[index] ?? null;
+}
+
+function regexReplaceFormula(
+  value: string,
+  pattern: string,
+  replacement: string,
+): FormulaPrimitive {
+  const regex = safeRegExp(pattern, "g");
+  return regex ? value.replace(regex, replacement) : null;
 }
 
 export function evaluateNumericExpression(expression: string): number | null {

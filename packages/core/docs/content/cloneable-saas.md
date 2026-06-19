@@ -15,6 +15,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 
 | Template                                  | What it is                                                                                                     |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [**Chat**](/docs/template-chat)           | Minimal chat-first app with durable threads, actions, auth, and a clean path to custom UI or your own backend. |
 | [**Mail**](/docs/template-mail)           | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
 | [**Calendar**](/docs/template-calendar)   | An agent-native Google Calendar. Events, sync, public booking links, agent-driven scheduling.                  |
 | [**Content**](/docs/template-content)     | Open-source Obsidian for MDX. Local Markdown/MDX, Tiptap editor, Notion sync, real-time multi-user collab.     |
@@ -29,7 +30,7 @@ Each one is a real app you could use today, and the launching pad for your own v
 | [**Plan**](/docs/template-plan)           | Visual plans and PR recaps with diagrams, wireframes, and annotations.                                         |
 | [**Dispatch**](/docs/template-dispatch)   | The workspace control plane: shared secrets, reusable integrations, Slack/Telegram, scheduled jobs.            |
 
-Don't want a domain template? Start action-first with [Pure-Agent Apps](/docs/pure-agent-apps), or use [Starter](/docs/template-starter) when you are ready for a blank UI scaffold.
+Don't want a domain template? Use [Chat](/docs/template-chat) when you want a basic app users can talk to immediately, or start action-first with [Pure-Agent Apps](/docs/pure-agent-apps).
 
 See the full catalog under [Templates](/templates), or jump straight to one — for example, [Dispatch](/docs/template-dispatch) is a great place to start if you want a workspace-style app.
 
@@ -72,11 +73,11 @@ You don't have to. Every template is also available as a hosted app on `agent-na
 
 ## Try it with a skill {#try-with-a-skill}
 
-Not ready to scaffold? You can add agent-native superpowers to a coding agent you already use with a single command — no app needed. See [Try it with a skill](/docs/getting-started#try-with-a-skill) in Getting Started.
+Not ready to scaffold? You can add agent-native superpowers to a coding agent you already use with a single command — no app needed. See the [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Building on this
 
-- [**Getting Started**](/docs/getting-started) — start headless, choose a template, or install a skill
+- [**Getting Started**](/docs/getting-started) — create a minimal chat app or headless action
 - [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane template

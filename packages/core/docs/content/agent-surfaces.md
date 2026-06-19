@@ -16,7 +16,7 @@ you want, then use the matching primitive.
 | Surface                       | Use it when                                                                                                 | Start with                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | **Headless agent/actions**    | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | `<AgentChatSurface>`, `<AssistantChat>`, `createAgentChatPlugin()`                          |
+| **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
 | **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
 | **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
 | **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
@@ -43,7 +43,7 @@ Then define the durable operation:
 
 ```ts
 // actions/summarize-week.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -76,6 +76,10 @@ If you need the whole agent loop headlessly from the project folder, use:
 ```bash
 pnpm agent "Summarize this week's forms."
 ```
+
+If another app or script needs to call the whole agent, use
+`agentNative.invoke("analytics", "...")` or the `agent-native invoke` CLI. That
+keeps cross-app work on the A2A path while local work stays on actions.
 
 Workers, jobs, integration webhooks, and custom hosts can use the server API
 directly. This is lower-level than actions: you provide the engine, model,
@@ -131,10 +135,14 @@ start a local agent-native workflow.
 
 ### Cloud repo access {#cloud-repo-access}
 
-For cloud headless apps that need repository access, the planned model is a
-GitHub connector plus token CRUD: list repositories, search files, read files,
-create or edit files, delete files, and revoke access through provider-scoped
-credentials.
+For cloud headless apps that need repository access, use the GitHub connector
+plus token CRUD model: list repositories, search files, read files, create or
+edit files, delete files, and revoke access through provider-scoped
+credentials. In local development, set the target repository explicitly:
+
+```bash
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
+```
 
 Do not treat a VM clone or long-lived sandbox checkout as the primary cloud
 repo-access model. Sandboxes still matter for isolated code execution, but
@@ -153,6 +161,12 @@ explicit access checks.
 
 Use the built-in chat when the user should talk to the agent, see tool calls,
 approve work, inspect native results, and keep a durable thread history.
+
+For a full app starting point, use the [Chat template](/docs/template-chat):
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+```
 
 The simplest full-page chat:
 
@@ -182,6 +196,9 @@ components in the chat, without iframes. See [Native Chat UI](/docs/native-chat-
 
 Use this path when your agent is already built with another framework or
 runtime and you want Agent-Native's chat UI around it.
+
+The [Chat template](/docs/template-chat) is still useful here: keep its app
+shell and thread UI, then swap the runtime behind the chat plugin or route.
 
 `AgentChatRuntime` is the boundary. Your runtime streams normalized events;
 Agent-Native renders the composer, transcript, tool calls, approvals, native
@@ -297,9 +314,9 @@ Full apps add product UI around the same action and agent contract:
 - **Deep links** — action results can open the right app view.
 - **Native chat widgets** — tables, charts, cards, approvals, and typed results appear inline.
 
-Start from a [template](/docs/cloneable-saas) when you want a complete app, or
-from [Starter](/docs/template-starter) when you are ready to add a blank UI
-scaffold around your actions.
+Start from the [Chat template](/docs/template-chat) when you want a minimal app
+around your actions, or from a domain [template](/docs/cloneable-saas) when you
+want a complete product shape.
 
 ## How to choose {#how-to-choose}
 

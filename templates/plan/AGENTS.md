@@ -130,6 +130,14 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
   same folder. Pass `path` whenever the user is viewing a
   `/local-plans/:slug?path=...` URL. These local-folder actions do not read or
   write SQL.
+- Use `update-local-plan-comments` to add, reply to, resolve, or delete review
+  comments on a local plan. They persist to a `comments.json` sidecar beside
+  `plan.mdx` (committed with the plan, no SQL), are always addressed to the
+  agent (`resolutionTarget: "agent"`), and are surfaced by `get-local-plan-folder`.
+  Local comments are a one-way handoff to the coding agent — delivery is the
+  composer's "Send to agent" copy-to-clipboard, not notifications or sharing.
+  In bridge mode the read-only bridge serves no comments, so the colocated
+  folder's `comments.json` is merged in for display and persistence.
 - Use `promote-local-plan-folder` when a temporary local plan should be saved
   into the repo. Its default target is `apps.plan.roots[0].path/<slug>` from
   `agent-native.json`, falling back to `plans/<slug>`.

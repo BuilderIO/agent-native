@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { IconArrowsMaximize } from "@tabler/icons-react";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type { MermaidData } from "./mermaid.config.js";
 import { DevInput, DevLabel } from "./dev-doc-ui.js";
@@ -289,7 +290,11 @@ export function MermaidRead({
   summary,
 }: BlockReadProps<MermaidData>) {
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       <MermaidDiagram source={data.source} idSeed={blockId} />
       {data.caption && (

@@ -168,7 +168,8 @@ function readTemplateApps(): TemplateApp[] {
       const description = entry.match(/description:\s*"([^"]+)"/)?.[1];
       const port = entry.match(/devPort:\s*(\d+)/)?.[1];
       if (!name || !label || !port) return null;
-      const dir = path.join(TEMPLATES_DIR, name);
+      const sourceName = name === "starter" ? "chat" : name;
+      const dir = path.join(TEMPLATES_DIR, sourceName);
       if (!fs.existsSync(path.join(dir, "package.json"))) return null;
       return {
         id: name,
@@ -217,7 +218,7 @@ const requestedApps = (() => {
     return includeDesktopLazyDefaults(allApps.filter((app) => app.core));
   const ids = appsArg
     .split(",")
-    .map((app) => app.trim())
+    .map((app) => normalizeRequestedAppId(app.trim()))
     .filter(Boolean);
   const unknown = ids.filter((id) => !appById.has(id));
   if (unknown.length) {
@@ -227,6 +228,10 @@ const requestedApps = (() => {
     .map((id) => appById.get(id))
     .filter((app): app is TemplateApp => !!app);
 })();
+
+function normalizeRequestedAppId(id: string): string {
+  return id === "starter" ? "chat" : id;
+}
 
 if (requestedApps.length === 0) {
   console.error("[dev-lazy] No templates selected.");

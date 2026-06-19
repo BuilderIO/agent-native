@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { defineBlock } from "../types.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type {
   BlockReadProps,
   BlockEditProps,
@@ -420,6 +421,7 @@ export function WireframeBlock({
 }: BlockReadProps<WireframeData>) {
   return (
     <section
+      {...ltrCodeBlockProps}
       className="an-block plan-block an-wireframe"
       data-block-id={blockId}
     >

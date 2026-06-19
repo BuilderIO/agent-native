@@ -66,6 +66,14 @@ interface CommandItem {
   action: (editor: Editor) => void | boolean | Promise<void>;
 }
 
+export function setPlainTextBlock(editor: Editor) {
+  const chain = editor.chain().focus();
+  if (typeof (chain as any).setParagraph === "function") {
+    return (chain as any).setParagraph().run();
+  }
+  return chain.setNode("paragraph").run();
+}
+
 function QuoteCommandIcon({ size = 22 }: { size?: number; stroke?: number }) {
   return (
     <span
@@ -105,7 +113,7 @@ const commands: CommandItem[] = [
     title: "Text",
     description: "Plain text block",
     icon: IconTypography,
-    action: (editor) => editor.chain().focus().setParagraph().run(),
+    action: setPlainTextBlock,
   },
   {
     title: "Heading 1",
@@ -233,7 +241,7 @@ const turnIntoCommands: CommandItem[] = [
     title: "Text",
     description: "Plain text block",
     icon: IconTypography,
-    action: (editor) => editor.chain().focus().setParagraph().run(),
+    action: setPlainTextBlock,
   },
   {
     title: "Heading 1",

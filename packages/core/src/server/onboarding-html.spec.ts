@@ -169,6 +169,7 @@ describe("getOnboardingHtml", () => {
     const coreSlugs = [
       "calendar",
       "content",
+      "plan",
       "slides",
       "clips",
       "brain",
@@ -177,7 +178,8 @@ describe("getOnboardingHtml", () => {
       "dispatch",
       "forms",
       "design",
-      "starter",
+      "assets",
+      "chat",
     ];
 
     for (const slug of coreSlugs) {

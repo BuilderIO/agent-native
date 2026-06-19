@@ -68,7 +68,9 @@ step is still pending. Use `🔴` only when blocked on user input.
   that preserves those access checks before exposing raw provider requests.
 - For composable workspace workflows, prefer many focused headless or small-UI
   mini-apps that discover and call each other over A2A instead of one oversized
-  app. Read `composable-mini-apps` before designing cross-app orchestration.
+  app. Pass artifact ids, URLs, and bounded summaries between apps instead of
+  pasting large provider dumps through prompts. Read `composable-mini-apps`
+  before designing cross-app orchestration.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.

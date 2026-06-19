@@ -29,6 +29,10 @@ function migrateApps(apps: AppConfig[]): {
   const firstPartyIds = new Set(TEMPLATES.map((template) => template.name));
 
   const migrated = apps.filter((app) => {
+    if (app.id === "starter" && app.isBuiltIn !== false) {
+      changed = true;
+      return false;
+    }
     const isStaleFirstParty =
       firstPartyIds.has(app.id) &&
       !defaultsById.has(app.id) &&

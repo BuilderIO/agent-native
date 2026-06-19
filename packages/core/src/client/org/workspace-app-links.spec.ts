@@ -10,7 +10,7 @@ describe("org switcher app links", () => {
   it("lists the default app suite with Dispatch pinned", () => {
     const apps = defaultOrgAppLinks();
 
-    expect(apps).toHaveLength(12);
+    expect(apps).toHaveLength(13);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
       name: "Dispatch",
@@ -26,6 +26,7 @@ describe("org switcher app links", () => {
         "assets",
         "brain",
         "calendar",
+        "chat",
         "clips",
         "content",
         "design",

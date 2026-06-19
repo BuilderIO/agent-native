@@ -192,9 +192,9 @@ export async function retrySqliteBusy<T>(
  * Postgres's `IF NOT EXISTS` check is NOT atomic with the `pg_type` /
  * `pg_class` catalog insert. When multiple processes boot concurrently and
  * issue the same CREATE, both can pass the existence check and one fails
- * with code 23505 on `pg_type_typname_nsp_index` or similar. The table does
- * end up created by the winner, so rerunning the same `IF NOT EXISTS`
- * statement is a safe no-op.
+ * with code 23505 on `pg_type_typname_nsp_index`, 42710 from `TypeCreate`,
+ * or similar. The table does end up created by the winner, so rerunning the
+ * same `IF NOT EXISTS` statement is a safe no-op.
  */
 export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -206,11 +206,15 @@ export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function isPgCatalogRace(e: any): boolean {
+  const msg = String(e?.message ?? "");
   if (e?.code === "42P07") return true;
+  if (e?.code === "42710") {
+    const routine = String(e?.routine ?? "");
+    return routine === "TypeCreate" || /type .* already exists/i.test(msg);
+  }
   if (e?.code !== "23505") return false;
   const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
   const detail = String(e?.detail ?? "");
-  const msg = String(e?.message ?? "");
   return (
     constraint.startsWith("pg_type") ||
     constraint.startsWith("pg_class") ||

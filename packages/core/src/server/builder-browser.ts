@@ -136,6 +136,14 @@ export interface BuilderBrowserStatus {
   privateKeyConfigured: boolean;
   userId?: string;
   orgName?: string;
+  /**
+   * The Builder space(s) the effective credential can reach, with their real
+   * display names (derived from the Admin GraphQL API). A `bpk-` key is
+   * space-scoped, so today this is one entry; the list shape lets the Sources
+   * drill-down grow to multiple spaces without a restructure. Absent/empty when
+   * the name can't be derived — UIs fall back to `orgName`.
+   */
+  spaces?: Array<{ id: string; name: string }>;
   orgKind?: string;
   subscription?: string;
   subscriptionLevel?: string;

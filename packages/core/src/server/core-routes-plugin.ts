@@ -1009,6 +1009,26 @@ export function createCoreRoutesPlugin(
                   });
                 }
                 if (creds.privateKey && creds.publicKey) {
+                  // Best-effort: surface the real space name(s) from Builder's
+                  // Admin API. Stay NON-BLOCKING — return whatever is cached now
+                  // and refresh in the background for the next poll. Falls back
+                  // to orgName until the cache warms.
+                  let spaces: Array<{ id: string; name: string }> | undefined;
+                  try {
+                    const { getCachedBuilderSpaces, listBuilderSpaces } =
+                      await import("./builder-space.js");
+                    const privateKey = creds.privateKey;
+                    const cachedSpaces = getCachedBuilderSpaces(privateKey);
+                    if (cachedSpaces && cachedSpaces.length > 0) {
+                      spaces = cachedSpaces;
+                    }
+                    if (!cachedSpaces) {
+                      // Warm the cache without blocking this response.
+                      void listBuilderSpaces(privateKey).catch(() => {});
+                    }
+                  } catch {
+                    // Admin API helper unavailable — leave spaces undefined.
+                  }
                   return withConnectToken({
                     ...requestStatus,
                     configured: true,
@@ -1016,6 +1036,7 @@ export function createCoreRoutesPlugin(
                     publicKeyConfigured: !!creds.publicKey,
                     userId: creds.userId || envStatus.userId,
                     orgName: creds.orgName || envStatus.orgName,
+                    spaces,
                     orgKind: creds.orgKind || envStatus.orgKind,
                     subscription:
                       creds.subscription || envStatus.subscription || undefined,

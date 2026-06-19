@@ -98,8 +98,9 @@ async function resolveConfiguredRepository(
       const configured = await resolveScopedSecret("GITHUB_REPOSITORY", ctx);
       if (configured) return configured;
     } catch {
-      // Fall through to single-tenant deploy/local env.
+      // Fall through to the authenticated missing-repository error below.
     }
+    return undefined;
   }
   return readDeployCredentialEnv("GITHUB_REPOSITORY");
 }

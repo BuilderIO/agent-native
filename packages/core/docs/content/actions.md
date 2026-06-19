@@ -27,7 +27,7 @@ whole first app:
 
 ```ts
 // actions/hello.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -56,14 +56,14 @@ pnpm agent "Call hello for Steve and explain the result"
 ```
 
 That is the same app-agent loop your scheduled jobs, chat UI, external MCP
-tools, and future screens will use. Starter and domain templates are for adding
-UI around actions, not a required prerequisite for the action itself.
+tools, and future screens will use. Chat and domain templates are for adding UI
+around actions, not a required prerequisite for the action itself.
 
 ## Defining an action {#defining}
 
 ```ts
 // actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -269,7 +269,7 @@ User-owned tables must scope reads through `accessFilter` and writes through `as
 
 ```ts
 // actions/create-lead.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import * as schema from "../server/db/schema.js";
@@ -355,12 +355,12 @@ summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
 external MCP hosts.
 
 ```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
 import {
-  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  createDataInsightsWidgetResult,
   dataInsightsWidgetResultSchema,
-  defineAction,
-} from "@agent-native/core";
-import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+} from "@agent-native/core/data-widgets";
 
 export default defineAction({
   description: "Summarize response trends.",
@@ -451,7 +451,7 @@ Reads the current navigation state, fetches contextual data, and returns a snaps
 
 ```ts
 // actions/view-screen.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -478,7 +478,7 @@ Writes a one-shot navigation command to application state. The UI reads it, navi
 
 ```ts
 // actions/navigate.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 

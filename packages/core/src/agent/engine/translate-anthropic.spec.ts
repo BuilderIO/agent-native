@@ -1,3 +1,4 @@
+import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
 import {
   anthropicChunkToEngineEvents,
@@ -9,6 +10,7 @@ import {
   backfillEngineMessagesToolResults,
 } from "./translate-anthropic.js";
 import type { EngineTool, EngineMessage } from "./types.js";
+import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 
 describe("engineToolsToAnthropic", () => {
   it("converts EngineTool to Anthropic tool format", () => {
@@ -29,6 +31,83 @@ describe("engineToolsToAnthropic", () => {
     expect(result[0].name).toBe("my-tool");
     expect(result[0].description).toBe("Does something");
     expect(result[0].input_schema.properties).toHaveProperty("msg");
+  });
+
+  it("removes top-level combinators Anthropic rejects from tool schemas", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+      allOf: [{ required: ["maybe"] }],
+    };
+
+    const result = engineToolsToAnthropic([
+      {
+        name: "write",
+        description: "Write SQL",
+        inputSchema,
+      },
+    ]);
+
+    expect(result[0].input_schema).toMatchObject({
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+    });
+    expect(result[0].input_schema).not.toHaveProperty("oneOf");
+    expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(inputSchema).toHaveProperty("oneOf");
+    expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("narrows db-exec to statements for Anthropic compatibility", () => {
+    const inputSchema = dbExecToolParameters() as EngineTool["inputSchema"];
+    const result = engineToolsToAnthropic([
+      {
+        name: "db-exec",
+        description: "Write SQL",
+        inputSchema,
+      },
+    ]);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const validate = new Ajv2020({ strict: false, allErrors: true }).compile(
+      schema,
+    );
+
+    expect(schema).not.toHaveProperty("oneOf");
+    expect(schema).toMatchObject({
+      type: "object",
+      required: ["statements"],
+      additionalProperties: false,
+      properties: {
+        statements: {
+          type: "string",
+          description: expect.stringContaining("single write"),
+        },
+      },
+    });
+    expect(schema.properties).not.toHaveProperty("sql");
+    expect(schema.properties).not.toHaveProperty("args");
+    expect(validate({})).toBe(false);
+    expect(validate({ sql: "UPDATE notes SET title = ?" })).toBe(false);
+    expect(validate({ format: "json" })).toBe(false);
+    expect(validate({ statements: "[]" })).toBe(true);
+    expect(
+      validate({ sql: "UPDATE notes SET title = ?", statements: "[]" }),
+    ).toBe(false);
+    expect(inputSchema).toHaveProperty("oneOf");
+    expect(inputSchema.properties).toHaveProperty("sql");
   });
 });
 

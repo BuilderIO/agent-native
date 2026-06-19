@@ -868,5 +868,30 @@ describe("provider API runtime", () => {
       timeoutMs: undefined,
       maxBytes: undefined,
     });
+
+    await action.run({
+      operation: "write",
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+      content: "export const value = 1;\n",
+      message: "Update a.ts",
+    });
+
+    expect(runtime.writeGitHubRepositoryFile).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+      content: "export const value = 1;\n",
+      message: "Update a.ts",
+      branch: undefined,
+      sha: undefined,
+      overwriteExisting: true,
+      committer: undefined,
+      author: undefined,
+      connectionId: undefined,
+      timeoutMs: undefined,
+      maxBytes: undefined,
+    });
   });
 });

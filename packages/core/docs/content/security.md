@@ -28,7 +28,7 @@ Use `defineAction` with a Zod `schema:` for every action. The framework validate
 
 ```typescript
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 
 export default defineAction({
   description: "Create a note",

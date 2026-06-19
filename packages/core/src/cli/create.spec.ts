@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { createApp, _getCoreDependencyVersion } from "./create.js";
+import {
+  createApp,
+  _getCoreDependencyVersion,
+  _workspaceAppNameForTemplateSelection,
+} from "./create.js";
 
 let tmpDir: string;
 
@@ -25,6 +29,15 @@ afterEach(() => {
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("derives workspace app names from GitHub template repo names", () => {
+    expect(
+      _workspaceAppNameForTemplateSelection("github:acme/customer-portal"),
+    ).toBe("customer-portal");
+    expect(_workspaceAppNameForTemplateSelection("github:acme/123 CRM")).toBe(
+      "app-123-crm",
+    );
+  });
+
   it("scaffolds a directory with the app name", async () => {
     await createApp("my-app", { template: "blank" });
     expect(fs.existsSync(path.join(tmpDir, "my-app"))).toBe(true);
@@ -99,6 +112,7 @@ describe("createApp", { timeout: 30000 }, () => {
       path.join(root, "actions", "hello.ts"),
       "utf-8",
     );
+    expect(hello).toContain("@agent-native/core/action");
     expect(hello).toContain("defineAction");
     expect(hello).toContain('http: { method: "GET" }');
     expect(hello).toContain("readOnly: true");
@@ -118,10 +132,15 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(deps.vite).toBeUndefined();
     expect(deps["@react-router/dev"]).toBeUndefined();
 
+    const tsconfig = JSON.parse(
+      fs.readFileSync(path.join(root, "tsconfig.json"), "utf-8"),
+    );
+    expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
+
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
-    expect(agents).toContain("Starter template");
+    expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
 
     expect(
@@ -147,7 +166,7 @@ describe("createApp", { timeout: 30000 }, () => {
       throw new Error("process.exit called");
     };
     try {
-      await createApp("my-ws", { template: "headless,starter" });
+      await createApp("my-ws", { template: "headless,chat" });
     } catch {
       // expected
     }

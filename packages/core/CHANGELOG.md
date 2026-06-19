@@ -1,5 +1,100 @@
 # @agent-native/core
 
+## 0.62.1
+
+### Patch Changes
+
+- edb1fa7: Keep code-like blocks left-to-right inside RTL plans. Code, code-tabs, diff,
+  file-tree, annotated-code, API endpoint, OpenAPI spec, JSON explorer,
+  data-model, schema-editor, diagram, mermaid, and wireframe blocks now pin their
+  outermost element to `dir="ltr"` (via a shared `ltrCodeBlockProps` helper) so
+  they no longer inherit a Persian/Arabic plan document's RTL direction and render
+  reversed. Prose, rich-text, and callout blocks intentionally stay RTL.
+
+## 0.62.0
+
+### Minor Changes
+
+- 8a74b0a: Add `agent-native agent`, `agent-native agents list`, the `/_agent-native/agents` discovery route, and read-only share links for agent chat threads with bounded run summaries.
+- 8a74b0a: Add a headless `agent-native create --headless` scaffold for primitive-first action apps, with `--template=headless` and legacy `--template=blank` routing to the same action-only starter.
+
+### Patch Changes
+
+- 8a74b0a: Add a small agent-native client helper for listing workspace agents and invoking sibling apps by id, name, or URL.
+- 8a74b0a: Remove top-level JSON Schema combinators from Anthropic tool input schemas before sending requests so strict provider validation does not reject valid framework tools.
+
+  Also mark the Assets template as requiring the embedding package so generated workspaces can resolve `@agent-native/embedding/bridge` during deploy builds.
+
+- 8a74b0a: Add the Chat template as the public minimal app on-ramp and keep Starter as a legacy CLI alias.
+- 8a74b0a: Allow Agent-Native Code to run through the local Codex CLI when Codex is signed in, and update provider copy to mention Codex CLI auth.
+- 8a74b0a: Load integration prompt resources in compact mode so Slack, email, and webhook runs do not inline full skill or memory context.
+- 8a74b0a: Add composable mini-apps guidance to workspace agent instructions and synced workspace-core skills so generated workspaces teach sibling discovery, A2A invocation, and provider-api composition patterns.
+- 8a74b0a: Add Dispatch automation status controls backed by jobs markdown resources.
+- 8a74b0a: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, retry any fresh user turn — queued follow-ups and normal sends fired shortly after the previous run finished — through transient 409 active-run conflicts instead of reconnecting to the prior run (which replayed its answer, dropped the new message, and corrupted thread history), while still letting genuine internal continuations resume the active run, and stabilize built-in data widget renderers to avoid chart remount loops.
+- 8a74b0a: Add GitHub repository file helpers to the provider-api runtime, plus agent/headless tools and a reusable action factory for listing, searching, reading, writing, and deleting files through GitHub connector credentials or `GITHUB_TOKEN`.
+- 8a74b0a: Add a headless A2A invocation primitive for calling agent-native apps by id, name, or URL, wired through the `agent-native invoke` CLI command.
+- 8a74b0a: Expose an action-only package subpath and teach generated action templates to use it so fresh headless apps can run actions without installing browser UI peers.
+- 8a74b0a: Ship version-matched framework docs as an explicit agent-readable package guide and point generated apps at `docs-search`.
+- 8a74b0a: Retry Postgres duplicate-type DDL races during concurrent serverless cold starts.
+- 8a74b0a: Close the notifications popover correctly over extension iframes.
+- 8a74b0a: Auto-join existing signed-in users into organizations whose allowed domain matches their email, and activate the newly joined org immediately.
+- 8a74b0a: Render read-only thread share links as sanitized HTML for browser callers while
+  preserving the JSON response for API clients.
+- 8a74b0a: Improve RTL rendering for visual plan rich markdown and diagram blocks.
+- 8a74b0a: Pre-optimize core client dependencies during monorepo dev so chat-heavy apps avoid Vite optimized-dependency reloads during navigation.
+
+## 0.61.0
+
+### Minor Changes
+
+- 96a0668: Add source-aware Builder database foundation: derive the real Builder space name via the Admin GraphQL API and surface it (plus the connected spaces) through the Builder status route and `useBuilderStatus`, with non-blocking, cached lookups so the connect-flow polling never blocks on Builder.
+
+  Builder deploy credentials remain blocked from impersonating signed-in users in hosted production. Local development can explicitly opt into env-key fallback for Builder dogfooding with `AGENT_NATIVE_LOCAL_BUILDER_ENV=1`; the escape hatch is non-production only.
+
+## 0.60.0
+
+### Minor Changes
+
+- ca3efcf: Add `agent-native agent`, `agent-native agents list`, the `/_agent-native/agents` discovery route, and read-only share links for agent chat threads with bounded run summaries.
+- ca3efcf: Add a headless `agent-native create --headless` scaffold for primitive-first action apps, with `--template=headless` and legacy `--template=blank` routing to the same action-only starter.
+
+### Patch Changes
+
+- ca3efcf: Add the Chat template as the public minimal app on-ramp and keep Starter as a legacy CLI alias.
+- ca3efcf: Allow Agent-Native Code to run through the local Codex CLI when Codex is signed in, and update provider copy to mention Codex CLI auth.
+- ca3efcf: Load integration prompt resources in compact mode so Slack, email, and webhook runs do not inline full skill or memory context.
+- ca3efcf: Add composable mini-apps guidance to workspace agent instructions and synced workspace-core skills so generated workspaces teach sibling discovery, A2A invocation, and provider-api composition patterns.
+- ca3efcf: Add Dispatch automation status controls backed by jobs markdown resources.
+- ca3efcf: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, retry any fresh user turn — queued follow-ups and normal sends fired shortly after the previous run finished — through transient 409 active-run conflicts instead of reconnecting to the prior run (which replayed its answer, dropped the new message, and corrupted thread history), while still letting genuine internal continuations resume the active run, and stabilize built-in data widget renderers to avoid chart remount loops.
+- ca3efcf: Add GitHub repository file helpers to the provider-api runtime, plus agent/headless tools and a reusable action factory for listing, searching, reading, writing, and deleting files through GitHub connector credentials or `GITHUB_TOKEN`.
+- ca3efcf: Add a headless A2A invocation primitive for calling agent-native apps by id, name, or URL, wired through the `agent-native invoke` CLI command.
+- ca3efcf: Expose an action-only package subpath and teach generated action templates to use it so fresh headless apps can run actions without installing browser UI peers.
+- ca3efcf: Ship version-matched framework docs as an explicit agent-readable package guide and point generated apps at `docs-search`.
+- ca3efcf: Close the notifications popover correctly over extension iframes.
+- ca3efcf: Auto-join existing signed-in users into organizations whose allowed domain matches their email, and activate the newly joined org immediately.
+- ca3efcf: Render read-only thread share links as sanitized HTML for browser callers while
+  preserving the JSON response for API clients.
+- ca3efcf: Improve RTL rendering for visual plan rich markdown and diagram blocks.
+- ca3efcf: Pre-optimize core client dependencies during monorepo dev so chat-heavy apps avoid Vite optimized-dependency reloads during navigation.
+
+## 0.59.1
+
+### Patch Changes
+
+- e151605: Fix active chat follow-up queueing so ordinary sends during a running turn stay queued, keep the thinking indicator attached to the active response, retry any fresh user turn — queued follow-ups and normal sends fired shortly after the previous run finished — through transient 409 active-run conflicts instead of reconnecting to the prior run (which replayed its answer, dropped the new message, and corrupted thread history), while still letting genuine internal continuations resume the active run, and stabilize built-in data widget renderers to avoid chart remount loops.
+- e151605: Close the notifications popover correctly over extension iframes.
+- e151605: Auto-join existing signed-in users into organizations whose allowed domain matches their email, and activate the newly joined org immediately.
+- e151605: Pre-optimize core client dependencies during monorepo dev so chat-heavy apps avoid Vite optimized-dependency reloads during navigation.
+
+## 0.59.0
+
+### Minor Changes
+
+- d3e0239: Reliably deliver the first agent-chat message on a cold start (buffer it until a
+  chat thread exists instead of dropping it), and gate prompt boxes up front when
+  no provider key, Builder connection, or BYOK key is configured. New exports:
+  `useAgentEngineConfigured`, `BuilderSetupCard`, `parseSubmitChatMessage`.
+
 ## 0.58.5
 
 ### Patch Changes

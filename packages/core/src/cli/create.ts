@@ -45,11 +45,11 @@ export class ValidationError extends Error {
 }
 
 /**
- * Move the primitive-first and starter on-ramps to the top of the list so they
+ * Move the primitive-first and chat on-ramps to the top of the list so they
  * line up with clack's default highlight.
  */
 function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
-  return moveTemplatesToFront(templates, ["headless", "starter"]);
+  return moveTemplatesToFront(templates, ["headless", "chat"]);
 }
 
 function moveTemplatesToFront(
@@ -116,7 +116,7 @@ export async function createApp(
   const parsed = parseTemplateList(opts?.template);
   if (parsed.includes("headless") && parsed.length > 1) {
     clack.cancel(
-      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Starter template when adding a UI app to a workspace.",
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Chat template when adding a UI app to a workspace.",
     );
     process.exit(1);
   }
@@ -149,8 +149,8 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Starter is the UI on-ramp",
-      "for a blank app with agent chat and the browser shell already wired.",
+      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
     ].join("\n"),
@@ -165,8 +165,8 @@ async function createWorkspaceInteractive(
     preselected.length > 0
       ? preselected.filter((t) => t !== "dispatch")
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["starter"],
-          preferredFirst: ["starter"],
+          defaultTemplates: ["chat"],
+          preferredFirst: ["chat"],
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
@@ -179,44 +179,58 @@ async function createWorkspaceInteractive(
 
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
+  const appNames = new Set<string>();
+  const scaffoldedApps: string[] = [];
 
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
 
     for (let i = 0; i < templates.length; i++) {
-      const t = templates[i];
+      const templateName = templates[i];
+      const appName = workspaceAppNameForTemplateSelection(templateName);
+      validateWorkspaceAppName(appName, clack, {
+        allowDispatch: appName === "dispatch" && templateName === "dispatch",
+      });
+      if (appNames.has(appName)) {
+        clack.cancel(
+          `Workspace app "${appName}" is selected more than once. Choose unique app templates or app names.`,
+        );
+        process.exit(1);
+      }
+      appNames.add(appName);
+      scaffoldedApps.push(appName);
       // Distinguish download vs local copy in the spinner so a multi-second
       // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
       // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
-        t !== "headless" && t.startsWith("github:")
+        templateName !== "headless" && templateName.startsWith("github:")
           ? true
-          : !findLocalTemplate(normalizeTemplateName(t));
+          : !findLocalTemplate(normalizeTemplateName(templateName));
       s.message(
         willDownload
-          ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
-          : `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+          ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
+          : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", t);
-      await scaffoldAppTemplate(appDir, t);
+      const appDir = path.join(targetDir, "apps", appName);
+      await scaffoldAppTemplate(appDir, templateName);
       s.message(
-        `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
+        `Configuring ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      replacePlaceholders(appDir, t, appTitleForScaffold(t, t), name);
-      rewriteTrackingAppId(appDir, t, t);
+      replacePlaceholders(appDir, appName, appTitleForScaffold(appName), name);
+      rewriteTrackingAppId(appDir, appName, templateName);
       workspacifyApp({
         appDir,
-        appName: t,
-        templateName: t,
+        appName,
+        templateName,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
       });
-      fixPackageJsonName(appDir, t);
-      fixWebManifestName(appDir, t, t);
-      rewriteNetlifyToml(appDir, t, "workspace");
+      fixPackageJsonName(appDir, appName, templateName);
+      fixWebManifestName(appDir, appName, templateName);
+      rewriteNetlifyToml(appDir, appName, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
@@ -245,10 +259,11 @@ async function createWorkspaceInteractive(
   // makes the structure concrete.
   const treeLines = [
     `  ${name}/                    ← your workspace`,
-    ...templates.map(
-      (t, i) =>
-        `  ${i === templates.length - 1 ? "└─" : "├─"} apps/${t}/`.padEnd(30) +
-        `   ← app`,
+    ...scaffoldedApps.map(
+      (appName, i) =>
+        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
+          30,
+        ) + `   ← app`,
     ),
   ];
   const dispatchNextStep = [
@@ -286,6 +301,21 @@ async function createWorkspaceInteractive(
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
+}
+
+function workspaceAppNameForTemplateSelection(templateName: string): string {
+  const normalized = normalizeTemplateName(templateName);
+  if (!normalized.startsWith("github:")) return templateName;
+  const repo = normalized.slice("github:".length).trim();
+  const repoName = repo.split("/").filter(Boolean).pop() ?? "app";
+  let appName = repoName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!appName) appName = "app";
+  if (!/^[a-z]/.test(appName)) appName = `app-${appName}`;
+  return appName;
 }
 
 /**
@@ -426,7 +456,7 @@ export async function addAppToWorkspace(
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
     clack.cancel(
-      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Starter template when adding a UI app to a workspace.",
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Chat template when adding a UI app to a workspace.",
     );
     process.exit(1);
   }
@@ -441,7 +471,7 @@ export async function addAppToWorkspace(
     excludeNames: installed,
     message: "Which apps do you want to add?",
     defaultTemplates: hasDispatch ? undefined : ["dispatch"],
-    preferredFirst: hasDispatch ? ["starter"] : ["dispatch", "starter"],
+    preferredFirst: hasDispatch ? ["chat"] : ["dispatch", "chat"],
     recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
@@ -484,7 +514,7 @@ async function scaffoldOneAppIntoWorkspace(
     replacePlaceholders(
       appDir,
       appName,
-      appTitleForScaffold(appName, templateName),
+      appTitleForScaffold(appName),
       path.basename(workspace.workspaceRoot),
     );
     rewriteTrackingAppId(appDir, appName, templateName);
@@ -601,7 +631,7 @@ async function createStandaloneApp(
         "  pnpm action hello --name Builder",
         `  pnpm agent "Call hello for Builder"`,
         "",
-        "Add a UI later by starting from the Starter template; `agent-native add` is reserved for integration blueprints.",
+        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
       ].join("\n"),
     );
   } else {
@@ -664,7 +694,7 @@ async function scaffoldAppTemplate(
     return;
   }
 
-  if (!allTemplateNames().includes(resolved)) {
+  if (!getTemplate(resolved)) {
     throw new Error(
       `Unknown template "${template}". Known: ${allTemplateNames().join(", ")} — or use github:user/repo for community templates.`,
     );
@@ -673,12 +703,22 @@ async function scaffoldAppTemplate(
   // If running from the framework monorepo with a local templates/ dir, use
   // that. Otherwise download from GitHub. This keeps `agent-native create`
   // fast during framework development.
-  const localTemplate = findLocalTemplate(resolved);
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyDir(localTemplate, targetDir);
   } else {
-    await downloadGitHubSubdir(REPO, `${TEMPLATES_DIR}/${resolved}`, targetDir);
+    await downloadGitHubSubdir(
+      REPO,
+      `${TEMPLATES_DIR}/${sourceTemplate}`,
+      targetDir,
+    );
   }
+}
+
+function templateSourceName(name: string): string {
+  if (name === "starter") return "chat";
+  return name;
 }
 
 /**
@@ -820,7 +860,7 @@ function postProcessStandalone(
   targetDir: string,
   templateName?: string,
 ): void {
-  const appTitle = appTitleForScaffold(name, templateName);
+  const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name, templateName);
@@ -995,7 +1035,7 @@ async function promptTemplatePicker(
   if (options.length === 0) return [];
 
   // Default pre-selection: what the user passed via --template, falling
-  // back to caller defaults, then to "starter" when available.
+  // back to caller defaults, then to "chat" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
@@ -1003,8 +1043,8 @@ async function promptTemplatePicker(
         ? opts.defaultTemplates.filter((p) =>
             options.some((o) => o.value === p),
           )
-        : options.some((o) => o.value === "starter")
-          ? ["starter"]
+        : options.some((o) => o.value === "chat")
+          ? ["chat"]
           : [];
 
   const baseMessage = opts?.message ?? "Which apps would you like to include?";
@@ -1085,6 +1125,7 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
+  workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
 };
@@ -1269,19 +1310,22 @@ function titleCase(name: string): string {
     .join(" ");
 }
 
-function appTitleForScaffold(appName: string, templateName?: string): string {
-  if (appName === "starter" && (!templateName || templateName === "starter")) {
-    return "Blank app";
-  }
+function appTitleForScaffold(appName: string): string {
   return titleCase(appName);
 }
 
-function defaultPackageDescriptionForScaffold(
-  appName: string,
-  templateName?: string,
-): string {
-  const appTitle = appTitleForScaffold(appName, templateName);
-  if (appTitle === "Blank app") return "Blank agent-native app scaffold.";
+function isChatOnRampTemplate(templateName: string | undefined): boolean {
+  return templateName === "chat" || templateName === "starter";
+}
+
+function trackingTemplateName(
+  templateName: string | undefined,
+): string | undefined {
+  return templateName === "starter" ? "chat" : templateName;
+}
+
+function defaultPackageDescriptionForScaffold(appName: string): string {
+  const appTitle = appTitleForScaffold(appName);
   return `Workspace app for ${appTitle}.`;
 }
 
@@ -1300,18 +1344,19 @@ function fixPackageJsonName(
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
-    // When the user picked a custom name (e.g. `add-app todo --template=starter`)
+    const appTitle = appTitleForScaffold(name);
+    // When the user picked a custom name (e.g. `add-app todo --template=chat`)
     // the template's displayName would otherwise leak into the workspace apps
     // grid as the new app's label. Overwrite it so the app shows up as "Todo"
     // instead of the source template's branding.
     if (templateName && name !== templateName) {
-      pkg.displayName = titleCase(name);
+      pkg.displayName = appTitle;
     }
-    if (shouldReplaceScaffoldDescription(pkg.description)) {
-      pkg.description = defaultPackageDescriptionForScaffold(
-        name,
-        templateName,
-      );
+    if (
+      shouldReplaceScaffoldDescription(pkg.description) ||
+      (isChatOnRampTemplate(templateName) && name !== templateName)
+    ) {
+      pkg.description = defaultPackageDescriptionForScaffold(name);
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
@@ -1322,7 +1367,7 @@ function fixWebManifestName(
   name: string,
   templateName?: string,
 ): void {
-  if (templateName !== "starter" || name === templateName) return;
+  if (!isChatOnRampTemplate(templateName) || name === templateName) return;
   const manifestPath = path.join(appDir, "public", "manifest.json");
   if (!fs.existsSync(manifestPath)) return;
   try {
@@ -1332,12 +1377,9 @@ function fixWebManifestName(
     manifest.short_name = appTitle;
     if (
       typeof manifest.description !== "string" ||
-      /\b(blank app|starter)\b/i.test(manifest.description)
+      /\b(blank app|starter|chat-first)\b/i.test(manifest.description)
     ) {
-      manifest.description = defaultPackageDescriptionForScaffold(
-        name,
-        templateName,
-      );
+      manifest.description = defaultPackageDescriptionForScaffold(name);
     }
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   } catch {}
@@ -1599,9 +1641,13 @@ function rewriteTrackingAppId(
 
   try {
     const content = fs.readFileSync(rootPath, "utf-8");
+    const trackedTemplateName = trackingTemplateName(templateName);
     const sourceAppIds = ["agent-native-[^\"']+", "\\{\\{APP_NAME\\}\\}"];
     if (templateName && templateName !== appName) {
       sourceAppIds.push(escapeRegExp(templateName));
+    }
+    if (isChatOnRampTemplate(templateName)) {
+      sourceAppIds.push("starter", "chat");
     }
     const pattern = new RegExp(
       `(^\\s*app:\\s*)(["'])(?:${sourceAppIds.join("|")})\\2(\\s*,?)`,
@@ -1616,13 +1662,14 @@ function rewriteTrackingAppId(
     );
 
     if (
-      templateName &&
-      templateName !== appName &&
+      trackedTemplateName &&
+      trackedTemplateName !== appName &&
       !hasTrackingTemplate(next)
     ) {
       next = next.replace(
         /(^\s*app:\s*["'][^"']+["'],?\s*$)/m,
-        (line) => `${line}\n    template: ${JSON.stringify(templateName)},`,
+        (line) =>
+          `${line}\n    template: ${JSON.stringify(trackedTemplateName)},`,
       );
     }
 

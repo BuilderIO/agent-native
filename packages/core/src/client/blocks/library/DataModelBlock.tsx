@@ -9,6 +9,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   DataModelChange,
@@ -226,7 +227,11 @@ export function DataModelRead({
   );
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
 
       <div className="flex flex-col gap-3">

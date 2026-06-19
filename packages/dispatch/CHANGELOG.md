@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.11.3
+
+### Patch Changes
+
+- 8a74b0a: Add the Chat template as the public minimal app on-ramp and keep Starter as a legacy CLI alias.
+- 8a74b0a: Add Dispatch automation status controls backed by jobs markdown resources.
+
+## 0.11.2
+
+### Patch Changes
+
+- ca3efcf: Add the Chat template as the public minimal app on-ramp and keep Starter as a legacy CLI alias.
+- ca3efcf: Add Dispatch automation status controls backed by jobs markdown resources.
+
 ## 0.11.1
 
 ### Patch Changes
