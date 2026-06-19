@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconActivity,
   IconArchive,
@@ -433,18 +433,22 @@ export function Sidebar({
         <div className={cn("grid", collapsed ? "gap-0" : "gap-1")}>
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isActive =
+              item.href === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.href);
             const link = (
-              <NavLink
+              <Link
                 to={item.href}
-                end={item.href === "/"}
-                className={navClass}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
                 aria-label={collapsed ? item.label : undefined}
               >
                 <Icon className="size-4 shrink-0" />
                 <span className={collapsed ? "sr-only" : "truncate"}>
                   {item.label}
                 </span>
-              </NavLink>
+              </Link>
             );
             return (
               <div key={item.href}>
