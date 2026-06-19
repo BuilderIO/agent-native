@@ -127,7 +127,13 @@ const preset = {
         return null;
       }
     })(),
-    require("@tailwindcss/typography"),
+    (() => {
+      try {
+        return require("@tailwindcss/typography");
+      } catch {
+        return null;
+      }
+    })(),
   ].filter(Boolean),
 };
 

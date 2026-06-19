@@ -9,6 +9,9 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
 - Prefer actions in `actions/` for every app operation. Do not create REST wrappers around actions.
 - Keep action inputs validated with Zod and return structured data, not JSON strings.
 - Do not hardcode API keys, tokens, webhook URLs, private data, or credential-looking literals.
+- `actions/run.ts` is the CLI dispatcher for `pnpm action ...`, not an app
+  action. Leave it in place and add callable primitives as separate
+  `actions/<name>.ts` files.
 - There is intentionally no `app/` UI shell in this scaffold. When you need a browser UI, use the Chat template as the UI on-ramp and keep `agent-native add` for integration blueprints.
 
 ## Framework Docs Lookup

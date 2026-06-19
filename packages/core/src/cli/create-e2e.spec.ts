@@ -331,6 +331,24 @@ function runPnpm(
   };
 }
 
+function runNode(
+  args: string[],
+  cwd: string,
+  timeout = 300000,
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync(process.execPath, args, {
+    cwd,
+    encoding: "utf-8",
+    timeout,
+    env: { ...process.env },
+  });
+  return {
+    status: res.status,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
+
 describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
   "headless onboarding — install + typecheck + action",
   { timeout: 600000 },
@@ -349,6 +367,9 @@ describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
         install.status,
         `pnpm install failed:\n${install.stdout}\n${install.stderr}`,
       ).toBe(0);
+      const installOutput = `${install.stdout}\n${install.stderr}`;
+      expect(installOutput).not.toContain("missing peer tailwindcss");
+      expect(installOutput).not.toContain("Conflicting peer dependencies");
 
       const typecheck = runPnpm(["typecheck"], appDir);
       expect(
@@ -362,6 +383,29 @@ describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
         `pnpm action hello failed:\n${action.stdout}\n${action.stderr}`,
       ).toBe(0);
       expect(`${action.stdout}\n${action.stderr}`).toContain("Hello, Builder!");
+
+      const discovery = runNode(
+        [
+          "--input-type=module",
+          "-e",
+          [
+            'const { autoDiscoverActions } = await import("@agent-native/core/server");',
+            'const actions = await autoDiscoverActions("auto");',
+            'if (!actions.hello) throw new Error("hello action was not discovered");',
+            'console.log(Object.keys(actions).sort().join(","));',
+          ].join("\n"),
+        ],
+        appDir,
+      );
+      expect(
+        discovery.status,
+        `plain node action discovery failed:\n${discovery.stdout}\n${discovery.stderr}`,
+      ).toBe(0);
+      expect(discovery.stdout).toContain("hello");
+      expect(discovery.stderr).not.toContain("ERR_UNKNOWN_FILE_EXTENSION");
+      expect(discovery.stderr).not.toContain(
+        '[action-discovery] Skipped "hello.ts"',
+      );
     });
   },
 );
