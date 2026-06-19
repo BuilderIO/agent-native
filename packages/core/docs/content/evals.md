@@ -1,9 +1,9 @@
 ---
-title: "Evals (CI Gate)"
+title: "CI Eval Gate"
 description: "Write *.eval.ts test cases that run the real agent against fixed inputs, score the output with composable scorers, and gate CI/deploys on a threshold."
 ---
 
-# Evals (CI Gate)
+# CI Eval Gate
 
 Evals are a first-class testing primitive: you declare a prompt plus the behavior you expect, the runner **actually runs the agent loop** against that input, scores the output with composable scorers, and exits non-zero if any case scores below its threshold. That non-zero exit makes `agent-native eval` a drop-in CI deploy gate.
 
@@ -73,7 +73,7 @@ Imported from `@agent-native/core/eval`:
 
 `createScorer` builds a scorer from a Mastra-style 4-step pipeline. Only `generateScore` is required:
 
-```txt
+```text
 preprocess(run)     → x          transform the run/output (optional)
 analyze(x, ctx)     → analysis   plain JS OR an LLM judge (optional)
 generateScore(a)    → 0..1       REQUIRED, normalized

@@ -269,9 +269,17 @@ describe("shared block tab rails", () => {
     });
 
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
-    expect(
-      container.querySelector('[aria-orientation="horizontal"]'),
-    ).toBeTruthy();
+    const tablist = container.querySelector<HTMLElement>(
+      '[aria-orientation="horizontal"]',
+    );
+    const activePane = tablist?.nextElementSibling as HTMLElement | null;
+    const childWrapper = activePane?.firstElementChild as HTMLElement | null;
+
+    expect(tablist).toBeTruthy();
+    expect(activePane?.className).toContain("min-w-0");
+    expect(activePane?.className).toContain("max-w-full");
+    expect(childWrapper?.className).toContain("min-w-0");
+    expect(childWrapper?.className).toContain("max-w-full");
   });
 
   it("edits content tab labels from the settings popover instead of an inline field", () => {
@@ -398,5 +406,8 @@ describe("shared block tab rails", () => {
     expect(
       tablist?.querySelector<HTMLElement>('[role="tab"]')?.className,
     ).toContain("whitespace-nowrap");
+    expect(tablist?.parentElement?.className).toContain("min-w-0");
+    expect(tablist?.nextElementSibling?.className).toContain("min-w-0");
+    expect(tablist?.nextElementSibling?.className).toContain("max-w-full");
   });
 });

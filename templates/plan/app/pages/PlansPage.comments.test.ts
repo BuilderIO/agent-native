@@ -21,6 +21,7 @@ import {
   shouldRetryLocalPlanBridgeBundle,
   shouldShowPlanLoadError,
   shouldKeepCommentPopoverOpenForTarget,
+  resolvePlanOrgAccessPrompt,
 } from "./PlansPage";
 import { planBundleQueryKey } from "@/hooks/use-plans";
 import type { PlanBundle } from "@shared/types";
@@ -974,6 +975,101 @@ describe("plan comment thread UI model", () => {
     expect(shouldShowPlanLoadError({ ...base, hasSelectedId: false })).toBe(
       false,
     );
+  });
+
+  it("prefers accepting an existing org invite on the plan access wall", () => {
+    const prompt = resolvePlanOrgAccessPrompt({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: true,
+        viewerEmail: "sami@builder.io",
+        viewerName: "Sami",
+        role: null,
+        orgId: "org_builder",
+        orgName: "Builder.io",
+        visibility: "org",
+      },
+      org: {
+        email: "sami@builder.io",
+        pendingInvitations: [
+          {
+            id: "invite_1",
+            orgId: "org_builder",
+            orgName: "Builder.io",
+            invitedBy: "Milos",
+          },
+        ],
+        domainMatches: [{ orgId: "org_builder", orgName: "Builder.io" }],
+      },
+    });
+
+    expect(prompt).toMatchObject({
+      kind: "invitation",
+      invitationId: "invite_1",
+      buttonLabel: "Accept invite",
+      message:
+        "You already have an invite to Builder.io. Accept it to open this plan.",
+    });
+  });
+
+  it("offers domain join for org plan access when no invite is pending", () => {
+    const prompt = resolvePlanOrgAccessPrompt({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: true,
+        viewerEmail: "sami@builder.io",
+        viewerName: "Sami",
+        role: null,
+        orgId: "org_builder",
+        orgName: "Builder.io",
+        visibility: "org",
+      },
+      org: {
+        email: "sami@builder.io",
+        pendingInvitations: [],
+        domainMatches: [{ orgId: "org_builder", orgName: "Builder.io" }],
+      },
+    });
+
+    expect(prompt).toMatchObject({
+      kind: "domain",
+      organizationId: "org_builder",
+      buttonLabel: "Join Builder.io",
+      message:
+        "Your @builder.io email can join Builder.io. Join it to open this plan.",
+    });
+  });
+
+  it("keeps private plan denials on the existing request-access path", () => {
+    const prompt = resolvePlanOrgAccessPrompt({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: true,
+        viewerEmail: "sami@builder.io",
+        viewerName: "Sami",
+        role: null,
+        orgId: null,
+        orgName: null,
+        visibility: "private",
+      },
+      org: {
+        email: "sami@builder.io",
+        pendingInvitations: [
+          {
+            id: "invite_1",
+            orgId: "org_builder",
+            orgName: "Builder.io",
+            invitedBy: "Milos",
+          },
+        ],
+        domainMatches: [{ orgId: "org_builder", orgName: "Builder.io" }],
+      },
+    });
+
+    expect(prompt).toBeNull();
   });
 
   it("detects mention queries when Chrome splits typed content into text nodes", () => {

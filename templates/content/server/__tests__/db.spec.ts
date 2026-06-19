@@ -38,4 +38,50 @@ describe("content database migrations", () => {
       );
     }
   });
+
+  it("creates source-aware database foundation tables additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_sources",
+    );
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_source_fields",
+    );
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_source_rows",
+    );
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_source_change_sets",
+    );
+    expect(source).toContain("direction TEXT NOT NULL DEFAULT 'incoming'");
+    expect(source).toContain("push_mode TEXT");
+    expect(source).toContain("local_only INTEGER NOT NULL DEFAULT 1");
+  });
+
+  it("cleans source review and execution rows when database pages are deleted", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "..", "actions", "_database-utils.ts"),
+      "utf8",
+    );
+
+    const executionDelete = source.indexOf(
+      "delete(schema.contentDatabaseSourceExecutions)",
+    );
+    const reviewDelete = source.indexOf(
+      "delete(schema.contentDatabaseSourceChangeReviews)",
+    );
+    const changeSetDelete = source.indexOf(
+      "delete(schema.contentDatabaseSourceChangeSets)",
+    );
+
+    expect(executionDelete).toBeGreaterThan(-1);
+    expect(reviewDelete).toBeGreaterThan(-1);
+    expect(changeSetDelete).toBeGreaterThan(-1);
+    expect(executionDelete).toBeLessThan(changeSetDelete);
+    expect(reviewDelete).toBeLessThan(changeSetDelete);
+  });
 });

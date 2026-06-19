@@ -177,10 +177,23 @@ export const templates = [
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
   },
+  {
+    name: "Chat",
+    slug: "chat",
+    replaces: "A minimal ChatGPT-style app for your own agent",
+    cliCommand:
+      "npx @agent-native/core@latest create my-chat-app --template chat",
+    demoUrl: "https://chat.agent-native.com",
+    description:
+      "Chat-first app scaffold with durable threads, a standard sidebar, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.",
+    color: "#18181B",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406",
+  },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
   // `packages/shared-app-config/templates.ts` (the entries with
-  // `hidden: false`, excluding the CLI-only starter scaffold). To surface
+  // `hidden: false`). To surface
   // a new template on the homepage, first flip its `hidden` flag in that
   // file. The CI guard
   // `scripts/guard-template-list.mjs` enforces this — adding a slug here
@@ -208,8 +221,8 @@ function CliPopoverContent({ template }: { template: Template }) {
 
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <code className="block whitespace-nowrap text-xs leading-relaxed text-[var(--fg)]">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2">
+        <code className="block min-w-0 truncate text-xs leading-relaxed text-[var(--fg)]">
           {template.cliCommand}
         </code>
         <button

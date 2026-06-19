@@ -28,7 +28,7 @@ The agent is the single AI interface. It has context about the full project, can
 **From the UI (client):**
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 
 sendToAgentChat({
   message: "Generate a summary of this document",
@@ -40,7 +40,7 @@ sendToAgentChat({
 **From the UI, in the background:**
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 
 sendToAgentChat({
   message: "Analyze this import and create any missing records",
@@ -82,7 +82,7 @@ Do not call provider SDKs directly.
 **From the UI, detecting when agent is done:**
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 
 function MyComponent() {
   const isGenerating = useAgentChatGenerating();

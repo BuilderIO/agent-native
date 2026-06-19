@@ -28,7 +28,7 @@ pnpm --filter @agent-native/docs test
 node scripts/guard-template-list.mjs
 ```
 
-The template-list guard enforces that public template surfaces only include allow-listed templates from `packages/shared-app-config/templates.ts`. The Starter scaffold is CLI-only and should not appear in `/templates` or generic template routes.
+The template-list guard enforces that public template surfaces only include allow-listed templates from `packages/shared-app-config/templates.ts`.
 
 ## Build
 

@@ -25,7 +25,7 @@ const APP_ID_TO_TAB: Record<string, string> = {
   forms: "forms",
   design: "design",
   dispatch: "dispatch",
-  starter: "starter",
+  chat: "chat",
 };
 
 /** Built-in app icon used both in the tab bar and the More sheet. */
@@ -40,7 +40,7 @@ const APP_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   dispatch: "message-circle",
   forms: "clipboard",
   design: "edit-2",
-  starter: "code",
+  chat: "message-circle",
 };
 
 const MAX_VISIBLE_APPS = 4;
@@ -255,14 +255,14 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="starter"
+          name="chat"
           options={{
-            title: "Starter",
+            title: "Chat",
             headerShown: false,
-            href: hrefFor("starter"),
-            tabBarItemStyle: itemStyleFor("starter"),
+            href: hrefFor("chat"),
+            tabBarItemStyle: itemStyleFor("chat"),
             tabBarIcon: ({ color, size }) => (
-              <Feather name="code" size={size} color={color} />
+              <Feather name="message-circle" size={size} color={color} />
             ),
           }}
         />

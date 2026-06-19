@@ -35,8 +35,10 @@ import {
   type PlanMdxFolder,
 } from "../plan-mdx.js";
 import type { PlanContent } from "../../shared/plan-content.js";
+import type { PlanComment } from "../../shared/types.js";
 
 const PLAN_FOLDER_TITLE_LIMIT = 64;
+const LOCAL_COMMENTS_FILE = "comments.json";
 const AGENT_NATIVE_MANIFEST_FILE = "agent-native.json";
 const DEFAULT_REPO_PLANS_PATH = "plans";
 
@@ -591,6 +593,36 @@ export async function readPlanLocalFolder(
     mdx,
     content: await parsePlanMdxFolder(mdx),
   };
+}
+
+// Read agent-only review comments from the folder's comments.json (missing = none).
+export async function readLocalPlanComments(
+  folder: string,
+): Promise<PlanComment[]> {
+  try {
+    const raw = await fs.readFile(
+      path.join(folder, LOCAL_COMMENTS_FILE),
+      "utf-8",
+    );
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PlanComment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Write comments.json; an empty array removes the file.
+export async function writeLocalPlanComments(
+  folder: string,
+  comments: PlanComment[],
+): Promise<void> {
+  const target = path.join(folder, LOCAL_COMMENTS_FILE);
+  if (comments.length === 0) {
+    await fs.rm(target, { force: true });
+    return;
+  }
+  await fs.mkdir(folder, { recursive: true });
+  await fs.writeFile(target, `${JSON.stringify(comments, null, 2)}\n`, "utf-8");
 }
 
 export async function promotePlanLocalFolder(

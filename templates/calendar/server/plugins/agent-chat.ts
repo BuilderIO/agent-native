@@ -56,8 +56,31 @@ registerEvent({
   }),
 });
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-events",
+  "search-events",
+  "get-event",
+  "create-event",
+  "update-event",
+  "delete-event",
+  "rsvp-event",
+  "check-availability",
+  "find-a-time",
+  "search-people",
+  "navigate",
+  "list-booking-links",
+  "create-booking-link",
+  "update-booking-link",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "query-staged-dataset",
+];
+
 export default createAgentChatPlugin({
   appId: "calendar",
+  initialToolNames: INITIAL_TOOL_NAMES,
   // Enable sandboxed JavaScript execution so Calendar agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Calendar / CRM endpoint.
@@ -68,6 +91,8 @@ export default createAgentChatPlugin({
   },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   systemPrompt: `You are an AI calendar assistant. You manage the user's Google Calendar events, bookings, availability, and connected provider data.
+
+Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
 ## Critical: Use Actions And Provider APIs, Not Raw SQL
 

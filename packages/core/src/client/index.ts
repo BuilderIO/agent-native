@@ -13,9 +13,11 @@ export {
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
+  parseSubmitChatMessage,
   setAgentChatContextItem,
   setContextToAgentChat,
   generateTabId,
+  type ParsedSubmitChat,
   type AgentChatContextItem,
   type AgentChatContextMessage,
   type AgentChatContextMutationOptions,
@@ -97,6 +99,12 @@ export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
+export {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+  type UseAgentEngineConfiguredResult,
+} from "./use-agent-engine-configured.js";
+export { BuilderSetupCard } from "./chat/run-recovery.js";
 export {
   AgentConversation,
   AgentConversationMessageView,
@@ -463,6 +471,8 @@ export {
   type ChatThreadSnapshot,
   type ChatThreadSummary,
   type ChatThreadData,
+  type ChatThreadShareLink,
+  type ChatThreadShareState,
   type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
 export { AgentChatHome, type AgentChatHomeProps } from "./AgentChatHome.js";
@@ -478,15 +488,25 @@ export {
   type AgentSidebarProps,
 } from "./AgentPanel.js";
 export {
+  AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
+  consumeAgentChatHomeHandoff,
   getAgentChatViewTransitionStyle,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   startAgentChatViewTransition,
   supportsAgentChatViewTransition,
+  type AgentChatHomeHandoffOptions,
   type AgentChatViewTransition,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
+export {
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+  type UseAgentChatHomeHandoffLinksOptions,
+  type UseAgentChatHomeHandoffOptions,
+} from "./use-agent-chat-home-handoff.js";
 export {
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,

@@ -1,4 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+/* Vazirmatn — open-source (OFL) Persian/Arabic face, scoped to RTL plan content
+ * below via `[data-plan-direction="rtl"]`. @fontsource/vazirmatn is not in the
+ * workspace, so this matches the Inter CDN @import pattern above. */
+@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap");
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -12,6 +16,15 @@
 }
 
 @source "./**/*.{ts,tsx}";
+
+.plan-chat-composer-area [data-agent-composer-slot="root"],
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  box-shadow: none;
+}
+
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  outline: 1px solid hsl(var(--ring) / 0.35);
+}
 
 :root {
   --background: 40 23% 97%;
@@ -101,6 +114,17 @@
     font-family: "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+/* RTL plan content (Persian/Arabic) renders in Vazirmatn; LTR content keeps
+ * Inter. Scoped to the document shell's `data-plan-direction="rtl"` attribute
+ * (set by PlanContentRenderer) so only RTL plans pick it up. Code surfaces and
+ * `font-mono` utilities declare their own monospace stack ("JetBrains Mono", …),
+ * which is a direct font-family on the element and so always beats this inherited
+ * face — code never renders in Vazirmatn (code-like blocks are also pinned to
+ * dir="ltr"). */
+[data-plan-direction="rtl"] {
+  font-family: "Vazirmatn", "Inter", sans-serif;
 }
 
 @layer utilities {
@@ -411,7 +435,7 @@
   }
 
   .plan-document-toc__link.is-nested {
-    padding-left: 0.75rem;
+    padding-inline-start: 0.75rem;
   }
 }
 
@@ -617,6 +641,7 @@
   color: var(--plan-text);
   font-size: var(--plan-body-size);
   line-height: 1.75;
+  text-align: start;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose > :first-child {
@@ -715,7 +740,12 @@
 .plan-rich-markdown-editor .an-rich-md-prose ol,
 .plan-rich-markdown-editor .an-rich-md-task-list {
   margin: 0.85rem 0;
+  padding-inline-start: 1.45em;
   color: var(--plan-muted);
+}
+
+.plan-rich-markdown-editor .an-rich-md-task-list {
+  padding-inline-start: 0;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose li {
@@ -737,7 +767,7 @@
 
 .plan-rich-markdown-editor .an-rich-md-prose blockquote {
   margin: 1.1rem 0;
-  border-left-color: var(--plan-line);
+  border-inline-start-color: var(--plan-line);
   color: var(--plan-muted);
 }
 
@@ -750,6 +780,12 @@
 .plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
 }
 
 /* Block code is rendered by the shared `.an-code-block` node view (editor) and
@@ -832,7 +868,7 @@
 .plan-prose ul,
 .plan-prose ol {
   margin: 0.85rem 0;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   color: var(--plan-muted);
 }
 
@@ -870,8 +906,8 @@
 
 .plan-prose blockquote {
   margin: 1.1rem 0;
-  border-left: 3px solid var(--plan-line);
-  padding-left: 1rem;
+  border-inline-start: 3px solid var(--plan-line);
+  padding-inline-start: 1rem;
   color: var(--plan-muted);
 }
 
@@ -889,6 +925,12 @@
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.plan-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
 }
 
 .plan-prose table {
@@ -902,7 +944,7 @@
 .plan-prose td {
   border: 1px solid var(--plan-line);
   padding: 0.5rem 0.75rem;
-  text-align: left;
+  text-align: start;
 }
 
 .plan-prose th {
@@ -924,6 +966,8 @@
 
 /* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
 .plan-code-surface {
+  max-width: 100%;
+  min-width: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--plan-line);
@@ -948,6 +992,8 @@
 
 .plan-code-surface-scroll {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
   font-size: var(--plan-code-size);
   line-height: 1.55;
@@ -976,7 +1022,7 @@
   color: var(--plan-muted);
   font-size: 0.75rem;
   font-weight: 500;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -990,9 +1036,12 @@
 
 .plan-code-surface .plan-shiki,
 .plan-code-surface pre {
+  box-sizing: border-box;
+  min-width: 100%;
+  width: max-content;
   margin: 0;
   padding: 0.85rem 1.1rem;
-  background: var(--shiki-light-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--plan-code-size);
@@ -1007,16 +1056,17 @@
 
 .plan-code-surface .plan-shiki pre,
 .plan-code-surface .plan-shiki code {
-  background: var(--shiki-light-bg, transparent) !important;
+  background: transparent !important;
 }
 
 .plan-code-surface .plan-shiki pre span {
+  background: transparent !important;
   color: var(--shiki-light);
 }
 
 .dark .plan-code-surface .plan-shiki,
 .dark .plan-code-surface .plan-shiki pre {
-  background: var(--shiki-dark-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-dark, var(--plan-code-text));
 }
 
@@ -1055,9 +1105,13 @@
    surface that auto-grows (no drag-to-resize) with a hover language switcher. */
 .plan-code {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .plan-code-head {
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1069,6 +1123,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  overflow: hidden;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: max(0.75rem, calc(var(--plan-code-size) - 0.0625rem));
@@ -1173,6 +1228,8 @@
 
 .plan-code-editor-body {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
 }
 
@@ -1390,9 +1447,13 @@
 
 .plan-callout {
   max-width: 860px;
-  border-left: 3px solid hsl(var(--ring));
+  border-inline-start: 3px solid hsl(var(--ring));
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
   padding-block: 0.9rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 /* The body editor/reader carries a default `mt-4`; inside a callout the block's
@@ -1422,8 +1483,7 @@
 }
 
 .plan-callout[data-tone] {
-  border-left-color: hsl(var(--plan-callout-accent));
-  border-radius: 0 8px 8px 0;
+  border-inline-start-color: hsl(var(--plan-callout-accent));
   background-image: linear-gradient(
     90deg,
     hsl(var(--plan-callout-accent) / 0.08),
@@ -1431,8 +1491,18 @@
     transparent 72%
   );
   transition:
-    border-left-color 0.12s ease,
+    border-inline-start-color 0.12s ease,
     background-image 0.12s ease;
+}
+
+[dir="rtl"] .plan-callout[data-tone],
+.plan-callout[dir="rtl"][data-tone] {
+  background-image: linear-gradient(
+    270deg,
+    hsl(var(--plan-callout-accent) / 0.08),
+    hsl(var(--plan-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
 }
 
 .plan-callout[data-tone] .plan-block-label {

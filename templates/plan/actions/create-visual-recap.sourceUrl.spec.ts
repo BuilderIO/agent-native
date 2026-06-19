@@ -25,6 +25,7 @@ import {
 import * as planSchema from "../server/db/schema.js";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 
 let client: Client;
 let db: LibSQLDatabase<typeof planSchema>;
@@ -43,6 +44,14 @@ vi.mock("../server/lib/local-plan-files.js", () => ({
   localPlansDir: () => "/tmp/plans-test",
   localPlanFolder: (id: string) => `/tmp/plans-test/${id}`,
 }));
+vi.mock("@agent-native/core/org", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/org")>();
+  return {
+    ...actual,
+    resolveOrgIdForEmail: vi.fn(async () => null),
+  };
+});
 
 type AnyAction = { run: (args: any) => Promise<any> };
 let createVisualRecap: AnyAction;
@@ -119,7 +128,8 @@ beforeAll(async () => {
       usage_input_tokens INTEGER, usage_output_tokens INTEGER,
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT, recap_idempotency_key TEXT,
+      source_url TEXT, source_type TEXT, source_repo TEXT, source_pr_number INTEGER,
+      source_pr_state TEXT, source_pr_merged_at TEXT, recap_idempotency_key TEXT,
       deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
@@ -153,6 +163,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
+  vi.mocked(resolveOrgIdForEmail).mockResolvedValue(null);
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
   await client.executeMultiple(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
@@ -275,6 +286,40 @@ describe("create-visual-recap: sourceUrl", () => {
     const after = await rawPlan(planId);
     expect(after?.visibility).toBe("org");
     expect(after?.orgId).toBe(ORG);
+  });
+
+  it("uses the owner's active org when an org-visible recap request has no org context", async () => {
+    vi.mocked(resolveOrgIdForEmail).mockResolvedValueOnce(ORG);
+
+    const result = await asOwnerWithoutOrg(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+      }),
+    );
+
+    expect(resolveOrgIdForEmail).toHaveBeenCalledWith(OWNER);
+    const row = await rawPlan(result.planId as string);
+    expect(row?.visibility).toBe("org");
+    expect(row?.orgId).toBe(ORG);
+  });
+
+  it("rejects org-visible recap requests when no org can be resolved", async () => {
+    await expect(
+      asOwnerWithoutOrg(() =>
+        createVisualRecap.run({
+          mdx: MINIMAL_MDX,
+          visibility: "org",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    const rows = await db
+      .select({ id: planSchema.plans.id })
+      .from(planSchema.plans);
+    expect(rows).toHaveLength(0);
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {

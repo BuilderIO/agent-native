@@ -7,6 +7,7 @@ import {
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -74,6 +75,7 @@ import {
   extractThreadMeta,
   foldAssistantTurn,
   mergeThreadDataForClientSave,
+  normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import {
@@ -95,6 +97,10 @@ import {
   listThreads,
   searchThreads,
   renameThread,
+  createThreadShareLink,
+  getThreadByShareToken,
+  getThreadShareState,
+  revokeThreadShareLink,
   setThreadArchived,
   setThreadPinned,
   setThreadScope,
@@ -102,9 +108,11 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
+  type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import type { AgentRunSummary } from "../agent/run-store.js";
 import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import {
   resourceList,
@@ -176,6 +184,291 @@ async function lazyFs(): Promise<typeof import("fs")> {
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
 const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
+
+function sanitizeSharedThread(thread: ChatThread): {
+  id: string;
+  title: string;
+  preview: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+  scope: { type: string; label?: string } | null;
+  messages: Array<{
+    id?: string;
+    role: "user" | "assistant" | "system";
+    text: string;
+    createdAt?: string | number;
+  }>;
+} {
+  let repo: any = {};
+  try {
+    repo = normalizeThreadRepository(JSON.parse(thread.threadData));
+  } catch {
+    repo = {};
+  }
+  const messages = Array.isArray(repo.messages)
+    ? repo.messages
+        .map((entry: unknown) => sanitizeSharedMessage(entry))
+        .filter(
+          (
+            entry: unknown,
+          ): entry is NonNullable<ReturnType<typeof sanitizeSharedMessage>> =>
+            entry != null,
+        )
+    : [];
+  return {
+    id: thread.id,
+    title: thread.title,
+    preview: thread.preview,
+    messageCount: thread.messageCount,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    scope: thread.scope
+      ? {
+          type: thread.scope.type,
+          ...(thread.scope.label ? { label: thread.scope.label } : {}),
+        }
+      : null,
+    messages,
+  };
+}
+
+type SanitizedSharedThread = ReturnType<typeof sanitizeSharedThread>;
+
+export interface SharedThreadRouteDependencies {
+  getThreadByShareToken: (token: string) => Promise<ChatThread | null>;
+  listRunsForThread: (
+    threadId: string,
+    options?: { limit?: number },
+  ) => Promise<AgentRunSummary[]>;
+}
+
+function escapeSharedThreadHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function wantsSharedThreadHtml(event: H3Event): boolean {
+  const accept = getHeader(event, "accept")?.toLowerCase() ?? "";
+  return accept.includes("text/html") && !accept.includes("application/json");
+}
+
+function formatSharedThreadTime(value: string | number | null | undefined) {
+  if (value == null) return "";
+  const date =
+    typeof value === "number"
+      ? new Date(value)
+      : Number.isFinite(Number(value))
+        ? new Date(Number(value))
+        : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function renderSharedThreadHtml(
+  thread: SanitizedSharedThread,
+  runs: AgentRunSummary[],
+): string {
+  const title = thread.title || "Shared agent session";
+  const messages = thread.messages
+    .map((message) => {
+      const time = formatSharedThreadTime(message.createdAt);
+      return `<article class="message ${escapeSharedThreadHtml(message.role)}">
+        <div class="meta">
+          <span>${escapeSharedThreadHtml(message.role)}</span>
+          ${time ? `<time>${escapeSharedThreadHtml(time)}</time>` : ""}
+        </div>
+        <pre>${escapeSharedThreadHtml(message.text)}</pre>
+      </article>`;
+    })
+    .join("");
+  const runsHtml = runs.length
+    ? `<section class="runs" aria-label="Recent runs">
+        <h2>Recent runs</h2>
+        <ol>${runs
+          .map((run) => {
+            const started = formatSharedThreadTime(run.startedAt);
+            const completed = formatSharedThreadTime(run.completedAt);
+            const detail = [
+              started ? `started ${started}` : "",
+              completed ? `completed ${completed}` : "",
+              run.errorCode ? `error ${run.errorCode}` : "",
+              run.abortReason ? `aborted ${run.abortReason}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return `<li><strong>${escapeSharedThreadHtml(run.status)}</strong>${detail ? `<span>${escapeSharedThreadHtml(detail)}</span>` : ""}</li>`;
+          })
+          .join("")}</ol>
+      </section>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>${escapeSharedThreadHtml(title)}</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f5; color: #1d1d1b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { width: min(920px, calc(100vw - 32px)); margin: 0 auto; padding: 44px 0 64px; }
+    header { border-bottom: 1px solid rgba(0,0,0,.12); padding-bottom: 24px; margin-bottom: 28px; }
+    .eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #676760; }
+    h1 { margin: 0; font-size: 42px; line-height: 1.08; letter-spacing: 0; }
+    .summary { margin: 14px 0 0; color: #5c5c55; line-height: 1.6; max-width: 760px; }
+    .message { border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: rgba(255,255,255,.72); margin: 14px 0; padding: 16px; }
+    .message.assistant { border-left: 4px solid #2563eb; }
+    .message.user { border-left: 4px solid #0f766e; }
+    .message.system { border-left: 4px solid #737373; }
+    .meta { display: flex; gap: 12px; justify-content: space-between; color: #676760; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    pre { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+    .empty, .runs { margin-top: 28px; color: #676760; }
+    .runs h2 { font-size: 16px; margin: 0 0 12px; }
+    .runs ol { margin: 0; padding-left: 20px; }
+    .runs li { margin: 8px 0; }
+    .runs span { color: #676760; margin-left: 8px; }
+    @media (prefers-color-scheme: dark) {
+      :root { background: #11110f; color: #f5f5ef; }
+      header, .message { border-color: rgba(255,255,255,.15); }
+      .message { background: rgba(255,255,255,.06); }
+      .summary, .eyebrow, .meta, .empty, .runs, .runs span { color: #b9b9ad; }
+    }
+    @media (max-width: 640px) {
+      h1 { font-size: 32px; }
+      main { width: min(100vw - 24px, 920px); padding-top: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Read-only shared agent session</p>
+      <h1>${escapeSharedThreadHtml(title)}</h1>
+      <p class="summary">${escapeSharedThreadHtml(thread.preview || `${thread.messageCount} message${thread.messageCount === 1 ? "" : "s"}`)}</p>
+    </header>
+    ${messages || '<p class="empty">No transcript messages were shared.</p>'}
+    ${runsHtml}
+  </main>
+</body>
+</html>`;
+}
+
+function renderSharedThreadErrorHtml(status: number, message: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>${status} ${escapeSharedThreadHtml(message)}</title><style>body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f7f5;color:#1d1d1b}main{max-width:720px;margin:0 auto;padding:64px 24px}p{color:#676760;line-height:1.6}@media(prefers-color-scheme:dark){body{background:#11110f;color:#f5f5ef}p{color:#b9b9ad}}</style></head><body><main><h1>${status}</h1><p>${escapeSharedThreadHtml(message)}</p></main></body></html>`;
+}
+
+function sharedThreadError(event: H3Event, status: number, message: string) {
+  setResponseStatus(event, status);
+  setResponseHeader(event, "Cache-Control", "private, no-store");
+  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
+  if (wantsSharedThreadHtml(event)) {
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    return renderSharedThreadErrorHtml(status, message);
+  }
+  return { error: message };
+}
+
+export async function handleSharedThreadRequest(
+  event: H3Event,
+  deps: SharedThreadRouteDependencies,
+) {
+  const method = getMethod(event);
+  if (method !== "GET") {
+    return sharedThreadError(event, 405, "Method not allowed");
+  }
+
+  const token = parseSharedThreadToken(event);
+  if (!token) {
+    return sharedThreadError(event, 400, "Share token is required");
+  }
+
+  const thread = await deps.getThreadByShareToken(token);
+  if (!thread) {
+    return sharedThreadError(event, 404, "Shared thread not found");
+  }
+
+  const runs = await deps.listRunsForThread(thread.id, { limit: 10 });
+  const payload = {
+    thread: sanitizeSharedThread(thread),
+    runs,
+  };
+  setResponseHeader(event, "Cache-Control", "private, no-store");
+  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
+  if (wantsSharedThreadHtml(event)) {
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    return renderSharedThreadHtml(payload.thread, runs);
+  }
+  setResponseHeader(event, "Content-Type", "application/json");
+  return payload;
+}
+
+function sanitizeSharedMessage(entry: unknown): {
+  id?: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  createdAt?: string | number;
+} | null {
+  if (!entry || typeof entry !== "object") return null;
+  const raw = entry as Record<string, unknown>;
+  const message =
+    raw.message && typeof raw.message === "object"
+      ? (raw.message as Record<string, unknown>)
+      : raw;
+  const role = message.role;
+  if (role !== "user" && role !== "assistant" && role !== "system") {
+    return null;
+  }
+  const text = sharedTextFromContent(message.content).trim();
+  if (!text) return null;
+  const id = typeof message.id === "string" ? message.id : undefined;
+  const createdAt =
+    typeof message.createdAt === "string" ||
+    typeof message.createdAt === "number"
+      ? message.createdAt
+      : undefined;
+  return {
+    ...(id ? { id } : {}),
+    role,
+    text,
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
+}
+
+function sharedTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const r = part as Record<string, unknown>;
+    if (r.type !== "text") continue;
+    if (typeof r.text === "string") parts.push(r.text);
+  }
+  return parts.join("");
+}
+
+function parseSharedThreadToken(event: H3Event): string | null {
+  const candidates = [event.path, event.node?.req?.url].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  for (const candidate of candidates) {
+    const path = candidate.split("?")[0];
+    const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
+    const sharedIndex = parts.lastIndexOf("shared");
+    if (sharedIndex >= 0 && parts[sharedIndex + 1]) {
+      return decodeURIComponent(parts[sharedIndex + 1]);
+    }
+    if (parts[0]) return decodeURIComponent(parts[0]);
+  }
+  return null;
+}
 
 function compactPromptLine(value: string, maxChars: number): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -1060,31 +1353,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
-          parameters: {
-            type: "object",
-            properties: {
-              sql: {
-                type: "string",
-                description:
-                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
-              },
-              args: {
-                type: "string",
-                description:
-                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
-              },
-              statements: {
-                type: "string",
-                description:
-                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
+          parameters: dbExecToolParameters(),
         },
         execMod.default,
       ),
@@ -2314,6 +2583,23 @@ export interface AgentChatPluginOptions {
    */
   leanPrompt?: boolean;
   /**
+   * Skip auto-injecting the workspace files/skills/agents inventory on the
+   * first message of a conversation while keeping the normal prompt, resources,
+   * and tool surface. Use this for domain-focused apps where broad workspace
+   * inventory is mostly latency/noise unless the user explicitly references it.
+   *
+   * `leanPrompt: true` implies this.
+   */
+  skipFilesContext?: boolean;
+  /**
+   * Initial native tool schemas to send to the LLM provider. When set, the
+   * agent starts with only these tools plus `tool-search`; the live registry
+   * remains searchable, and matching schemas from `tool-search` results are
+   * loaded into the next model request. Use this for domain-focused apps that
+   * have a few common actions and many rare framework utilities.
+   */
+  initialToolNames?: string[];
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -3493,6 +3779,7 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
+      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
@@ -3736,6 +4023,23 @@ export function createAgentChatPlugin(
         progressTools = createProgressToolEntries(() =>
           requireCurrentRunOwner("manage progress"),
         );
+      } catch {}
+      let githubRepoTools: Record<string, ActionEntry> = {};
+      try {
+        const { createGitHubRepoToolEntries } =
+          await import("../provider-api/github-repo.js");
+        githubRepoTools = createGitHubRepoToolEntries({
+          appId: options?.appId,
+          getCredentialContext: () => {
+            const owner = requireCurrentRunOwner(
+              "use the GitHub repository connector",
+            );
+            return {
+              userEmail: owner,
+              orgId: getRequestOrgId(),
+            };
+          },
+        });
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
@@ -5034,6 +5338,7 @@ export function createAgentChatPlugin(
         ...automationTools,
         ...notificationTools,
         ...progressTools,
+        ...githubRepoTools,
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
@@ -5290,7 +5595,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
-        skipFilesContext: leanPrompt,
+        skipFilesContext,
+        initialToolNames: options?.initialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -5336,6 +5642,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
+              initialToolNames: options?.initialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -5464,7 +5771,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
-          skipFilesContext: leanPrompt,
+          skipFilesContext,
+          initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();
@@ -6852,6 +7160,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // ─── Public read-only shared thread endpoint ─────────────────────────
+      getH3App(nitroApp).use(
+        `${routePath}/shared`,
+        defineEventHandler(async (event) => {
+          const { listRunsForThread } = await import("../agent/run-store.js");
+          return handleSharedThreadRequest(event, {
+            getThreadByShareToken,
+            listRunsForThread,
+          });
+        }),
+      );
+
       // ─── Thread management endpoints ──────────────────────────────────────
       // Single handler for /threads and /threads/:id — h3's use() does prefix
       // matching so we can't reliably split them into separate handlers.
@@ -6920,6 +7240,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
         return { threadId: null, tail: [] as string[] };
       };
+      const buildShareUrl = (event: H3Event, token: string) =>
+        `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
       getH3App(nitroApp).use(
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
@@ -7120,6 +7442,44 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               return forked;
+            }
+
+            if (isThreadSubroute("share")) {
+              if (method === "GET") {
+                const state = await getThreadShareState(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!state) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return { share: state };
+              }
+
+              if (method === "POST") {
+                const link = await createThreadShareLink(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!link) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return {
+                  share: link,
+                  url: buildShareUrl(event, link.token),
+                };
+              }
+
+              if (method === "DELETE") {
+                const state = await revokeThreadShareLink(threadId, {
+                  ownerEmail: owner,
+                });
+                if (!state) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
+                return { share: state };
+              }
             }
 
             if (method === "DELETE") {

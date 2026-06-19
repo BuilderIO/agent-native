@@ -2,13 +2,17 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
+  consumeAgentChatHomeHandoff,
   getAgentChatViewTransitionStyle,
+  markAgentChatHomeHandoff,
   startAgentChatViewTransition,
   supportsAgentChatViewTransition,
   type AgentChatViewTransition,
 } from "./chat-view-transition.js";
+import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 
 function fakeTransition(): AgentChatViewTransition {
   return {
@@ -23,7 +27,10 @@ describe("chat view-transition helpers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(document, "startViewTransition");
+    window.sessionStorage.clear();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("runs without transition support", () => {
@@ -124,5 +131,23 @@ describe("chat view-transition helpers", () => {
         viewTransitionName: AGENT_CHAT_VIEW_TRANSITION_NAME,
       },
     );
+  });
+
+  it("marks and consumes a namespaced chat-home handoff once", () => {
+    markAgentChatHomeHandoff("forms");
+
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(consumeAgentChatHomeHandoff("forms")).toBe(true);
+    expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
+  });
+
+  it("ignores expired chat-home handoffs", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    markAgentChatHomeHandoff("forms");
+
+    vi.setSystemTime(1_000 + AGENT_CHAT_HOME_HANDOFF_TTL_MS + 1);
+
+    expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
   });
 });

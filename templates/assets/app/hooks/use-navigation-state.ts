@@ -1,4 +1,10 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  markAgentChatHomeHandoff,
+  useAgentRouteState,
+} from "@agent-native/core/client";
+import { useLocation } from "react-router";
+import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+import { TAB_ID } from "@/lib/tab-id";
 
 function optionalParam(params: URLSearchParams, key: string) {
   const value = params.get(key)?.trim();
@@ -117,10 +123,21 @@ function pathFromCommand(command: any): string | null {
 }
 
 export function useNavigationState() {
+  const location = useLocation();
   useAgentRouteState({
-    requestSource: "assets-ui",
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
     getNavigationState: ({ pathname, search }) =>
       navigationFromPath(pathname, search),
     getCommandPath: (command) => pathFromCommand(command),
+    onNavigate: (_command, path) => {
+      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+        markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }

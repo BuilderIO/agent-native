@@ -7,6 +7,23 @@ description: "Security model for agent-native apps: input validation, SQL inject
 
 Agent-native apps are designed to be secure by default. The framework provides automatic protections at multiple layers — you get SQL-level data isolation, parameterized queries, input validation, and authentication out of the box.
 
+## What you get for free, and what you own {#what-you-own}
+
+When you build on the standard patterns, the framework already handles most of the threat surface for you:
+
+- **Data isolation** — agent SQL is rewritten so it can only see the current user's (and active org's) rows. See [Data Scoping](#data-scoping).
+- **SQL injection** — `db-query`/`db-exec` and Drizzle always parameterize. See [SQL Injection Prevention](#sql-injection).
+- **XSS** — React auto-escapes, TipTap and `react-markdown` sanitize. See [XSS Prevention](#xss).
+- **Auth & CSRF** — every `defineAction` is auth-guarded; cookies are `httpOnly` + `SameSite=lax`. See [Authentication](#auth).
+- **Secret encryption** — credentials and the vault are encrypted at rest. See [Secrets Management](#secrets).
+
+That leaves a small surface you actually have to think about:
+
+- **A. Tag your tables for scoping.** Add `owner_email` (and `org_id` for team data) via [`ownableColumns()`](#data-scoping), and route Drizzle reads/writes through the [access guards](#access-guards).
+- **B. Validate and route external input.** Give every action a Zod [`schema:`](#input-validation), and send any server-side fetch of a user/agent URL through the [SSRF guard](#ssrf).
+
+Get those two right and the rest is defaults. The [Production Checklist](#production-checklist) is the one-page confirmation before you ship.
+
 ## Security by Design {#secure-by-design}
 
 The framework architecture prevents common vulnerabilities when you use the standard patterns:
@@ -26,9 +43,9 @@ The framework architecture prevents common vulnerabilities when you use the stan
 
 Use `defineAction` with a Zod `schema:` for every action. The framework validates input automatically before your code runs:
 
-```typescript
+```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 
 export default defineAction({
   description: "Create a note",
@@ -48,7 +65,7 @@ Invalid input returns clear error messages (400 for HTTP, structured error for a
 
 The framework's `db-query` and `db-exec` tools use parameterized queries. User input is passed as arguments, never interpolated into the SQL string:
 
-```typescript
+```ts
 // SAFE — parameterized query (framework default)
 await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
 
@@ -72,7 +89,7 @@ React auto-escapes all JSX expressions. Additional guidelines:
 
 Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard, or it can be pointed at cloud metadata (`169.254.169.254`), `localhost`, or internal services:
 
-```typescript
+```ts
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 
 const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
@@ -98,7 +115,7 @@ The signed-in session carries `email` and (when an org is active) `orgId`. The f
 
 Every table with user-specific data **must** have an `owner_email` text column. Use the camelCase Drizzle property name — `accessFilter` reads `resourceTable.ownerEmail`:
 
-```typescript
+```ts
 import {
   table,
   text,
@@ -141,7 +158,7 @@ For multi-user apps where teams share data, add an `org_id` column. When both co
 
 The `ownableColumns()` schema helper adds `owner_email`, `org_id`, and `visibility` in one call, so new tenant-aware tables get the full scoping contract by default:
 
-```typescript
+```ts
 import { table, text, ownableColumns } from "@agent-native/core/db/schema";
 
 export const projects = table("projects", {
@@ -212,7 +229,43 @@ Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/i
 
 Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
 
-This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full env-var list.
+This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [Messaging](/docs/messaging#env-vars) for the per-integration signing-secret variables.
+
+## Production Checklist {#production-checklist}
+
+### Auth & secrets
+
+- [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
+- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`) — see [OAuth State Signing](#oauth-state)
+- [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic — see [A2A Identity Verification](#a2a-identity)
+- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback) — see [Secrets Management](#secrets)
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
+
+### Webhook secrets (set the ones for integrations you use)
+
+- [ ] Signing secret set for each enabled inbound integration — see [Inbound Webhooks](#webhooks) and [Messaging](/docs/messaging#env-vars) for the per-integration list
+- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
+
+### Schema
+
+- [ ] Every user-facing table has `owner_email`, multi-user tables also `org_id` — see [Data Scoping](#data-scoping)
+- [ ] Ownable-table reads/writes go through the [access guards](#access-guards)
+- [ ] All actions use `defineAction` with Zod `schema:` — see [Input Validation](#input-validation)
+- [ ] Server-side fetches of user/agent URLs go through `ssrfSafeFetch` — see [SSRF](#ssrf)
+- [ ] No `dangerouslySetInnerHTML` with user content (or output is run through DOMPurify)
+- [ ] No string-concatenated SQL
+- [ ] `pnpm guards` is clean (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
+- [ ] Tested with two user accounts to verify data isolation
+
+### Misc hardening
+
+- [ ] `AGENT_NATIVE_DEBUG_ERRORS` is **not** set in real prod (only on debug previews)
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys — see [Cross-User Tooling Secrets](#tooling-secrets)
+- [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var
+
+---
+
+The sections below cover niche environment flags you only reach for in specific deployments. Most apps never touch them.
 
 ## OAuth State Signing {#oauth-state}
 
@@ -237,36 +290,3 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 Workspace-scope secret writes still require org owner/admin role regardless of this flag.
-
-## Production Checklist {#production-checklist}
-
-### Auth & secrets
-
-- [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
-- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
-- [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic
-- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback)
-- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
-
-### Webhook secrets (set the ones for integrations you use)
-
-- [ ] `EMAIL_INBOUND_WEBHOOK_SECRET` if Resend / SendGrid inbound is enabled
-- [ ] `SLACK_SIGNING_SECRET` if Slack is enabled
-- [ ] `TELEGRAM_WEBHOOK_SECRET` / `WHATSAPP_APP_SECRET` for those integrations
-- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
-
-### Schema
-
-- [ ] Every user-facing table has `owner_email`
-- [ ] Multi-user tables also have `org_id`
-- [ ] All actions use `defineAction` with Zod `schema:`
-- [ ] No `dangerouslySetInnerHTML` with user content (or output is run through DOMPurify)
-- [ ] No string-concatenated SQL
-- [ ] `pnpm guards` is clean (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
-- [ ] Tested with two user accounts to verify data isolation
-
-### Misc hardening
-
-- [ ] `AGENT_NATIVE_DEBUG_ERRORS` is **not** set in real prod (only on debug previews)
-- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys
-- [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var

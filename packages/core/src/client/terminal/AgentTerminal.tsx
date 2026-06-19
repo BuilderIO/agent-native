@@ -12,6 +12,7 @@
 import { useRef, useEffect, useState, type CSSProperties } from "react";
 import { agentNativePath } from "../api-path.js";
 import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
+import { parseSubmitChatMessage } from "../agent-chat.js";
 
 export interface AgentTerminalProps {
   /** CLI command to run. Default: 'builder' */
@@ -399,13 +400,11 @@ export function AgentTerminal({
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
         if (!isTrustedFrameMessage(event)) return;
-        if (event.data?.type === "agentNative.submitChat") {
-          const message = event.data.data?.message;
-          if (message && ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(message + "\r");
-            agentRunning = true;
-            notifyAgentRunning(true);
-          }
+        const parsed = parseSubmitChatMessage(event);
+        if (parsed && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(parsed.message + "\r");
+          agentRunning = true;
+          notifyAgentRunning(true);
         }
       };
       window.addEventListener("message", messageHandler);

@@ -1,0 +1,9 @@
+[build]
+  ignore = "node ./scripts/netlify-ignore-build.mjs chat"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"
+  publish = "templates/chat/dist"
+  functions = "templates/chat/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"
+  NPM_CONFIG_PRODUCTION = "false"

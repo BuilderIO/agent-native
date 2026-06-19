@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useTheme } from "next-themes";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -94,6 +94,7 @@ import {
   appApiPath,
   callAction,
   appPath,
+  navigateWithAgentChatViewTransition,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client";
@@ -1132,6 +1133,7 @@ function persistThemePreference(theme: "light" | "dark") {
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   const { resolvedTheme, setTheme } = useTheme();
@@ -1908,6 +1910,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           {/* Ask link */}
           <Link
             to="/ask"
+            onClick={(event) => {
+              if (
+                location.pathname !== "/ask" &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                navigateWithAgentChatViewTransition(navigate, "/ask");
+              }
+            }}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
               location.pathname === "/ask"

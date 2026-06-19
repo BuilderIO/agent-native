@@ -5,6 +5,9 @@ description: "agent-native add prints a curated Markdown integration recipe to s
 
 # Blueprint Installer
 
+> **Who is this for:** host authors and integrators adding a provider, channel,
+> sandbox backend, or action to a repo by piping a recipe into their coding agent.
+
 `agent-native add` is **not** a dumb scaffolder that writes files for you. It emits a curated Markdown _integration blueprint_ to stdout. You pipe that blueprint into your own coding agent (Claude Code, Codex, …), which applies the changes against the live repo with full context.
 
 This fits the agent-applies-changes, filesystem-first house style: the framework supplies the recipe (the canonical files to touch, the rules to honor, the verification step), and the coding agent does the editing.

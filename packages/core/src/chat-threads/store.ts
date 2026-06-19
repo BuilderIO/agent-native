@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { getDbExec, intType } from "../db/client.js";
 import {
   mergeThreadDataForClientSave,
@@ -806,6 +807,187 @@ export async function setThreadQueuedMessages(
       { preserveExistingQueuedMessages: false },
     );
   });
+}
+
+const THREAD_SHARE_DATA_KEY = "_share";
+
+interface StoredThreadShare {
+  tokenHash?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  revokedAt?: number | null;
+}
+
+export interface ChatThreadShareState {
+  enabled: boolean;
+  createdAt: number | null;
+  updatedAt: number | null;
+  revokedAt: number | null;
+}
+
+export interface ChatThreadShareLink extends ChatThreadShareState {
+  enabled: true;
+  token: string;
+}
+
+function generateShareToken(): string {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+export function hashThreadShareToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function normalizeThreadShare(value: unknown): StoredThreadShare | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const r = value as Record<string, unknown>;
+  const tokenHash =
+    typeof r.tokenHash === "string" && /^[a-f0-9]{64}$/i.test(r.tokenHash)
+      ? r.tokenHash.toLowerCase()
+      : undefined;
+  const createdAt = normalizeTimestamp(r.createdAt);
+  const updatedAt = normalizeTimestamp(r.updatedAt);
+  const revokedAt = normalizeTimestamp(r.revokedAt);
+  if (!tokenHash && !createdAt && !updatedAt && !revokedAt) return null;
+  return {
+    ...(tokenHash ? { tokenHash } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(revokedAt ? { revokedAt } : {}),
+  };
+}
+
+function normalizeTimestamp(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function shareStateFromStored(
+  stored: StoredThreadShare | null,
+): ChatThreadShareState {
+  const revokedAt = stored?.revokedAt ?? null;
+  return {
+    enabled: Boolean(stored?.tokenHash && !revokedAt),
+    createdAt: stored?.createdAt ?? null,
+    updatedAt: stored?.updatedAt ?? null,
+    revokedAt,
+  };
+}
+
+function readStoredThreadShare(threadData: string): StoredThreadShare | null {
+  const data = parseThreadData(threadData);
+  return normalizeThreadShare(data[THREAD_SHARE_DATA_KEY]);
+}
+
+export async function getThreadShareState(
+  threadId: string,
+  options: { ownerEmail?: string } = {},
+): Promise<ChatThreadShareState | null> {
+  const thread = await getThread(threadId);
+  if (!thread) return null;
+  if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+    return null;
+  }
+  return shareStateFromStored(readStoredThreadShare(thread.threadData));
+}
+
+export async function createThreadShareLink(
+  threadId: string,
+  options: { ownerEmail?: string } = {},
+): Promise<ChatThreadShareLink | null> {
+  return withThreadDataLock(threadId, async () => {
+    const thread = await getThread(threadId);
+    if (!thread) return null;
+    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+      return null;
+    }
+
+    const now = Date.now();
+    const token = generateShareToken();
+    const data = parseThreadData(thread.threadData);
+    const existing = normalizeThreadShare(data[THREAD_SHARE_DATA_KEY]);
+    data[THREAD_SHARE_DATA_KEY] = {
+      tokenHash: hashThreadShareToken(token),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      revokedAt: null,
+    } satisfies StoredThreadShare;
+
+    await updateThreadData(
+      threadId,
+      JSON.stringify(data),
+      thread.title,
+      thread.preview,
+      thread.messageCount,
+    );
+
+    return {
+      enabled: true,
+      token,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      revokedAt: null,
+    };
+  });
+}
+
+export async function revokeThreadShareLink(
+  threadId: string,
+  options: { ownerEmail?: string } = {},
+): Promise<ChatThreadShareState | null> {
+  return withThreadDataLock(threadId, async () => {
+    const thread = await getThread(threadId);
+    if (!thread) return null;
+    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+      return null;
+    }
+
+    const now = Date.now();
+    const data = parseThreadData(thread.threadData);
+    const existing = normalizeThreadShare(data[THREAD_SHARE_DATA_KEY]);
+    data[THREAD_SHARE_DATA_KEY] = {
+      ...(existing?.createdAt ? { createdAt: existing.createdAt } : {}),
+      updatedAt: now,
+      revokedAt: now,
+    } satisfies StoredThreadShare;
+
+    await updateThreadData(
+      threadId,
+      JSON.stringify(data),
+      thread.title,
+      thread.preview,
+      thread.messageCount,
+    );
+
+    return {
+      enabled: false,
+      createdAt: existing?.createdAt ?? null,
+      updatedAt: now,
+      revokedAt: now,
+    };
+  });
+}
+
+export async function getThreadByShareToken(
+  token: string,
+): Promise<ChatThread | null> {
+  const cleanToken = token.trim();
+  if (!cleanToken || cleanToken.length < 16) return null;
+  await ensureTable();
+  const tokenHash = hashThreadShareToken(cleanToken);
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE thread_data LIKE ? LIMIT 10`,
+    args: [`%${tokenHash}%`],
+  });
+  for (const row of rows) {
+    const thread = rowToThread(row);
+    const stored = readStoredThreadShare(thread.threadData);
+    if (!stored?.tokenHash || stored.revokedAt) continue;
+    if (stored.tokenHash !== tokenHash) continue;
+    return thread;
+  }
+  return null;
 }
 
 export async function deleteThread(id: string): Promise<boolean> {

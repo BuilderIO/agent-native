@@ -4,6 +4,7 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconTerminal2,
 } from "@tabler/icons-react";
 
 type ProviderStatusTone = "ok" | "offline";
@@ -96,7 +97,9 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
         ? "Desktop settings"
         : provider.source === "environment"
           ? "environment"
-          : "settings and environment";
+          : provider.source === "local-codex"
+            ? "local Codex CLI login"
+            : "settings and environment";
     return {
       label: "Connected",
       description: `Ready from ${source}.`,
@@ -171,7 +174,12 @@ export function CodeProviderSettings({
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
   );
+  const codexProvider = settings.providers.find(
+    (provider) => provider.id === "codex",
+  );
   const builderConnected = Boolean(builderProvider?.configured);
+  const codexAvailable = Boolean(codexProvider);
+  const codexConnected = Boolean(codexProvider?.configured);
   const builderSavedKeys = Boolean(builderProvider?.savedKeys.length);
   const selectedProviderDefinition =
     CODE_AGENT_PROVIDER_FIELDSETS.find(
@@ -320,7 +328,7 @@ export function CodeProviderSettings({
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
-              : "Connect a provider before chatting in Code."}
+              : "Connect Builder.io, run codex login, or add an API key before chatting."}
           </span>
         </div>
       </div>
@@ -375,6 +383,31 @@ export function CodeProviderSettings({
         </div>
       </div>
 
+      <div
+        className={`settings-builder-connect-card${
+          codexConnected ? " settings-builder-connect-card--ok" : ""
+        }`}
+      >
+        <div className="settings-builder-connect-copy">
+          <span className="settings-builder-title">Codex CLI</span>
+          <span className="settings-builder-description">
+            {codexConnected
+              ? `Using ${codexProvider?.label ?? "Codex CLI"} for Code chats.`
+              : codexAvailable
+                ? "Run codex login in Terminal; Desktop will pick up the local session."
+                : "Install the OpenAI Codex CLI, then run codex login in Terminal."}
+          </span>
+        </div>
+        <span
+          className={`settings-codex-status${
+            codexConnected ? " settings-codex-status--ok" : ""
+          }`}
+        >
+          <IconTerminal2 size={13} />
+          {codexConnected ? "Ready" : codexAvailable ? "Sign in" : "Install"}
+        </span>
+      </div>
+
       <button
         type="button"
         className="settings-provider-advanced-toggle"
@@ -385,7 +418,7 @@ export function CodeProviderSettings({
         ) : (
           <IconChevronRight size={14} />
         )}
-        <span>Or add your own API key</span>
+        <span>Or add an API key</span>
       </button>
 
       {showProviderKeys && (

@@ -8,7 +8,7 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --macos-traffic-light-safe-area: 88px;
+  --macos-traffic-light-safe-area: 140px;
   --sidebar-bg: #0a0a0a;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);
@@ -1139,6 +1139,32 @@ body {
 
 .settings-builder-connect-spinner {
   animation: spin 0.8s linear infinite;
+}
+
+.settings-codex-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.settings-codex-status--ok {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.1);
+  color: #bbf7d0;
+}
+
+.settings-codex-status svg {
+  flex: 0 0 auto;
 }
 
 .settings-provider-text-button,

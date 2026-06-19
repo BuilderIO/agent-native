@@ -26,6 +26,38 @@ import { renderDataDictionary } from "../lib/data-dictionary-context";
 
 const DATA_DICT_PREFIX = "data-dict-";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "data-source-status",
+  "list-analyses",
+  "get-analysis",
+  "save-analysis",
+  "rename-analysis",
+  "delete-analysis",
+  "generate-chart",
+  "bigquery",
+  "search-bigquery-schema",
+  "bigquery-table-info",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "provider-corpus-job",
+  "provider-corpus-jobs",
+  "query-staged-dataset",
+  "list-staged-datasets",
+  "delete-staged-dataset",
+  "account-deep-dive",
+  "hubspot-deals",
+  "hubspot-records",
+  "gong-calls",
+  "jira-search",
+  "slack-messages",
+  "sentry",
+  "list-data-dictionary",
+  "save-data-dictionary-entry",
+  "navigate",
+];
+
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
 ): string {
@@ -115,6 +147,7 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 export default createAgentChatPlugin({
   appId: "analytics",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: realDataFinalGuard,
   // Enable sandboxed JavaScript execution for analytics data processing.
   // Code runs in an isolated Node.js child process with no access to app

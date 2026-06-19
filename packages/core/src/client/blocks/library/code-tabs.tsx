@@ -11,6 +11,7 @@ import { common, createLowlight } from "lowlight";
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import {
   Popover,
   PopoverContent,
@@ -189,7 +190,11 @@ function CodeTabsRead({ data, blockId, title }: BlockReadProps<CodeTabsData>) {
   const [activeId, setActiveId] = useState(data.tabs[0]?.id ?? "");
   const active = data.tabs.find((tab) => tab.id === activeId) ?? data.tabs[0];
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
         <div className="border-plan-line md:border-r">

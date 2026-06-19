@@ -221,4 +221,4 @@ To add a new data source, drop a script in `actions/` that calls the provider an
 
 To add a new chart type, extend the `ChartType` union in `app/pages/adhoc/sql-dashboard/types.ts`, handle it in `SqlChartCard.tsx`, and the agent can use it in any panel.
 
-For the broader pattern on extending templates, see the [adding-a-feature skill](/docs/skills-guide) and [actions](/docs/actions).
+For the broader pattern on extending templates, see the [Skills guide](/docs/skills-guide) and [Actions](/docs/actions).

@@ -9,7 +9,7 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
+import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -22,10 +22,13 @@ import {
   useCommandMenuShortcut,
   getThemeInitScript,
   configureTracking,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+  setClientAppState,
 } from "@agent-native/core/client";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { TAB_ID } from "@/lib/tab-id";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -75,8 +78,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
@@ -89,6 +90,30 @@ function DbSyncSetup() {
 
 function NavigationStateSync() {
   useNavigationState();
+  return null;
+}
+
+function UrlStateSync() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const searchParams: Record<string, string> = {};
+    for (const [key, value] of new URLSearchParams(location.search).entries()) {
+      searchParams[key] = value;
+    }
+
+    const value = {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash,
+      searchParams,
+    };
+    const options = { keepalive: true, requestSource: TAB_ID };
+
+    setClientAppState(`__url__:${TAB_ID}`, value, options).catch(() => {});
+    setClientAppState("__url__", value, options).catch(() => {});
+  }, [location.hash, location.pathname, location.search]);
+
   return null;
 }
 
@@ -112,20 +137,11 @@ function formsOpenPath(url: URL): string | null {
 
   const view = url.searchParams.get("view");
   const formId = url.searchParams.get("formId") ?? url.searchParams.get("id");
-  if (view === "home") return "/";
-  if (view === "forms") return "/forms";
-  if (view === "form" && formId) {
-    return `/forms/${encodeURIComponent(formId)}`;
-  }
-  if (view === "responses" && formId) {
-    return `/forms/${encodeURIComponent(formId)}/responses`;
-  }
-  if (view === "response-insights") {
-    return formId
-      ? `/response-insights?formId=${encodeURIComponent(formId)}`
-      : "/response-insights";
-  }
-  return null;
+  return formsRoutePath({
+    view,
+    formId,
+    tab: url.searchParams.get("tab") ?? url.searchParams.get("activeTab"),
+  });
 }
 
 function OpenLinkInterceptor() {
@@ -146,7 +162,7 @@ function OpenLinkInterceptor() {
 
       event.preventDefault();
       if (location.pathname === "/" && path !== "/") {
-        markFormsChatHomeHandoff();
+        markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);
     }
@@ -180,6 +196,7 @@ export default function Root() {
     <AppProviders queryClient={queryClient}>
       <DbSyncSetup />
       <NavigationStateSync />
+      <UrlStateSync />
       <OpenLinkInterceptor />
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Forms">

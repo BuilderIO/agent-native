@@ -683,7 +683,9 @@ export default function AssetPicker() {
   }, [urlHostConfig]);
 
   useEffect(() => {
-    if (urlAssetTab) setAssetTab(urlAssetTab);
+    // Reset to "all" when the tab param is removed (e.g. back/forward nav)
+    // since the component stays mounted across search-param changes.
+    setAssetTab(urlAssetTab ?? "all");
   }, [urlAssetTab]);
 
   const librariesQuery = useActionQuery("list-libraries", {
@@ -811,6 +813,10 @@ export default function AssetPicker() {
       libraryId: selectedLibraryId,
       // Drafts can be images or videos, so don't constrain by media type there.
       mediaType: viewingDrafts ? undefined : mediaType,
+      // Drafts are exactly generated candidates — filter them server-side
+      // instead of fetching the whole library and filtering on the client.
+      role: viewingDrafts ? "generated" : undefined,
+      status: viewingDrafts ? "candidate" : undefined,
       query: query.trim() || undefined,
       includeCandidates:
         viewingDrafts ||

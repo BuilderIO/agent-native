@@ -5,6 +5,7 @@ import {
   agentNativePath,
   appBasePath,
   appPath,
+  markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import type {
@@ -80,9 +81,19 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         ? `${resolvedPath}?dreamId=${encodeURIComponent(cmd.dreamId)}`
         : resolvedPath;
     const nextPath = routerPath(path);
+    if (
+      routerPath(location.pathname) === "/chat" &&
+      pathnameFromPath(nextPath) !== "/chat"
+    ) {
+      markAgentChatHomeHandoff("dispatch");
+    }
     navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);
-  }, [extensions, navCommand, navigate, qc]);
+  }, [extensions, location.pathname, navCommand, navigate, qc]);
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 export function buildDispatchNavigationState(

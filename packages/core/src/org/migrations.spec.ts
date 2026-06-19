@@ -17,6 +17,18 @@ describe("ORG_MIGRATIONS", () => {
     expect(indexMigration?.version).toBeGreaterThan(1006);
   });
 
+  it("includes a LOWER(allowed_domain) expression index on organizations", () => {
+    const indexMigration = ORG_MIGRATIONS.find((m) => {
+      const sql =
+        typeof m.sql === "string"
+          ? m.sql
+          : (m.sql.postgres ?? m.sql.sqlite ?? "");
+      return /CREATE INDEX.*organizations.*LOWER\(allowed_domain\)/i.test(sql);
+    });
+    expect(indexMigration).toBeDefined();
+    expect(indexMigration?.version).toBeGreaterThan(1007);
+  });
+
   it("has strictly ascending version numbers with no gaps", () => {
     const versions = ORG_MIGRATIONS.map((m) => m.version);
     for (let i = 1; i < versions.length; i++) {

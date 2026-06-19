@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 const PR_VISUAL_RECAP_MCP_TOOLS = [
   "get-plan-blocks",
+  "list-plan-components",
   "create-visual-recap",
+  "search-pr-recaps",
+  "visual-answer",
   "set-resource-visibility",
 ] as const;
 
@@ -38,6 +41,12 @@ describe("Plan MCP PR visual recap catalog", () => {
     expect(
       existsSync(join(planRoot, "actions", "create-visual-recap.ts")),
     ).toBe(true);
+    expect(existsSync(join(planRoot, "actions", "search-pr-recaps.ts"))).toBe(
+      true,
+    );
+    expect(existsSync(join(planRoot, "actions", "visual-answer.ts"))).toBe(
+      true,
+    );
     expect(
       existsSync(
         join(

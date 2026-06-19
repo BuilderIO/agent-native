@@ -1,11 +1,11 @@
 ---
-title: "Agent Web Surfaces"
-description: "Make public routes crawlable, readable, citable, and optionally callable by agents."
+title: "Public Agent Web"
+description: "Make public routes crawlable, readable, citable, and optionally callable by agents — robots.txt, llms.txt, markdown mirrors, JSON-LD, and a public MCP surface."
 ---
 
-# Agent Web Surfaces
+# Public Agent Web
 
-Agent Web surfaces make public Agent-Native routes easy for agents to crawl, read, cite, and call. The goal is not to make every app endpoint public. The goal is to publish a clean public surface for pages that are already public, while keeping private data and tool access behind explicit controls.
+The public agent web makes public Agent-Native routes easy for agents to crawl, read, cite, and call. The goal is not to make every app endpoint public. The goal is to publish a clean public surface for pages that are already public, while keeping private data and tool access behind explicit controls.
 
 The docs site is the reference implementation. Today it ships:
 

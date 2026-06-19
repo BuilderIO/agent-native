@@ -4,7 +4,11 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client";
 import {
   Sheet,
   SheetContent,
@@ -45,6 +49,11 @@ export function Layout({ children }: LayoutProps) {
     const stored = window.localStorage.getItem("plans.sidebarCollapsed.v3");
     return stored ? stored === "true" : true;
   });
+  const [chatSidebarCollapsed, setChatSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = window.localStorage.getItem("plans.chatSidebarCollapsed.v1");
+    return stored ? stored === "true" : false;
+  });
   const [planReaderImmersive, setPlanReaderImmersive] = useState(() => {
     if (typeof window === "undefined") return false;
     return (
@@ -64,9 +73,29 @@ export function Layout({ children }: LayoutProps) {
     );
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      "plans.chatSidebarCollapsed.v1",
+      String(chatSidebarCollapsed),
+    );
+  }, [chatSidebarCollapsed]);
+
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
+  const chatRoute = location.pathname === "/";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "plans",
+    activePath: location.pathname,
+    enabled: !chatRoute,
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "plans", chatPath: "/" });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
+  const effectiveSidebarCollapsed = chatRoute
+    ? chatSidebarCollapsed
+    : sidebarCollapsed;
+  const setEffectiveSidebarCollapsed = chatRoute
+    ? setChatSidebarCollapsed
+    : setSidebarCollapsed;
 
   useEffect(() => {
     if (!planDetailRoute) {
@@ -127,8 +156,8 @@ export function Layout({ children }: LayoutProps) {
         {!hideAppNavigation && (
           <div className="hidden md:block">
             <Sidebar
-              collapsed={sidebarCollapsed}
-              onCollapsedChange={setSidebarCollapsed}
+              collapsed={effectiveSidebarCollapsed}
+              onCollapsedChange={setEffectiveSidebarCollapsed}
             />
           </div>
         )}
@@ -141,18 +170,25 @@ export function Layout({ children }: LayoutProps) {
             <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
         </Sheet>
-        <AgentSidebar
-          position="right"
-          defaultOpen={false}
-          emptyStateText="Ask the Plan agent to revise this visual plan, apply comments, add diagrams, or update document blocks."
-          suggestions={[
-            "Patch this plan based on the open comments",
-            "Add a concrete diagram and higher-fidelity wireframe",
-            "Turn this Markdown plan into a richer visual plan",
-          ]}
-        >
-          {pageContent}
-        </AgentSidebar>
+        {chatRoute ? (
+          pageContent
+        ) : (
+          <AgentSidebar
+            position="right"
+            defaultOpen={false}
+            chatViewTransition
+            storageKey="plans"
+            openOnChatRunning={chatHomeHandoffActive}
+            emptyStateText="Ask the Plan agent to search merged PR recaps, inspect this document, add diagrams, or answer code questions as visual plans."
+            suggestions={[
+              "What shipped in the last week?",
+              "What does this UI look like?",
+              "What is the shape of this API?",
+            ]}
+          >
+            {pageContent}
+          </AgentSidebar>
+        )}
       </div>
     </HeaderActionsProvider>
   );

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockRenderContext } from "../types.js";
 
 /**
@@ -179,6 +180,7 @@ export function AnnotationCard<A extends RailAnnotation>({
 }) {
   return (
     <div
+      {...ltrCodeBlockProps}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(

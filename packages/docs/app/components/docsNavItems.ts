@@ -12,8 +12,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { label: "Agent Surfaces", to: "/docs/agent-surfaces" as const },
       { label: "Key Concepts", to: "/docs/key-concepts" as const },
-      { label: "Template Catalog", to: "/docs/cloneable-saas" as const },
-      { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
+      { label: "Templates", to: "/docs/cloneable-saas" as const },
       { label: "FAQ", to: "/docs/faq" as const },
     ],
   },
@@ -22,9 +21,10 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
+      { label: "Routing", to: "/docs/routing" as const },
       { label: "Actions", to: "/docs/actions" as const },
       { label: "Human Approval", to: "/docs/human-approval" as const },
-      { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
+      { label: "Public Agent Web", to: "/docs/agent-web-surfaces" as const },
       { label: "Database", to: "/docs/database" as const },
       { label: "Local File Mode", to: "/docs/local-file-mode" as const },
       { label: "File Uploads", to: "/docs/file-uploads" as const },
@@ -45,7 +45,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Observational Memory",
         to: "/docs/observational-memory" as const,
       },
-      { label: "Evals (CI Gate)", to: "/docs/evals" as const },
+      { label: "CI Eval Gate", to: "/docs/evals" as const },
     ],
   },
   {
@@ -57,6 +57,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Voice Input", to: "/docs/voice-input" as const },
       { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
       { label: "Component API", to: "/docs/components" as const },
+      { label: "Native Chat UI", to: "/docs/native-chat-ui" as const },
       {
         label: "Real-Time Collaboration",
         to: "/docs/real-time-collaboration" as const,
@@ -97,8 +98,11 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "MCP Server (Expose Your App)",
         to: "/docs/mcp-protocol" as const,
       },
-      { label: "External Agents", to: "/docs/external-agents" as const },
-      { label: "MCP Apps", to: "/docs/mcp-apps" as const },
+      {
+        label: "External Agents (Connect a Host)",
+        to: "/docs/external-agents" as const,
+      },
+      { label: "MCP Apps (Inline UIs)", to: "/docs/mcp-apps" as const },
       { label: "Cross-App SSO", to: "/docs/cross-app-sso" as const },
       { label: "Notifications", to: "/docs/notifications" as const },
       {
@@ -108,23 +112,28 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Build & Extend",
+    title: "Build Apps",
     items: [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
       {
         label: "Writing Agent Instructions",
         to: "/docs/writing-agent-instructions" as const,
       },
-      { label: "Frames", to: "/docs/frames" as const },
       { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
+      { label: "Frames", to: "/docs/frames" as const },
+    ],
+  },
+  {
+    title: "Advanced: Extend the Runtime",
+    items: [
+      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
       {
-        label: "Migration Workbench",
+        label: "Migrating (/migrate)",
         to: "/docs/migration-workbench" as const,
       },
-      { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },
       { label: "Harness Agents", to: "/docs/harness-agents" as const },
+      { label: "Adapters", to: "/docs/sandbox-adapters" as const },
       { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
-      { label: "Sandbox Adapters", to: "/docs/sandbox-adapters" as const },
       { label: "In-Loop Processors", to: "/docs/processors" as const },
       { label: "Durable Resume", to: "/docs/durable-resume" as const },
       {
@@ -148,6 +157,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // landing pages under `/templates/<slug>`. The tests and guard script
     // intentionally enforce this because this list has regressed before.
     items: [
+      { label: "Chat", to: "/docs/template-chat" as const },
       { label: "Calendar", to: "/docs/template-calendar" as const },
       { label: "Content", to: "/docs/template-content" as const },
       {

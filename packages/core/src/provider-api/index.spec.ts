@@ -23,6 +23,8 @@ vi.mock("../oauth-tokens/index.js", () => ({
 }));
 
 const { createProviderApiRuntime } = await import("./index.js");
+const { createGitHubRepoFilesAction } =
+  await import("./actions/github-repo-files.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
 
 const credentialContext = {
@@ -515,5 +517,381 @@ describe("provider API runtime", () => {
     ).rejects.toThrow(/HTTP 500.*provider failed/);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists GitHub repository files through the provider credential resolver", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ default_branch: "main" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            tree: [
+              {
+                path: "packages/core/src/provider-api/index.ts",
+                type: "blob",
+                size: 42,
+                sha: "file-sha",
+                url: "https://api.github.com/blob/file-sha",
+              },
+              {
+                path: "packages/core/src/provider-api",
+                type: "tree",
+                sha: "tree-sha",
+              },
+              {
+                path: "README.md",
+                type: "blob",
+                size: 12,
+                sha: "readme-sha",
+              },
+            ],
+            truncated: false,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      );
+    const lookups: any[] = [];
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async (lookup) => {
+        lookups.push(lookup);
+        return {
+          key: lookup.key,
+          value: "github-token",
+          source: "test",
+          provider: lookup.provider,
+        };
+      },
+    });
+
+    const result = await runtime.listGitHubRepositoryFiles({
+      owner: "BuilderIO",
+      repo: "agent-native.git",
+      path: "packages/core/src/provider-api",
+      recursive: true,
+      connectionId: "conn-github",
+    });
+
+    expect(result).toMatchObject({
+      repository: { owner: "BuilderIO", repo: "agent-native" },
+      ref: "main",
+      recursive: true,
+      totalCount: 1,
+      truncated: false,
+      entries: [
+        {
+          path: "packages/core/src/provider-api/index.ts",
+          type: "file",
+          sha: "file-sha",
+        },
+      ],
+    });
+    expect(lookups).toEqual([
+      expect.objectContaining({
+        appId: "headless",
+        provider: "github",
+        workspaceProvider: "github",
+        key: "GITHUB_TOKEN",
+        connectionId: "conn-github",
+      }),
+      expect.objectContaining({
+        appId: "headless",
+        provider: "github",
+        workspaceProvider: "github",
+        key: "GITHUB_TOKEN",
+        connectionId: "conn-github",
+      }),
+    ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/BuilderIO/agent-native/git/trees/main?recursive=1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer github-token",
+          Accept: "application/vnd.github+json",
+        }),
+      }),
+    );
+  });
+
+  it("reads and decodes GitHub repository file contents", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "file",
+          name: "README.md",
+          path: "README.md",
+          sha: "readme-sha",
+          size: 8,
+          encoding: "base64",
+          content: Buffer.from("# Hello\n", "utf8").toString("base64"),
+          url: "https://api.github.com/repos/o/r/contents/README.md",
+          html_url: "https://github.com/o/r/blob/main/README.md",
+          download_url: "https://raw.githubusercontent.com/o/r/main/README.md",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key, provider }) => ({
+        key,
+        value: "github-token",
+        source: "test",
+        provider,
+      }),
+    });
+
+    const result = await runtime.readGitHubRepositoryFile({
+      owner: "o",
+      repo: "r",
+      path: "README.md",
+      ref: "main",
+    });
+
+    expect(result).toMatchObject({
+      path: "README.md",
+      sha: "readme-sha",
+      encoding: "base64",
+      content: "# Hello\n",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/o/r/contents/README.md?ref=main",
+      expect.anything(),
+    );
+  });
+
+  it("writes GitHub repository files through the contents API", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: {
+            name: "hello world.txt",
+            path: "docs/hello world.txt",
+            sha: "new-content-sha",
+            url: "https://api.github.com/repos/o/r/contents/docs/hello%20world.txt",
+            html_url:
+              "https://github.com/o/r/blob/feature/docs/hello%20world.txt",
+          },
+          commit: {
+            sha: "commit-sha",
+            url: "https://api.github.com/repos/o/r/git/commits/commit-sha",
+            html_url: "https://github.com/o/r/commit/commit-sha",
+            message: "Update docs",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key, provider }) => ({
+        key,
+        value: "github-token",
+        source: "test",
+        provider,
+      }),
+    });
+
+    const result = await runtime.writeGitHubRepositoryFile({
+      owner: "o",
+      repo: "r",
+      path: "docs/hello world.txt",
+      content: "hello from provider api",
+      message: "Update docs",
+      branch: "feature",
+      sha: "old-content-sha",
+      committer: { name: "Ada", email: "ada@example.com" },
+    });
+
+    expect(result).toMatchObject({
+      path: "docs/hello world.txt",
+      content: { sha: "new-content-sha" },
+      commit: { sha: "commit-sha", message: "Update docs" },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/o/r/contents/docs/hello%20world.txt",
+      expect.objectContaining({ method: "PUT" }),
+    );
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      message: "Update docs",
+      branch: "feature",
+      sha: "old-content-sha",
+      committer: { name: "Ada", email: "ada@example.com" },
+    });
+    expect(body.content).toBe(
+      Buffer.from("hello from provider api", "utf8").toString("base64"),
+    );
+  });
+
+  it("deletes GitHub repository files through the contents API", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          content: null,
+          commit: {
+            sha: "delete-commit-sha",
+            url: "https://api.github.com/repos/o/r/git/commits/delete-commit-sha",
+            html_url: "https://github.com/o/r/commit/delete-commit-sha",
+            message: "Delete docs",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key, provider }) => ({
+        key,
+        value: "github-token",
+        source: "test",
+        provider,
+      }),
+    });
+
+    const result = await runtime.deleteGitHubRepositoryFile({
+      owner: "o",
+      repo: "r",
+      path: "docs/old.md",
+      message: "Delete docs",
+      branch: "feature",
+      sha: "old-content-sha",
+    });
+
+    expect(result).toMatchObject({
+      path: "docs/old.md",
+      branch: "feature",
+      commit: { sha: "delete-commit-sha", message: "Delete docs" },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/o/r/contents/docs/old.md",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      message: "Delete docs",
+      branch: "feature",
+      sha: "old-content-sha",
+    });
+  });
+
+  it("creates a reusable github-repo-files action with approval for writes and deletes", async () => {
+    const runtime = {
+      listGitHubRepositoryFiles: vi.fn(),
+      searchGitHubRepositoryFiles: vi.fn(),
+      readGitHubRepositoryFile: vi.fn().mockResolvedValue({ ok: true }),
+      writeGitHubRepositoryFile: vi.fn(),
+      deleteGitHubRepositoryFile: vi.fn(),
+    };
+    const action = createGitHubRepoFilesAction(runtime);
+
+    expect(typeof action.needsApproval).toBe("function");
+    await expect(
+      Promise.resolve(
+        (action.needsApproval as any)({
+          operation: "write",
+          owner: "o",
+          repo: "r",
+        }),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      Promise.resolve(
+        (action.needsApproval as any)({
+          operation: "delete",
+          owner: "o",
+          repo: "r",
+        }),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      Promise.resolve(
+        (action.needsApproval as any)({
+          operation: "read",
+          owner: "o",
+          repo: "r",
+        }),
+      ),
+    ).resolves.toBe(false);
+
+    await action.run({
+      operation: "read",
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+    });
+
+    expect(runtime.readGitHubRepositoryFile).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+      ref: undefined,
+      connectionId: undefined,
+      timeoutMs: undefined,
+      maxBytes: undefined,
+    });
+
+    await action.run({
+      operation: "write",
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+      content: "export const value = 1;\n",
+      message: "Update a.ts",
+    });
+
+    expect(runtime.writeGitHubRepositoryFile).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      path: "a.ts",
+      content: "export const value = 1;\n",
+      message: "Update a.ts",
+      branch: undefined,
+      sha: undefined,
+      overwriteExisting: true,
+      committer: undefined,
+      author: undefined,
+      connectionId: undefined,
+      timeoutMs: undefined,
+      maxBytes: undefined,
+    });
   });
 });

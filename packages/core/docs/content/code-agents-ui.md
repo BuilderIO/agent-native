@@ -5,6 +5,18 @@ description: "Build and customize Agent-Native Code surfaces with the shared UI 
 
 # Agent-Native Code UI
 
+> **Who is this for:** host authors building or customizing a coding-workspace
+> surface (CLI, Desktop, or a browser template) on the shared Code UI package.
+
+## Which coding doc do I want? {#which-doc}
+
+| You want to…                                                               | Use                                    |
+| -------------------------------------------------------------------------- | -------------------------------------- |
+| Render a Claude-Code/Codex-style **coding workspace UI**                   | **Agent-Native Code UI** (this page)   |
+| Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | [Harness Agents](/docs/harness-agents) |
+| Swap the backend that runs the agent's **`run-code` tool**                 | [Adapters](/docs/sandbox-adapters)     |
+| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | [Adapters](/docs/sandbox-adapters)     |
+
 Agent-Native Code is the Agent-Native coding surface: a local Claude Code/Codex-style workspace for coding sessions, slash commands, migrations, audits, transcripts, run controls, and follow-ups. A bare `npx @agent-native/core@latest` command opens this workspace; `npx @agent-native/core@latest code` is the explicit subcommand for the same experience.
 
 There are three layers:
@@ -62,12 +74,30 @@ Desktop uses the shared UI but keeps privileged capabilities in Electron:
 
 That separation matters. The UI can be reused by templates, but native process control should stay in Desktop or CLI.
 
+## Codex CLI Auth {#codex-cli-auth}
+
+Agent-Native Code can use a local Codex CLI login instead of an OpenAI API key.
+Install the Codex CLI on your `PATH`, sign in once, then restart Desktop or the
+Code UI if it was already open:
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+Desktop and the CLI read `codex login status` and run `codex exec`, so they
+reuse whatever ChatGPT subscription or API-key auth your installed Codex CLI
+reports. This is separate from the `@ai-sdk/harness-codex` package used by
+[Harness Agents](/docs/harness-agents); the harness adapter does not add a
+separate Agent-Native OAuth flow.
+
 ## Browser Host
 
 The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template starter
+npx @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install
@@ -251,6 +281,19 @@ available when needed.
 ## Slash Commands
 
 Agent-Native Code treats migration as a capability, not a separate app category. `/migrate` can be a built-in goal, a project command, or a custom instruction pack on top of the same host contract.
+
+### Migrating to Agent-Native with `/migrate` {#migrate}
+
+`/migrate` is the built-in goal for moving an existing app, URL, or described product into Agent-Native. It is a slash goal in the Code workspace — not a separate template to scaffold and not a one-off product — so it shares the same session store, transcript, run controls, and Desktop hub as every other Code session, and you can resume, attach to, inspect, and stop it the same way.
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+Local source paths are read-only; generated output must live outside the source tree. Use `--emit <dir>` to write a portable migration dossier (`AGENTS.md`, `MIGRATION_PLAYBOOK.md`, assessment, and an `ir.json` inventory when available) and hand it to another coding agent instead of opening the internal run surface. `/migrate` reuses the framework's normal credentials system — there is no migration-specific key store. The `@agent-native/migrate` package exposes a reusable engine (`createMigrationRun`, `discoverMigration`, `planMigration`, source/target adapters) for custom workflows.
 
 Project-specific commands live in:
 

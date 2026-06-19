@@ -41,6 +41,7 @@ interface TemplateApp {
 
 const argv = process.argv.slice(2);
 const ROOT = path.resolve(".");
+loadRootEnvFile(path.join(ROOT, ".env"));
 const TEMPLATES_DIR = path.join(ROOT, "templates");
 const CONFIG_PATH = path.join(ROOT, "packages/shared-app-config/templates.ts");
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
@@ -72,6 +73,51 @@ function flagValue(name: string): string | null {
   return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith("-")
     ? argv[i + 1]
     : null;
+}
+
+function parseEnv(contents: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const rawLine of contents.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("export ")) line = line.slice("export ".length).trim();
+
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    let value = line.slice(eq + 1).trim();
+    const quote = value[0];
+    if (
+      (quote === `"` || quote === `'`) &&
+      value.length >= 2 &&
+      value[value.length - 1] === quote
+    ) {
+      value = value.slice(1, -1);
+      if (quote === `"`) {
+        value = value
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, `"`)
+          .replace(/\\\\/g, "\\");
+      }
+    } else {
+      value = value.replace(/\s+#.*$/, "").trim();
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function loadRootEnvFile(envPath: string): void {
+  if (!fs.existsSync(envPath)) return;
+  const parsed = parseEnv(fs.readFileSync(envPath, "utf8"));
+  for (const [key, value] of Object.entries(parsed)) {
+    process.env[key] ??= value;
+  }
 }
 
 function printHelp(): void {
@@ -122,7 +168,8 @@ function readTemplateApps(): TemplateApp[] {
       const description = entry.match(/description:\s*"([^"]+)"/)?.[1];
       const port = entry.match(/devPort:\s*(\d+)/)?.[1];
       if (!name || !label || !port) return null;
-      const dir = path.join(TEMPLATES_DIR, name);
+      const sourceName = name === "starter" ? "chat" : name;
+      const dir = path.join(TEMPLATES_DIR, sourceName);
       if (!fs.existsSync(path.join(dir, "package.json"))) return null;
       return {
         id: name,
@@ -171,7 +218,7 @@ const requestedApps = (() => {
     return includeDesktopLazyDefaults(allApps.filter((app) => app.core));
   const ids = appsArg
     .split(",")
-    .map((app) => app.trim())
+    .map((app) => normalizeRequestedAppId(app.trim()))
     .filter(Boolean);
   const unknown = ids.filter((id) => !appById.has(id));
   if (unknown.length) {
@@ -181,6 +228,10 @@ const requestedApps = (() => {
     .map((id) => appById.get(id))
     .filter((app): app is TemplateApp => !!app);
 })();
+
+function normalizeRequestedAppId(id: string): string {
+  return id === "starter" ? "chat" : id;
+}
 
 if (requestedApps.length === 0) {
   console.error("[dev-lazy] No templates selected.");

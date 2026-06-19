@@ -141,6 +141,11 @@
   box-shadow: none;
 }
 
+.forms-home-chat-panel .agent-composer-root--hero:focus-within {
+  border-color: hsl(var(--ring) / 0.9);
+  box-shadow: none;
+}
+
 .forms-chat-intro {
   display: none;
 }
@@ -156,9 +161,9 @@
 
 .forms-chat-intro h1 {
   margin: 0;
-  font-size: 2.25rem;
+  font-size: 1.875rem;
   font-weight: 650;
-  line-height: 1.04;
+  line-height: 1.08;
 }
 
 .forms-chat-intro p {
@@ -192,6 +197,6 @@
 
 @media (min-width: 640px) {
   .forms-chat-intro h1 {
-    font-size: 3.75rem;
+    font-size: 2.75rem;
   }
 }

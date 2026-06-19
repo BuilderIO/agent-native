@@ -1332,6 +1332,9 @@ export function App() {
       isRecording ||
       recordingFlowActive ||
       recordingFlowGateRef.current);
+
+  const bubbleActiveRef = useRef(false);
+  bubbleActiveRef.current = bubbleActive;
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
   // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
   // desktop, which reads as a stuck recorder and can trap accessibility clicks.
@@ -1455,10 +1458,13 @@ export function App() {
         emit("clips:bubble-stop-local-camera", {}).catch(() => {});
         const recordingInFlight = recordingFlowGateRef.current;
         console.log(
-          "[clips-popover] local bubble session end — recordingInFlight=%o",
+          "[clips-popover] local bubble session end — recordingInFlight=%o stillActive=%o",
           recordingInFlight,
+          bubbleActiveRef.current,
         );
-        if (!recordingInFlight) {
+        // Skip teardown when the bubble is still wanted (only the capture
+        // source changed). Hiding here would race the re-run's show_bubble.
+        if (!recordingInFlight && !bubbleActiveRef.current) {
           invoke("hide_overlays").catch(() => {});
         }
       };
@@ -1466,7 +1472,11 @@ export function App() {
 
     navigator.mediaDevices
       .getUserMedia({
-        video: cameraId ? { deviceId: { exact: cameraId } } : true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
+        },
         audio: false,
       })
       .then(async (s) => {
@@ -1576,7 +1586,11 @@ export function App() {
       // recorder's stop flow calls `hide_recording_chrome` which handles
       // the bubble correctly). Hiding here mid-flow would kill the
       // on-screen bubble window the user sees during the recording.
-      if (!recordingInFlight) {
+      // Also skip when the bubble is still wanted and only the capture
+      // source changed (window ↔ full-screen flips `bubbleUsesLocalCamera`,
+      // re-running this effect): hiding would race the re-run's show_bubble
+      // and close the window out from under it.
+      if (!recordingInFlight && !bubbleActiveRef.current) {
         invoke("hide_overlays").catch(() => {});
       }
     };
@@ -4092,6 +4106,21 @@ function Setup({
           </div>
         </>
       ) : null}
+      <div className="setup-account">
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            invoke("open_logs").catch((err) => {
+              console.error("[clips-tray] open logs failed:", err);
+            });
+          }}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+        >
+          <IconFolderOpen size={14} />
+          Open logs
+        </button>
+      </div>
       {signedInAs && onSignOut ? (
         <div className="setup-account">
           <span className="setup-account-email">{signedInAs}</span>

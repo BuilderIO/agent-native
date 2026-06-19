@@ -13,7 +13,7 @@ How the agent knows what the user is looking at -- and how the agent can control
 
 Without context awareness, the agent is blind. It asks "which email?" when the user is staring at one. It cannot act on the current selection, cannot provide relevant suggestions, and cannot modify what the user sees. With context awareness, the user can click a row, highlight a paragraph, select a slide element, or press Cmd+I, then say "summarize this" and the agent already knows what "this" means.
 
-Six patterns solve this. To understand what to put in which surface (AGENTS.md vs. skills vs. application_state), see [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
+To understand what to put in which surface (AGENTS.md vs. skills vs. application_state), see [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
 
 Six patterns solve this:
 
@@ -76,7 +76,7 @@ const navigation = await readAppState("navigation");
 
 `AgentPanel` automatically syncs the current React Router URL into the `__url__` application-state key. The built-in agent includes it in every turn as a `<current-url>` block:
 
-```txt
+```text
 <current-url>
 pathname: /adhoc/revenue
 search: ?f_region=west&q=renewal
@@ -88,7 +88,7 @@ searchParams:
 
 This is the canonical layer for shareable filter state. If the user can copy a URL and come back to the same filtered list, the filter belongs in the query string. The agent can change those filters with the built-in `set-search-params` tool:
 
-```txt
+```text
 set-search-params({ "params": { "f_region": "east", "q": null } })
 ```
 
@@ -186,7 +186,7 @@ Every template should have a `view-screen` action. It reads navigation and selec
 
 ```ts
 // actions/view-screen.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -305,6 +305,15 @@ On the UI side you never poll or delete this key by hand. Both directions -- wri
 
 The `navigation` key belongs to the UI; the agent must never write to it directly. The agent writes `navigate`, the UI performs the move, and that move is what updates `navigation`.
 
+When the destination has a real URL, include a same-origin `path` on the
+`navigate` command and have the UI prefer that path before falling back to
+semantic fields. Keep app navigation single-channel: do not write both
+`navigate` and `__set_url__` for the same move. `__set_url__` is for the
+framework URL tools (`set-url-path`, `set-search-params`) and URL-only filter
+changes. For commands that can arrive while chat is streaming, commit the route
+with `navigate(path, { replace: true, flushSync: true })` instead of wrapping it
+in a view transition so the address bar and visible page stay together.
+
 ## The useNavigationState hook {#use-navigation-state}
 
 `useNavigationState` is **your app's hook, not a framework import.** Every template ships one at `app/hooks/use-navigation-state.ts` and calls it once from the app shell (`root.tsx`). It is the single place that wires navigation in both directions:
@@ -322,6 +331,7 @@ import { TAB_ID } from "@/lib/tab-id";
 interface NavigationState {
   view: "inbox" | "thread";
   threadId?: string;
+  path?: string;
 }
 
 export function useNavigationState() {
@@ -337,9 +347,11 @@ export function useNavigationState() {
 
     // agent → UI: turn a `navigate` command into a route to push.
     getCommandPath: (command) =>
-      command.view === "thread" && command.threadId
+      command.path ??
+      (command.view === "thread" && command.threadId
         ? `/thread/${command.threadId}`
-        : "/",
+        : "/"),
+    navigateOptions: { replace: true, flushSync: true },
   });
 }
 ```

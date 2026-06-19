@@ -10,7 +10,7 @@
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
  *      (`learnings.defaults.md`, etc.).
- *   3. Replaces starter's stock auth/chat wrappers with inherited wrappers so
+ *   3. Replaces chat's stock auth/chat wrappers with inherited wrappers so
  *      the workspace core can own those plugin slots while framework defaults
  *      still mount when the workspace core is empty.
  *   4. Leaves app source code untouched. The three-layer framework
@@ -30,7 +30,7 @@ export interface WorkspacifyOptions {
   appDir: string;
   /** App name (e.g. "mail") */
   appName: string;
-  /** Source template name (e.g. "starter" when appName is "crm") */
+  /** Source template name (e.g. "chat" when appName is "crm") */
   templateName?: string;
   /** Workspace root directory */
   workspaceRoot: string;
@@ -141,20 +141,16 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  if ((opts.templateName ?? opts.appName) === "starter") {
-    writeInheritedStarterPlugin(appDir, workspaceCoreName, {
+  if (["starter", "chat"].includes(opts.templateName ?? opts.appName)) {
+    writeInheritedChatPlugin(appDir, workspaceCoreName, {
       fileName: "auth.ts",
       exportName: "defaultAuthPlugin",
     });
-    writeInheritedStarterAgentChatPlugin(
-      appDir,
-      workspaceCoreName,
-      opts.appName,
-    );
+    writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
   }
 }
 
-function writeInheritedStarterPlugin(
+function writeInheritedChatPlugin(
   appDir: string,
   workspaceCoreName: string,
   opts: { fileName: string; exportName: string },
@@ -178,7 +174,7 @@ function writeInheritedStarterPlugin(
   );
 }
 
-function writeInheritedStarterAgentChatPlugin(
+function writeInheritedChatAgentChatPlugin(
   appDir: string,
   workspaceCoreName: string,
   appId: string,

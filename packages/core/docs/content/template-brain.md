@@ -21,10 +21,34 @@ surfaces for connecting data, approving proposals, and inspecting cited memory.
 
 ![Brain company chat with cited memory sources](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200)
 
+When you open the app, **Ask** is front and center — a clean chat over reviewed
+company memory. **Sources**, **Review**, and **Knowledge** sit alongside it as
+admin surfaces for connecting data, approving proposals, and inspecting cited
+entries.
+
+## When to pick it
+
 Use Brain when your team wants agents to answer questions like "why did we make
 this product decision?", "how does this in-development feature work?", or "what
 changed in this process?" with links back to the source conversation, meeting,
 or issue.
+
+Brain and Dispatch are complementary but do different jobs:
+
+- **Brain owns company memory.** It ingests sources, reviews raw captures,
+  distills durable facts/decisions/processes, answers from cited evidence, and
+  exposes approved knowledge to agents.
+- **Dispatch owns the workspace control plane.** It centralizes messaging,
+  secrets, recurring jobs, approvals, A2A orchestration, and the distribution
+  and approval of workspace-wide resources.
+
+In a multi-app workspace, Dispatch can route a question to Brain over A2A and
+can grant Brain shared provider credentials. Brain remains the specialist for
+approved source ingestion, review, retrieval, and cited Company Brain answers.
+Brain exposes read-only, citation-backed retrieval as its public A2A capability
+so Dispatch and sibling apps can ask company-memory questions — the A2A agent
+card is public discovery metadata, while retrieval still happens inside Brain's
+authenticated action surface.
 
 ## What you can do with it
 
@@ -51,14 +75,6 @@ or issue.
   apps can use them as context. Both flows preview the exact Markdown before the
   resource is written or removed.
 
-## Useful prompts
-
-- "What did we decide about annual pricing, and where was that discussed?"
-- "Find the most recent onboarding-process change and cite the source."
-- "Summarize what this GitHub discussion means for the launch plan."
-- "Review the pending memory proposals and flag anything too vague to publish."
-- "Which sources are stale or failing sync?"
-
 ## Getting started
 
 Live demo: [brain.agent-native.com](https://brain.agent-native.com).
@@ -79,9 +95,17 @@ For a public demo, the seeded corpus demonstrates product-decision recall,
 citation links, supersede behavior, review gating, redaction, personal-content
 exclusion, and honest not-found behavior without connecting a real workspace.
 
+### Useful prompts
+
+- "What did we decide about annual pricing, and where was that discussed?"
+- "Find the most recent onboarding-process change and cite the source."
+- "Summarize what this GitHub discussion means for the launch plan."
+- "Review the pending memory proposals and flag anything too vague to publish."
+- "Which sources are stale or failing sync?"
+
 ## For developers
 
-The rest of this section is for anyone forking or extending the Brain template.
+The rest of this doc is for anyone forking the Brain template or extending it.
 
 ### Quick start
 
@@ -95,6 +119,12 @@ pnpm dev
 Open the app and choose **Start demo** to see cited memory without connecting a real workspace.
 
 ### Data model
+
+Brain intentionally uses SQL text search and agentic query expansion — there is
+no vector-database requirement, so the template stays portable across SQLite,
+Postgres, Neon, D1, Turso, and similar hosts. Application state mirrors the
+current route, filters, and selected IDs so the agent always knows the current
+navigation and selection.
 
 Brain's schema lives in `templates/brain/server/db/schema.ts`. Eight tables:
 
@@ -124,17 +154,7 @@ Grouped by area (`templates/brain/actions/`):
 - **Context & navigation** — `view-screen`, `navigate`
 - **Provider APIs** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
 
-### Customizing it
-
-Key places to look when extending Brain:
-
-- `templates/brain/actions/` — every agent-callable operation. Add a new file with `defineAction` to expose a new capability.
-- `templates/brain/app/routes/` — the UI surface: Ask, Sources, Review, Knowledge, Settings, and Team routes.
-- `templates/brain/.agents/skills/` — Brain-specific guidance for distillation and retrieval.
-- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major features.
-- `templates/brain/server/db/schema.ts` — data model. Additive migrations only.
-
-## Connecting sources
+### Connecting sources
 
 Brain resolves provider credentials from a granted workspace connection first,
 then from backward-compatible Brain-local or registered vault credentials.
@@ -171,44 +191,7 @@ notes, or any other source that can produce a bounded capture.
 Slack, Granola, and GitHub sources can opt into background `autoSync` with a
 poll cadence once review quality is proven.
 
-## Brain vs Dispatch
-
-Brain and Dispatch are complementary, but they do different jobs:
-
-- **Brain owns company memory.** It ingests sources, reviews raw captures,
-  distills durable facts/decisions/processes, answers from cited evidence, and
-  exposes approved knowledge to agents.
-- **Dispatch owns the workspace control plane.** It centralizes messaging,
-  secrets, recurring jobs, approvals, A2A orchestration, and the distribution
-  and approval of workspace-wide resources.
-
-In a multi-app workspace, Dispatch can route a question to Brain over A2A and
-can grant Brain shared provider credentials. Brain remains the specialist for
-approved source ingestion, review, retrieval, and cited Company Brain answers.
-Brain exposes read-only, citation-backed retrieval as its public A2A capability
-so Dispatch and sibling apps can ask company-memory questions — the A2A agent
-card is public discovery metadata, while retrieval still happens inside Brain's
-authenticated action surface.
-
-## Data model
-
-Brain intentionally uses SQL text search and agentic query expansion. There is
-no vector database requirement, so the template stays portable across SQLite,
-Postgres, Neon, D1, Turso, and similar hosts.
-
-- **Sources** hold connector configuration: provider, allow-listed channels or
-  repositories, sync cursors, review posture, and distillation state.
-- **Raw captures** store transcripts, channel exports, notes, and webhook
-  imports in portable SQL with dedupe keys and source metadata. Raw content is
-  redacted from listing/search surfaces by default.
-- **Distilled knowledge** holds atomic entries with kind, topic, entities,
-  confidence, exact evidence quotes, and supersede links.
-- **Proposals** queue company-tier or sensitive entries for review before they
-  become durable company memory.
-- **Application state** mirrors route, filters, and selected IDs so the agent
-  always knows the current navigation and selection.
-
-## Privacy and gating
+### Privacy and gating
 
 Brain is designed for company memory, not personal surveillance:
 
@@ -223,22 +206,31 @@ Brain is designed for company memory, not personal surveillance:
   approval, citation requirements, email redaction, and connector error
   notifications.
 
-## Customizing it
+### Customizing it
 
-The template follows the agent-native four-area contract:
+Brain follows the agent-native four-area contract — change behavior by editing
+the matching area, and the agent can make these edits for you:
 
-- **UI:** Ask, Search, Knowledge, Review, Sources, and Settings routes.
-- **Actions:** imports, source management, pilot reports, distillation, proposal
-  review, cited search, and navigation/context actions.
-- **Skills/instructions:** Brain-specific guidance for distillation and
-  retrieval in `templates/brain/.agents/skills/`.
-- **Application state:** route, filters, and selected IDs mirror into
-  `application_state` for agent context.
+- `templates/brain/app/routes/` — the UI surface: Ask, Search, Knowledge,
+  Review, Sources, Settings, and Team routes.
+- `templates/brain/actions/` — every agent-callable operation (imports, source
+  management, pilot reports, distillation, proposal review, cited search,
+  navigation/context). Add a new file with `defineAction` to expose a new
+  capability.
+- `templates/brain/.agents/skills/` — Brain-specific guidance for distillation
+  and retrieval. Update or add a skill when you teach the agent a new workflow.
+- `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major
+  features.
+- `templates/brain/server/db/schema.ts` — data model. Additive migrations only;
+  route, filters, and selected IDs mirror into `application_state` for agent
+  context.
 
 Ask the agent to make changes for you — it can edit its own source. See
 [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
 
-See [Dispatch](/docs/dispatch) for the workspace control plane, the
-[Dispatch template](/docs/template-dispatch) for the scaffolded app,
-[Workspace](/docs/workspace) for shared resources, and
-[A2A Protocol](/docs/a2a-protocol) for cross-app delegation.
+## What's next
+
+- [**Dispatch**](/docs/dispatch) — the workspace control plane
+- [**Dispatch template**](/docs/template-dispatch) — the scaffolded coordination app
+- [**Workspace**](/docs/workspace) — shared resources across apps
+- [**A2A Protocol**](/docs/a2a-protocol) — cross-app delegation

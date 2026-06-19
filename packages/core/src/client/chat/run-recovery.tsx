@@ -194,7 +194,7 @@ export function BuilderConnectCta({
   if (variant === "compact") {
     if (configured) {
       return (
-        <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
+        <span className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
           {orgName ? `Connected to ${orgName}` : "Connected"}
         </span>
@@ -207,7 +207,7 @@ export function BuilderConnectCta({
           type="button"
           onClick={() => start()}
           disabled={connecting}
-          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           aria-busy={connecting}
         >
           {connecting ? (
@@ -400,9 +400,11 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  fullWidth,
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  fullWidth?: boolean;
 }) {
   // Progressive disclosure: the card leads with one-click Builder connect while
   // keeping the bring-your-own-key path close by.
@@ -422,7 +424,14 @@ export function BuilderSetupCard({
   }, [bouncePulse]);
 
   return (
-    <div ref={cardRef} className="mx-auto w-full max-w-[34rem] px-3 pb-2">
+    <div
+      ref={cardRef}
+      className={
+        fullWidth
+          ? "w-full pb-2"
+          : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit"
+      }
+    >
       <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -430,15 +439,15 @@ export function BuilderSetupCard({
               Connect AI
             </h3>
             <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-              Use Builder.io, or add an Anthropic/OpenAI key.
+              Use Builder.io (free credits), or add an Anthropic/OpenAI key.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-nowrap items-center gap-2">
             <BuilderConnectCta variant="compact" onConnected={onConnected} />
             <button
               type="button"
               onClick={() => setKeyOpen((open) => !open)}
-              className="inline-flex h-8 shrink-0 items-center rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground hover:bg-accent"
+              className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground hover:bg-accent"
               aria-expanded={keyOpen}
             >
               Use API key

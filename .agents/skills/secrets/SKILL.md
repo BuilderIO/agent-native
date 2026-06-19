@@ -111,7 +111,7 @@ row is written — status is derived from `hasOAuthTokens("google")`.
 
 ```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server";
 

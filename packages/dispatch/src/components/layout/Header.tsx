@@ -1,6 +1,7 @@
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import { Button } from "@/components/ui/button";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 
@@ -35,8 +36,27 @@ export function Header({
   showAgentToggle?: boolean;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+
+  function openRunThread(threadId: string) {
+    navigate("/chat", {
+      state: {
+        dispatchThread: {
+          id: `${Date.now()}-${threadId}`,
+          threadId,
+        },
+      },
+    });
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    });
+  }
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 lg:px-6">
@@ -60,6 +80,7 @@ export function Header({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <RunsTray limit={8} onOpenThread={openRunThread} />
         {showAgentToggle ? (
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         ) : null}

@@ -1,5 +1,10 @@
 import { Link } from "react-router";
-import { IconDots, IconLibraryPhoto, IconPencil } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconDots,
+  IconLibraryPhoto,
+  IconPencil,
+} from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +26,8 @@ export function LibraryCard({
   selected,
   onClick,
   onEdit,
+  onDuplicate,
+  duplicatePending = false,
   compact = false,
   showInstructions = !compact,
 }: {
@@ -29,6 +36,8 @@ export function LibraryCard({
   selected?: boolean;
   onClick?: () => void;
   onEdit?: () => void;
+  onDuplicate?: () => void;
+  duplicatePending?: boolean;
   compact?: boolean;
   showInstructions?: boolean;
 }) {
@@ -130,29 +139,44 @@ export function LibraryCard({
     </>
   );
 
-  const editAffordance = onEdit ? (
-    <div className="absolute right-2 top-2 z-10">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-            aria-label="Brand kit actions"
-          >
-            <IconDots className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => onEdit()}>
-            <IconPencil className="mr-2 h-4 w-4 shrink-0" />
-            Edit
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  ) : null;
+  const editAffordance =
+    onEdit || onDuplicate ? (
+      <div className="absolute right-2 top-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label="Brand kit actions"
+            >
+              <IconDots className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {onEdit ? (
+              <DropdownMenuItem onSelect={() => onEdit()}>
+                <IconPencil className="mr-2 h-4 w-4 shrink-0" />
+                Edit
+              </DropdownMenuItem>
+            ) : null}
+            {onDuplicate ? (
+              <DropdownMenuItem
+                disabled={duplicatePending}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onDuplicate();
+                }}
+              >
+                <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+                {duplicatePending ? "Duplicating..." : "Duplicate"}
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    ) : null;
 
   if (to) {
     return (

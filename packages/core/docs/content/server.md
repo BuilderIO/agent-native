@@ -65,7 +65,7 @@ hatch.
 
 ```ts
 // actions/classify-message.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -189,9 +189,17 @@ Inbound webhooks should verify, persist, and return quickly. Long-running agent 
 
 Do not rely on unawaited promises after returning a response. See [Messaging](/docs/messaging) for the canonical integration queue.
 
-## Programmatic H3 Servers {#create-server}
+## Advanced: Escape Hatches {#advanced-escape-hatches}
 
-For custom packages or tests that need an H3 app directly, `createServer()` returns a preconfigured app and router:
+Most templates never need these. Nitro file routes and the framework's agent
+chat plugin already wire up the app server and the production agent handler.
+Reach for them only when building a custom server integration outside the
+standard template plugin stack.
+
+### Programmatic H3 servers {#create-server}
+
+For custom packages or tests that need an H3 app directly, `createServer()`
+returns a preconfigured app and router:
 
 ```ts
 import { createServer } from "@agent-native/core/server";
@@ -205,11 +213,13 @@ router.get(
 );
 ```
 
-Most templates do not need this helper because Nitro file routes and framework plugins handle the app server.
+### Production agent handler {#agent-handler}
 
-## Production Agent Handler {#agent-handler}
-
-The framework's agent chat plugin mounts the production agent handler for templates. Only call `createProductionAgentHandler()` directly when building a custom server integration outside the standard template plugin stack.
+The framework's agent chat plugin already mounts the production agent handler
+for templates. Only call `createProductionAgentHandler()` directly when building
+a custom server integration outside the standard template plugin stack —
+otherwise customize the agent through `AGENTS.md`, skills, actions, and the
+agent chat plugin.
 
 ```ts
 import { createProductionAgentHandler } from "@agent-native/core/server";
@@ -219,5 +229,3 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
-
-Standard templates should customize the agent through `AGENTS.md`, skills, actions, and the agent chat plugin rather than hand-mounting this route.

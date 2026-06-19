@@ -24,8 +24,12 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { writeClipboardText } from "../clipboard.js";
 import { cn } from "../utils.js";
-import "./widgets/builtin-tool-renderers.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  isBuiltinDataWidgetActionRenderer,
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./widgets/builtin-tool-renderers.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -581,9 +585,13 @@ function ToolCallDisplayGeneric({
     isRunning,
     chatUI,
   };
+  const skipRegistryRenderer =
+    !isAgentCall && isBuiltinDataWidgetActionRenderer(nativeToolContext);
   const NativeToolRenderer = isAgentCall
     ? null
-    : resolveToolRenderer(nativeToolContext);
+    : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+      (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
+      resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
     return <NativeToolRenderer context={nativeToolContext} />;
   }

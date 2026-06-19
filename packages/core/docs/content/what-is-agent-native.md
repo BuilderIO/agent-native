@@ -5,15 +5,16 @@ description: "Why most AI apps feel half-built, what makes an app truly agent-na
 
 # What Is Agent-Native?
 
-Agent-native is a way of building software where the AI agent and the UI are **equal partners**. Everything the agent can do, the UI can do. Everything the UI can do, the agent can do. They share the same database, the same state, and they stay in sync.
+Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. That surface can be a headless agent with one custom action, a rich chat, or a full UI. The important part is that agents and humans share the same actions, database, and state.
 
 If you only remember one thing from this page, remember this: most AI apps today stop one step short of being useful, and that gap is the biggest mistake in the space right now.
 
 ## What it looks like as a user {#what-it-looks-like}
 
-Picture your inbox, calendar, form builder, or analytics dashboard. Sometimes the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. In both cases, you can:
+Picture a background worker, inbox, calendar, form builder, or analytics dashboard. Sometimes there is no custom screen yet: you run one action or one headless app-agent prompt. Sometimes the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. Across those shapes, you can:
 
-- **Click anything you'd normally click.** All the buttons, lists, dashboards, keyboard shortcuts — they all still work. This is a real app, not a chat window pretending to be one.
+- **Start with the real operation.** One durable action can run from the CLI, HTTP, MCP, A2A, the app-agent loop, and later a UI.
+- **Click anything you'd normally click when there is a UI.** All the buttons, lists, dashboards, keyboard shortcuts — they all call the same operations the agent can call.
 - **Or just ask.** Type "reply to the email from Sara saying I'll be there by 3" into the agent. It opens the right thread, drafts the reply, and shows it to you for approval — exactly as if you'd done it by hand.
 - **See what it sees.** Open an email, and the agent knows which one. Select a chart, and the agent knows which chart. Highlight a paragraph and hit Cmd+I, and the agent acts on just that paragraph.
 - **Watch it work.** As the agent does things — opens views, edits drafts, runs reports — the UI updates in real time. You can stop it, redirect it, or take over with the mouse at any moment.
@@ -61,15 +62,9 @@ Even when the agent does all the heavy lifting, humans still need to:
 - **Inspect its work** — review drafts, audit history, roll back mistakes
 - **Share its output** — dashboards, reports, forms, links to send to teammates
 
-At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Templates](/docs/cloneable-saas) for the maximal end.
+At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native, and the surface can grow from one without a rewrite.
 
-There are three useful shapes:
-
-- **Headless** — call the agent and actions from code, HTTP, CLI, MCP, or A2A.
-- **Rich chat** — give the agent a first-class chat UI with native tool widgets such as tables, charts, typed results, approvals, and links into app views. See [Native Chat UI](/docs/native-chat-ui).
-- **Whole app** — put a full application around the agent, with SQL state, context awareness, deep links, and live sync so humans and agents stay in the same workspace.
-
-Agent-native is designed so those are stages, not rewrites. You can start headless, add rich chat, and grow into a full app around the same action surface. See [Agent Surfaces](/docs/agent-surfaces) for the concrete APIs behind each shape.
+You don't have to choose a shape up front. The agent can run headless, sit behind a rich chat, or live inside a full application around the same action surface — see [Agent Surfaces](/docs/agent-surfaces) for the concrete shapes and APIs.
 
 ## Why every app benefits from an agent {#why-every-app-benefits-from-an-agent}
 
@@ -77,7 +72,7 @@ The flip side is just as important. Existing SaaS products keep hitting the same
 
 Agent-native flips that. Because every action in the app is defined once and exposed as both a button and an agent tool, the agent can do everything the buttons can — and more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
 
-The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." See [Pure-Agent Apps](/docs/pure-agent-apps) for the full discussion of why agents still need a UI.
+The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Even an app where the agent _is_ the product still needs a UI for humans to supervise, configure, and steer it — see [Agent Surfaces — Headless](/docs/agent-surfaces#headless).
 
 ## Agent + UI parity {#agent-ui-parity}
 
@@ -138,7 +133,7 @@ Agent-native apps follow a fork-and-customize model. You start from a **template
 
 Because it's _your_ app, not shared infrastructure, the agent can safely evolve the code. Your app keeps improving as you use it. See [Templates](/docs/cloneable-saas) for the full story.
 
-Not ready to fork a whole template? You can also try agent-native by adding a **skill** to a coding agent you already use — install the Plans skill with `npx @agent-native/core@latest skills add visual-plan`. See [Try it with a skill](/docs/getting-started#try-with-a-skill).
+Not ready to fork a whole template? You can also try agent-native by adding a **skill** to a coding agent you already use — install the Plans skill with `npx @agent-native/core@latest skills add visual-plan`. See the [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Composable agents {#composable-agents}
 
@@ -152,7 +147,7 @@ If you're building or extending an agent-native app, here's the central pattern:
 
 ```ts
 // actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -185,7 +180,7 @@ One action, many surfaces: the agent calls it as a tool, the UI calls it as a ty
 
 ## What's next {#whats-next}
 
-- [**Getting Started**](/docs) — pick a template and run it
+- [**Getting Started**](/docs/getting-started) — start with one action, pick a template, or install a skill
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own

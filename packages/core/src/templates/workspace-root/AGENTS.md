@@ -6,6 +6,22 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 The root `.agents/skills` path points at the shared package's skills so local
 coding agents can discover the same workspace-wide guidance from the root.
 
+## Framework Docs Lookup
+
+Version-matched Agent Native docs ship with `@agent-native/core` in
+`node_modules/@agent-native/core/docs`.
+
+- From an app directory, use `pnpm action docs-search --query "<topic>"`,
+  `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
+- From the workspace root, read `node_modules/@agent-native/core/docs/AGENTS.md`
+  and search `node_modules/@agent-native/core/docs/content/` directly with `rg`.
+- For advanced workspace features, start with `workspace`, `multi-app-workspace`,
+  `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
+  `external-agents`, `mcp-protocol`, `sharing`, and `security`.
+
+Use package docs for framework APIs, and use `packages/shared/AGENTS.md` plus
+`packages/shared/.agents/skills/` for workspace-specific conventions.
+
 ## Core Agent Rule
 
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
@@ -61,11 +77,15 @@ coding agents can discover the same workspace-wide guidance from the root.
   `/<app-id>`.
 - When a user explicitly asks for a new app or workspace app, create the
   separate workspace app.
+- For composable workflows, prefer many one-job headless or small-UI apps that
+  discover and call sibling apps over A2A. Read
+  `packages/shared/.agents/skills/composable-mini-apps/SKILL.md` before
+  designing cross-app orchestration.
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
 - Do not satisfy a new-app request by adding a route, page, component, or file
-  to `apps/starter` or another existing app unless the user explicitly asks to
+  to `apps/chat` or another existing app unless the user explicitly asks to
   modify that existing app.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as
   existing hosted/connected neighbors available through links and A2A/default
@@ -121,14 +141,14 @@ coding agents can discover the same workspace-wide guidance from the root.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch
-  should still create the separate workspace app, not patch starter. The local
+  should still create the separate workspace app, not patch chat. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
-- When using the starter template, treat it as scaffolding only. The finished
+- When using the chat template, treat it as scaffolding only. The finished
   app must be branded as the requested app, with its own home screen,
   navigation, package metadata, manifest, and domain workflow. Do not leave
-  visible `Starter`, `Blank app`, `Start building`, or `New app` UI in a
-  starter-derived app.
+  visible `Chat`, `Starter`, `Blank app`, `Start building`, or `New app` UI in
+  a chat-derived app.
 
 ## Workspace Identity
 

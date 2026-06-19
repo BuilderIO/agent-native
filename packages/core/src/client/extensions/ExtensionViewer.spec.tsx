@@ -22,7 +22,20 @@ vi.mock("../AgentPanel.js", () => ({
 }));
 
 vi.mock("../notifications/NotificationsBell.js", () => ({
-  NotificationsBell: () => <button type="button">Notifications</button>,
+  NotificationsBell: ({
+    onOpenChange,
+  }: {
+    onOpenChange?: (open: boolean) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onOpenChange?.(true)}>
+        Notifications
+      </button>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        Close notifications
+      </button>
+    </>
+  ),
 }));
 
 vi.mock("../composer/PromptComposer.js", () => ({
@@ -161,5 +174,27 @@ describe("ExtensionViewer MCP embeds", () => {
     await vi.waitFor(() => {
       expect(container.querySelector("iframe")).toBeTruthy();
     });
+  });
+
+  it("lets the notifications popover take outside clicks over the extension iframe", async () => {
+    const iframe = await renderViewer();
+    const buttonNamed = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === label,
+      );
+
+    expect(iframe.style.pointerEvents).toBe("auto");
+
+    await act(async () => {
+      buttonNamed("Notifications")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      buttonNamed("Close notifications")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("auto");
   });
 });

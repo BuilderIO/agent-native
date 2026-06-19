@@ -396,7 +396,10 @@ export const streamAsset = defineEventHandler(async (event) =>
   }),
 );
 
-export async function markAssetSaved(assetId: string) {
+export async function markAssetSaved(
+  assetId: string,
+  folderId?: string | null,
+) {
   const db = getDb();
   const [asset] = await db
     .select()
@@ -405,14 +408,19 @@ export async function markAssetSaved(assetId: string) {
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
   await assertAccess("asset-library", asset.libraryId, "editor");
+  if (folderId !== undefined && folderId !== null) {
+    await assertFolderBelongsToLibrary(folderId, asset.libraryId);
+  }
   const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
   metadata.savedAt = nowIso();
+  const updates: Record<string, unknown> = {
+    status: "saved",
+    metadata: stringifyJson(metadata),
+    updatedAt: nowIso(),
+  };
+  if (folderId !== undefined) updates.folderId = folderId;
   await db
     .update(schema.assets)
-    .set({
-      status: "saved",
-      metadata: stringifyJson(metadata),
-      updatedAt: nowIso(),
-    })
+    .set(updates)
     .where(eq(schema.assets.id, assetId));
 }

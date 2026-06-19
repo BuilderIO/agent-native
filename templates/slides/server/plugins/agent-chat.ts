@@ -7,9 +7,29 @@ import { getOrgContext } from "@agent-native/core/org";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-decks",
+  "get-deck",
+  "create-deck",
+  "add-slide",
+  "update-slide",
+  "patch-deck",
+  "generate-slides-ai",
+  "import-file",
+  "import-google-doc",
+  "import-pptx",
+  "export-pptx",
+  "navigate",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+];
+
 export default createAgentChatPlugin({
   appId: "slides",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: INITIAL_TOOL_NAMES,
   runSoftTimeoutMs: 240_000,
   // Enable sandboxed JavaScript execution so Slides agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us

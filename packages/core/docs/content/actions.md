@@ -19,11 +19,55 @@ One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-ag
 If you are deciding whether to expose an operation headlessly, in chat, in an
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
+If the UI and agent both need to do something, reach for an action — not a custom
+route. For when a route-shaped protocol _is_ the right call, see [Prefer Actions
+For App Operations](/docs/server#actions-first).
+
+## Start with one action {#hello-action}
+
+The primitive-first on-ramp is one action, not a template. In a headless
+scaffold such as `agent-native create my-agent --headless`, this can be the
+whole first app:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Run it from the same folder:
+
+```bash
+pnpm action hello --name Steve
+```
+
+Then run the app-agent loop against the folder:
+
+```bash
+pnpm agent "Call hello for Steve and explain the result"
+```
+
+That is the same app-agent loop your scheduled jobs, chat UI, external MCP
+tools, and future screens will use. Chat and domain templates are for adding UI
+around actions, not a required prerequisite for the action itself.
+
 ## Defining an action {#defining}
 
 ```ts
 // actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
@@ -114,9 +158,22 @@ Every action the agent can see is a tool in the model's context window, and a lo
 
 A repo-level advisory helper, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`), statically scans a template's `actions/` and flags likely UI-dead actions and redundant per-field clusters. It is advisory only (always exits 0, never fails CI) and uses conservative heuristics, so review its suggestions rather than treating them as errors.
 
-### Agent tool exposure {#agent-tool}
+### Exposure flags {#exposure-flags}
 
-By default every action is exposed to the agent — the in-app assistant plus the app's MCP / A2A tool surfaces — as a callable tool. For an action that only the frontend (or an HTTP / cron caller) needs, set `agentTool: false` to keep it behind the framework's auth + action surface while removing it from every agent tool list:
+Four flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
+
+| Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                     |
+| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → UI, HTTP, CLI only — **hidden from the model**, MCP, and A2A      | UI-only / programmatic actions that shouldn't spend a tool slot |
+| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Auth-adjacent ops (delete account, change org membership/roles) |
+| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read/ingest tools reachable without authentication         |
+| `needsApproval` | `false`       | `true` → the agent **pauses**; a human must approve the specific call       | Consequential side effects (send email, charge a card, delete)  |
+
+These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), and `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below.
+
+#### `agentTool` — hide from the model {#agent-tool}
+
+By default every action is a callable agent tool. Set `agentTool: false` to keep it behind the framework's auth + action surface while removing it from every agent tool list — it stays callable from the UI (`useActionMutation` / `callAction`), CLI, and `/_agent-native/actions/<name>`:
 
 ```ts
 export default defineAction({
@@ -130,24 +187,11 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `true`      | Allow (same as undefined). Useful for documenting intent.                                                                                                                                  |
-| `false`     | **Hidden from the model entirely** — not in the agent's tool list, MCP, or A2A. Still callable from the UI (`useActionMutation` / `callAction`), CLI, and `/_agent-native/actions/<name>`. |
-| `undefined` | **Default-allow.** The action is a normal agent tool.                                                                                                                                      |
+Reach for it when you add a UI-only or purely programmatic action, or when the UI stops using an action you'd otherwise leave exposed to the model.
 
-`agentTool: false` is **not** the same as [`toolCallable: false`](#tool-callable):
+#### `toolCallable` — block the extension iframe {#tool-callable}
 
-- **`agentTool: false`** removes the action from the **model's** view. The model can no longer see or call it; the UI and HTTP can.
-- **`toolCallable: false`** only blocks the sandboxed **extension iframe bridge** (`appAction(...)`). The action stays fully visible to the model, UI, CLI, MCP, and A2A. It exists for high-blast-radius operations (account/org/auth changes), not for trimming the tool list.
-
-Reach for `agentTool: false` when you find yourself adding a UI-only or purely programmatic action, or when the UI stops using an action you'd otherwise leave exposed to the model.
-
-### Extension callability {#tool-callable}
-
-Extensions (Alpine.js mini-apps that run inside sandboxed iframes — see [Extensions](/docs/extensions)) call actions via `appAction(name, params)`. Because a shared extension's HTML/JS executes inside the _viewer's_ session, an action invoked from an extension runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
-
-Use the `toolCallable` flag to control this (the flag name is kept for backward compatibility — it gates extension iframe callability):
+Extensions ([Alpine.js mini-apps in sandboxed iframes](/docs/extensions)) call actions via `appAction(name, params)`, running with the _viewer's_ permissions, secrets, and SQL scope. For high-blast-radius operations that is too much trust by default. Set `toolCallable: false` to make the extension bridge return 403 while keeping the action callable from the UI, agent, CLI, MCP, and A2A:
 
 ```ts
 export default defineAction({
@@ -160,20 +204,7 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                                                                          |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                                    |
-| `false`     | Explicit deny. The extension bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                     |
-| `undefined` | **Default-allow.** Extensions are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
-
-Enforcement: the parent host tags every outbound action call from an extension iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
-
-Set `toolCallable: false` for actions that:
-
-- delete or transfer ownership of any account/org,
-- change auth state (sign-out-all sessions, rotate tokens),
-- modify org membership (invite/remove members, change roles),
-- change resource visibility or grant share access (the framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out).
+Use it for actions that delete or transfer accounts/orgs, change auth state, modify org membership, or grant share access. The framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out. Enforcement is by an unspoofable host-set header on iframe calls; regular UI/agent/CLI/MCP/A2A calls are unaffected — see [Security](/docs/security) for details.
 
 ### Run context (second argument) {#run-context}
 
@@ -229,7 +260,7 @@ User-owned tables must scope reads through `accessFilter` and writes through `as
 
 ```ts
 // actions/create-lead.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import * as schema from "../server/db/schema.js";
@@ -267,10 +298,10 @@ export default defineAction({
 });
 ```
 
-`needsApproval` accepts a boolean or a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold). The predicate **fails closed**: a throw is treated as "approval required". When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and stops the turn — the side effect never happens — and the action runs only once a human approves via the chat UI's Approve affordance.
+`needsApproval` also accepts a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold); it **fails closed**, so a throw counts as "approval required". When the gate is truthy and unapproved, the loop stops the turn and the side effect never fires until a human approves in the chat UI.
 
 > [!WARNING]
-> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the full flow.
+> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full flow.
 
 ## Calling it from the UI {#ui}
 
@@ -315,12 +346,12 @@ summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
 external MCP hosts.
 
 ```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
 import {
-  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  createDataInsightsWidgetResult,
   dataInsightsWidgetResultSchema,
-  defineAction,
-} from "@agent-native/core";
-import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
+} from "@agent-native/core/data-widgets";
 
 export default defineAction({
   description: "Summarize response trends.",
@@ -354,12 +385,11 @@ export default defineAction({
 ```
 
 The built-in discriminants are `"data-table"`, `"data-chart"`, and
-`"data-insights"`. Their server-safe builders and schemas are exported from
-`@agent-native/core/data-widgets`, and native renderer ids are exported from
-`@agent-native/core`. See [Native Chat UI](/docs/native-chat-ui) for the full
-result contract and BYO runtime guidance, or [Agent Surfaces](/docs/agent-surfaces)
-for how this same action can stay headless, render in chat, or grow into a full
-screen.
+`"data-insights"`, with server-safe builders and schemas in
+`@agent-native/core/data-widgets`. See [Native Chat UI](/docs/native-chat-ui)
+for the full result contract and BYO runtime guidance, or
+[Agent Surfaces](/docs/agent-surfaces) for how the same action can stay
+headless, render in chat, or grow into a full screen.
 
 ## Calling it from the CLI {#cli}
 
@@ -377,9 +407,9 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — code/stdio developer clients, the local CLI proxy, and chat-style app hosts (OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers) alike — containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers) plus the template-declared app actions; action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `tool-search` is always present (call it with no query for the full tool menu, or with a query for ranked matches), so any tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`). `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`), and `publicAgent.expose` opts a safe read/ingest tool onto the public surface. See [MCP Protocol](/docs/mcp-protocol) for catalog tiers, auth, and the `mcpApp` resource details.
 
-For UI-capable MCP hosts, an action can also declare an optional MCP Apps resource via the `mcpApp` field (and a matching `link`) so capable hosts render the result inline. The pattern mirrors the focused link we already return for external agents: the action exposes the operation, `link` points at the route with the right URL or deep-link params, and the embed helper uses that same target as the inline app. When an action's `link` and `mcpApp` should point at the same route, use `embedRoute()` to build both from one pure path builder.
+For UI-capable MCP hosts, an action can declare an optional MCP Apps resource via the `mcpApp` field (plus a matching `link`) so capable hosts render the result inline. When `link` and `mcpApp` should point at the same route, `embedRoute()` builds both from one pure path builder:
 
 ```ts
 import { embedRoute } from "@agent-native/core";
@@ -411,7 +441,7 @@ Reads the current navigation state, fetches contextual data, and returns a snaps
 
 ```ts
 // actions/view-screen.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -438,7 +468,7 @@ Writes a one-shot navigation command to application state. The UI reads it, navi
 
 ```ts
 // actions/navigate.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 

@@ -128,11 +128,13 @@ function assertAgentSymlinks(projectDir: string): void {
     true,
     "create must configure CLAUDE.md for agent tools",
   );
-  const skillsPath = path.join(projectDir, ".claude", "skills");
+  const sharedSkillsPath = path.join(projectDir, ".agents", "skills");
+  if (!fs.existsSync(sharedSkillsPath)) return;
+  const claudeSkillsPath = path.join(projectDir, ".claude", "skills");
   assert.equal(
-    fs.existsSync(skillsPath),
+    fs.existsSync(claudeSkillsPath),
     true,
-    "create must configure .claude/skills for agent tools",
+    "create must configure .claude/skills when .agents/skills exists",
   );
 }
 
@@ -254,7 +256,7 @@ try {
   assertDispatchPackageDependency(dispatchPkg, "dispatch standalone scaffold");
 
   const workspaceOutput = runCli(
-    ["create", "qa-workspace", "--template=starter,dispatch,calendar"],
+    ["create", "qa-workspace", "--template=chat,dispatch,calendar"],
     tmpDir,
   );
   assert.doesNotMatch(
@@ -287,8 +289,8 @@ try {
     true,
     "workspace scaffold must include the shared package",
   );
-  assertScaffoldBasics(path.join(workspaceDir, "apps", "starter"));
-  assertWorkspaceApp(workspaceDir, "starter", workspaceCoreName);
+  assertScaffoldBasics(path.join(workspaceDir, "apps", "chat"));
+  assertWorkspaceApp(workspaceDir, "chat", workspaceCoreName);
   assertWorkspaceApp(workspaceDir, "dispatch", workspaceCoreName);
   assertWorkspaceApp(workspaceDir, "calendar", workspaceCoreName);
   assertDispatchPackageDependency(
@@ -301,15 +303,13 @@ try {
     "workspace scaffold must not copy the dev gateway script",
   );
   assert.equal(
-    fs.existsSync(
-      path.join(workspaceDir, "apps", "starter", ".vercel", "output"),
-    ),
+    fs.existsSync(path.join(workspaceDir, "apps", "chat", ".vercel", "output")),
     false,
     "workspace apps must not include Vercel build output",
   );
   assert.equal(
     fs.existsSync(
-      path.join(workspaceDir, "apps", "starter", ".claude", "settings.json"),
+      path.join(workspaceDir, "apps", "chat", ".claude", "settings.json"),
     ),
     false,
     "workspace apps must not include legacy Claude settings",
@@ -333,7 +333,7 @@ try {
   assertWorkspaceApp(workspaceDir, "qa-forms-app", workspaceCoreName);
 
   const aliasOutput = runCli(
-    ["create-workspace", "qa-workspace-alias", "--template=starter,dispatch"],
+    ["create-workspace", "qa-workspace-alias", "--template=chat,dispatch"],
     tmpDir,
   );
   assert.match(aliasOutput, /Create a new agent-native workspace/);

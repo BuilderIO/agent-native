@@ -42,7 +42,7 @@ import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import {

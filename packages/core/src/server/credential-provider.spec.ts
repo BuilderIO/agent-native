@@ -70,6 +70,7 @@ beforeEach(() => {
   delete process.env.AGENT_ENGINE;
   delete process.env.AGENT_NATIVE_WORKSPACE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  delete process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV;
   delete process.env.FUSION_ENVIRONMENT;
   delete process.env.FUSION_ENV_ORIGIN;
   delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -458,6 +459,36 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredentialSource()).toBeNull();
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+  });
+
+  it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV = "1";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(null);
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
+      "deploy-key",
+    );
+  });
+
+  it("does not honor the local dev escape hatch in production", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV = "1";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue(null);
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
   });
 
   it("falls back to org scope when no user-scope row exists", async () => {

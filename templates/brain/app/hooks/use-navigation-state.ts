@@ -1,8 +1,10 @@
 import {
   appBasePath,
   appPath,
+  markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
+import { useLocation } from "react-router";
 import { pathFromView, viewFromPath, type BrainView } from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -31,6 +33,7 @@ export interface NavigationState {
 }
 
 export function useNavigationState() {
+  const location = useLocation();
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
@@ -101,7 +104,16 @@ export function useNavigationState() {
       );
       return `${path}${params.size ? `?${params.toString()}` : ""}`;
     },
+    onNavigate: (_command, path) => {
+      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+        markAgentChatHomeHandoff("brain");
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 /**

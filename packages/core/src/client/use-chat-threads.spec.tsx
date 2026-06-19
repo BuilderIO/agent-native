@@ -154,6 +154,54 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
+  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms",
+      "empty-sidebar-tab",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms:seen",
+      String(Date.now()),
+    );
+    const existingThread: ChatThreadSummary = {
+      id: "real-thread",
+      title: "Previous form work",
+      preview: "add a rating field",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "forms");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "empty-sidebar-tab",
+      "real-thread",
+    ]);
+  });
+
   it("can ignore a saved active thread and start fresh immediately", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:brain",
@@ -1215,5 +1263,81 @@ describe("useChatThreads", () => {
     expect(
       hook!.threads.find((thread) => thread.id === "thread-1")?.title,
     ).toBe("User title");
+  });
+
+  it("creates, reads, and revokes thread share links through the client helper", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/thread-1/share" && !init) {
+        return jsonResponse({
+          share: {
+            enabled: false,
+            createdAt: null,
+            updatedAt: null,
+            revokedAt: null,
+          },
+        });
+      }
+      if (url === "/chat/threads/thread-1/share" && init?.method === "POST") {
+        return jsonResponse({
+          share: {
+            enabled: true,
+            token: "share-token",
+            createdAt: 10,
+            updatedAt: 20,
+            revokedAt: null,
+          },
+          url: "https://app.example/shared/share-token",
+        });
+      }
+      if (url === "/chat/threads/thread-1/share" && init?.method === "DELETE") {
+        return jsonResponse({
+          share: {
+            enabled: false,
+            createdAt: 10,
+            updatedAt: 30,
+            revokedAt: 30,
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "share-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await expect(hook!.getThreadShareState("thread-1")).resolves.toMatchObject({
+      enabled: false,
+    });
+    await expect(hook!.createThreadShareLink("thread-1")).resolves.toEqual({
+      enabled: true,
+      token: "share-token",
+      createdAt: 10,
+      updatedAt: 20,
+      revokedAt: null,
+      url: "https://app.example/shared/share-token",
+    });
+    await expect(hook!.revokeThreadShareLink("thread-1")).resolves.toEqual({
+      enabled: false,
+      createdAt: 10,
+      updatedAt: 30,
+      revokedAt: 30,
+    });
   });
 });

@@ -17,21 +17,23 @@ A good template:
 - Registers onboarding steps for required providers and secrets.
 - Works as a standalone app and as part of a multi-app workspace.
 
-## Start from Starter {#start-from-starter}
+## Start from Chat {#start-from-chat}
 
-Use the CLI-only Starter scaffold when you want a blank app with the framework wiring already in place:
+Use the Chat template when you want a minimal app with the framework wiring already in place:
 
 ```bash
-npx @agent-native/core@latest create my-template --template starter --standalone
+npx @agent-native/core@latest create my-template --template chat --standalone
 ```
 
-For a workspace with multiple apps, run the picker and include Starter with any domain templates you want:
+For a workspace with multiple apps, run the picker and include Chat with any domain templates you want:
 
 ```bash
 npx @agent-native/core@latest create my-platform
 ```
 
-Starter gives you auth, the agent sidebar, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+Chat gives you auth, durable chat threads, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+
+If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#create-your-agent): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
 
 ## Project Structure {#project-structure}
 
@@ -137,7 +139,7 @@ Actions are the single source of truth for app behavior. The agent calls them as
 
 ```ts
 // actions/create-project.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getDb } from "../server/db/index.js"; // getDb is created per app via createGetDb(schema) in server/db/index.ts
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -234,15 +236,20 @@ export function useNavigationState() {
       selectedId: searchParams.get("id"),
     }),
     getCommandPath: (command: any) => command.path ?? "/",
+    navigateOptions: { replace: true, flushSync: true },
   });
 }
 ```
 
 Keep shareable filters in URL query params. The framework exposes them to the agent as `<current-url>` and the built-in agent can change them with `set-search-params`; `navigation` should hold semantic IDs and aliases, not a second copy of the full query string.
 
+For app navigation, prefer one `navigate` command that includes a same-origin
+`path` when the URL is known. Do not also write `__set_url__` for the same move;
+that key is reserved for the framework URL tools and URL-only filter changes.
+
 ```ts
 // actions/navigate.ts
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -251,6 +258,7 @@ export default defineAction({
   schema: z.object({
     view: z.enum(["home", "project"]),
     projectId: z.string().optional(),
+    path: z.string().optional(),
   }),
   run: async (args) => {
     await writeAppState("navigate", args);
@@ -274,36 +282,38 @@ Custom routes that touch ownable data must call `getSession(event)` and wrap dat
 
 ## Write Agent Instructions {#write-agents-md}
 
-`AGENTS.md` is the agent's map of your app. Keep it specific and operational:
+`AGENTS.md` is the agent's map of your app — a small, skimmable file with a
+purpose line, core rules, application-state keys, an action table, and a skills
+index:
 
 ```markdown
 # My Template
 
-## Product Model
+One workspace for projects, tasks, and notes.
 
-Projects are the top-level resource. They contain tasks and notes.
+## Core Rules
 
-## Navigation State
+- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
 
-- `navigation.view`: `home` or `project`
-- `navigation.projectId`: selected project when on a project page
+## Application State
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
 
 ## Actions
 
-| Action           | Purpose                     |
-| ---------------- | --------------------------- |
-| `list-projects`  | List accessible projects    |
-| `create-project` | Create a project            |
-| `update-project` | Rename or archive a project |
-
-## Rules
-
-- Use `view-screen` before acting on "this project" if the current screen is unclear.
-- Use actions for project changes; do not write raw SQL except for one-off maintenance/debugging when no action exists.
-- For shared projects, check access through framework sharing helpers.
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
 ```
 
-Update `AGENTS.md` whenever you add a new action, route, state key, or recurring workflow. See [Writing Agent Instructions](/docs/writing-agent-instructions) for how to keep `AGENTS.md` skimmable and word skill and tool descriptions so the agent triggers them reliably.
+Update `AGENTS.md` whenever you add a new action, route, state key, or recurring
+workflow. [Writing Agent Instructions](/docs/writing-agent-instructions) is the
+full guide — how to keep `AGENTS.md` skimmable, what belongs in each of the four
+guidance surfaces, and how to word skill and tool descriptions so the agent
+triggers them reliably.
 
 ## Add Skills {#skills}
 

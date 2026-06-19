@@ -25,6 +25,7 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 
 - **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
+- **Control-plane shell.** Chats, projects, runs, workspace apps, agents, and automations live in one operational shell, with status-first lists and drill-downs instead of one-off dashboards.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
 - **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, reference resources, and HTTP MCP servers can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
 - **Reusable integrations.** One place to connect provider accounts, track
@@ -44,7 +45,7 @@ Use Dispatch when:
 - You want a **messaging hub** that routes Slack or Telegram into the right domain agent.
 - You want **scheduled jobs** that pull data from several apps.
 
-Skip it for a single-app scaffold — use the [Starter template](/docs/template-starter) or any of the domain templates directly.
+Skip it for a single-app scaffold — use the [Chat template](/docs/template-chat) or any of the domain templates directly.
 
 Live demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
 
@@ -63,6 +64,9 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
   Codex, Cursor, or another MCP host, then choose which workspace apps the
   connector can reach from Dispatch's **Agents** page. Use a direct app URL
   only when that host should be isolated to one app.
+- **Manage automations.** The Automations view shows enabled state, last run,
+  next run, and last error from the underlying `jobs/*.md` schedules, and lets
+  you enable or disable a job without editing files by hand.
 - **Keep company context global.** Put personas, positioning, messaging, company facts, brand guidelines, and guardrails in Dispatch Resources once, then preview the effective workspace -> app/org -> personal stack for any app/user or inspect the stack from an app card's Context view.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
 - **Review dream proposals.** Dispatch Dreams inspect prior agent runs and create source-backed proposals for what the workspace should remember, which stale notes should be cleaned up, and which repeated lessons should become skills or jobs.
@@ -123,7 +127,16 @@ npx @agent-native/core@latest create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 
+If you prefer to name the template directly instead of using the picker:
+
+```bash
+npx @agent-native/core@latest create my-platform --template dispatch
+# add more apps in the same workspace as you go
+```
+
 Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
+
+There is no meaningful `--standalone` Dispatch: a control plane with nothing to coordinate is just an empty inbox. Scaffold it into a workspace with at least one domain app so it has agents to route to over A2A. (The flag still works and produces a runnable app, but the orchestrator has no specialists to delegate to until you add sibling apps.)
 
 ## First local run {#first-local-run}
 

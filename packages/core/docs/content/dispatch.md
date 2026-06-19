@@ -25,46 +25,35 @@ If you're running a single template standalone, you don't need Dispatch — each
 
 ## What Dispatch does {#what-it-does}
 
-Six capabilities, all sitting on top of the same workspace database the other apps use.
+Seven capabilities, all sitting on top of the same workspace database the other apps use:
+
+| Capability               | What it gives you                                                               | Set it up                                                     |
+| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Settings → Messaging** ([Messaging](/docs/messaging))       |
+| **Secret vault**         | Store each credential once; rotate in one place across every app                | **Vault** + access mode (all-apps or manual)                  |
+| **Cross-app delegation** | Routes a request to the right specialist app over A2A and replies in-thread     | Automatic ([A2A](/docs/a2a-protocol))                         |
+| **Unified MCP gateway**  | One MCP connector for external agents reaches every granted workspace app       | [External Agents](/docs/external-agents)                      |
+| **Workspace resources**  | Author skills/instructions/profiles once; apps inherit them at runtime          | **Resources** ([Workspace](/docs/workspace#global-resources)) |
+| **Dreams**               | Reviews past runs/feedback and proposes durable improvements for you to approve | **Dreams** tab                                                |
+| **Approval flow**        | Gate sensitive runtime changes behind inline admin review                       | **dispatch approval policy**                                  |
+
+Each is detailed below.
 
 ### Central inbox
 
-Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connect each platform once in **Settings → Messaging** and every channel reaches the same agent with the same memory and tools. A Slack DM and an email to `agent@yourcompany.com` end up as two surfaces on one conversation history, not two disconnected bots.
-
-See [Messaging](/docs/messaging) for the credentials and webhook URLs for each platform.
+Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connect each platform once in **Settings → Messaging** and every channel reaches the same agent with the same memory and tools. A Slack DM and an email to `agent@yourcompany.com` end up as two surfaces on one conversation history, not two disconnected bots. See [Messaging](/docs/messaging) for the credentials and webhook URLs.
 
 ### Secret vault
 
-Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log.
-
-This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
+Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log. This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
 
 ### Cross-app delegation
 
-Dispatch auto-discovers the other apps in your workspace as A2A peers — no manual registration, no per-app config. When a user asks "summarize last week's signups" in Slack, Dispatch recognizes that as an analytics request and calls the analytics app over [A2A](/docs/a2a-protocol). When they ask "draft a reply to Alice", it routes to the mail app. Dispatch posts the final answer back in the originating thread.
-
-The behavioral rule lives in the dispatch agent's instructions: domain work belongs to the domain app. Dispatch is the orchestrator, not the specialist.
+Dispatch auto-discovers the other apps in your workspace as A2A peers — no manual registration, no per-app config. When a user asks "summarize last week's signups" in Slack, Dispatch recognizes that as an analytics request and calls the analytics app over [A2A](/docs/a2a-protocol). When they ask "draft a reply to Alice", it routes to the mail app. Dispatch posts the final answer back in the originating thread. The behavioral rule lives in the dispatch agent's instructions: domain work belongs to the domain app. Dispatch is the orchestrator, not the specialist.
 
 ### Unified MCP gateway
 
-Dispatch can also be the single MCP connector for external agents. Add
-`https://dispatch.agent-native.com/_agent-native/mcp` once in Claude, ChatGPT,
-Codex, Cursor, or another MCP host, sign in through the host's OAuth flow, then
-manage which apps that gateway can reach from Dispatch's **Agents** page. The
-gateway exposes `list_apps`, `ask_app`, and `open_app`, filtered by the
-selected app grants, so external agents can route work to Mail, Calendar,
-Analytics, Brain, and workspace apps without a separate authorization for every
-app.
-
-When a host supports MCP Apps, that same Dispatch connector can render granted
-app routes inline too: email drafts, calendar invites, decks, forms, docs,
-designs, dashboards, clips, and other app routes can preview in chat without
-adding per-app connectors.
-
-Direct per-app MCP URLs such as
-`https://mail.agent-native.com/_agent-native/mcp` still exist when you
-intentionally want one isolated app surface. For most workspace use, the
-Dispatch gateway is the lower-friction path.
+Dispatch can be the single MCP connector for external agents: add `https://dispatch.agent-native.com/_agent-native/mcp` once in Claude, ChatGPT, Codex, or Cursor, and one authorization reaches every granted workspace app instead of one connector per app. See [External Agents](/docs/external-agents) for the full connect flow, app grants, OAuth, and inline MCP App previews.
 
 ### Workspace resources
 

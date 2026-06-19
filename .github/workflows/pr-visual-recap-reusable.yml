@@ -15,7 +15,7 @@ name: PR Visual Recap (reusable)
 #
 # IMPORTANT: callers must trigger on the same pull_request event types as this
 # file declares in its on.workflow_call section (opened, synchronize, reopened,
-# ready_for_review).  The workflow_call trigger inherits the CALLER's event
+# ready_for_review, closed).  The workflow_call trigger inherits the CALLER's event
 # context, so `github.event.pull_request.*` expressions here work correctly only
 # when the caller fires on pull_request.
 
@@ -126,6 +126,9 @@ jobs:
 
             if (!pr) reasons.push('no pull_request payload');
             if (pr && pr.draft) reasons.push('draft PR');
+            if (pr && context.payload.action === 'closed' && !pr.merged) {
+              reasons.push('closed without merge');
+            }
 
             // Fork PRs only receive repo secrets when the org/repo opts into
             // GitHub's "Send secrets to workflows from pull requests" setting
@@ -279,6 +282,9 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_STATE: ${{ github.event.pull_request.state }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       VISUAL_RECAP_MODEL: ${{ inputs.model }}
       VISUAL_RECAP_REASONING: ${{ inputs.reasoning }}
@@ -531,6 +537,13 @@ jobs:
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
           if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
+          if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
+            ARGS+=(--source-pr-state merged)
+          elif [ -n "${PR_STATE:-}" ]; then
+            ARGS+=(--source-pr-state "$PR_STATE")
+          fi
+          if [ -n "${PR_MERGED_AT:-}" ]; then ARGS+=(--source-pr-merged-at "$PR_MERGED_AT"); fi
           $RECAP_CLI recap publish "${ARGS[@]}"
 
       - name: Read plan URL

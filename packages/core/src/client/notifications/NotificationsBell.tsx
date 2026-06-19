@@ -33,6 +33,8 @@ interface NotificationsBellProps {
   emptyTitle?: string;
   /** Optional empty-state detail text. */
   emptyDescription?: string;
+  /** Optional notification for parent shells that need to coordinate overlays. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 const POLL_MS_DEFAULT = 10_000;
@@ -52,6 +54,7 @@ export function NotificationsBell({
   browserNotifications = false,
   emptyTitle = "No app notifications yet.",
   emptyDescription,
+  onOpenChange,
 }: NotificationsBellProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -219,9 +222,13 @@ export function NotificationsBell({
 
   const hasUnread = unreadCount > 0;
   const Icon = hasUnread ? IconBellRinging : IconBell;
+  const setOpenAndNotify = (value: boolean) => {
+    setOpen(value);
+    onOpenChange?.(value);
+  };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpenAndNotify}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -291,7 +298,7 @@ export function NotificationsBell({
               const onItemClick = () => {
                 if (!n.readAt) void markRead(n.id);
                 if (link) {
-                  setOpen(false);
+                  setOpenAndNotify(false);
                   window.location.assign(link);
                 }
               };

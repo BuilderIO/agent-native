@@ -41,7 +41,7 @@ Live demo: [forms.agent-native.com](https://forms.agent-native.com).
 4. **Connect destinations.** Route new submissions to Slack, Discord, Google
    Sheets, webhooks, or your own extension point.
 
-## Useful prompts
+### Useful prompts
 
 - "Create a beta signup form with role, team size, and priority use case."
 - "Add a required NPS question and a free-text follow-up."
@@ -51,10 +51,15 @@ Live demo: [forms.agent-native.com](https://forms.agent-native.com).
 
 ## For developers
 
-### Scaffolding
+The rest of this doc is for anyone forking the Forms template or extending it.
+
+### Quick start
 
 ```bash
 npx @agent-native/core@latest create my-forms --standalone --template forms
+cd my-forms
+pnpm install
+pnpm dev
 ```
 
 For a workspace with Forms alongside other apps:
@@ -64,6 +69,14 @@ npx @agent-native/core@latest create my-platform
 ```
 
 Pick Forms and any other templates you want during the workspace setup.
+
+### Key features (technical) {#key-features}
+
+Forms are defined as JSON field arrays (`FormField[]`) and stored in a single `fields` column — no separate table per field type. This makes the schema additive and the agent's edits surgical: changing a field label is a JSON-patch on one column, not a row update across a join table. All field types (text, email, number, long text, select, multi-select, checkbox, radio, date, rating, scale) are handled by the renderer and editor without schema changes.
+
+The public fill page is fully unauthenticated. `toPublicFormSettings` strips integration URLs and other owner-private settings before the form data reaches the browser, so secrets never leak to respondents.
+
+Integrations (Slack, Discord, Google Sheets, webhooks) are stored as settings inside the form's `settings` JSON column and executed server-side at submission time.
 
 ### Data model
 
@@ -76,14 +89,6 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema
 | `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
 
 The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
-
-### Key features (technical) {#key-features}
-
-Forms are defined as JSON field arrays (`FormField[]`) and stored in a single `fields` column — no separate table per field type. This makes the schema additive and the agent's edits surgical: changing a field label is a JSON-patch on one column, not a row update across a join table. All field types (text, email, number, long text, select, multi-select, checkbox, radio, date, rating, scale) are handled by the renderer and editor without schema changes.
-
-The public fill page is fully unauthenticated. `toPublicFormSettings` strips integration URLs and other owner-private settings before the form data reaches the browser, so secrets never leak to respondents.
-
-Integrations (Slack, Discord, Google Sheets, webhooks) are stored as settings inside the form's `settings` JSON column and executed server-side at submission time.
 
 ### Key actions
 

@@ -58,6 +58,6 @@ The injection is best-effort and boundary-safe — if a safe trim point can't be
 
 ## Related
 
-- [**Context X-Ray**](/docs/using-your-agent) — inspect what's actually in the live context window.
+- [**Using Your Agent**](/docs/using-your-agent) — the day-to-day loop of working with the agent docked next to your app.
 - [**Observability**](/docs/observability) — token and cost metrics per run, where OM's savings show up.
 - [**Custom Agents & Teams**](/docs/agent-teams) — long sub-agent runs benefit from the same compaction.

@@ -89,6 +89,28 @@ pnpm test         # Run Vitest tests
 pnpm action <name> [--args]  # Run an action
 ```
 
+## Builder CMS credentials (local dev)
+
+Builder CMS source reads/writes need credentials. There are two ways to provide them:
+
+1. **Connect per user (the real path):** a signed-in user connects their Builder
+   account, which stores user-scoped credentials in the `app_secrets` store. The
+   credential gate honors these for any runtime. This is what production uses.
+2. **Local dogfooding escape hatch:** to run the app locally without connecting
+   first, set the keys plus an explicit opt-in flag:
+   ```bash
+   # templates/content/.env or .env.local
+   # The action CLI and Vite load the template cwd env files; workspace-root
+   # env files can also be loaded by the surrounding dev/runtime commands.
+   BUILDER_PRIVATE_KEY=...
+   BUILDER_PUBLIC_KEY=...
+   AGENT_NATIVE_LOCAL_BUILDER_ENV=1   # opt in to env-key fallback for a signed-in user
+   ```
+   Without `AGENT_NATIVE_LOCAL_BUILDER_ENV`, env-level Builder keys are
+   intentionally **not** used for a signed-in user under the workspace runtime
+   (so a deploy key can't impersonate a user across tenants). The flag is a
+   non-production-only escape hatch; it has no effect when `NODE_ENV=production`.
+
 ## TypeScript Everywhere
 
 All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).

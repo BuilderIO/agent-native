@@ -70,6 +70,7 @@ function DraftThumbnail({ draft }: { draft: DraftAsset }) {
         src={draft.previewUrl ?? draft.url ?? undefined}
         muted
         playsInline
+        preload="metadata"
         className="h-full w-full object-cover transition group-hover:scale-[1.02]"
       />
     );

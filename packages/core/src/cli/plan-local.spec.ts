@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildLocalPlanPreviewHtml,
   localPlanFolderName,
+  publishVisualAnswerSource,
   readLocalPlanFiles,
   runPlan,
   startLocalPlanBridge,
@@ -710,6 +711,63 @@ describe("local plan CLI helpers", () => {
     expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual({
       count: 1,
       blocks: [{ type: "rich-text", tag: "RichText" }],
+    });
+  });
+
+  it("publishes a visual answer source file to the Plan action", async () => {
+    const dir = tmpDir();
+    const source = path.join(dir, "visual-answer-source.json");
+    const out = path.join(dir, "visual-answer-url.txt");
+    fs.writeFileSync(
+      source,
+      JSON.stringify({
+        question: "What is the billing API shape?",
+        title: "Billing API visual answer",
+        brief: "Shows the request and response contract.",
+        repoPath: "BuilderIO/agent-native",
+        mdx: {
+          "plan.mdx":
+            '---\ntitle: Billing API visual answer\n---\n\n<RichText id="summary" data={{ markdown: "## Billing API" }} />\n',
+        },
+      }),
+      "utf-8",
+    );
+
+    const bodies: unknown[] = [];
+    const fetchFn: typeof fetch = (async (input, init) => {
+      expect(String(input)).toBe(
+        "https://plan.agent-native.com/_agent-native/actions/visual-answer",
+      );
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer plan-token");
+      bodies.push(JSON.parse(String(init?.body ?? "{}")));
+      return new Response(
+        JSON.stringify({ planId: "plan_answer", url: "/plans/plan_answer" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const result = await publishVisualAnswerSource({
+      appUrl: "https://plan.agent-native.com",
+      token: "plan-token",
+      sourcePath: source,
+      out,
+      sourceUrl: "https://github.com/BuilderIO/agent-native",
+      fetchFn,
+      cwd: dir,
+    });
+
+    expect(result.url).toBe("https://plan.agent-native.com/plans/plan_answer");
+    expect(fs.readFileSync(out, "utf8").trim()).toBe(result.url);
+    expect(bodies[0]).toMatchObject({
+      question: "What is the billing API shape?",
+      title: "Billing API visual answer",
+      brief: "Shows the request and response contract.",
+      repoPath: "BuilderIO/agent-native",
+      sourceUrl: "https://github.com/BuilderIO/agent-native",
+      sourceType: "code",
+      visibility: "org",
+      status: "review",
     });
   });
 });

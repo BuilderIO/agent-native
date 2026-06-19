@@ -186,6 +186,34 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## Programmatic workspace invoke {#programmatic-invoke}
+
+For agent-native workspaces, prefer the `agentNative` helper when code or a
+headless app needs to discover sibling apps and invoke them by id, name, or
+URL. It uses the same discovery and A2A invocation primitives as the
+`agent-native agents` and `agent-native invoke` CLI commands.
+
+```ts
+import { agentNative } from "@agent-native/core/agent-native";
+
+const agents = await agentNative.listAgents();
+
+const result = await agentNative.invoke(
+  "analytics",
+  "Summarize signups by source this month.",
+  { userEmail: "steve@example.com" },
+);
+
+console.log(`Called ${result.target.name}: ${result.responseText}`);
+```
+
+Use this for composable mini-apps: Dispatch or an orchestrator app discovers
+workspace siblings, then invokes the specialist app that owns the provider,
+dataset, or workflow. In production agent-native apps, set `A2A_SECRET` in each
+app environment and pass the caller identity (`userEmail`) so outbound calls are
+signed as JWT bearer tokens. Use `apiKeyEnv` only for legacy external peers that
+expect a static bearer token. Use local actions instead of invoking yourself.
+
 ## Task lifecycle {#task-lifecycle}
 
 Each message creates a task that moves through these states:
@@ -305,7 +333,7 @@ A mail agent needs analytics data. The analytics agent exposes a "run-query" ski
 
 ```ts
 // In the mail agent's actions/get-analytics.ts
-import { defineAction } from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
 import { callAgent } from "@agent-native/core/a2a";
 import { z } from "zod";
 

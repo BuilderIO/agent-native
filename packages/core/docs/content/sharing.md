@@ -159,12 +159,7 @@ registerShareableResource({
 
 ## Security guarantees {#security}
 
-Sharing rides on the framework's broader data-scoping model. The two non-negotiable rules:
-
-- **No unscoped queries.** Every query against an ownable table must go through `accessFilter()` (lists), `resolveAccess()` (read-by-id), or `assertAccess()` (writes). A CI guard fails the build if a query against an ownable table runs without one of these helpers.
-- **Org isolation.** Resources tagged with an `org_id` are invisible to users from other orgs even to the agent. The active-org session value flows through to SQL, so cross-org leaks are impossible by construction.
-
-See [Security & Data Scoping](/docs/security) for the full model and threat surface.
+Sharing rides on the framework's broader data-scoping model — list/read/write access to ownable tables goes through `accessFilter()` / `resolveAccess()` / `assertAccess()`, and `org_id`-tagged resources are invisible across orgs. See [Security → Data Scoping](/docs/security#data-scoping) for the full pipeline, the CI guard, and the threat surface.
 
 ## See also {#see-also}
 

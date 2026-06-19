@@ -16,17 +16,16 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, limit }) => {
     const db = getDb();
+    const libraryFilters = [
+      accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+      isNull(schema.assetLibraries.archivedAt),
+    ];
+    if (libraryId) libraryFilters.push(eq(schema.assetLibraries.id, libraryId));
     const accessibleLibraries = await db
       .select({ id: schema.assetLibraries.id })
       .from(schema.assetLibraries)
-      .where(
-        and(
-          accessFilter(schema.assetLibraries, schema.assetLibraryShares),
-          isNull(schema.assetLibraries.archivedAt),
-        ),
-      );
-    let libraryIds = accessibleLibraries.map((row) => row.id);
-    if (libraryId) libraryIds = libraryIds.filter((id) => id === libraryId);
+      .where(and(...libraryFilters));
+    const libraryIds = accessibleLibraries.map((row) => row.id);
     if (!libraryIds.length) return { count: 0, assets: [] };
 
     const rows = await db

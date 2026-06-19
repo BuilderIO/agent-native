@@ -127,19 +127,7 @@ interface AgentTask {
 
 ## Custom agent profiles {#profiles}
 
-A custom agent is a Markdown file in the workspace. Minimal example:
-
-```markdown
----
-name: Code Review
-description: Reviews TypeScript PRs for correctness and type safety.
-model: inherit
----
-
-You are a meticulous code reviewer. Be terse and concrete — cite file:line wherever you can.
-```
-
-Store at `agents/code-review.md` in the workspace. It appears in the `@mention` dropdown and is available to the main agent as a delegation target. See [Workspace — Custom Agents](/docs/workspace#custom-agents) for the full format including `tools`, `delegate-default`, and model overrides.
+Sub-agents map to custom agent profiles — Markdown files at `agents/<slug>.md` in the workspace that appear in the `@mention` dropdown and serve as delegation targets. [Workspace — Custom Agents](/docs/workspace#custom-agents) owns the full format (frontmatter, `tools`, `delegate-default`, model overrides).
 
 ## Delegation depth guard {#depth-guard}
 
@@ -147,7 +135,7 @@ Sub-agents can spawn sub-agents, which is a runaway/cost risk: an unbounded chai
 
 The top-level chat is depth `0`. A sub-agent it spawns is depth `1`; that sub-agent may spawn once more (depth `2`); a spawn that would create a depth-`3` sub-agent is **refused**. The default cap is **2**.
 
-```txt
+```text
 depth 0  top-level chat        (may spawn)
 depth 1  sub-agent             (may spawn)
 depth 2  sub-agent's sub-agent (at the cap — may NOT spawn)

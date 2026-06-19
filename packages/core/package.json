@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.58.2",
+  "version": "0.63.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -38,6 +38,18 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
+    "./action": {
+      "types": "./dist/action.d.ts",
+      "default": "./dist/action.js"
+    },
+    "./action-ui": {
+      "types": "./dist/action-ui.d.ts",
+      "default": "./dist/action-ui.js"
+    },
+    "./agent-native": {
+      "types": "./dist/agent-native/index.d.ts",
+      "default": "./dist/agent-native/index.js"
+    },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
@@ -118,6 +130,7 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"
@@ -210,6 +223,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "@tiptap/y-tiptap": "^3.0.4",
     "@uiw/react-codemirror": "^4.25.10",
+    "ajv": "^8.20.0",
     "better-auth": "1.6.16",
     "better-sqlite3": "^12.8.0",
     "clsx": "^2.1.1",
