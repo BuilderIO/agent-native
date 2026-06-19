@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Clarify how Codex CLI login applies to Agent-Native Code/Desktop versus sandboxed Codex harness agents.
+Add an explicit `codexCliAuth` opt-in for `ai-sdk-harness:codex` so trusted sandboxes can reuse local Codex CLI login, and document how it differs from Agent-Native Code/Desktop auth.

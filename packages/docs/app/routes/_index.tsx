@@ -372,23 +372,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Bidirectional Awareness - above templates */}
-        <section className="py-20 px-6 border-t border-[var(--docs-border)]">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Agents and UIs — fully connected
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-[1200px]">
-            <BidirectionalTabs />
-          </div>
-        </section>
-
         {/* Framework */}
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
           <div className="mx-auto max-w-[1200px]">
@@ -474,7 +457,7 @@ export default function Home() {
 
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
-          <div className="mx-auto grid min-w-0 max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
+          <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
             <div className="min-w-0">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 Try it with a skill
@@ -538,6 +521,23 @@ export default function Home() {
             </div>
 
             <AgentNativeDemoVideo className="aspect-square w-full" />
+          </div>
+        </section>
+
+        {/* Bidirectional Awareness */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Agents and UIs — fully connected
+            </h2>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              The agent and the UI are equal citizens of the same system. Every
+              action works both ways — click it or ask for it.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-[1200px]">
+            <BidirectionalTabs />
           </div>
         </section>
 
