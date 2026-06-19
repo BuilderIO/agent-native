@@ -6,6 +6,10 @@ search: "harness agents AgentHarness ai-sdk HarnessAgent Claude Code Codex Pi Cu
 
 # Harness Agents
 
+> **Who is this for:** host authors wiring a full coding runtime (Claude Code,
+> Codex, Pi) into Agent-Native as the agent. Building an app? Start with
+> [Creating Templates](/docs/creating-templates).
+
 A harness agent is a full agent runtime — Claude Code, Codex, Pi, and similar —
 that owns its own loop, workspace, native file tools, session state, compaction,
 approval model, and sandbox behavior. Agent-Native runs these through the
@@ -19,13 +23,19 @@ beneath `runAgentLoop`. A harness is not an `AgentEngine` provider — it runs i
 own loop end to end, so Agent-Native drives it as a session, not as a single
 model call.
 
-| You want to…                                                               | Use                                                           |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | **Harness agents** (this page)                                |
-| Put an agent you built elsewhere behind Agent-Native's **chat UI**         | [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes) |
-| Let an external MCP host (Claude Code, Cursor, …) **call into your app**   | [External Agents](/docs/external-agents)                      |
-| Render a Claude-Code/Codex-style **coding workspace UI**                   | [Agent-Native Code UI](/docs/code-agents-ui)                  |
-| Spawn background / sub-agent runs and teams                                | [Custom Agents & Teams](/docs/agent-teams)                    |
+## Which coding doc do I want? {#which-doc}
+
+| You want to…                                                               | Use                                          |
+| -------------------------------------------------------------------------- | -------------------------------------------- |
+| Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | **Harness agents** (this page)               |
+| Render a Claude-Code/Codex-style **coding workspace UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Swap the backend that runs the agent's **`run-code` tool**                 | [Adapters](/docs/sandbox-adapters)           |
+| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | [Adapters](/docs/sandbox-adapters)           |
+
+Adjacent surfaces: put an agent you built elsewhere behind Agent-Native's chat
+UI with [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes); let an
+external MCP host call into your app via [External Agents](/docs/external-agents);
+spawn background / sub-agent runs with [Custom Agents & Teams](/docs/agent-teams).
 
 ## Built-in harnesses {#built-in}
 

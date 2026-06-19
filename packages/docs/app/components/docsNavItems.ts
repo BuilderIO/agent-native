@@ -22,6 +22,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
+      { label: "Routing", to: "/docs/routing" as const },
       { label: "Actions", to: "/docs/actions" as const },
       { label: "Human Approval", to: "/docs/human-approval" as const },
       { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
