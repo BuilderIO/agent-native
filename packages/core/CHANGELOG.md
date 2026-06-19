@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.63.4
+
+### Patch Changes
+
+- 7d72d52: Restore subtle glowing hover indicators on annotated code ranges.
+- 7d72d52: Use fast shadcn tooltips and clearer Tabler icons for diagram style toggles.
+- 7d72d52: Preserve deep-link return targets through auth and federated SSO sign-in.
+
 ## 0.63.3
 
 ### Patch Changes
