@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Header } from "./Header";
@@ -7,10 +7,15 @@ import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   GuidedQuestionFlow,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { TAB_ID } from "@/lib/tab-id";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +26,7 @@ const BARE_ROUTES = new Set(["/chart"]);
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Analytics has two distinct "primary resources" — dashboards
   // (`/adhoc/:id`) and ad-hoc analyses (`/analyses/:id`). Each binds the
@@ -62,9 +68,6 @@ export function Layout({ children }: LayoutProps) {
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
-  if (BARE_ROUTES.has(location.pathname)) {
-    return <>{children}</>;
-  }
   // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
   // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
   // Header so there's no double-header.
@@ -72,6 +75,25 @@ export function Layout({ children }: LayoutProps) {
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const isAskRoute = location.pathname === "/ask";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "analytics",
+    activePath: location.pathname,
+    enabled: !isAskRoute,
+  });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "analytics",
+    chatPath: "/ask",
+  });
+  const sidebarScope = chatHomeHandoffActive ? null : analyticsScope;
+
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/ask");
+  }
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
@@ -120,6 +142,11 @@ export function Layout({ children }: LayoutProps) {
           <AgentSidebar
             position="right"
             defaultOpen
+            chatViewTransition
+            storageKey="analytics"
+            browserTabId={TAB_ID}
+            openOnChatRunning={chatHomeHandoffActive}
+            onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
             suggestions={[
               "What's driving ARR growth this quarter?",
@@ -127,7 +154,7 @@ export function Layout({ children }: LayoutProps) {
               "Analyze the HubSpot Sales dashboard for anomalies",
               "Compare MRR between enterprise and SMB",
             ]}
-            scope={analyticsScope}
+            scope={sidebarScope}
           >
             {contentFrame}
           </AgentSidebar>

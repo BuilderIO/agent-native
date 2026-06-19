@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import {
   appPath,
   FeedbackButton,
+  navigateWithAgentChatViewTransition,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -51,6 +52,9 @@ const navItems = [
     view: "database",
   },
 ];
+
+const CHAT_STORAGE_KEY = "chat";
+const CHAT_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${CHAT_STORAGE_KEY}`;
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -94,7 +98,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 
 function persistedActiveThreadId() {
   try {
-    return localStorage.getItem("agent-chat-active-thread");
+    return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
   } catch {
     return null;
   }
@@ -111,7 +115,7 @@ function ChatThreadsSection() {
     archiveThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, undefined, undefined, {
+  } = useChatThreads(undefined, CHAT_STORAGE_KEY, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
   });
@@ -158,7 +162,7 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigate("/");
+    navigateWithAgentChatViewTransition(navigate, "/");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -343,6 +347,7 @@ export function Sidebar({
   onCollapsedChange,
 }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isChatRoute = location.pathname === "/";
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
@@ -440,6 +445,19 @@ export function Sidebar({
             const link = (
               <Link
                 to={item.href}
+                onClick={(event) => {
+                  if (
+                    item.href === "/" &&
+                    !isChatRoute &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(navigate, "/");
+                  }
+                }}
                 className={navClass({ isActive })}
                 aria-current={isActive ? "page" : undefined}
                 aria-label={collapsed ? item.label : undefined}

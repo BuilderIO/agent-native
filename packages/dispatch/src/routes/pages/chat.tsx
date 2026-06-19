@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { AgentChatSurface } from "@agent-native/core/client";
+import {
+  AgentChatSurface,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
 
 interface DispatchChatLocationState {
@@ -70,12 +73,25 @@ export default function ChatRoute() {
     thread?.threadId,
   ]);
 
+  useEffect(() => {
+    function handleChatRunning(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.isRunning === true) markAgentChatHomeHandoff("dispatch");
+    }
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
+        chatViewTransition
         className="dispatch-chat-panel"
         defaultMode="chat"
+        storageKey="dispatch"
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

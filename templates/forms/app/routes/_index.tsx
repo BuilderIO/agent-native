@@ -1,6 +1,7 @@
 import {
   AgentChatHome,
   appPath,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client";
 import {
@@ -19,7 +20,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -40,7 +40,7 @@ export default function Index() {
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markFormsChatHomeHandoff();
+      if (detail?.isRunning === true) markAgentChatHomeHandoff("forms");
     }
 
     const cancelRoutePrewarm = scheduleFormsRoutePrewarm();
@@ -52,7 +52,7 @@ export default function Index() {
   }, []);
 
   function openForms() {
-    markFormsChatHomeHandoff();
+    markAgentChatHomeHandoff("forms");
     navigateWithAgentChatViewTransition(navigate, "/forms");
   }
 

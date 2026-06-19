@@ -221,8 +221,8 @@ function CliPopoverContent({ template }: { template: Template }) {
 
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <code className="block whitespace-nowrap text-xs leading-relaxed text-[var(--fg)]">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2">
+        <code className="block min-w-0 truncate text-xs leading-relaxed text-[var(--fg)]">
           {template.cliCommand}
         </code>
         <button

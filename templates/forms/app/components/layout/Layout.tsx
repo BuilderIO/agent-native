@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -7,9 +7,9 @@ import {
   AgentSidebar,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { consumeFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
@@ -26,10 +26,10 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [chatHomeHandoffPath] = useState(() =>
-    consumeFormsChatHomeHandoff() ? location.pathname : null,
-  );
-  const chatHomeHandoffActive = chatHomeHandoffPath === location.pathname;
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "forms",
+    activePath: location.pathname,
+  });
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers
   // both the builder and the responses sub-page (`/forms/:id/responses`);

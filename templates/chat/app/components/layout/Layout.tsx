@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
+import { TAB_ID } from "@/lib/tab-id";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -35,9 +42,16 @@ function routeOwnsToolbar(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isChatRoute = location.pathname === "/";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "chat",
+    activePath: location.pathname,
+    enabled: !isChatRoute,
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "chat", chatPath: "/" });
 
   useEffect(() => {
     setMobileSidebarOpen(false);
@@ -72,6 +86,11 @@ export function Layout({ children }: LayoutProps) {
   }, [sidebarCollapsed]);
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
+  }
+
   const contentFrame = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {isChatRoute ? (
@@ -130,6 +149,11 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
+            chatViewTransition
+            storageKey="chat"
+            browserTabId={TAB_ID}
+            openOnChatRunning={chatHomeHandoffActive}
+            onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText="Ask the agent to inspect or change this app."
             suggestions={[
               "What can you do here?",

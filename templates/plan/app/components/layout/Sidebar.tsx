@@ -26,6 +26,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useChatThreads,
   useSession,
@@ -34,7 +35,6 @@ import {
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { APP_TITLE } from "@/lib/app-config";
 import { usePlans } from "@/hooks/use-plans";
-import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -404,13 +404,13 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
       signInForPlanCreate();
       return;
     }
-    markPlanChatHomeHandoff();
+    markAgentChatHomeHandoff("plans");
     navigateWithAgentChatViewTransition(navigate, "/plans?create=1");
   };
 
   const openPlanPath = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     event.preventDefault();
-    markPlanChatHomeHandoff();
+    markAgentChatHomeHandoff("plans");
     navigateWithAgentChatViewTransition(navigate, path);
   };
 
@@ -607,7 +607,7 @@ export function Sidebar({
             <Link
               to={item.href}
               onClick={() => {
-                if (item.href !== "/") markPlanChatHomeHandoff();
+                if (item.href !== "/") markAgentChatHomeHandoff("plans");
               }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

@@ -4,8 +4,11 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
-import { consumePlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+import {
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client";
 import {
   Sheet,
   SheetContent,
@@ -41,9 +44,6 @@ function isPlanDetailRoute(pathname: string): boolean {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [chatHomeHandoffPath] = useState(() =>
-    consumePlanChatHomeHandoff() ? location.pathname : null,
-  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
     const stored = window.localStorage.getItem("plans.sidebarCollapsed.v3");
@@ -83,7 +83,12 @@ export function Layout({ children }: LayoutProps) {
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
   const chatRoute = location.pathname === "/";
-  const chatHomeHandoffActive = chatHomeHandoffPath === location.pathname;
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "plans",
+    activePath: location.pathname,
+    enabled: !chatRoute,
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "plans", chatPath: "/" });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed

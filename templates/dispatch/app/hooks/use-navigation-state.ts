@@ -1,7 +1,9 @@
 import { useRef } from "react";
+import { useLocation } from "react-router";
 import {
   appBasePath,
   appPath,
+  markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
@@ -21,6 +23,7 @@ export interface NavigationState {
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
+  const location = useLocation();
   // Capture extensions in a ref so the stable callbacks always read latest.
   const extensionsRef = useRef(extensions);
   extensionsRef.current = extensions;
@@ -45,7 +48,19 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
           : resolvedPath;
       return routerPath(path);
     },
+    onNavigate: (_command, path) => {
+      if (
+        routerPath(location.pathname) === "/chat" &&
+        pathnameFromPath(path) !== "/chat"
+      ) {
+        markAgentChatHomeHandoff("dispatch");
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 export function buildDispatchNavigationState(

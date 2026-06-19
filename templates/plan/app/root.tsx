@@ -16,6 +16,7 @@ import {
   appPath,
   createAgentNativeQueryClient,
   getThemeInitScript,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
@@ -25,7 +26,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { TAB_ID } from "@/lib/tab-id";
 import { APP_TITLE } from "@/lib/app-config";
-import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
 // Side effect: register Plan's native chat renderers so visual answers render
 // their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
@@ -98,7 +98,7 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
-      if (path !== "/") markPlanChatHomeHandoff();
+      if (path !== "/") markAgentChatHomeHandoff("plans");
       navigateWithAgentChatViewTransition(navigate, path);
       setCmdkOpen(false);
     },

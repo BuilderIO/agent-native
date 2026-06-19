@@ -9,7 +9,6 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -23,6 +22,7 @@ import {
   useCommandMenuShortcut,
   getThemeInitScript,
   configureTracking,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   setClientAppState,
 } from "@agent-native/core/client";
@@ -162,7 +162,7 @@ function OpenLinkInterceptor() {
 
       event.preventDefault();
       if (location.pathname === "/" && path !== "/") {
-        markFormsChatHomeHandoff();
+        markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);
     }

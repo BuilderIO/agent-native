@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { AgentChatHome } from "@agent-native/core/client";
-import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+import {
+  AgentChatHome,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 
 const PLAN_CHAT_SUGGESTIONS = [
@@ -14,7 +16,7 @@ export function PlanChatPage() {
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markPlanChatHomeHandoff();
+      if (detail?.isRunning === true) markAgentChatHomeHandoff("plans");
     }
 
     const cancelRoutePrewarm = schedulePlanRoutePrewarm();

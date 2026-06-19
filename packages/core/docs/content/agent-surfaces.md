@@ -190,6 +190,48 @@ export default function ChatRoute() {
 }
 ```
 
+When an app has both a full-page chat tab and an `AgentSidebar`, use the same
+`storageKey` on both surfaces, enable `chatViewTransition`, and install the
+chat-home handoff helpers in the layout. Ordinary in-app links out of the chat
+page can then morph the full chat into the sidebar while keeping the active
+thread:
+
+```tsx
+import {
+  AgentChatSurface,
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client/chat";
+import { useLocation } from "react-router";
+
+function ChatRoute() {
+  return (
+    <AgentChatSurface mode="page" storageKey="my-app" chatViewTransition />
+  );
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const handoffActive = useAgentChatHomeHandoff({
+    storageKey: "my-app",
+    activePath: location.pathname,
+    enabled: location.pathname !== "/chat",
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "my-app", chatPath: "/chat" });
+
+  return (
+    <AgentSidebar
+      storageKey="my-app"
+      chatViewTransition
+      openOnChatRunning={handoffActive}
+    >
+      {children}
+    </AgentSidebar>
+  );
+}
+```
+
 The simplest embedded chat with your own chrome:
 
 ```tsx

@@ -298,12 +298,12 @@ export default function Root() {
   }, [mounted]);
 
   const content = (
-    <>
+    <div className="w-full min-w-0 overflow-x-hidden">
       <ScrollManager />
       <Header />
       <Outlet />
       <Footer />
-    </>
+    </div>
   );
 
   return (
@@ -328,7 +328,7 @@ export default function Root() {
         // with an overflow-auto child) so swapping in the real sidebar after
         // hydration doesn't shift the scrollbar and re-anchor centered content.
         <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-          <div className="flex flex-1 flex-col overflow-auto min-w-0">
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
             {content}
           </div>
         </div>

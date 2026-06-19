@@ -12,12 +12,12 @@ If you want the smallest action-only runtime with no browser UI, start with [Pur
 <!-- screenshot:
   app: chat
   view: /
-  shows: Full-page chat app with standard left sidebar, chat threads on the left, centered composer, suggested prompts, and no domain data
+  shows: Full-page chat app with standard left sidebar, centered empty-state composer, model controls, and no domain data
   account: screenshot-account (no domain data needed — chat ships with no seed schema)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+  capture: 2434x1440 app screenshot
 -->
 
-![Chat template with a full-page agent chat surface and thread sidebar](/screenshots/chat.png)
+![Chat template with a centered agent composer and app navigation sidebar](/screenshots/chat.png)
 
 ## What's in it {#whats-in-it}
 
