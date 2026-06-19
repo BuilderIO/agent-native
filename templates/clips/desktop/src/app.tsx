@@ -151,15 +151,6 @@ function concreteMediaDeviceId(value: string | null | undefined): string {
   return id && !isPseudoMediaDeviceId(id) ? id : "";
 }
 
-// Prefer this page's own enumeration; fall back to the bubble-relayed list
-// when the popover can't see labels itself (local-camera path).
-function preferEnumerated(
-  own: MediaDeviceInfo[],
-  relayed: MediaDeviceInfo[],
-): MediaDeviceInfo[] {
-  return own.length > 0 ? own : relayed;
-}
-
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
   return !!concreteMediaDeviceId(device.deviceId);
 }
@@ -558,12 +549,6 @@ export function App() {
   );
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
-  // Device lists relayed from the bubble page when IT owns the camera grant
-  // (full-screen / local-camera path). The popover page can't enumerate device
-  // labels itself there without muting the live bubble, so we use these lists
-  // when our own enumeration comes back empty.
-  const [bubbleCameras, setBubbleCameras] = useState<MediaDeviceInfo[]>([]);
-  const [bubbleMics, setBubbleMics] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>(() =>
     loadString(CAM_KEY, ""),
   );
@@ -662,14 +647,8 @@ export function App() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
-  const cameraDevices = useMemo(
-    () => preferEnumerated(cameras, bubbleCameras),
-    [cameras, bubbleCameras],
-  );
-  const micDevices = useMemo(
-    () => preferEnumerated(mics, bubbleMics),
-    [mics, bubbleMics],
-  );
+  const cameraDevices = cameras;
+  const micDevices = mics;
   const selectedMicLabel = useMemo(
     () =>
       selectedMicId
@@ -1126,10 +1105,7 @@ export function App() {
     // popover. If the user has picked a concrete mic, use that exact device;
     // otherwise leave labels locked until a real user action needs access.
     try {
-      // While the bubble owns the camera, even this audio-only probe trips
-      // WebKit's single-page capture-exclusion and blacks the bubble. Don't
-      // probe — leave mic labels locked until the bubble is gone.
-      if (bubbleActiveRef.current || !selectedMicId) {
+      if (!selectedMicId) {
         await loadDevices();
         return;
       }
@@ -1149,26 +1125,6 @@ export function App() {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("Device selection is not available in this WebView.");
-        }
-        // When the camera bubble is live, ANY getUserMedia in this page —
-        // camera OR mic — hits WebKit's single-page capture-exclusion (one
-        // process, one webview): the bubble page's camera stream gets muted
-        // and goes black with no reliable unmute. The exclusion is not
-        // per-kind, so an audio-only probe blacks the bubble just the same.
-        // So we never probe here while the bubble owns the camera. Instead the
-        // bubble page — the only page that can capture without muting its own
-        // camera — does the probe and relays the device list back to us.
-        if (bubbleActiveRef.current) {
-          if (kind === "mic") {
-            // Ask the bubble to probe + relay the mic list (it has no mic
-            // grant of its own, so it must open a transient mic stream).
-            emit("clips:refresh-mics", {
-              micId: selectedMicId || null,
-            }).catch(() => {});
-          }
-          // Cameras are already relayed when the bubble's local camera starts.
-          await loadDevices();
-          return;
         }
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
@@ -1263,20 +1219,6 @@ export function App() {
         setCameraOn(false);
       }),
     );
-    // The bubble relays its device lists (it holds the grant in the
-    // local-camera path). Used by the picker when our own enumeration is empty.
-    const trackRelay = (
-      event: string,
-      set: (devices: MediaDeviceInfo[]) => void,
-    ) =>
-      track(
-        listen<{ devices?: Array<{ deviceId: string; label: string }> }>(
-          event,
-          (ev) => set((ev.payload?.devices ?? []) as MediaDeviceInfo[]),
-        ),
-      );
-    trackRelay("clips:camera-devices", setBubbleCameras);
-    trackRelay("clips:mic-devices", setBubbleMics);
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
@@ -1368,8 +1310,6 @@ export function App() {
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
-  const bubbleUsesLocalCamera =
-    nativeFullscreenRecordingActive && localRecordingMode !== "separate";
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -1445,85 +1385,6 @@ export function App() {
     console.log(
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
-
-    if (bubbleUsesLocalCamera) {
-      const localStartTimers: Array<ReturnType<typeof setTimeout>> = [];
-      let localReadyUnlisten: (() => void) | null = null;
-      const emitLocalCameraStart = (reason: string) => {
-        if (cancelled) return;
-        console.log(
-          "[clips-popover] starting local bubble camera — %s",
-          reason,
-        );
-        emit("clips:bubble-start-local-camera", {
-          cameraId: cameraId || null,
-        }).catch((err) => {
-          if (!cancelled) {
-            console.warn(
-              "[clips-popover] emit local bubble camera start failed:",
-              err,
-            );
-          }
-        });
-      };
-
-      listen("clips:bubble-ready", () => emitLocalCameraStart("ready"))
-        .then((u) => {
-          if (cancelled) {
-            try {
-              u();
-            } catch {
-              // ignore
-            }
-          } else {
-            localReadyUnlisten = u;
-          }
-        })
-        .catch(() => {});
-
-      invoke("show_bubble")
-        .then(() => {
-          // The bubble's React listener may mount just after the Rust window
-          // reports as shown. Send a few idempotent starts; the bubble ignores
-          // repeats for the same camera but this avoids a first-show race.
-          for (const delay of [100, 500, 1000]) {
-            localStartTimers.push(
-              setTimeout(
-                () => emitLocalCameraStart(`show-bubble+${delay}ms`),
-                delay,
-              ),
-            );
-          }
-        })
-        .catch((err) => {
-          if (!cancelled) {
-            console.error("[clips-popover] local bubble start failed:", err);
-            setCameraError(`Camera unavailable: ${err?.message ?? err}`);
-          }
-        });
-
-      return () => {
-        cancelled = true;
-        for (const timer of localStartTimers) clearTimeout(timer);
-        try {
-          localReadyUnlisten?.();
-        } catch {
-          // ignore
-        }
-        emit("clips:bubble-stop-local-camera", {}).catch(() => {});
-        const recordingInFlight = recordingFlowGateRef.current;
-        console.log(
-          "[clips-popover] local bubble session end — recordingInFlight=%o stillActive=%o",
-          recordingInFlight,
-          bubbleActiveRef.current,
-        );
-        // Skip teardown when the bubble is still wanted (only the capture
-        // source changed). Hiding here would race the re-run's show_bubble.
-        if (!recordingInFlight && !bubbleActiveRef.current) {
-          invoke("hide_overlays").catch(() => {});
-        }
-      };
-    }
 
     navigator.mediaDevices
       .getUserMedia({
@@ -1642,14 +1503,13 @@ export function App() {
       // the bubble correctly). Hiding here mid-flow would kill the
       // on-screen bubble window the user sees during the recording.
       // Also skip when the bubble is still wanted and only the capture
-      // source changed (window ↔ full-screen flips `bubbleUsesLocalCamera`,
-      // re-running this effect): hiding would race the re-run's show_bubble
-      // and close the window out from under it.
+      // source changed (e.g. cameraId flip re-runs this effect): hiding
+      // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
         invoke("hide_overlays").catch(() => {});
       }
     };
-  }, [bubbleActive, bubbleUsesLocalCamera, cameraId]);
+  }, [bubbleActive, cameraId]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -1933,9 +1793,7 @@ export function App() {
     // effect's deps still include `isRecording`, so the stream + bubble
     // + pump stay alive for the entire recording.
     const preAcquiredCameraStream =
-      mode !== "screen" && cameraOn && !bubbleUsesLocalCamera
-        ? bubbleStreamRef.current
-        : null;
+      mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
     // Flip the ownership flag BEFORE kicking off the recorder. Any
     // bubble-session cleanup that fires after this point must leave the
     // tracks alone — the recorder now owns them. Cleared in the stop /
@@ -2420,13 +2278,6 @@ export function App() {
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
           meterActive={popoverVisible && !isRecording}
-          // The meter mic must open in whichever page owns the camera, or
-          // WebKit's cross-page capture-exclusion mutes it. The bubble owns the
-          // camera only in native full-screen (`bubbleUsesLocalCamera`); in
-          // window/screen/camera modes the popover owns it, so the meter runs
-          // locally here. Keying off `bubbleActive` alone wrongly relayed window
-          // recordings to a bubble that has no camera → flat bars.
-          meterRelay={bubbleActive && bubbleUsesLocalCamera}
         />
       </div>
 

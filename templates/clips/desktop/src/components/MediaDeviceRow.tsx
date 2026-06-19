@@ -26,20 +26,9 @@ function Toggle({
   );
 }
 
-// Live mic level meter. Drives the bar heights from real audio so users can see
-// their mic is actually picking up sound. When the camera bubble is live the
-// meter relays through the bubble page instead of opening a mic here (see
-// useMicMeter for the WebKit capture-exclusion details).
-function MicWave({
-  deviceId,
-  active,
-  relay,
-}: {
-  deviceId: string;
-  active: boolean;
-  relay: boolean;
-}) {
-  const barsRef = useMicMeter({ deviceId, active, relay });
+// Live mic level meter. Drives the bar heights from real audio.
+function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
+  const barsRef = useMicMeter({ deviceId, active });
 
   return (
     <span className="mic-wave" aria-hidden>
@@ -68,7 +57,6 @@ export function MediaDeviceRow({
   systemAudio,
   onSystemAudioToggle,
   meterActive = true,
-  meterRelay = false,
 }: {
   kind: "camera" | "mic";
   devices: MediaDeviceInfo[];
@@ -81,7 +69,6 @@ export function MediaDeviceRow({
   systemAudio?: boolean;
   onSystemAudioToggle?: (v: boolean) => void;
   meterActive?: boolean;
-  meterRelay?: boolean;
 }) {
   const current = useMemo(
     () =>
@@ -142,11 +129,7 @@ export function MediaDeviceRow({
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
       {kind === "mic" && on ? (
-        <MicWave
-          deviceId={selectedId}
-          active={on && meterActive}
-          relay={meterRelay}
-        />
+        <MicWave deviceId={selectedId} active={on && meterActive} />
       ) : null}
       {open ? (
         <div className="row-menu" role="menu">

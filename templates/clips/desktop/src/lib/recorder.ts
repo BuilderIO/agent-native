@@ -2216,11 +2216,13 @@ async function startRecordingInner(
   streamCleanups.push(recordingAudio.cleanup);
   recordingAudio.tracks.forEach((t) => combined.addTrack(t));
 
-  // The popover owns the camera stream when we're reusing a pre-acquired
-  // one — its session effect decides when to close the stream + hide the
-  // bubble + stop the pump. The recorder must NOT stop those tracks on
-  // stop/cancel. For camera-only mode (rare path where popover didn't
-  // hand us a stream) we own it ourselves.
+  // The popover owns the camera stream whenever we reused its pre-acquired
+  // preview stream — its session effect decides when to close the stream +
+  // hide the bubble + stop the pump, so the recorder must NOT stop those
+  // tracks on stop/cancel. The rare exception is the fresh-acquire fallback
+  // (preview stream wasn't ready at record start, so we opened the camera
+  // ourselves above) — there we own the tracks and must stop them, or the
+  // camera + macOS recording indicator leak after the recording ends.
   const popoverOwnsCamera = bubbleCameraStream === reusedCameraStream;
 
   if (localRecordingMode !== "off") {
@@ -2338,11 +2340,8 @@ async function startRecordingInner(
     };
 
     const hideChrome = async () => {
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch((err) =>
-        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      await invoke("hide_recording_chrome").catch((err) =>
+        console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
     };
 
@@ -2811,11 +2810,8 @@ async function startRecordingInner(
       // down the bubble. Closing it here would cause a flicker on the
       // cancel path where the popover re-appears with camera still on.
       console.log("[clips-recorder] hiding recording chrome");
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch((err) =>
-        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      await invoke("hide_recording_chrome").catch((err) =>
+        console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
 
       // Wait for any in-flight chunk uploads to settle before sending the
@@ -2946,12 +2942,7 @@ async function startRecordingInner(
       // Blobs via this Set. Combined with the `ondataavailable = null`
       // above, this guarantees no new Blobs latch on during the stop.
       inflight.clear();
-      // Same split as stop(): leave the bubble alone when popover owns
-      // the camera — the popover's session effect handles bubble teardown.
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch(() => {});
+      await invoke("hide_recording_chrome").catch(() => {});
       // Tell the server to abort the partial recording (drops chunks from
       // application_state, flips the recording row to 'failed'). Fire and
       // forget with a short-circuit on failure — we don't want to keep the
