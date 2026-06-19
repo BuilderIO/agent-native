@@ -190,6 +190,8 @@ export default defineAction({
         description: rec.description,
         thumbnailUrl: rec.thumbnailUrl,
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
+        sourceAppName: rec.sourceAppName,
+        sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
         editsJson: rec.editsJson,
         videoUrl: resolvedVideoUrl,

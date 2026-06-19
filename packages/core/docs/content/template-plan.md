@@ -106,13 +106,14 @@ connector, so use the Agent-Native CLI path when you want the one-command setup.
 
 ### Open Plans inside VS Code {#vscode-extension}
 
-If you live in VS Code, the Agent Native VS Code extension can open the same
-Plan review surface in a side panel instead of sending you to a separate browser
-tab. Plans tools still return the normal web link, and the MCP metadata also
-includes a VS Code handoff URL:
+If you live in VS Code, install the
+[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+to open the same Plan review surface in a side panel instead of sending you to a
+separate browser tab. Plans tools still return the normal web link, and the MCP
+metadata also includes a VS Code handoff URL:
 
 ```text
-vscode://builderio.agent-native/open?url=<encoded-plan-url>
+vscode://builder.agent-native/open?url=<encoded-plan-url>
 ```
 
 The extension handles that URI, opens the decoded Plan URL in a VS Code webview,

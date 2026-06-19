@@ -3,6 +3,7 @@ import {
   AgentChatHome,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
+import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 
 const PLAN_CHAT_SUGGESTIONS = [
@@ -55,6 +56,7 @@ export function PlanChatPage() {
               answers as diagrams, wireframes, API specs, and data models.
             </p>
           </div>
+          <LocalCodebasePicker />
         </div>
       }
     />

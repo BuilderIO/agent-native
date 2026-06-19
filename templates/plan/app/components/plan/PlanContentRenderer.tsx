@@ -408,11 +408,13 @@ export function PlanContentRenderer({
   };
   const codeAnnotationLayout = useMemo(
     () =>
-      !isRecap && !showCodeAnnotationOverlays
+      !showCodeAnnotationOverlays
         ? ({
-            hoverSide: "left",
+            hoverSide: isRecap ? "right" : "left",
             hoverFallbackSide: "right",
             marginSide: "auto",
+            showByDefaultWhenRoom: true,
+            defaultVisibleAnnotations: "first",
           } as const)
         : undefined,
     [isRecap, showCodeAnnotationOverlays],

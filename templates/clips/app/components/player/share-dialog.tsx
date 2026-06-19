@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { IconLink, IconMail, IconCode } from "@tabler/icons-react";
+import {
+  IconCode,
+  IconExternalLink,
+  IconLink,
+  IconMail,
+} from "@tabler/icons-react";
 import {
   appBasePath,
   appPath,
@@ -30,6 +35,7 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { buildAgentApiUrls } from "../../../shared/agent-context";
+import { isLoomEmbedUrl } from "../../../shared/loom";
 
 const PUBLIC_DESCRIPTION =
   "Anyone with the link can view — sign in to comment or react";
@@ -247,6 +253,7 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const isLoomRecording = isLoomEmbedUrl(videoUrl);
   const publicAgentContextUrl =
     typeof window === "undefined"
       ? ""
@@ -343,9 +350,19 @@ function LinkTab({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(videoUrl, "_blank")}
+              className={isLoomRecording ? "gap-1.5" : undefined}
+              onClick={() =>
+                window.open(videoUrl, "_blank", "noopener,noreferrer")
+              }
             >
-              Download MP4
+              {isLoomRecording ? (
+                <>
+                  <IconExternalLink className="h-4 w-4" />
+                  Open in Loom
+                </>
+              ) : (
+                "Download MP4"
+              )}
             </Button>
           ) : null}
         </div>

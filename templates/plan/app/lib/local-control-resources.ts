@@ -1,5 +1,19 @@
 import { agentNativePath } from "@agent-native/core/client";
 
+type LocalControlFileHandle = {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+};
+
+type LocalControlDirectoryHandle = {
+  kind: "directory";
+  name: string;
+  values(): AsyncIterable<LocalControlFileHandle | LocalControlDirectoryHandle>;
+  getDirectoryHandle(name: string): Promise<LocalControlDirectoryHandle>;
+  getFileHandle(name: string): Promise<LocalControlFileHandle>;
+};
+
 export type LocalControlResourceFiles = Record<string, string>;
 
 const ROOT_INSTRUCTION_FILES = new Set([
@@ -8,6 +22,8 @@ const ROOT_INSTRUCTION_FILES = new Set([
   "mcp.config.json",
   ".mcp.json",
 ]);
+const CONTROL_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const ROOT_INSTRUCTION_FILE_NAMES = Array.from(ROOT_INSTRUCTION_FILES);
 
 function slugifyResourceSegment(value: string) {
   const slug = value
@@ -90,6 +106,67 @@ export function localControlResourceWrites(options: {
   }
 
   return Array.from(writes.values());
+}
+
+async function readRootControlFile(
+  handle: LocalControlDirectoryHandle,
+  name: string,
+) {
+  try {
+    const fileHandle = await handle.getFileHandle(name);
+    const file = await fileHandle.getFile();
+    if (file.size > CONTROL_FILE_MAX_BYTES) return null;
+    return await file.text();
+  } catch {
+    return null;
+  }
+}
+
+async function collectSkillFiles(
+  handle: LocalControlDirectoryHandle,
+  prefix: string,
+): Promise<LocalControlResourceFiles> {
+  const files: LocalControlResourceFiles = {};
+  for await (const entry of handle.values()) {
+    const path = `${prefix}${entry.name}`;
+    if (entry.kind === "directory") {
+      Object.assign(files, await collectSkillFiles(entry, `${path}/`));
+      continue;
+    }
+
+    const file = await entry.getFile();
+    if (file.size > CONTROL_FILE_MAX_BYTES) continue;
+    files[path] = await file.text();
+  }
+  return files;
+}
+
+async function collectSkillRoot(
+  handle: LocalControlDirectoryHandle,
+  rootName: ".agents" | ".agent",
+) {
+  try {
+    const root = await handle.getDirectoryHandle(rootName);
+    const skills = await root.getDirectoryHandle("skills");
+    return await collectSkillFiles(skills, `${rootName}/skills/`);
+  } catch {
+    return {};
+  }
+}
+
+export async function collectLocalControlResourceFiles(
+  handle: LocalControlDirectoryHandle,
+): Promise<LocalControlResourceFiles> {
+  const files: LocalControlResourceFiles = {};
+
+  for (const name of ROOT_INSTRUCTION_FILE_NAMES) {
+    const content = await readRootControlFile(handle, name);
+    if (content !== null) files[name] = content;
+  }
+
+  Object.assign(files, await collectSkillRoot(handle, ".agents"));
+  Object.assign(files, await collectSkillRoot(handle, ".agent"));
+  return files;
 }
 
 export async function syncLocalControlResources(options: {

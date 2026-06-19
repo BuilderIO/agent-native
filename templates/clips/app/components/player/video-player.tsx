@@ -37,6 +37,7 @@ import {
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
+import { isLoomEmbedUrl } from "@shared/loom";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -234,6 +235,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
     );
+    const isLoomEmbed = useMemo(
+      () => isLoomEmbedUrl(activeVideoSrc),
+      [activeVideoSrc],
+    );
     const incomingVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(resolvedVideoSrc),
       [resolvedVideoSrc],
@@ -273,6 +278,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       setHasPlaybackStarted(false);
     }, [activeVideoSourceIdentity]);
+
+    useEffect(() => {
+      if (!isLoomEmbed) return;
+      setCanPlay(true);
+      setIsPreparing(false);
+      setIsBuffering(false);
+      setIsPlayPending(false);
+      setPlayError(null);
+    }, [activeVideoSourceIdentity, isLoomEmbed]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -753,6 +767,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const showThroughoutCta = cta && cta.placement === "throughout";
     const centerOverlayMode =
       activeVideoSrc &&
+      !isLoomEmbed &&
       !showEndCta &&
       (!isPlaying || isPlayPending || isBuffering)
         ? isPreparing || isPlayPending || isBuffering || !canPlay
@@ -779,10 +794,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // Clicking the video toggles play — but not when clicking controls.
           const target = e.target as HTMLElement;
           if (target.closest("[data-player-ui]")) return;
+          if (isLoomEmbed) return;
           togglePlayback();
         }}
       >
-        {activeVideoSrc ? (
+        {isLoomEmbed && activeVideoSrc ? (
+          <iframe
+            src={activeVideoSrc}
+            title="Loom video"
+            className="h-full w-full border-0"
+            allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+          />
+        ) : activeVideoSrc ? (
           <video
             ref={videoRef}
             src={activeVideoSrc}
@@ -923,7 +948,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Captions */}
-        {!hideCaptions && captionsOn && hasPlaybackStarted && currentSegment ? (
+        {!hideCaptions &&
+        !isLoomEmbed &&
+        captionsOn &&
+        hasPlaybackStarted &&
+        currentSegment ? (
           <CaptionsOverlay text={currentSegment.text} />
         ) : null}
 
@@ -956,7 +985,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Controls */}
-        {!hideChrome ? (
+        {!hideChrome && !isLoomEmbed ? (
           <div
             data-player-ui
             className={cn(

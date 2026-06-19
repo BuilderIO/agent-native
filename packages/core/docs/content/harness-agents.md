@@ -55,12 +55,25 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
-Codex auth has two paths. The `ai-sdk-harness:codex` adapter loads the AI SDK
-Codex harness package and does not implement a separate Agent-Native OAuth flow.
-For Agent-Native Code or Desktop coding sessions, Agent-Native can use the
-local Codex CLI after the user runs `codex login`; that reuses whatever
-ChatGPT subscription or API-key auth the installed Codex CLI reports through
-`codex login status`.
+## Codex auth: Code UI vs harness sandboxes {#codex-auth}
+
+There are two Codex surfaces, and they authenticate differently:
+
+- **Agent-Native Code / Desktop** runs `codex exec` on the user's machine. If
+  the user has run `codex login`, this local run reuses whatever ChatGPT
+  subscription or API-key auth the installed Codex CLI reports through
+  `codex login status`.
+- **`ai-sdk-harness:codex`** loads `@ai-sdk/harness-codex`, which drives Codex
+  inside the harness sandbox through `@openai/codex-sdk`. It does not
+  automatically inherit the user's Desktop `~/.codex` login because the sandbox
+  may be remote or isolated. Configure the Codex harness with API-key / gateway
+  auth, or deliberately provide a trusted sandbox whose own Codex CLI home is
+  already logged in.
+
+So if someone asks which package carries the Codex OAuth path: for local coding
+sessions, use `@agent-native/core` / Desktop plus the installed
+`@openai/codex` CLI and `codex login`. For sandboxed `ai-sdk-harness:codex`,
+there is no separate Agent-Native OAuth flow to find in `codex-auth.ts`.
 
 ## Register and resolve {#register-resolve}
 

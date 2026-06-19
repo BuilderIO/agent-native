@@ -135,6 +135,11 @@ export interface BlockRenderContext {
     hoverFallbackSide?: "left" | "right" | "below";
     /** Show all annotation cards by default when the requested margin fits. */
     showByDefaultWhenRoom?: boolean;
+    /**
+     * When margin annotations are enabled, choose how many cards become visible
+     * without hover. Defaults to all for callers using the legacy boolean.
+     */
+    defaultVisibleAnnotations?: "all" | "first";
     /** Margin side for persistent cards; `"auto"` tries hoverSide, then the other side. */
     marginSide?: "left" | "right" | "auto";
   };

@@ -416,7 +416,7 @@ See [MCP Apps](/docs/mcp-apps) for the full authoring guide — `embedRoute` vs 
 
 The `link` builder is **pure and synchronous — no I/O, no awaits**. It runs best-effort: a throw, `null`, or `undefined` is swallowed and **never** fails the tool call. It only reads the call's `args` and `result`; it must not query the DB, read app-state, or call other actions. Return `null` when there's nothing to open.
 
-`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builderio.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
+`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builder.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
 
 ### The `/_agent-native/open` route {#open-route}
 

@@ -1,18 +1,38 @@
 {
   "name": "agent-native",
-  "displayName": "Agent Native",
-  "description": "Open Agent Native apps and MCP handoff links inside VS Code.",
+  "displayName": "Agent Native Plans",
+  "description": "Open Agent-Native Plans and MCP handoff links inside VS Code.",
   "version": "0.0.1",
-  "private": true,
-  "publisher": "builderio",
+  "publisher": "Builder",
   "license": "MIT",
   "type": "commonjs",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native.git",
+    "directory": "packages/vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://agent-native.com/docs/template-plan#vscode-extension",
   "engines": {
     "vscode": "^1.120.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "agent-native",
+    "plans",
+    "visual plans",
+    "coding agents",
+    "mcp"
+  ],
+  "galleryBanner": {
+    "color": "#000000",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onUri",
     "onCommand:agentNative.openDefaultApp",
@@ -43,7 +63,7 @@
       "properties": {
         "agentNative.defaultAppUrl": {
           "type": "string",
-          "default": "https://dispatch.agent-native.com",
+          "default": "https://plan.agent-native.com",
           "description": "The Agent Native app URL opened by the Open Agent Native command."
         }
       }

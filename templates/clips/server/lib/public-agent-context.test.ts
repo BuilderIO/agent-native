@@ -57,6 +57,7 @@ vi.mock("./share-password.js", () => ({
 }));
 
 import {
+  buildPublicAgentContext,
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
 } from "./public-agent-context";
@@ -178,5 +179,53 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("does not fetch bytes for Loom embed imports", async () => {
+    await expect(
+      loadRecordingMediaBytes(
+        makeRecording({
+          sourceAppName: "Loom",
+          videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+          videoFormat: "mp4",
+        }) as any,
+      ),
+    ).rejects.toThrow(/Loom embed/i);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildPublicAgentContext", () => {
+  it("omits frame APIs and recommended frames for Loom embed imports", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({
+          sourceAppName: "Loom",
+          videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+          videoFormat: "mp4",
+        }) as any,
+        viewerIsOwner: false,
+        apiToken: "signed-token",
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [{ startMs: 1000, title: "Chapter" }],
+      ctas: [],
+    });
+
+    expect(context.clip.sourceProvider).toBe("loom");
+    expect(context.apis).not.toHaveProperty("frame");
+    expect(context.recommendedFrames).toEqual([]);
+    expect(context.instructions.join(" ")).toMatch(
+      /frame extraction is not available/i,
+    );
   });
 });

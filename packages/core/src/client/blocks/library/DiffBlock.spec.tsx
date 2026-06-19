@@ -577,6 +577,92 @@ describe("DiffBlock annotations", () => {
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
+  it("shows only the first plan-mode diff annotation by default when requested", () => {
+    setViewport(1200);
+    render(
+      {
+        before: "",
+        after: "const a = 1\nconst b = 2",
+        mode: "unified",
+        annotations: [
+          { lines: "1", label: "First", note: "First diff note is visible." },
+          {
+            lines: "2",
+            label: "Second",
+            note: "Second diff note still opens on hover.",
+          },
+        ],
+      },
+      {
+        codeAnnotationLayout: {
+          hoverSide: "left",
+          hoverFallbackSide: "right",
+          showByDefaultWhenRoom: true,
+          defaultVisibleAnnotations: "first",
+          marginSide: "auto",
+        },
+      },
+    );
+
+    const codeSurface = container.querySelector("[data-code-surface]");
+    const codeBox = codeSurface?.parentElement;
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 100 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-code-surface] > div > div",
+      ),
+    );
+    expect(rows).toHaveLength(2);
+    rows.forEach((row, index) => {
+      stubRect(
+        row,
+        rect({ left: 360, top: 100 + index * 20, width: 500, height: 20 }),
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const anchor = container.querySelector(
+      "[data-annotation-inline-overlay-anchor]",
+    );
+    expect(anchor).toBeTruthy();
+    stubRect(anchor!, rect({ left: 850, top: 100, width: 0, height: 20 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toContain("First diff note is visible.");
+    expect(overlay?.textContent).not.toContain(
+      "Second diff note still opens on hover.",
+    );
+
+    act(() => {
+      rows[1]!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const hoverCard = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(hoverCard).toBeTruthy();
+    expect(hoverCard?.textContent).toContain(
+      "Second diff note still opens on hover.",
+    );
+  });
+
   it("anchors a multi-line annotation popover to the first row in the range", () => {
     render({
       before: "",
