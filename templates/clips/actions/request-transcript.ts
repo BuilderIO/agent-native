@@ -296,7 +296,7 @@ function resolveLoomTranscriptShareUrl(
   );
 }
 
-async function importLoomTranscriptForRecording({
+export async function importLoomTranscriptForRecording({
   db,
   recordingId,
   ownerEmail,
@@ -348,6 +348,13 @@ async function importLoomTranscriptForRecording({
       reason = loomTranscriptUnavailableMessage();
     }
   }
+
+  const preserved = await preserveReadyTranscriptIfAvailable({
+    db,
+    recordingId,
+    ownerEmail,
+  });
+  if (preserved) return preserved;
 
   await upsertTranscriptRow(db, {
     recordingId,

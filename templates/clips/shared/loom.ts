@@ -1,6 +1,7 @@
 const LOOM_HOST_RE = /(^|\.)loom\.com$/i;
 const LOOM_VIDEO_ID_RE = /^[A-Za-z0-9_-]{8,120}$/;
 const LOOM_VIDEO_PATHS = new Set(["share", "embed"]);
+export const LOOM_START_MS_QUERY_PARAM = "loomStartMs";
 
 function parsePublicUrl(value: string): URL | null {
   try {
@@ -56,6 +57,23 @@ export function sanitizeLoomEmbedUrl(value: string): string | null {
 
   normalizeHost(parsed);
   parsed.pathname = `/embed/${id}`;
+  return parsed.href;
+}
+
+export function loomTimestampParamFromMs(ms: number): string {
+  const seconds = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
+  return `${seconds}s`;
+}
+
+export function loomEmbedUrlWithTimestamp(
+  value: string,
+  ms: number,
+): string | null {
+  const sanitized = sanitizeLoomEmbedUrl(value);
+  if (!sanitized) return null;
+
+  const parsed = new URL(sanitized);
+  parsed.searchParams.set("t", loomTimestampParamFromMs(ms));
   return parsed.href;
 }
 

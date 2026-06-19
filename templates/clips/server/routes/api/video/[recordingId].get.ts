@@ -51,7 +51,9 @@ import {
   verifyShortLivedToken,
 } from "@agent-native/core/server";
 import {
+  LOOM_START_MS_QUERY_PARAM,
   isLoomRecordingSource,
+  loomEmbedUrlWithTimestamp,
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
@@ -187,6 +189,19 @@ function loomEmbedResponse(embedUrl: string): Response {
   });
 }
 
+function firstQueryValue(value: unknown): string {
+  if (Array.isArray(value)) return firstQueryValue(value[0]);
+  return typeof value === "string" ? value : "";
+}
+
+function parseLoomStartMs(value: unknown): number | null {
+  const raw = firstQueryValue(value).trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
@@ -226,8 +241,12 @@ export default defineEventHandler(async (event: H3Event) => {
       //   - `?password=<pw>` — legacy fallback so existing share pages /
       //     bookmarks keep working during rollout.
       // (audit 11 F-07)
+      const q = getQuery(event) as {
+        [LOOM_START_MS_QUERY_PARAM]?: unknown;
+        password?: string;
+        t?: string;
+      };
       if (rec.password && access.role !== "owner") {
-        const q = getQuery(event) as { password?: string; t?: string };
         const token = typeof q.t === "string" ? q.t : "";
         const supplied = typeof q.password === "string" ? q.password : "";
 
@@ -250,10 +269,15 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       if (isLoomRecordingSource(rec)) {
-        const embedUrl = loomEmbedUrlForRecording(rec);
+        let embedUrl = loomEmbedUrlForRecording(rec);
         if (!embedUrl) {
           setResponseStatus(event, 404);
           return { error: "Loom embed URL not found" };
+        }
+        const loomStartMs = parseLoomStartMs(q[LOOM_START_MS_QUERY_PARAM]);
+        if (loomStartMs !== null) {
+          embedUrl =
+            loomEmbedUrlWithTimestamp(embedUrl, loomStartMs) ?? embedUrl;
         }
         return loomEmbedResponse(embedUrl);
       }

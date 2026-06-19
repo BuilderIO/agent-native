@@ -37,7 +37,11 @@ import {
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
-import { isLoomEmbedUrl } from "@shared/loom";
+import {
+  isLoomEmbedUrl,
+  LOOM_START_MS_QUERY_PARAM,
+  loomEmbedUrlWithTimestamp,
+} from "@shared/loom";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -49,6 +53,7 @@ function resolveLocalUrl(url: string | null | undefined): string | undefined {
 
 const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
   "t",
+  LOOM_START_MS_QUERY_PARAM,
   "password",
   "X-Amz-Algorithm",
   "X-Amz-Credential",
@@ -79,6 +84,35 @@ function videoSourceIdentity(url: string | undefined): string {
   } catch {
     return url;
   }
+}
+
+function setUrlSearchParam(url: string, key: string, value: string): string {
+  try {
+    const base =
+      typeof window === "undefined"
+        ? "http://clips.local"
+        : window.location.href;
+    const parsed = new URL(url, base);
+    parsed.searchParams.set(key, value);
+    if (url.startsWith("/") && !url.startsWith("//")) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.href;
+  } catch {
+    return url;
+  }
+}
+
+function clampLoomSeek(ms: number, durationMs: number): number {
+  const safeMs = Number.isFinite(ms) ? ms : 0;
+  const upperBounded = durationMs > 0 ? Math.min(safeMs, durationMs) : safeMs;
+  return Math.floor(Math.max(0, upperBounded));
+}
+
+function applyLoomStartToVideoSrc(src: string, ms: number): string {
+  const directEmbedUrl = loomEmbedUrlWithTimestamp(src, ms);
+  if (directEmbedUrl) return directEmbedUrl;
+  return setUrlSearchParam(src, LOOM_START_MS_QUERY_PARAM, String(ms));
 }
 
 export interface VideoPlayerHandle {
@@ -192,6 +226,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
+    const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     const [muted, setMuted] = useState(false);
     const [speed, setSpeed] = useState(() =>
@@ -220,6 +255,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // don't seek to 1e10 on every loadedmetadata fire (autoplay + iOS replay).
     const durationProbedRef = useRef(false);
     const initialVisibleFrameSeekedRef = useRef(false);
+    const loomInitialStartAppliedRef = useRef("");
     // Whether we've already captured-and-uploaded a still-frame thumbnail for
     // this clip. Owner-only and once per player lifecycle.
     const thumbnailCapturedRef = useRef(false);
@@ -241,6 +277,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => embedProvider === "loom" || isLoomEmbedUrl(activeVideoSrc),
       [activeVideoSrc, embedProvider],
     );
+    const loomIframeSrc = useMemo(() => {
+      if (!isLoomEmbed || !activeVideoSrc || loomStartMs === null) {
+        return activeVideoSrc;
+      }
+      return applyLoomStartToVideoSrc(activeVideoSrc, loomStartMs);
+    }, [activeVideoSrc, isLoomEmbed, loomStartMs]);
     const incomingVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(resolvedVideoSrc),
       [resolvedVideoSrc],
@@ -413,6 +455,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     const seekToVisibleMs = useCallback(
       (ms: number) => {
+        if (isLoomEmbed) {
+          if (!activeVideoSrc) return;
+          const clamped = clampLoomSeek(ms, resolvedDurationMs);
+          const visibleMs = clampLoomSeek(
+            skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
+            resolvedDurationMs,
+          );
+          setLoomStartMs(visibleMs);
+          setCurrentMs(visibleMs);
+          if (visibleMs > 0) setHasPlaybackStarted(true);
+          setIsPreparing(false);
+          onSeek?.(visibleMs);
+          onTimeUpdate?.(visibleMs, resolvedDurationMs);
+          return;
+        }
+
         const v = videoRef.current;
         if (!v) return;
         const clamped = clampSeek(ms, v, resolvedDurationMs);
@@ -425,7 +483,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentMs(visibleMs);
         onSeek?.(visibleMs);
       },
-      [excludedRanges, onSeek, resolvedDurationMs],
+      [
+        activeVideoSrc,
+        excludedRanges,
+        isLoomEmbed,
+        onSeek,
+        onTimeUpdate,
+        resolvedDurationMs,
+      ],
     );
 
     // Imperative handle for parent
@@ -474,6 +539,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       defaultSpeed,
       excludedRanges,
       onSpeedChange,
+      resolvedDurationMs,
+      startMs,
+    ]);
+
+    useEffect(() => {
+      if (!isLoomEmbed || !activeVideoSrc || !startMs || startMs <= 0) return;
+      const applyKey = `${activeVideoSourceIdentity}:${startMs}`;
+      if (loomInitialStartAppliedRef.current === applyKey) return;
+      loomInitialStartAppliedRef.current = applyKey;
+
+      const clamped = clampLoomSeek(startMs, resolvedDurationMs);
+      const visibleMs = clampLoomSeek(
+        skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
+        resolvedDurationMs,
+      );
+      setLoomStartMs(visibleMs);
+      setCurrentMs(visibleMs);
+      if (visibleMs > 0) setHasPlaybackStarted(true);
+      onTimeUpdate?.(visibleMs, resolvedDurationMs);
+    }, [
+      activeVideoSourceIdentity,
+      activeVideoSrc,
+      excludedRanges,
+      isLoomEmbed,
+      onTimeUpdate,
       resolvedDurationMs,
       startMs,
     ]);
@@ -570,13 +660,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       thumbnailCapturedRef.current = false;
       initialVisibleFrameSeekedRef.current = false;
+      loomInitialStartAppliedRef.current = "";
+      setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
       setCanPlay(false);
       setIsPlayPending(false);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSrc, recordingId]);
+    }, [activeVideoSourceIdentity, recordingId]);
 
     useEffect(() => {
       let cancelled = false;
@@ -800,9 +892,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           togglePlayback();
         }}
       >
-        {isLoomEmbed && activeVideoSrc ? (
+        {isLoomEmbed && loomIframeSrc ? (
           <iframe
-            src={activeVideoSrc}
+            src={loomIframeSrc}
             title="Loom video"
             className="h-full w-full border-0"
             allow="autoplay; fullscreen; picture-in-picture; clipboard-write"

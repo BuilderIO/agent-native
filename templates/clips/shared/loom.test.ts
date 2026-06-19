@@ -4,6 +4,8 @@ import {
   extractLoomVideoId,
   isLoomEmbedUrl,
   isLoomRecordingSource,
+  loomEmbedUrlWithTimestamp,
+  loomTimestampParamFromMs,
   loomEmbedUrlForRecording,
   normalizeLoomShareUrl,
   sanitizeLoomEmbedUrl,
@@ -41,6 +43,25 @@ describe("Loom URL helpers", () => {
     );
     expect(
       sanitizeLoomEmbedUrl("https://evil.example/embed/abcDEF_123456"),
+    ).toBe(null);
+  });
+
+  it("adds Loom timestamp params to sanitized embed URLs", () => {
+    expect(loomTimestampParamFromMs(80_999)).toBe("80s");
+    expect(loomTimestampParamFromMs(-1)).toBe("0s");
+
+    expect(
+      loomEmbedUrlWithTimestamp(
+        "https://www.loom.com/embed/abcDEF_123456?sid=session-1&t=5s",
+        80_500,
+      ),
+    ).toBe("https://www.loom.com/embed/abcDEF_123456?sid=session-1&t=80s");
+
+    expect(
+      loomEmbedUrlWithTimestamp(
+        "https://www.loom.com/share/abcDEF_123456",
+        80_000,
+      ),
     ).toBe(null);
   });
 

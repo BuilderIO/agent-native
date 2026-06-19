@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildLocalCodebaseInstruction,
+  deleteLocalCodebaseResources,
   isCodebaseTextPath,
   isIgnoredCodebaseDirectory,
   isSensitiveCodebasePath,
@@ -26,6 +27,10 @@ const SUMMARY: LocalCodebaseSummary = {
 };
 
 describe("local codebase context", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("detects source text files and ignores generated directories", () => {
     expect(isCodebaseTextPath("src/routes/api.ts")).toBe(true);
     expect(isCodebaseTextPath("package.json")).toBe(true);
@@ -80,5 +85,93 @@ describe("local codebase context", () => {
     expect(instruction).toContain(SUMMARY.indexPath);
     expect(instruction).toContain('scope: "personal"');
     expect(instruction).toContain("visual-answer");
+  });
+
+  it("deletes synced instruction, index, and snapshot resources for a codebase", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    const resources = [
+      {
+        id: "instruction",
+        path: "instructions/local-codebases/my-app-1234.md",
+        metadata: null,
+      },
+      {
+        id: "latest",
+        path: "codebases/my-app-1234/latest.json",
+        metadata: null,
+      },
+      {
+        id: "index",
+        path: "codebases/my-app-1234/snapshots/20260619120000/index.json",
+        metadata: JSON.stringify({
+          source: "local-codebase-folder",
+          codebaseId: "my-app-1234",
+        }),
+      },
+      {
+        id: "legacy",
+        path: "archives/local-codebase.json",
+        metadata: JSON.stringify({
+          source: "local-codebase-folder",
+          codebaseId: "my-app-1234",
+        }),
+      },
+      {
+        id: "other",
+        path: "codebases/other-app-5678/latest.json",
+        metadata: JSON.stringify({
+          source: "local-codebase-folder",
+          codebaseId: "other-app-5678",
+        }),
+      },
+    ];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+        });
+        if (init?.method === "DELETE") {
+          return new Response(null, { status: 204 });
+        }
+        return Response.json({ resources });
+      }),
+    );
+
+    const removed = await deleteLocalCodebaseResources({ id: "my-app-1234" });
+
+    expect(removed).toEqual({
+      count: 4,
+      paths: [
+        "instructions/local-codebases/my-app-1234.md",
+        "codebases/my-app-1234/latest.json",
+        "codebases/my-app-1234/snapshots/20260619120000/index.json",
+        "archives/local-codebase.json",
+      ],
+    });
+    expect(calls[0]).toEqual({
+      url: "/_agent-native/resources?scope=personal",
+      method: "GET",
+    });
+    expect(calls.slice(1)).toEqual([
+      {
+        url: "/_agent-native/resources/instruction",
+        method: "DELETE",
+      },
+      {
+        url: "/_agent-native/resources/latest",
+        method: "DELETE",
+      },
+      {
+        url: "/_agent-native/resources/index",
+        method: "DELETE",
+      },
+      {
+        url: "/_agent-native/resources/legacy",
+        method: "DELETE",
+      },
+    ]);
   });
 });

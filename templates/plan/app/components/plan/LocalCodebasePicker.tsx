@@ -21,6 +21,7 @@ import {
   chooseLocalCodebase,
   clearLocalCodebaseSelection,
   collectLocalCodebaseSnapshot,
+  deleteLocalCodebaseResources,
   localCodebaseAppState,
   rememberLocalCodebaseSelection,
   restoreLocalCodebaseSelection,
@@ -76,6 +77,36 @@ export function LocalCodebasePicker() {
       });
     },
     [],
+  );
+
+  const cleanupLocalResources = useCallback(
+    async (selection: Pick<RestoredLocalCodebase, "id" | "name">) => {
+      const results = await Promise.allSettled([
+        deleteLocalCodebaseResources({ id: selection.id }),
+        deleteLocalControlResources({
+          folderId: selection.id,
+          folderName: selection.name,
+        }),
+      ]);
+      const removedCount = results.reduce((count, result) => {
+        if (result.status === "rejected") return count;
+        return count + result.value.count;
+      }, 0);
+
+      for (const result of results) {
+        if (result.status === "rejected") {
+          console.warn(
+            "[plan] local codebase resource cleanup failed",
+            result.reason,
+          );
+        }
+      }
+
+      if (removedCount > 0) {
+        await queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }
+    },
+    [queryClient],
   );
 
   useEffect(() => {
@@ -152,17 +183,7 @@ export function LocalCodebasePicker() {
       latest: null,
     };
     if (active && active.id !== selection.id) {
-      try {
-        const removed = await deleteLocalControlResources({
-          folderId: active.id,
-          folderName: active.name,
-        });
-        if (removed.count > 0) {
-          await queryClient.invalidateQueries({ queryKey: ["resources"] });
-        }
-      } catch (err) {
-        console.warn("[plan] local control resource cleanup failed", err);
-      }
+      await cleanupLocalResources(active);
     }
     setActive(selection);
     try {
@@ -173,7 +194,7 @@ export function LocalCodebasePicker() {
       setSyncState({ kind: "error", message });
       toast.error("Codebase sync failed", { description: message });
     }
-  }, [active, queryClient, syncSelection]);
+  }, [active, cleanupLocalResources, syncSelection]);
 
   const clearSelection = useCallback(async () => {
     const previous = active;
@@ -183,20 +204,10 @@ export function LocalCodebasePicker() {
     setSyncState({ kind: "idle" });
     await syncAppState(null);
     if (previous) {
-      try {
-        const removed = await deleteLocalControlResources({
-          folderId: previous.id,
-          folderName: previous.name,
-        });
-        if (removed.count > 0) {
-          await queryClient.invalidateQueries({ queryKey: ["resources"] });
-        }
-      } catch (err) {
-        console.warn("[plan] local control resource cleanup failed", err);
-      }
+      await cleanupLocalResources(previous);
     }
     toast("Codebase unlinked");
-  }, [active, queryClient, syncAppState]);
+  }, [active, cleanupLocalResources, syncAppState]);
 
   const resync = useCallback(async () => {
     if (!active) return;

@@ -40,6 +40,12 @@ type PersistedLocalCodebase = {
   latest?: LocalCodebaseSummary;
 };
 
+type ResourceMeta = {
+  id: string;
+  path: string;
+  metadata?: Record<string, unknown> | string | null;
+};
+
 type InternalCodebaseCandidate = {
   path: string;
   size: number;
@@ -105,6 +111,7 @@ const MAX_INDEXED_FILES = 2_500;
 const MAX_CAPTURED_FILES = 140;
 const MAX_CAPTURED_BYTES = 1_000_000;
 const MAX_FILE_BYTES = 160_000;
+const LOCAL_CODEBASE_RESOURCE_SOURCE = "local-codebase-folder";
 
 const IGNORED_DIRECTORIES = new Set([
   ".cache",
@@ -583,6 +590,78 @@ export function buildLocalCodebaseInstruction(snapshot: LocalCodebaseSummary) {
   ].join("\n");
 }
 
+function parseResourceMetadata(resource: ResourceMeta) {
+  if (!resource.metadata) return null;
+  if (typeof resource.metadata === "object") return resource.metadata;
+  try {
+    const parsed = JSON.parse(resource.metadata) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resourceMatchesLocalCodebase(
+  resource: ResourceMeta,
+  codebaseId: string,
+) {
+  const metadata = parseResourceMetadata(resource);
+  if (
+    metadata?.source === LOCAL_CODEBASE_RESOURCE_SOURCE &&
+    metadata.codebaseId === codebaseId
+  ) {
+    return true;
+  }
+  return (
+    resource.path === `instructions/local-codebases/${codebaseId}.md` ||
+    resource.path.startsWith(`codebases/${codebaseId}/`)
+  );
+}
+
+export async function deleteLocalCodebaseResources(options: { id: string }) {
+  const response = await fetch(
+    agentNativePath("/_agent-native/resources?scope=personal"),
+  );
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const body = (await response.json()) as { error?: string };
+      message = body.error || message;
+    } catch {
+      // Keep the HTTP status text when the response is not JSON.
+    }
+    throw new Error(`Local codebase resource cleanup failed: ${message}`);
+  }
+
+  const body = (await response.json()) as { resources?: ResourceMeta[] };
+  const resources = (body.resources ?? []).filter((resource) =>
+    resourceMatchesLocalCodebase(resource, options.id),
+  );
+
+  for (const resource of resources) {
+    const deleteResponse = await fetch(
+      agentNativePath(
+        `/_agent-native/resources/${encodeURIComponent(resource.id)}`,
+      ),
+      { method: "DELETE" },
+    );
+    if (!deleteResponse.ok && deleteResponse.status !== 404) {
+      let message = deleteResponse.statusText;
+      try {
+        const body = (await deleteResponse.json()) as { error?: string };
+        message = body.error || message;
+      } catch {
+        // Keep the HTTP status text when the response is not JSON.
+      }
+      throw new Error(`Local codebase resource cleanup failed: ${message}`);
+    }
+  }
+
+  return { count: resources.length, paths: resources.map((r) => r.path) };
+}
+
 async function writeResource(input: {
   path: string;
   content: string;
@@ -758,7 +837,7 @@ export async function syncLocalCodebaseSnapshot(
   snapshot: LocalCodebaseSnapshot,
 ) {
   const metadata = {
-    source: "local-codebase-folder",
+    source: LOCAL_CODEBASE_RESOURCE_SOURCE,
     codebaseId: snapshot.id,
     folderName: snapshot.name,
     updatedAt: snapshot.updatedAt,
