@@ -13,7 +13,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
     <button
       onClick={onClick}
       aria-label="Search docs"
-      className="flex items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
+      className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
     >
       <svg
         width="14"
@@ -138,22 +138,34 @@ export default function Header() {
       <header
         className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
-        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-6 px-6">
+        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <Link
             data-an-prefetch="render"
             to="/"
             aria-label="Agent-Native"
-            className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
+            className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
+            <img
+              src="/agent-native-icon-light.svg"
+              alt=""
+              className="block h-6 w-6 min-[380px]:hidden dark:hidden"
+              aria-hidden="true"
+            />
+            <img
+              src="/agent-native-icon-dark.svg"
+              alt=""
+              className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
+              aria-hidden="true"
+            />
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
-              className="block h-[1.155rem] w-auto dark:hidden"
+              className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto dark:block"
+              className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
             />
           </Link>
 
@@ -219,7 +231,7 @@ export default function Header() {
             </a>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
               variant="outlined"
               className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
@@ -233,7 +245,7 @@ export default function Header() {
                 window.dispatchEvent(new Event("agent-panel:toggle"))
               }
               aria-label="Ask the AI assistant"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title="Ask the AI assistant"
             >
               <IconMessage size={16} stroke={1.5} />
@@ -242,7 +254,7 @@ export default function Header() {
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden flex items-center justify-center w-8 h-8 text-[var(--fg-secondary)] hover:text-[var(--fg)] transition"
+              className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)] lg:hidden"
               aria-label="Toggle navigation menu"
               aria-expanded={mobileMenuOpen}
             >

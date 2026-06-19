@@ -125,7 +125,7 @@ pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @
 
 Prevents Vite from re-bundling TipTap in incompatible ways during dev:
 
-```typescript
+```ts
 // vite.config.ts
 export default defineConfig({
   plugins: [reactRouter()],
@@ -149,7 +149,7 @@ via `registerShareableResource`. Without it, collab push events are delivered
 to all authenticated users without document-level scoping, and the server
 logs a one-time warning.
 
-```typescript
+```ts
 // server/plugins/collab.ts
 import { createCollabPlugin } from "@agent-native/core/server";
 
@@ -163,7 +163,7 @@ export default createCollabPlugin({
 
 ### 4. Use the client hook
 
-```typescript
+```ts
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -186,7 +186,7 @@ const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
 
 ### 5. Add TipTap extensions
 
-```typescript
+```ts
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 
@@ -208,7 +208,7 @@ const editor = useEditor({
 The Collaboration extension does not auto-seed from a `content` prop. If the
 Y.Doc is empty and the document has existing content, seed it:
 
-```typescript
+```ts
 useEffect(() => {
   if (!ydoc || !editor || !isLoaded) return;
   const fragment = ydoc.getXmlFragment("default");
@@ -337,7 +337,7 @@ Awareness state changes now propagate at ~150ms instead of the 2s poll cycle:
 
 Returns a reactive list of remote participants and a setter for the local presence payload:
 
-```typescript
+```ts
 import { usePresence } from "@agent-native/core/client";
 
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
@@ -400,7 +400,7 @@ import { RemoteSelectionRings } from "@agent-native/core/client";
 
 Invoke a callback whenever the followed participant's viewport changes:
 
-```typescript
+```ts
 import { useFollowUser } from "@agent-native/core/client";
 
 const { isFollowing, stopFollowing } = useFollowUser({
@@ -435,7 +435,7 @@ The `PresenceBar` component now accepts optional follow-mode props:
 
 ### Normalized coordinate helpers {#norm-coords}
 
-```typescript
+```ts
 import { toNormalized, fromNormalized } from "@agent-native/core/client";
 
 // In a pointer event handler:
@@ -454,7 +454,7 @@ const px = fromNormalized(norm, container.getBoundingClientRect());
 
 Server-side actions call `agentUpdateSelection()` to publish where the agent is working. The design template's `edit-design` and `generate-design` actions call this automatically. Other templates can do the same:
 
-```typescript
+```ts
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -511,7 +511,7 @@ plugin:
 
 ### Always set `resourceType`
 
-```typescript
+```ts
 createCollabPlugin({
   resourceType: "document", // the name passed to registerShareableResource
 });
@@ -535,7 +535,7 @@ Write routes (`update`, `text`, `json`, `patch`, `search-replace`) reject
 payloads exceeding the configured limit with HTTP 413. The default is 2 MB.
 Override per-plugin:
 
-```typescript
+```ts
 createCollabPlugin({
   resourceType: "document",
   maxPayloadBytes: 512 * 1024, // 512 KB
@@ -561,7 +561,7 @@ applies them atomically, so concurrent edits to different items both survive.
 **Slides (`patch-deck`)** — Instead of replacing the entire deck JSON on every
 change, the action accepts per-slide operations:
 
-```typescript
+```ts
 // Conceptual patch-deck action shape
 type PatchDeckOp =
   | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
@@ -593,7 +593,7 @@ The Design template uses `Y.UndoManager` to scope undo/redo to the local
 user's own edits. Remote peer edits and agent edits are never undone by a
 user's Cmd+Z.
 
-```typescript
+```ts
 import * as Y from "yjs";
 
 const LOCAL_EDIT_ORIGIN = "local";
@@ -660,7 +660,7 @@ layers on top of the same awareness state.
 
 ## Related docs {#related}
 
-- [Real-Time Sync](/docs/real-time-sync) — the `useDbSync` + `useChangeVersion`
+- [Real-Time Sync](/docs/client#usedbsync) — the `useDbSync` + `useChangeVersion`
   system that delivers the `updatedAt` bump driving editor reconciliation.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   and `assertAccess` for the access model referenced by `resourceType`.

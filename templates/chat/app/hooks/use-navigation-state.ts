@@ -1,8 +1,10 @@
 import {
   appBasePath,
   appPath,
+  markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
+import { useLocation } from "react-router";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -11,6 +13,7 @@ export interface NavigationState {
 }
 
 export function useNavigationState() {
+  const location = useLocation();
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
@@ -20,7 +23,16 @@ export function useNavigationState() {
     }),
     getCommandPath: (command) =>
       routerPath(command.path || pathForView(command.view)),
+    onNavigate: (_command, path) => {
+      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+        markAgentChatHomeHandoff("chat");
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 function viewForPath(pathname: string): string {

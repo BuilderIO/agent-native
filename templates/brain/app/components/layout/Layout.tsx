@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router";
-import { AgentSidebar } from "@agent-native/core/client";
+import { useLocation, useNavigate } from "react-router";
+import {
+  AgentSidebar,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TAB_ID } from "@/lib/tab-id";
 import {
   Sheet,
   SheetContent,
@@ -13,8 +20,15 @@ import { Button } from "@/components/ui/button";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isAskRoute = location.pathname === "/";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "brain",
+    activePath: location.pathname,
+    enabled: !isAskRoute,
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "brain", chatPath: "/" });
 
   useEffect(() => {
     setMobileSidebarOpen(false);
@@ -66,11 +80,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/");
+  }
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
       {sidebarFrame}
       <AgentSidebar
         position="right"
+        chatViewTransition
+        storageKey="brain"
+        browserTabId={TAB_ID}
+        openOnChatRunning={chatHomeHandoffActive}
+        onFullscreenRequest={openAskAgentFullscreen}
         emptyStateText="Ask Brain about the company."
         suggestions={[
           "What do we tell enterprise prospects about security?",

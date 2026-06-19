@@ -1,6 +1,6 @@
 ---
 title: "Clips"
-description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — all transcribed, summarized, and searchable in one app you own."
+description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — paste Clips links into agents and they can read transcripts, visuals, and summaries."
 ---
 
 # Clips
@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 ![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
 
 ## What you can do with it
 
@@ -27,8 +27,27 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
+
+## Agent-readable clips
+
+Paste a normal public Clips share link into an agent. The share page advertises
+a compact agent context URL, and that context points to the transcript and frame
+APIs, so models that only accept text or still images can still understand what
+happened in the recording.
+
+| Endpoint                                          | What agents get                                                                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
+
+The endpoints follow the same public/password/expiry rules as the share page.
+Password-protected clips require the password once; successful responses return
+short-lived tokenized links so downstream agents do not need the plaintext
+password.
 
 ## Getting started
 
@@ -43,7 +62,7 @@ Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 4. **Search and reuse.** Ask for the clip, quote, action item, or decision you
    need, then share the result with the right visibility.
 
-## Useful Prompts
+### Useful prompts
 
 - "Summarize this clip for a product update."
 - "Find the meeting where we discussed the rollout plan."
@@ -55,7 +74,7 @@ Live demo: [clips.agent-native.com](https://clips.agent-native.com).
 
 The rest of this doc is for anyone forking the Clips template or extending it.
 
-### Scaffolding
+### Quick start
 
 ```bash
 npx @agent-native/core@latest create my-clips --standalone --template clips
@@ -69,6 +88,18 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
+
+### Key features (technical)
+
+**One library, three capture types.** Screen recordings, calendar-sourced meetings, and push-to-talk dictations all live in the same searchable library. Recordings and transcripts are deliberately split into separate tables so the library grid and the transcript view each render fast.
+
+**Transcript and AI pipeline.** Each recording gets timestamped transcript segments (`{startMs, endMs, text}`), an auto-generated title, summary, and chapter markers. `cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features (titles, summaries, quotes) delegate to the agent chat.
+
+**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching accumulate in a recording's `edits_json` rather than re-encoding. The client concatenates and exports through ffmpeg.wasm, so the original media stays intact.
+
+**Agent-readable share links.** A public Clips share link advertises a compact agent context URL that points at the transcript and frame APIs, so text- and image-only models can understand a recording without ingesting raw video — see [Agent-readable clips](#agent-readable-clips) above.
+
+**Meetings compose with recordings.** A meeting owns the recording it captures, but the `recordings` row stays the source of truth for the video and per-segment transcript instead of duplicating media.
 
 ### Data model
 

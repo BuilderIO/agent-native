@@ -1,6 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { IconLink, IconMail, IconCode } from "@tabler/icons-react";
-import { appPath, useActionQuery } from "@agent-native/core/client";
+import {
+  appBasePath,
+  appPath,
+  useActionQuery,
+} from "@agent-native/core/client";
 import {
   Popover,
   PopoverTrigger,
@@ -25,6 +29,7 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { buildAgentApiUrls } from "../../../shared/agent-context";
 
 const PUBLIC_DESCRIPTION =
   "Anyone with the link can view — sign in to comment or react";
@@ -39,6 +44,7 @@ export interface ShareRecordingPopoverProps {
   recordingTitle?: string;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  hasPassword?: boolean;
   /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
   open?: boolean;
@@ -65,6 +71,7 @@ export function ShareRecordingPopover({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  hasPassword = false,
   children,
   open,
   onOpenChange,
@@ -81,6 +88,7 @@ export function ShareRecordingPopover({
           recordingTitle={recordingTitle}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
+          hasPassword={hasPassword}
         />
       </PopoverContent>
     </Popover>
@@ -97,6 +105,7 @@ export function ShareRecordingDialog({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  hasPassword = false,
   open,
   onOpenChange,
 }: ShareRecordingDialogProps) {
@@ -111,6 +120,7 @@ export function ShareRecordingDialog({
           recordingTitle={recordingTitle}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
+          hasPassword={hasPassword}
           reserveCloseButton
         />
       </DialogContent>
@@ -123,18 +133,20 @@ function ShareRecordingContent({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  hasPassword = false,
   reserveCloseButton = false,
 }: {
   recordingId: string;
   recordingTitle?: string;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  hasPassword?: boolean;
   reserveCloseButton?: boolean;
 }) {
   const shareUrl =
     typeof window === "undefined"
       ? ""
-      : `${window.location.origin}/share/${recordingId}`;
+      : absoluteAppUrl(`/share/${recordingId}`);
 
   const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
     resourceType: "recording",
@@ -179,6 +191,7 @@ function ShareRecordingContent({
             canManage={canManage}
             videoUrl={videoUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
+            hasPassword={hasPassword}
           />
         </TabsContent>
 
@@ -215,6 +228,7 @@ function LinkTab({
   canManage,
   videoUrl,
   animatedThumbnailUrl,
+  hasPassword,
 }: {
   recordingId: string;
   shareUrl: string;
@@ -222,6 +236,7 @@ function LinkTab({
   canManage: boolean;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  hasPassword: boolean;
 }) {
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
     "recording",
@@ -232,6 +247,46 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const publicAgentContextUrl =
+    typeof window === "undefined"
+      ? ""
+      : buildAgentApiUrls(recordingId, {
+          origin: window.location.origin,
+          basePath: appBasePath(),
+        }).contextUrl;
+  const [tokenizedAgentContextUrl, setTokenizedAgentContextUrl] = useState("");
+
+  useEffect(() => {
+    if (!isPublic || !hasPassword || typeof window === "undefined") {
+      setTokenizedAgentContextUrl("");
+      return;
+    }
+
+    let cancelled = false;
+    async function loadTokenizedAgentContextUrl() {
+      setTokenizedAgentContextUrl("");
+      const res = await fetch(publicAgentContextUrl, {
+        credentials: "include",
+      }).catch(() => null);
+      if (!res?.ok) return;
+      const payload = await res.json().catch(() => null);
+      const contextUrl =
+        typeof payload?.apis?.context?.url === "string"
+          ? payload.apis.context.url
+          : "";
+      if (!cancelled) setTokenizedAgentContextUrl(contextUrl);
+    }
+
+    void loadTokenizedAgentContextUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPassword, isPublic, publicAgentContextUrl]);
+
+  const agentContextUrl = hasPassword
+    ? tokenizedAgentContextUrl
+    : publicAgentContextUrl;
+  const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
 
   return (
     <div className="space-y-4">
@@ -248,6 +303,19 @@ function LinkTab({
         value={shareUrl}
         disabled={isPending || (!isPublic && canManage)}
       />
+
+      <CopyField
+        label="Share with agents"
+        value={agentContextUrl}
+        disabled={agentShareDisabled}
+      />
+
+      {isPublic && hasPassword ? (
+        <p className="text-xs text-muted-foreground">
+          This agent URL uses a short-lived token, so agents can read the clip
+          without exposing the password.
+        </p>
+      ) : null}
 
       {!isPublic && canManage ? (
         <MakePublicCard

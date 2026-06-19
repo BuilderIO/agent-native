@@ -51,10 +51,8 @@ The panel runs in one of two tool modes:
   [Agent-Native Code UI](/docs/code-agents-ui).
 
 "Code mode" is the agent-capability toggle — distinct from environment dev mode
-(`NODE_ENV` / Vite). For back-compat the underlying `AGENT_MODE` env var, the
-`/_agent-native/agent-chat/mode` endpoint (whose payload still uses `devMode`),
-and the `agent-chat.mode` settings key are unchanged. The client hook is
-`useCodeMode()` (the older `useDevMode()` remains as a deprecated alias).
+(`NODE_ENV` / Vite). The client hook is `useCodeMode()`. (See
+[Compatibility notes](#compatibility) for the back-compat aliases.)
 
 In the local dev frame, the settings cog toggles between these modes. Switching
 off Code mode hides the frame's own sidebar and shows the app's in-app agent
@@ -128,3 +126,14 @@ pnpm dev
 ```
 
 The local dev frame (the private `@agent-native/frame` package in the framework repo) is an internal tooling package that is not published to npm. It loads the active app's dev server in an iframe and mounts the embedded panel beside it, selecting the app via the `app` query param. The integrated CLI terminal requires Agent Native Desktop, which provides the local code and PTY access the terminal needs; without it, the panel shows the chat surface and prompts you to open Desktop to use the CLI.
+
+## Compatibility notes {#compatibility}
+
+The "Code mode" concept was previously named "dev mode," so a few back-compat
+names persist. You can ignore these unless you are maintaining older integration
+code:
+
+- The underlying `AGENT_MODE` env var, the `/_agent-native/agent-chat/mode`
+  endpoint (whose payload key is still `devMode`), and the `agent-chat.mode`
+  settings key are unchanged.
+- `useDevMode()` remains as a deprecated alias for `useCodeMode()`.

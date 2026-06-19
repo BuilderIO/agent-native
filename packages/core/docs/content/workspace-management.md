@@ -5,9 +5,9 @@ description: "Branching, CODEOWNERS, PR review, and how Dispatch handles runtime
 
 # Workspace Governance
 
-This guide covers the operational side of running an agent-native workspace — how to branch, who reviews what, how to set up code ownership, and how the Dispatch control plane fits into your governance model.
+> **Which workspace doc?** This page covers **governance** — who reviews, approves, and owns what across many apps in one repo. For what a workspace _is_ (the customization layer) see [Workspace](/docs/workspace); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
 
-For workspace setup, shared auth, and deployment, see [Multi-App Workspaces](/docs/multi-app-workspace).
+This guide covers the operational side of running an agent-native workspace — how to branch, who reviews what, how to set up code ownership, and how the Dispatch control plane fits into your governance model.
 
 ## Branching
 

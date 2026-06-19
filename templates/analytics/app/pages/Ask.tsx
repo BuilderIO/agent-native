@@ -1,13 +1,31 @@
-import { AgentChatSurface } from "@agent-native/core/client";
+import { useEffect } from "react";
+import {
+  AgentChatSurface,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 
 export default function AskPage() {
+  useEffect(() => {
+    function handleChatRunning(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.isRunning === true) markAgentChatHomeHandoff("analytics");
+    }
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
+        chatViewTransition
         className="analytics-chat-panel"
         defaultMode="chat"
-        restoreActiveThread={false}
+        storageKey="analytics"
+        browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

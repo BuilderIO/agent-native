@@ -654,6 +654,7 @@ export default function RecordingPage() {
             recordingTitle={recording.title}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
+            hasPassword={Boolean(recording.hasPassword)}
           >
             <Button
               className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"

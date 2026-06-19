@@ -9,21 +9,7 @@ description: "React hooks and utilities for agent-native apps: sendToAgentChat, 
 
 These client/React APIs are exported from both `@agent-native/core` and `@agent-native/core/client`. Import them from `@agent-native/core/client` (the browser entry) for clarity and correct bundling, since the bare `@agent-native/core` root resolves to the Node build by default.
 
-## File-Based Routing {#file-based-routing}
-
-Agent-native apps use **React Router v7** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention — dots separate URL segments inside a single filename.
-
-### File → URL mapping
-
-| File                  | URL                | Notes                                  |
-| --------------------- | ------------------ | -------------------------------------- |
-| `_index.tsx`          | `/`                | Index route                            |
-| `settings.tsx`        | `/settings`        | Simple page                            |
-| `inbox.$threadId.tsx` | `/inbox/:threadId` | Dot = `/`, `$` = dynamic param         |
-| `_app.tsx`            | (no URL segment)   | Pathless layout — prefix with `_`      |
-| `inbox/route.tsx`     | `/inbox`           | Folder form — `route.tsx` is the index |
-
-Prefix a segment with `$` for a dynamic param. Prefix with `_` to make it a pathless layout route (no URL segment). Templates use `flatRoutes()` — the dot-notation file above is primary; the nested-folder form `inbox/route.tsx` also works.
+For file-based routing — adding pages, dynamic params, and navigation — see [Routing](/docs/routing).
 
 ## Fetching and Mutating Data {#fetching-mutating}
 
@@ -47,70 +33,9 @@ mutate({ name: "Alice", company: "Acme" });
 await callAction("archive-lead", { leadId });
 ```
 
----
-
-### Adding a new page
-
-Create the file and export a default component:
-
-```tsx
-// app/routes/settings.tsx
-export function meta() {
-  return [{ title: "Settings" }];
-}
-
-export default function SettingsPage() {
-  return <div>Settings</div>;
-}
-```
-
-That's it — React Router picks it up automatically, no registration needed.
-
-### Dynamic params
-
-```tsx
-// app/routes/inbox/$threadId.tsx
-import { useParams } from "react-router";
-
-export default function ThreadPage() {
-  const { threadId } = useParams();
-  return <div>Thread: {threadId}</div>;
-}
-```
-
-### Navigation
-
-Use `<Link>` for client-side navigation and `useNavigate()` for programmatic navigation:
-
-```tsx
-import { Link, useNavigate } from "react-router";
-
-// In JSX
-<Link to="/settings">Settings</Link>;
-
-// Programmatic
-const navigate = useNavigate();
-navigate(`/inbox/${threadId}`);
-```
-
----
-
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.
-
-When the app route is running inside an MCP App embed created with `embedApp()`,
-auto-submitted messages (`submit` omitted or `true`) are forwarded to the MCP
-App host bridge, which asks the containing host to add hidden context and send
-the visible user turn. `context` is sent as model context before the visible
-message, so it stays model-visible without being posted as user-facing chat or
-concatenated into the host's visible prompt.
-`submit: false` keeps the local prefill/review behavior because MCP Apps do not
-define a standard draft-prefill API.
-
-Internally this is the submitted-chat path sometimes surfaced as
-`agentNative.submitChat`; app code should call `sendToAgentChat()` rather than
-posting that event directly.
+Send a message to the agent chat via postMessage — the common way to delegate an AI task from a UI interaction. Pass `context` for hidden model context and `submit: true` to send immediately, or `submit: false` to prefill a draft the user reviews first.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client";
@@ -129,6 +54,15 @@ sendToAgentChat({
   submit: false,
 });
 ```
+
+Inside an MCP App embed created with `embedApp()`, auto-submitted messages
+(`submit` omitted or `true`) are forwarded to the MCP App host bridge, which
+asks the containing host to add hidden context and send the visible user turn.
+`context` stays model-visible without being posted as user-facing chat.
+`submit: false` keeps the local prefill/review behavior because MCP Apps do not
+define a standard draft-prefill API. Internally this is the submitted-chat path
+sometimes surfaced as `agentNative.submitChat`; app code should call
+`sendToAgentChat()` rather than posting that event directly.
 
 ### Silent background sends {#background-send}
 

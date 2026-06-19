@@ -1,10 +1,12 @@
 import type { NavigateFunction, NavigateOptions } from "react-router";
+import { setAgentSidebarOpenPreference } from "./agent-sidebar-state.js";
 
 export const AGENT_CHAT_VIEW_TRANSITION_NAME = "agent-native-chat";
 export const AGENT_CHAT_VIEW_TRANSITION_CLASS =
   "agent-native-chat-view-transition";
 export const AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT =
   "agentNative.chatViewTransitionPrepare";
+export const AGENT_CHAT_HOME_HANDOFF_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface AgentChatViewTransition {
   readonly ready: Promise<void>;
@@ -20,6 +22,11 @@ export interface AgentChatViewTransitionOptions {
   disabled?: boolean;
   /** Respect `prefers-reduced-motion: reduce`. Defaults to true. */
   respectReducedMotion?: boolean;
+}
+
+export interface AgentChatHomeHandoffOptions {
+  /** How long the handoff marker remains valid. Defaults to 6 hours. */
+  ttlMs?: number;
 }
 
 type ViewTransitionDocument = Document & {
@@ -41,6 +48,13 @@ function prefersReducedMotion(): boolean {
     return false;
   }
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function agentChatHomeHandoffKey(storageKey?: string | null): string {
+  const suffix = storageKey?.trim();
+  return suffix
+    ? `agent-native.${suffix}.chat-home-handoff`
+    : "agent-native.chat-home-handoff";
 }
 
 export function supportsAgentChatViewTransition(
@@ -102,6 +116,49 @@ export function startAgentChatViewTransition(
   }
 
   return observeTransitionRejections(startViewTransition.call(doc, update));
+}
+
+/**
+ * Mark that a full-page chat is navigating into an app route that should show
+ * the same chat in AgentSidebar. Pair with `consumeAgentChatHomeHandoff()` in
+ * the destination layout.
+ */
+export function markAgentChatHomeHandoff(storageKey?: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      agentChatHomeHandoffKey(storageKey),
+      String(Date.now()),
+    );
+  } catch {}
+  setAgentSidebarOpenPreference(true);
+}
+
+/**
+ * Consume a recent full-page-chat handoff marker. Returns true only once per
+ * marker, so layouts can keep `openOnChatRunning` scoped to the route that
+ * actually received the handoff.
+ */
+export function consumeAgentChatHomeHandoff(
+  storageKey?: string | null,
+  options: AgentChatHomeHandoffOptions = {},
+): boolean {
+  if (typeof window === "undefined") return false;
+
+  let startedAt = 0;
+  const key = agentChatHomeHandoffKey(storageKey);
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    startedAt = raw ? Number.parseInt(raw, 10) : 0;
+    window.sessionStorage.removeItem(key);
+  } catch {
+    startedAt = 0;
+  }
+
+  const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
+  const active = Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
+  if (active) setAgentSidebarOpenPreference(true);
+  return active;
 }
 
 /**

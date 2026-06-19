@@ -12,12 +12,12 @@ If you want the smallest action-only runtime with no browser UI, start with [Pur
 <!-- screenshot:
   app: chat
   view: /
-  shows: Full-page chat app with standard left sidebar, chat threads on the left, centered composer, suggested prompts, and no domain data
+  shows: Full-page chat app with standard left sidebar, centered empty-state composer, model controls, and no domain data
   account: screenshot-account (no domain data needed — chat ships with no seed schema)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
+  capture: 2434x1440 app screenshot
 -->
 
-![Chat template with a full-page agent chat surface and thread sidebar](/screenshots/chat.png)
+![Chat template with a centered agent composer and app navigation sidebar](/screenshots/chat.png)
 
 ## What's in it {#whats-in-it}
 
@@ -60,7 +60,35 @@ Or start with no UI and add a chat surface later:
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-From there, copy the Chat template's `/` route and sidebar thread list into your app, or scaffold a Chat app and move your headless actions into its `actions/` directory. The key invariant stays the same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
+From there, copy the Chat template's `/` route and sidebar thread list into your app, or scaffold a Chat app and move the actions from your headless agent into its `actions/` directory. The key invariant stays the same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
+
+## First code to inspect {#first-code}
+
+- `actions/hello.ts` is the starter behavior the agent can call. Replace it or
+  add actions beside it.
+- `app/routes/_index.tsx` renders the full-page chat surface. Adjust the
+  suggestions, empty state, composer, or surrounding layout here.
+- `AGENTS.md` tells the built-in agent how to work inside this app.
+
+The chat page is intentionally thin:
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
 
 ## Use your own agent backend {#own-agent-backend}
 

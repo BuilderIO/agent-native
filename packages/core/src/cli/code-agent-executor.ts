@@ -201,7 +201,7 @@ export async function executeCodeAgentRun(
     options.engine ?? (await resolveExecutorEngine(requestedEngine));
   if (!engine) {
     const message =
-      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or select Codex CLI after running `codex login`.";
+      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or run `codex login` to use Codex CLI.";
     options.stdout?.write(`${message}\n`);
     appendCodeAgentTranscriptEvent({
       runId: existing.id,

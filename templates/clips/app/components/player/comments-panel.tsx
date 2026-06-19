@@ -5,6 +5,8 @@ import {
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
+  IconMessageCircle,
+  IconPlus,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -95,6 +97,12 @@ export interface CommentsPanelProps {
    * sign-in prompt on the public share page.
    */
   onUnauthenticated?: (intent: "comment" | "react") => void;
+  /**
+   * The public share page uses a quieter Loom-style activity panel:
+   * composer first, empty state centered below. The authenticated recording
+   * editor keeps the denser bottom-composer layout.
+   */
+  presentation?: "default" | "share";
 }
 
 export function CommentsPanel(props: CommentsPanelProps) {
@@ -109,8 +117,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
     queryKey,
     selectComments = defaultLens.selectComments,
     applyComments = defaultLens.applyComments,
+    presentation = "default",
   } = props;
   const isSignedIn = !!currentUserEmail;
+  const isSharePresentation = presentation === "share";
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
@@ -306,13 +316,36 @@ export function CommentsPanel(props: CommentsPanelProps) {
     addComment.mutate(vars);
   }
 
+  const composer = (
+    <CommentComposer
+      draft={draft}
+      replyTo={replyTo}
+      currentMs={currentMs}
+      currentUserEmail={currentUserEmail}
+      isSignedIn={isSignedIn}
+      isSharePresentation={isSharePresentation}
+      enableComments={enableComments}
+      onDraftChange={setDraft}
+      onCancelReply={() => setReplyTo(null)}
+      onSubmit={submit}
+      onUnauthenticated={onUnauthenticated}
+    />
+  );
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full flex-col">
+      {isSharePresentation && enableComments ? (
+        <div className="border-b border-border px-4 py-4">{composer}</div>
+      ) : null}
+
+      <div
+        className={cn(
+          "flex-1 overflow-y-auto",
+          isSharePresentation && "flex min-h-0 flex-col",
+        )}
+      >
         {sortedThreads.length === 0 ? (
-          <div className="p-6 text-sm text-muted-foreground text-center">
-            No comments yet. Add one at the current timestamp.
-          </div>
+          <EmptyCommentsState isSharePresentation={isSharePresentation} />
         ) : (
           <ul className="divide-y divide-border">
             {sortedThreads.map((thread) => {
@@ -376,70 +409,179 @@ export function CommentsPanel(props: CommentsPanelProps) {
         )}
       </div>
 
-      {!enableComments ? (
-        <div className="border-t border-border p-3 text-xs text-muted-foreground">
-          Comments are disabled for this recording.
-        </div>
-      ) : !isSignedIn && onUnauthenticated ? (
-        <div className="border-t border-border p-3 flex items-center justify-between gap-3 bg-background">
-          <span className="text-xs text-muted-foreground">
-            Sign in to leave a comment.
-          </span>
-          <Button
-            size="sm"
-            onClick={() => onUnauthenticated("comment")}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
-          >
-            Sign in
-          </Button>
-        </div>
-      ) : (
-        <div className="border-t border-border p-3 space-y-2 bg-background">
-          {replyTo ? (
-            <div className="flex items-center justify-between text-xs text-muted-foreground rounded bg-accent/50 px-2 py-1">
-              <span>
-                Replying to{" "}
-                <span className="font-medium text-foreground">
-                  {displayName(replyTo)}
-                </span>
-              </span>
-              <button
-                onClick={() => setReplyTo(null)}
-                className="hover:text-foreground"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <div className="text-[11px] text-muted-foreground px-1">
-              Comment at{" "}
-              <span className="font-mono">{msToClock(currentMs)}</span>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={replyTo ? "Write a reply…" : "Leave a comment…"}
-              className="min-h-[60px] resize-none text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-            />
-            <Button
-              onClick={submit}
-              disabled={!draft.trim()}
-              size="icon"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
-            >
-              <IconSend className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+      {!isSharePresentation ? composer : null}
+    </div>
+  );
+}
+
+function EmptyCommentsState({
+  isSharePresentation,
+}: {
+  isSharePresentation: boolean;
+}) {
+  if (!isSharePresentation) {
+    return (
+      <div className="p-6 text-center text-sm text-muted-foreground">
+        No comments yet. Add one at the current timestamp.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-8 py-12 text-center">
+      <div className="relative mb-5 flex size-16 items-center justify-center text-muted-foreground/40">
+        <IconMessageCircle className="size-16 stroke-[1.35]" />
+        <span className="absolute -right-1 top-1 flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+          <IconPlus className="size-4" />
+        </span>
+      </div>
+      <p className="text-base font-semibold text-foreground">
+        Be the first to comment
+      </p>
+      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
+        Leave a note at the top of this panel.
+      </p>
+    </div>
+  );
+}
+
+function CommentComposer({
+  draft,
+  replyTo,
+  currentMs,
+  currentUserEmail,
+  isSignedIn,
+  isSharePresentation,
+  enableComments,
+  onDraftChange,
+  onCancelReply,
+  onSubmit,
+  onUnauthenticated,
+}: {
+  draft: string;
+  replyTo: Comment | null;
+  currentMs: number;
+  currentUserEmail?: string;
+  isSignedIn: boolean;
+  isSharePresentation: boolean;
+  enableComments: boolean;
+  onDraftChange: (value: string) => void;
+  onCancelReply: () => void;
+  onSubmit: () => void;
+  onUnauthenticated?: (intent: "comment" | "react") => void;
+}) {
+  if (!enableComments) {
+    return (
+      <div className="border-t border-border p-3 text-xs text-muted-foreground">
+        Comments are disabled for this recording.
+      </div>
+    );
+  }
+
+  if (!isSignedIn && onUnauthenticated) {
+    if (isSharePresentation) {
+      return (
+        <button
+          type="button"
+          onClick={() => onUnauthenticated("comment")}
+          className="flex min-h-16 w-full items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Avatar className="size-7 shrink-0">
+            <AvatarFallback className="bg-primary/15 text-xs text-primary">
+              A
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 flex-1 truncate">Leave a comment...</span>
+          <IconMoodSmile className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-between gap-3 border-t border-border bg-background p-3">
+        <span className="text-xs text-muted-foreground">
+          Sign in to leave a comment.
+        </span>
+        <Button
+          size="sm"
+          onClick={() => onUnauthenticated("comment")}
+          className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          Sign in
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "bg-background",
+        isSharePresentation
+          ? "space-y-2"
+          : "space-y-2 border-t border-border p-3",
       )}
+    >
+      {replyTo ? (
+        <div className="flex items-center justify-between rounded bg-accent/50 px-2 py-1 text-xs text-muted-foreground">
+          <span>
+            Replying to{" "}
+            <span className="font-medium text-foreground">
+              {displayName(replyTo)}
+            </span>
+          </span>
+          <button onClick={onCancelReply} className="hover:text-foreground">
+            Cancel
+          </button>
+        </div>
+      ) : !isSharePresentation ? (
+        <div className="px-1 text-[11px] text-muted-foreground">
+          Comment at <span className="font-mono">{msToClock(currentMs)}</span>
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "flex gap-2",
+          isSharePresentation &&
+            "items-start rounded-md border border-border bg-background p-3 shadow-sm",
+        )}
+      >
+        {isSharePresentation ? (
+          <Avatar className="mt-0.5 size-7 shrink-0">
+            <AvatarFallback className="bg-primary/15 text-xs text-primary">
+              {initials(currentUserEmail ?? "Anonymous")}
+            </AvatarFallback>
+          </Avatar>
+        ) : null}
+        <Textarea
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          placeholder={replyTo ? "Write a reply..." : "Leave a comment..."}
+          className={cn(
+            "resize-none text-sm",
+            isSharePresentation
+              ? "min-h-10 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              : "min-h-[60px]",
+          )}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+        <Button
+          onClick={onSubmit}
+          disabled={!draft.trim()}
+          size="icon"
+          className={cn(
+            "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
+            isSharePresentation && "size-8",
+          )}
+        >
+          <IconSend className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 }

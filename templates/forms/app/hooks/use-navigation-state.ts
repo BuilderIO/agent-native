@@ -1,6 +1,9 @@
-import { appBasePath, useAgentRouteState } from "@agent-native/core/client";
+import {
+  appBasePath,
+  markAgentChatHomeHandoff,
+  useAgentRouteState,
+} from "@agent-native/core/client";
 import { useLocation } from "react-router";
-import { markFormsChatHomeHandoff } from "@/lib/chat-home-handoff";
 import {
   formsRoutePath,
   normalizeFormBuilderTab,
@@ -129,7 +132,7 @@ export function useNavigationState() {
     onNavigate: (_command, path) => {
       void prewarmFormsRoutePath(path);
       if (location.pathname === "/" && path !== "/") {
-        markFormsChatHomeHandoff();
+        markAgentChatHomeHandoff("forms");
       }
     },
   });

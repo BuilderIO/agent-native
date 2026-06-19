@@ -149,12 +149,12 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
-  "chat",
   "calendar",
   "content",
   "plan",
   "slides",
   "analytics",
+  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -285,7 +285,7 @@ function BidirectionalTabs() {
 export default function Home() {
   return (
     <>
-      <main>
+      <main className="docs-home-page">
         {/* Hero */}
         <section
           className="hero-section relative mx-auto flex min-h-[85vh] max-w-[1200px] items-center justify-center px-6"
@@ -399,8 +399,8 @@ export default function Home() {
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   Agent-Native is an open-source framework for building agents
-                  as real software: start with chat or headless actions, then
-                  add UI, jobs, and collaboration around the same actions.
+                  as real software: start with chat or headless agents, then add
+                  UI, jobs, and collaboration around the same actions.
                 </p>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   It gives you primitives for product-grade agentic software:
@@ -474,8 +474,8 @@ export default function Home() {
 
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
-          <div className="mx-auto grid max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
-            <div>
+          <div className="mx-auto grid min-w-0 max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
+            <div className="min-w-0">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 Try it with a skill
               </h2>

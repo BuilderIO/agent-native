@@ -1,4 +1,8 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import {
+  markAgentChatHomeHandoff,
+  useAgentRouteState,
+} from "@agent-native/core/client";
+import { useLocation } from "react-router";
 import { rememberLastOpened } from "@/lib/last-opened";
 
 interface NavigationState {
@@ -11,6 +15,7 @@ interface NavigationState {
 // URL query params (filters) are synced separately by the framework's <URLSync />
 // under the `__url__` key, so the agent sees them in the <current-url> block.
 export function useNavigationState() {
+  const location = useLocation();
   useAgentRouteState<NavigationState>({
     getNavigationState: ({ pathname }) => {
       const state: NavigationState = { view: "overview" };
@@ -77,5 +82,14 @@ export function useNavigationState() {
       if (cmd.view === "about") return "/about";
       return "/";
     },
+    onNavigate: (_command, path) => {
+      if (location.pathname === "/ask" && pathnameFromPath(path) !== "/ask") {
+        markAgentChatHomeHandoff("analytics");
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }

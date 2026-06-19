@@ -1,0 +1,182 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockAppStateGet = vi.hoisted(() => vi.fn());
+const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
+const mockGetSession = vi.hoisted(() => vi.fn());
+const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  appStateGet: (...args: unknown[]) => mockAppStateGet(...args),
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+  signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  asc: vi.fn((column: unknown) => column),
+  eq: vi.fn((column: unknown, value: unknown) => [column, value]),
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => mockRecordings.rows,
+          orderBy: async () => [],
+        }),
+      }),
+    }),
+  }),
+  schema: {
+    recordings: {
+      id: "recording.id",
+    },
+    recordingTranscripts: {
+      recordingId: "transcript.recordingId",
+    },
+    recordingCtas: {
+      recordingId: "cta.recordingId",
+      createdAt: "cta.createdAt",
+    },
+  },
+}));
+
+vi.mock("./share-password.js", () => ({
+  verifySharePassword: vi.fn(() => false),
+}));
+
+import {
+  loadPublicAgentAccess,
+  loadRecordingMediaBytes,
+} from "./public-agent-context";
+
+const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
+
+function makeRecording(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "rec-1",
+    title: "Clip",
+    description: "",
+    ownerEmail: "owner@example.com",
+    visibility: "public",
+    password: null,
+    archivedAt: null,
+    trashedAt: null,
+    expiresAt: null,
+    videoUrl: "https://media.example.com/clip.webm",
+    videoFormat: "webm",
+    videoSizeBytes: null,
+    durationMs: 10_000,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function streamFrom(chunks: Uint8Array[]) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+}
+
+describe("public agent context access", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordings.rows = [];
+    mockGetSession.mockResolvedValue(null);
+    mockSignShortLivedToken.mockReturnValue("signed-token");
+    mockVerifyShortLivedToken.mockReturnValue({ ok: false });
+  });
+
+  it("mints a short-lived API token for owners sharing password-protected public clips", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        password: "encrypted-password",
+      }),
+    ];
+    mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.access.apiToken).toBe("signed-token");
+    }
+    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+      resourceId: "rec-1",
+    });
+  });
+});
+
+describe("loadRecordingMediaBytes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "4";
+  });
+
+  afterEach(() => {
+    if (originalMaxMediaBytes === undefined) {
+      delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
+    } else {
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = originalMaxMediaBytes;
+    }
+  });
+
+  it("rejects oversized local blob payloads from their estimated decoded length", async () => {
+    mockAppStateGet.mockResolvedValue({
+      data: Buffer.from("12345").toString("base64"),
+      mimeType: "video/webm",
+    });
+
+    await expect(
+      loadRecordingMediaBytes(
+        makeRecording({
+          videoUrl: "/api/video/rec-1",
+        }) as any,
+      ),
+    ).rejects.toThrow(/too large/i);
+  });
+
+  it("normalizes data-url local blobs before decoding", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "10";
+    mockAppStateGet.mockResolvedValue({
+      data: `data:video/webm;base64,${Buffer.from("hi").toString("base64")}`,
+      mimeType: "application/octet-stream",
+    });
+
+    const result = await loadRecordingMediaBytes(
+      makeRecording({
+        videoUrl: "/api/video/rec-1",
+      }) as any,
+    );
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("hi");
+    expect(result.mimeType).toBe("video/webm");
+  });
+
+  it("stops streaming remote media once the configured byte limit is exceeded", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamFrom([Buffer.from("12"), Buffer.from("345")]), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    await expect(
+      loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toThrow(/too large/i);
+  });
+});

@@ -1,5 +1,10 @@
-import { AgentChatSurface } from "@agent-native/core/client";
+import { useEffect } from "react";
+import {
+  AgentChatSurface,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
+import { TAB_ID } from "@/lib/tab-id";
 
 export function meta() {
   return [
@@ -13,13 +18,26 @@ export function meta() {
 }
 
 export default function ChatRoute() {
+  useEffect(() => {
+    function handleChatRunning(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");
+    }
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
+        chatViewTransition
         className="h-full"
         defaultMode="chat"
-        restoreActiveThread={false}
+        storageKey="chat"
+        browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

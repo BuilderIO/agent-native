@@ -282,36 +282,38 @@ Custom routes that touch ownable data must call `getSession(event)` and wrap dat
 
 ## Write Agent Instructions {#write-agents-md}
 
-`AGENTS.md` is the agent's map of your app. Keep it specific and operational:
+`AGENTS.md` is the agent's map of your app — a small, skimmable file with a
+purpose line, core rules, application-state keys, an action table, and a skills
+index:
 
 ```markdown
 # My Template
 
-## Product Model
+One workspace for projects, tasks, and notes.
 
-Projects are the top-level resource. They contain tasks and notes.
+## Core Rules
 
-## Navigation State
+- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Use `view-screen` before acting on "this project" if the screen is unclear.
 
-- `navigation.view`: `home` or `project`
-- `navigation.projectId`: selected project when on a project page
+## Application State
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
 
 ## Actions
 
-| Action           | Purpose                     |
-| ---------------- | --------------------------- |
-| `list-projects`  | List accessible projects    |
-| `create-project` | Create a project            |
-| `update-project` | Rename or archive a project |
-
-## Rules
-
-- Use `view-screen` before acting on "this project" if the current screen is unclear.
-- Use actions for project changes; do not write raw SQL except for one-off maintenance/debugging when no action exists.
-- For shared projects, check access through framework sharing helpers.
+| Action           | Purpose                  |
+| ---------------- | ------------------------ |
+| `list-projects`  | List accessible projects |
+| `create-project` | Create a project         |
 ```
 
-Update `AGENTS.md` whenever you add a new action, route, state key, or recurring workflow. See [Writing Agent Instructions](/docs/writing-agent-instructions) for how to keep `AGENTS.md` skimmable and word skill and tool descriptions so the agent triggers them reliably.
+Update `AGENTS.md` whenever you add a new action, route, state key, or recurring
+workflow. [Writing Agent Instructions](/docs/writing-agent-instructions) is the
+full guide — how to keep `AGENTS.md` skimmable, what belongs in each of the four
+guidance surfaces, and how to word skill and tool descriptions so the agent
+triggers them reliably.
 
 ## Add Skills {#skills}
 

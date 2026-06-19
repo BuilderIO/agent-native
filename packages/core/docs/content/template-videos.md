@@ -75,15 +75,13 @@ pnpm dev
 
 Open the studio in your browser, create a composition, and start from blank. Ask the agent something like "add a logo reveal that fades in at 2 seconds" and it will edit the composition for you.
 
-Live demo: [videos.agent-native.com](https://videos.agent-native.com).
-
 ### Key features (technical)
 
-### React-based compositions
+#### React-based compositions
 
 Every video is a React component built on Remotion primitives (`AbsoluteFill`, `useCurrentFrame`, `useVideoConfig`). The template ships one in-code composition — `BlankComposition` in `app/remotion/compositions/BlankComposition.tsx` — and `app/remotion/registry.ts` exports an empty `compositions` array by default. User and example compositions (kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows) live in SQL and load through `app/hooks/use-database-compositions.ts`. You can still add a code composition by dropping a `.tsx` file in `app/remotion/compositions/` and registering it in `app/remotion/registry.ts`.
 
-### Timeline tracks
+#### Timeline tracks
 
 Animations are tracks, not hardcoded frame checks. A track has `startFrame`, `endFrame`, `easing`, and a list of `animatedProps` (`opacity`, `translateY`, `scale`, rotation, colors, etc.). Three track shapes:
 
@@ -93,35 +91,35 @@ Animations are tracks, not hardcoded frame checks. A track has `startFrame`, `en
 
 Helper utilities in `app/remotion/trackAnimation.ts` (`findTrack`, `trackProgress`, `getPropValue`) wire a track's values into a component's render.
 
-### Easing curves
+#### Easing curves
 
 30+ easing curves ship in `app/types.ts` — linear, power1-4 in/out/inOut, back, bounce, circ, elastic, expo, sine, and Remotion's `spring`. The Properties panel shows a visual preview of the curve shape for each one.
 
-### Camera controls
+#### Camera controls
 
 Each composition has a dedicated `camera` track with six animatable properties: `translateX`, `translateY`, `scale`, `rotateX`, `rotateY`, `perspective`. The camera toolbar above the player has pan, zoom, and tilt tools — click a tool, drag on the preview, and a keyframe is auto-created at the current frame. `CameraHost` (in `app/remotion/CameraHost.tsx`) applies the chained CSS 3D transform to everything inside.
 
-### Multi-keyframe editing
+#### Multi-keyframe editing
 
 Every animated property supports an optional `keyframes` array. Interpolation is linear between keyframes, with hold-at-first and hold-at-last at the edges. In the timeline you can box-select keyframes, shift-click to add or remove, and drag groups while keeping relative timing.
 
-### Adjustable parameters
+#### Adjustable parameters
 
 Programmatic animations expose internal magic numbers as user-editable `parameters` — character width, drift distance, particle count, stagger delay. Inputs appear in the Properties panel with min/max/step bounds and save to localStorage automatically.
 
-### Interactive cursor system
+#### Interactive cursor system
 
 The `cursor` track drives a visible cursor that moves across the composition. Hover zones on interactive elements (buttons, tabs, inputs, cards) change the cursor appearance — arrow, pointer, or I-beam. See `app/remotion/hooks/useInteractiveComponent.ts` and `app/remotion/ui-components/InteractiveCard.tsx`.
 
-### View range and repeat playback
+#### View range and repeat playback
 
 The timeline has a range navigator at the bottom (AE-style triangular handles). Drag to zoom and pan the visible time window. Playback in the player is constrained to that range, with a repeat toggle that loops inside it.
 
-### Render output
+#### Render output
 
 Composition size, fps, and render quality are per-composition in the Properties panel. Render quality is supersampling — 1x, 2x, or 3x internal resolution to keep text and vectors crisp during camera zoom. Final render happens via the Remotion CLI to MP4 or WebM.
 
-### Composition persistence
+#### Composition persistence
 
 User edits (track values, parameter values, prop overrides, composition settings) persist to localStorage per composition. The **Save** button in the top-right of the composition view can write the current state back to `app/remotion/registry.ts` as TypeScript — so new users and sessions pick up the changes. That source-write path runs through `POST /api/save-composition-defaults`, which is gated to local development only; in production it returns a 403, and durable composition state lives in SQL instead.
 

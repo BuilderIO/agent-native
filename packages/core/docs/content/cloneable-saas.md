@@ -77,7 +77,7 @@ Not ready to scaffold? You can add agent-native superpowers to a coding agent yo
 
 ## Building on this
 
-- [**Getting Started**](/docs/getting-started) — create a minimal chat app or headless action
+- [**Getting Started**](/docs/getting-started) — create a minimal chat app or headless agent
 - [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane template

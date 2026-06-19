@@ -7,9 +7,16 @@ description: "An agent-native digital asset manager and cross-agent generation s
 
 Assets is an agent-native workspace for creating and managing brand-consistent media. It organizes uploads and generated results into libraries and folders, lets teams collect examples for blog heroes, diagrams, landing pages, product shots, videos, and logos, then routes generation through the agent chat so every asset can be reviewed and refined.
 
-Use it when your team needs reusable visual direction and searchable source assets instead of one-off generic media prompts.
-
 ![Assets library for brand media and generated output](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200)
+
+When you open the app, you see your libraries and folders on the left, the assets in the selected library in the middle, and a chat composer for generating new media. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
+
+## When to pick it
+
+- **Your team needs reusable visual direction**, not one-off generic media prompts — collect approved logos, product shots, and style examples so generations stay on brand.
+- **You want generated media reviewed and refined**, with a full audit log of prompts, models, references, and lineage for every run.
+- **Other apps need an asset picker or generator** — Slides, Design, Content, a blog editor, or a site builder can embed the picker or call Assets over A2A.
+- **You want brand media available from your coding agent** — Codex, Claude Code, Claude, or ChatGPT can generate and pick assets without leaving the chat.
 
 ## Getting started
 
@@ -95,7 +102,9 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 
 ### Data model
 
-All data lives in SQL via Drizzle ORM (binary media lives in object storage, or the local file-upload fallback during development). Schema: `templates/assets/server/db/schema.ts`. Libraries carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model. The SQL table names keep the legacy `image_*` prefix from when the app was called Images.
+All data lives in SQL via Drizzle ORM (binary media lives in object storage, or the local file-upload fallback during development). Schema: `templates/assets/server/db/schema.ts`. Libraries carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+Note: the SQL table names keep the legacy `image_*` prefix from when the app was called Images. They cover videos and other media too.
 
 | Table                            | What it holds                                                                                                                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

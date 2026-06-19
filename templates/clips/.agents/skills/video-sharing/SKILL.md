@@ -27,6 +27,7 @@ Read this skill before:
 - Wiring the Share dialog on a recording page
 - Adding a password or expiry UI
 - Building embed URLs (`?t=`, `?autoplay=`, `?hideControls=`)
+- Building AI-readable public clip URLs or transcript/frame endpoints
 - Debugging "why can't Alice see this video?"
 - Touching `server/routes/video/[id].ts` or `server/routes/share/[id].ts`
 
@@ -122,6 +123,30 @@ const { url } = await callAction("build-embed-url", {
 });
 // -> /embed/<shareId>?t=80&autoplay=1
 ```
+
+## Agent-readable public clips
+
+Public recordings also expose URLs meant for external agents:
+
+| Endpoint | Meaning |
+| -------- | ------- |
+| `/api/agent-context.json?id=<recordingId>` | Clip metadata, transcript summary, recommended frames, and API discovery links |
+| `/api/agent-transcript.json?id=<recordingId>` | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp |
+
+These endpoints follow the same access model as `/api/public-recording`:
+
+- Non-public clips return not found to anonymous callers.
+- Expired clips return expired.
+- Password-protected clips require `password=<pw>` once; successful JSON
+  responses include short-lived tokenized links so the plaintext password is not
+  copied into downstream agent prompts, browser history, or logs.
+- Frame extraction must use the checked recording media path and must not expose
+  raw provider URLs.
+
+The share popover's "Share with agents" field should copy the agent context URL,
+not raw transcript text. The context response points agents at the transcript and
+frame APIs so they can fetch only the visual context they need.
 
 ## View counting
 

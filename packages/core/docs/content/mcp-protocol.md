@@ -5,19 +5,16 @@ description: "Expose your agent-native app as a remote MCP server so Claude, Cha
 
 # MCP Protocol
 
-Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
+**This page: the lower-level MCP server reference.** How every agent-native app exposes its actions over MCP — the auto-mounted endpoint, auth modes, the `tools/call` / `ask-agent` surface, and custom mounting. Reach for it when you need server internals; for connecting a host, start with [External Agents](/docs/external-agents).
 
-**Which page do I need?**
+| If you want to…                                              | Read                                     |
+| ------------------------------------------------------------ | ---------------------------------------- |
+| Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
+| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)         |
+| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
+| Lower-level MCP server reference (auth, tools, custom mount) | **This page** — MCP Protocol             |
 
-| Goal                                                        | Page                                     |
-| ----------------------------------------------------------- | ---------------------------------------- |
-| Connect Claude / ChatGPT / Codex / Cursor to a hosted app   | [External Agents](/docs/external-agents) |
-| Make your app callable over MCP (server setup, auth, tools) | This page                                |
-| Give your app's agent more tools from external MCP servers  | [MCP Clients](/docs/mcp-clients)         |
-| App-to-app delegation via JSON-RPC                          | [A2A Protocol](/docs/a2a-protocol)       |
-| Build or embed interactive MCP App resources                | [MCP Apps](/docs/mcp-apps)               |
-
-If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to hosted agent-native apps, start with [External Agents](/docs/external-agents). It documents the recommended single Dispatch connector at `https://dispatch.agent-native.com/_agent-native/mcp`, direct per-app URLs for isolated app access, standard remote MCP OAuth, fallback config for older clients, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
+Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server, so external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, and VS Code GitHub Copilot can discover and call your app's actions directly — no extra code needed. If your goal is to _connect_ one of those hosts to a hosted app, [External Agents](/docs/external-agents) covers the recommended single Dispatch connector, per-app URLs, OAuth, MCP Apps inline UIs, and deep links. This page documents what sits underneath that.
 
 ## Overview {#overview}
 
@@ -103,24 +100,9 @@ See [MCP Apps](/docs/mcp-apps#mcp-app-bridge) for the full embed bridge details 
 
 ## Tools {#tools}
 
-Every caller gets a compact app-host catalog by default — chat-style app hosts
-(OAuth callers that request `mcp:apps` and generic authenticated remote
-HTTP/static-token callers), code/stdio developer clients, and the local CLI
-proxy alike: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and
-app-only `create_embed_session`), the template-declared app actions, and rare
-actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact
-too, normally advertising only the generic `open_app` embed resource. The
-catalog is never inferred from the client name or user-agent. The full action
-surface is served only on explicit opt-in — a token minted with `--full-catalog`
-(`catalog_scope: "full"`) or the deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1`
-override. `tool-search` is always available, including in the compact catalog:
-call it with no query for the full menu of tool names and one-line descriptions,
-or with a query for ranked matches with parameter summaries, to reach any tool
-on demand. `publicAgent.expose` remains the opt-in for safe read/ingest tools
-outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery
-small while keeping every tool reachable.
+Every caller gets a **compact catalog by default** (template-declared app actions plus the cross-app builtins), with the full action surface served only on explicit opt-in and `tool-search` always available to reach the rest. See [External Agents → Catalog tiers](/docs/external-agents#catalog-tiers) for the full explanation.
 
-The mapping is direct:
+Each action maps directly to one MCP tool:
 
 | Action property    | MCP tool property |
 | ------------------ | ----------------- |

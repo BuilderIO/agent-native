@@ -127,7 +127,16 @@ npx @agent-native/core@latest create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 
+If you prefer to name the template directly instead of using the picker:
+
+```bash
+npx @agent-native/core@latest create my-platform --template dispatch
+# add more apps in the same workspace as you go
+```
+
 Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
+
+There is no meaningful `--standalone` Dispatch: a control plane with nothing to coordinate is just an empty inbox. Scaffold it into a workspace with at least one domain app so it has agents to route to over A2A. (The flag still works and produces a runnable app, but the orchestrator has no specialists to delegate to until you add sibling apps.)
 
 ## First local run {#first-local-run}
 

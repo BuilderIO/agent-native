@@ -15,23 +15,60 @@ you want, then use the matching primitive.
 
 | Surface                       | Use it when                                                                                                 | Start with                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Headless agent/actions**    | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Headless agent**            | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
 | **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
 | **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
 | **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
 | **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
 
 Those are stages, not separate products. A workflow can start as a headless
-action, appear in chat as a table or chart, and later become a full screen in an
-app without changing the operation the agent calls.
+agent with one action, appear in chat as a table or chart, and later become a
+full screen in an app without changing the operation the agent calls.
 
-## Headless agent/actions {#headless}
+## Headless agent {#headless}
 
 Use the headless path when no one needs to stare at a custom app screen while
 the work runs: scheduled jobs, integrations, backend workflows, CLI loops,
 another agent, or an existing product calling into Agent-Native.
 
-The smallest local path is a headless scaffold plus one action:
+This is also the shape to reach for when **the agent _is_ the product** — the
+app-agent loop is the front door, not a dashboard. You send a request from the
+terminal, Slack, email, a scheduled job, another agent, or Chat — "summarize my
+unread emails," "post the daily metrics to Slack," "find the candidates who
+replied last week" — and the agent acts and returns the result wherever it
+belongs. It is still a real app, not a stateless prompt: actions, auth sessions,
+app state, thread/run history, settings, credentials, and share records all live
+in SQL.
+
+Pick this pattern when:
+
+- **The work happens in the background.** Most of the value is created while the user isn't looking — triage agents, daily-report agents, on-call responders.
+- **The output leaves the app.** The agent posts to Slack, sends email, or updates a third-party system; there's nothing to browse in-app.
+- **The domain is one-shot.** Research bot, summary generator, report writer — no persistent object that needs a list view.
+- **You're prototyping.** Ship the agent now; add richer UI later if users want one.
+
+If your product is built around persistent objects users browse, pivot, and
+share — emails, events, documents, charts — pick a [full application](#full-application)
+or a [template](/docs/cloneable-saas) instead; those add a full UI _plus_ the agent.
+
+### What ships in the box {#in-the-box}
+
+A headless app skips weeks of dashboard work, and it's channel-agnostic from day
+one — the same agent runs from the web, Slack, Telegram, email, and other agents
+because everything goes through the agent, not the UI. The trade-off is there's
+no "browse-everything-at-a-glance" view; if users need that, mix patterns and
+add a small status page or list view.
+
+When you add the built-in Chat shell, the framework provides five management
+surfaces you don't have to build: **Chat** (the main input), **Workspace**
+(skills, memory, instructions, sub-agents, connected MCP servers, scheduled
+jobs), **Job history**, **Thread history**, and **Settings**. Those are usually
+enough — talk to it, see what it's done, configure how it behaves. Reach for
+[Chat](/docs/template-chat) when you're ready to add that browser UI, or the
+[Dispatch template](/docs/template-dispatch) for a workspace-style starting
+point with Slack/Telegram, scheduled jobs, and shared secrets out of the box.
+
+The smallest local path is a headless agent scaffold plus one action:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
@@ -81,45 +118,20 @@ If another app or script needs to call the whole agent, use
 `agentNative.invoke("analytics", "...")` or the `agent-native invoke` CLI. That
 keeps cross-app work on the A2A path while local work stays on actions.
 
-Workers, jobs, integration webhooks, and custom hosts can use the server API
-directly. This is lower-level than actions: you provide the engine, model,
-messages, actions, and event sink yourself.
+Workers, jobs, integration webhooks, and custom hosts can drive the agent loop
+directly through the server API. This is lower-level than actions — you provide
+the engine, model, messages, actions, and event sink yourself:
 
 ```ts
-import {
-  actionsToEngineTools,
-  resolveEngine,
-  runAgentLoop,
-} from "@agent-native/core/server";
+import { runAgentLoop } from "@agent-native/core/server";
 
-const engine = await resolveEngine({ engineOption: undefined });
-const model = engine.defaultModel;
-const controller = new AbortController();
-
-await runAgentLoop({
-  engine,
-  model,
-  systemPrompt: "You are the reporting agent for this workspace.",
-  actions,
-  tools: actionsToEngineTools(actions),
-  messages: [
-    {
-      role: "user",
-      content: [{ type: "text", text: "Summarize this week's forms." }],
-    },
-  ],
-  send: (event) => {
-    // Persist, log, stream, or translate AgentChatEvent objects.
-  },
-  signal: controller.signal,
-  ownerEmail: user.email,
-  orgId: user.orgId,
-});
+await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
 ```
 
 For most apps, scheduled prompts and integration webhooks already call this loop
-for you. Reach for direct `runAgentLoop()` when you are building a custom
-headless host, eval runner, or server-side orchestration surface.
+for you. Reach for it directly only when building a custom headless host, eval
+runner, or server-side orchestration surface — see [Server — Production agent
+handler](/docs/server#agent-handler) for the full signature.
 
 ### Running against a folder {#folder-loop}
 
@@ -178,6 +190,48 @@ export default function ChatRoute() {
 }
 ```
 
+When an app has both a full-page chat tab and an `AgentSidebar`, use the same
+`storageKey` on both surfaces, enable `chatViewTransition`, and install the
+chat-home handoff helpers in the layout. Ordinary in-app links out of the chat
+page can then morph the full chat into the sidebar while keeping the active
+thread:
+
+```tsx
+import {
+  AgentChatSurface,
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client/chat";
+import { useLocation } from "react-router";
+
+function ChatRoute() {
+  return (
+    <AgentChatSurface mode="page" storageKey="my-app" chatViewTransition />
+  );
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const handoffActive = useAgentChatHomeHandoff({
+    storageKey: "my-app",
+    activePath: location.pathname,
+    enabled: location.pathname !== "/chat",
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "my-app", chatPath: "/chat" });
+
+  return (
+    <AgentSidebar
+      storageKey="my-app"
+      chatViewTransition
+      openOnChatRunning={handoffActive}
+    >
+      {children}
+    </AgentSidebar>
+  );
+}
+```
+
 The simplest embedded chat with your own chrome:
 
 ```tsx
@@ -195,14 +249,9 @@ components in the chat, without iframes. See [Native Chat UI](/docs/native-chat-
 ## Rich chat on your agent {#byo-agent}
 
 Use this path when your agent is already built with another framework or
-runtime and you want Agent-Native's chat UI around it.
-
-The [Chat template](/docs/template-chat) is still useful here: keep its app
-shell and thread UI, then swap the runtime behind the chat plugin or route.
-
-`AgentChatRuntime` is the boundary. Your runtime streams normalized events;
-Agent-Native renders the composer, transcript, tool calls, approvals, native
-widgets, and app layout.
+runtime and you want Agent-Native's chat UI around it. `AgentChatRuntime` is the
+boundary: your runtime streams normalized events, and Agent-Native renders the
+composer, transcript, tool calls, approvals, native widgets, and app layout.
 
 ```tsx
 import {
@@ -211,10 +260,7 @@ import {
 } from "@agent-native/core/client/chat";
 
 const runtime = createHttpAgentChatRuntime({
-  id: "external:support-agent",
-  label: "Support agent",
   endpoint: "/api/support-agent/chat",
-  headers: async () => ({ Authorization: `Bearer ${await getToken()}` }),
 });
 
 export function SupportAgentChat() {
@@ -222,40 +268,15 @@ export function SupportAgentChat() {
 }
 ```
 
-Use `createOpenAIAgentsChatRuntime()`,
-`createOpenAIResponsesChatRuntime()`, `createClaudeAgentChatRuntime()`,
-`createVercelAiChatRuntime()`, or `createAgUiChatRuntime()` when your endpoint
-already streams one of those event shapes. Use `createHttpAgentChatRuntime()`
-when your agent streams Agent-Native's normalized event shape directly:
+Ready-made runtime helpers exist for OpenAI Agents, OpenAI Responses, the Claude
+Agent SDK, the Vercel AI SDK, and AG-UI, plus the normalized HTTP runtime above
+for any other agent (Mastra, Flue, Eve, LangGraph, or a custom service). ACP is
+not the default end-user app chat protocol, and Agent-Native does not currently
+claim A2UI support.
 
-```ts
-import { createOpenAIAgentsChatRuntime } from "@agent-native/core/client/chat";
-
-const runtime = createOpenAIAgentsChatRuntime({
-  endpoint: "/api/openai-agent/chat",
-});
-```
-
-The endpoint can stream SSE or NDJSON events:
-
-```txt
-data: {"type":"message-delta","messageId":"m1","delta":{"type":"text","text":"I found 34 submissions."}}
-data: {"type":"tool-start","toolCall":{"id":"t1","name":"query","input":{"formId":"form_123"}}}
-data: {"type":"tool-done","toolCallId":"t1","toolName":"query","status":"completed","resultText":"34 rows"}
-data: {"type":"done","reason":"complete"}
-```
-
-For a trivial integration, returning `{ "text": "..." }` also works. For richer
-integrations, stream `message-*`, `tool-*`, `approval-request`, `status`,
-`artifact`, `file`, `usage`, `error`, and `done` events. Tool results can carry
-`chatUI` metadata so the same native table/chart/card renderers work with your
-agent too.
-
-This is the right place to adapt the OpenAI Agents SDK, Claude Agent SDK, Vercel
-AI SDK, Mastra, Flue, Eve, LangGraph, a custom service, or an AG-UI-compatible
-event stream. Do not use ACP as the default end-user app chat protocol; ACP is
-better framed as coding-agent/editor interoperability. Agent-Native does not
-currently claim A2UI support.
+[Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
+is the canonical home for the event shapes, the runtime helpers, and `chatUI`
+tool-result metadata. Start there when wiring an external agent into the chat.
 
 ## Embedded sidecar {#embedded-sidecar}
 
@@ -322,7 +343,7 @@ want a complete product shape.
 
 | If you are thinking...                                          | Choose                    |
 | --------------------------------------------------------------- | ------------------------- |
-| "I just need a callable tool or workflow."                      | Headless action           |
+| "I just need a callable tool or workflow."                      | Headless agent            |
 | "I want the framework's agent, but chat should be the main UI." | Rich chat on Agent-Native |
 | "I already have an agent; I need a polished chat UI for it."    | Rich chat on your agent   |
 | "I already have a SaaS app; add an agent beside it."            | Embedded sidecar          |

@@ -12,6 +12,7 @@ import {
   appPath,
   DevDatabaseLink,
   FeedbackButton,
+  navigateWithAgentChatViewTransition,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -31,6 +32,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+const BRAIN_CHAT_STORAGE_KEY = "brain";
+const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
 
 function formatThreadAge(updatedAt: number) {
   const diffMs = Math.max(0, Date.now() - updatedAt);
@@ -68,7 +72,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 
 function persistedActiveThreadId() {
   try {
-    return localStorage.getItem("agent-chat-active-thread");
+    return localStorage.getItem(BRAIN_ACTIVE_THREAD_KEY);
   } catch {
     return null;
   }
@@ -85,7 +89,7 @@ function BrainChatsSection() {
     archiveThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, undefined, undefined, {
+  } = useChatThreads(undefined, BRAIN_CHAT_STORAGE_KEY, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
   });
@@ -132,7 +136,7 @@ function BrainChatsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigate("/");
+    navigateWithAgentChatViewTransition(navigate, "/");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -313,6 +317,7 @@ function BrainChatsSection() {
 
 export function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isAskRoute = location.pathname === "/";
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
@@ -358,6 +363,19 @@ export function Sidebar() {
                 <NavLink
                   to={item.href}
                   end={item.href === "/"}
+                  onClick={(event) => {
+                    if (
+                      item.view === "ask" &&
+                      !isAskRoute &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    ) {
+                      event.preventDefault();
+                      navigateWithAgentChatViewTransition(navigate, "/");
+                    }
+                  }}
                   className={navClass}
                 >
                   <Icon className="size-4 shrink-0" />

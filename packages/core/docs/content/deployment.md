@@ -215,9 +215,9 @@ export default defineConfig({
 | `PORT`                      | Server port (Node.js only)                                                                                                                        |
 | `NITRO_PRESET`              | Override build preset at build time                                                                                                               |
 | `APP_BASE_PATH`             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.             |
-| `DATABASE_URL`              | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details.              |
-| `DATABASE_AUTH_TOKEN`       | Auth token for providers that require a separate token, such as Turso/libSQL.                                                                     |
 | `AGENT_PROD_CODE_EXECUTION` | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution). |
+
+Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/database#production).
 
 ### Required in Production {#env-required-prod}
 
@@ -234,47 +234,15 @@ These must be set before promoting an app to a real prod deploy. Missing values 
 
 ### Auth & Identity {#env-auth}
 
-| Variable                       | Description                                                                                                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients that cannot use OAuth. Does not enable browser auth or make the app private.                                                                   |
-| `ACCESS_TOKENS`                | Comma-separated static bearer fallbacks for MCP/connect clients. Does not enable browser auth or make the app private.                                                                        |
-| `AUTH_SKIP_EMAIL_VERIFICATION` | Skip email verification for QA accounts. Local dev/test skips by default; hosted deploys must set this explicitly. **Disables a real security control** — only use on hosted QA environments. |
-| `GOOGLE_CLIENT_ID`             | Google OAuth client ID. Auto-enables "Sign in with Google" in Better Auth.                                                                                                                    |
-| `GOOGLE_CLIENT_SECRET`         | Google OAuth client secret.                                                                                                                                                                   |
-| `GITHUB_CLIENT_ID`             | GitHub OAuth client ID.                                                                                                                                                                       |
-| `GITHUB_CLIENT_SECRET`         | GitHub OAuth client secret.                                                                                                                                                                   |
+OAuth provider credentials (Google, GitHub), static MCP bearer fallbacks (`ACCESS_TOKEN` / `ACCESS_TOKENS`), and email-verification toggles are documented in [Authentication](/docs/authentication). Set them there per the auth mode you choose.
 
 ### Inbound Webhooks {#env-webhooks}
 
-Inbound webhook handlers refuse forged requests when their signing secret is missing in production (was previously fail-open with a warning — see CHANGELOG / [security audit fixes](#security-config)).
-
-| Variable                        | Required when                                                                                                  |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `EMAIL_INBOUND_WEBHOOK_SECRET`  | Inbound email integration is enabled. Verifies Resend / SendGrid / Svix signatures.                            |
-| `TELEGRAM_WEBHOOK_SECRET`       | Telegram bot integration is enabled.                                                                           |
-| `WHATSAPP_APP_SECRET`           | WhatsApp Business integration is enabled.                                                                      |
-| `WHATSAPP_VERIFY_TOKEN`         | WhatsApp webhook verification handshake (set in your Meta app dashboard too).                                  |
-| `SLACK_SIGNING_SECRET`          | Slack integration is enabled. Verifies Slack request signatures.                                               |
-| `GOOGLE_DOCS_PUSH_AUDIENCE`     | Google Docs Pub/Sub push integration is enabled. Set to the public URL of your push endpoint.                  |
-| `GOOGLE_DOCS_PUSH_SIGNER_EMAIL` | Google Docs Pub/Sub push integration is enabled. Set to the Pub/Sub service account email.                     |
-| `GMAIL_WATCH_TOPIC`             | Gmail Pub/Sub push (mail template). Optional — disables push if unset and falls back to history-delta polling. |
-| `GMAIL_PUSH_AUDIENCE`           | Gmail Pub/Sub push audience.                                                                                   |
-| `GMAIL_PUSH_SIGNER_EMAIL`       | Gmail Pub/Sub push signer email.                                                                               |
-
-For local development of any of these integrations, set `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` to opt back into the old "warn and accept" behavior — never set this in prod.
+Each messaging integration requires its own signing secret in production (handlers fail-closed on forged requests when the secret is missing). The per-integration variables are listed in [Messaging](/docs/messaging) and [Security](/docs/security). For local development only, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` opts back into "warn and accept" — never set it in prod.
 
 ### Security Configuration (Opt-in) {#security-config}
 
-Defaults are strict; these flags relax behavior. Don't set them unless you specifically want the relaxed path.
-
-| Variable                                 | Effect                                                                                                                                                                                                                                                                                                              |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_DEBUG_ERRORS`              | `=1` to include stack traces in 500 JSON responses. Useful on previews; do **not** set in real prod (was previously gated by `NODE_ENV !== "production"`, which leaked stacks on misconfigured deploys).                                                                                                            |
-| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` | `=1` to accept webhooks without their signing secret (local dev only). Defaults to fail-closed in production.                                                                                                                                                                                                       |
-| `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`   | `=1` to let `${keys.NAME}` resolution in tools/automations fall through user-scope → workspace-scope. Default off (user-scope only) — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' requests. Turn on only if your org genuinely shares workspace-wide keys. |
-| `AGENT_NATIVE_MCP_HUB_MULTI_ORG`         | `=1` to allow `AGENT_NATIVE_MCP_HUB_TOKEN` to serve multiple orgs from a single hub deployment. Default refuses to serve when more than one org exists in a hub deploy. Only relevant if you operate the workspace MCP hub.                                                                                         |
-| `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES`      | `=1` to let runtime code mutate `process.env` from the env-var write API. Off by default — required to be explicitly enabled outside dev SQLite.                                                                                                                                                                    |
-| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. Local dev/test skips by default; hosted deploys should use this only for QA — see Auth section above.                                                                                                                                                         |
+Defaults are strict. A handful of opt-in flags relax behavior (debug stack traces, unverified webhooks, workspace-scoped key fallback, the MCP hub multi-org switch, runtime env-var writes). They are documented with their security trade-offs in [Security](/docs/security). Don't set them unless you specifically want the relaxed path.
 
 ### Workspace .env Inheritance {#env-inheritance}
 

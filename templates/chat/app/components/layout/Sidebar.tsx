@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconActivity,
   IconArchive,
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import {
   appPath,
   FeedbackButton,
+  navigateWithAgentChatViewTransition,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -51,6 +52,9 @@ const navItems = [
     view: "database",
   },
 ];
+
+const CHAT_STORAGE_KEY = "chat";
+const CHAT_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${CHAT_STORAGE_KEY}`;
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -94,7 +98,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 
 function persistedActiveThreadId() {
   try {
-    return localStorage.getItem("agent-chat-active-thread");
+    return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
   } catch {
     return null;
   }
@@ -111,7 +115,7 @@ function ChatThreadsSection() {
     archiveThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, undefined, undefined, {
+  } = useChatThreads(undefined, CHAT_STORAGE_KEY, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
   });
@@ -158,7 +162,7 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigate("/");
+    navigateWithAgentChatViewTransition(navigate, "/");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -343,17 +347,24 @@ export function Sidebar({
   onCollapsedChange,
 }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isChatRoute = location.pathname === "/";
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      "flex h-9 items-center rounded-md text-sm transition-colors",
-      collapsed ? "justify-center px-0" : "gap-3 px-3",
+      "flex items-center text-sm transition-colors",
+      collapsed
+        ? "relative h-10 w-full justify-center rounded-none border-l-2 px-0"
+        : "h-9 rounded-md gap-3 px-3",
       isActive
-        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-        : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
+        ? collapsed
+          ? "border-l-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          : "bg-sidebar-accent text-sidebar-accent-foreground"
+        : collapsed
+          ? "border-l-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
     <Tooltip>
@@ -361,7 +372,10 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => onCollapsedChange?.(!collapsed)}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-8" : "size-7",
+          )}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ToggleIcon className="size-4" />
@@ -378,13 +392,13 @@ export function Sidebar({
       data-collapsed={collapsed ? "true" : "false"}
       className={cn(
         "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150",
-        collapsed ? "w-16" : "w-60",
+        collapsed ? "w-12" : "w-60",
       )}
     >
       <div
         className={cn(
-          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center gap-1 px-1" : "gap-2 px-3",
+          "flex shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "h-12 justify-center px-0" : "h-14 px-3",
         )}
       >
         <Link
@@ -413,30 +427,46 @@ export function Sidebar({
             </p>
           </div>
         </Link>
-        {collapseButton}
       </div>
 
       <nav
         className={cn(
-          "flex-1 overflow-y-auto py-3",
-          collapsed ? "px-2" : "px-2",
+          "flex-1 overflow-y-auto",
+          collapsed ? "px-0 py-2" : "px-2 py-3",
         )}
       >
-        <div className="grid gap-1">
+        <div className={cn("grid", collapsed ? "gap-0" : "gap-1")}>
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isActive =
+              item.href === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.href);
             const link = (
-              <NavLink
+              <Link
                 to={item.href}
-                end={item.href === "/"}
-                className={navClass}
+                onClick={(event) => {
+                  if (
+                    item.href === "/" &&
+                    !isChatRoute &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(navigate, "/");
+                  }
+                }}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
                 aria-label={collapsed ? item.label : undefined}
               >
                 <Icon className="size-4 shrink-0" />
                 <span className={collapsed ? "sr-only" : "truncate"}>
                   {item.label}
                 </span>
-              </NavLink>
+              </Link>
             );
             return (
               <div key={item.href}>
@@ -457,7 +487,12 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="mt-auto shrink-0">
+      <div
+        className={cn(
+          "mt-auto shrink-0",
+          collapsed && "border-t border-sidebar-border py-2",
+        )}
+      >
         {!collapsed ? (
           <div className="border-t border-sidebar-border px-2 py-1">
             <ExtensionsSidebarSection />
@@ -466,8 +501,9 @@ export function Sidebar({
 
         <div
           className={cn(
-            "border-t border-sidebar-border py-2",
-            collapsed ? "px-2" : "px-3",
+            collapsed
+              ? "px-1 py-1"
+              : "border-t border-sidebar-border px-3 py-2",
           )}
         >
           <OrgSwitcher
@@ -482,8 +518,9 @@ export function Sidebar({
 
         <div
           className={cn(
-            "border-t border-sidebar-border py-2",
-            collapsed ? "flex justify-center px-2" : "px-3",
+            collapsed
+              ? "flex justify-center px-1 py-1"
+              : "border-t border-sidebar-border px-3 py-2",
           )}
         >
           <FeedbackButton
@@ -492,6 +529,18 @@ export function Sidebar({
             align={collapsed ? "center" : "end"}
           />
         </div>
+
+        {collapseButton ? (
+          <div
+            className={cn(
+              collapsed
+                ? "flex justify-center px-1 py-1"
+                : "flex justify-end border-t border-sidebar-border px-3 py-2",
+            )}
+          >
+            {collapseButton}
+          </div>
+        ) : null}
       </div>
     </aside>
   );

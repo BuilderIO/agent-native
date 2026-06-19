@@ -9,6 +9,18 @@ Every agent-native app gets observability out of the box. Traces, automated eval
 
 This page covers _agent quality_ metrics: traces, cost, evals, and feedback stored in your database. For _product_ analytics (your app's events flowing to PostHog/Mixpanel/Amplitude), see [Tracking](/docs/tracking).
 
+## Three things called "evals"/"observability" — which do I want? {#which}
+
+These three pages are easy to confuse. Pick by the question you're asking:
+
+| Page                                                   | The question it answers                                    | When it runs                                 | Concern        |
+| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------- | -------------- |
+| **Observability evals** (this page, the _Evals_ tab)   | "How did my real production runs do?"                      | Passive, after every run (LLM-judge sampled) | Quality        |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "Does the agent do the right thing on this fixed input?"   | Active, deterministic, a CI/deploy gate      | Quality        |
+| **[Observational Memory](/docs/observational-memory)** | "Is this long thread staying cheap and inside the window?" | Background compaction on long threads        | Cost / context |
+
+Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
+
 ## What's captured automatically {#captured}
 
 When a user sends a message, the framework automatically records:
@@ -113,10 +125,10 @@ Test different models, temperatures, or agent configurations:
 // Create via API
 POST /_agent-native/observability/experiments
 {
-  "name": "sonnet-vs-haiku",
+  "name": "model-a-vs-b",
   "variants": [
-    { "id": "control", "weight": 50, "config": { "model": "claude-sonnet-4-6" } },
-    { "id": "treatment", "weight": 50, "config": { "model": "claude-haiku-4-5-20251001" } }
+    { "id": "control", "weight": 50, "config": { "model": "<your-model-id>" } },
+    { "id": "treatment", "weight": 50, "config": { "model": "<other-model-id>" } }
   ],
   "metrics": ["cost", "latency", "satisfaction"]
 }
@@ -126,7 +138,7 @@ PUT /_agent-native/observability/experiments/:id
 { "status": "running" }
 ```
 
-The agent loop automatically resolves the user's variant and applies the config override. Assignment uses consistent hashing — same user always gets the same variant.
+Use the real model identifiers your engine accepts in place of `<your-model-id>` / `<other-model-id>` (model names change often — check your provider/engine for the current ids). The agent loop automatically resolves the user's variant and applies the config override. Assignment uses consistent hashing — same user always gets the same variant.
 
 ## Configuration {#config}
 

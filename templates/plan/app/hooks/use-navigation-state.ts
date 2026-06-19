@@ -1,8 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
-import { markPlanChatHomeHandoff } from "@/lib/chat-home-handoff";
+import {
+  agentNativePath,
+  appBasePath,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
 import { prewarmPlanRoutePath } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -101,7 +104,7 @@ export function useNavigationState() {
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
-    if (path !== "/") markPlanChatHomeHandoff();
+    if (path !== "/") markAgentChatHomeHandoff("plans");
     navigate(path, { replace: true, flushSync: true });
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);

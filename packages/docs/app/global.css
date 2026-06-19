@@ -729,6 +729,11 @@ html.dark .shiki span {
 }
 
 /* Feature cards */
+.docs-home-page :where(.grid) > *,
+.templates-index-page :where(.grid) > * {
+  min-width: 0;
+}
+
 .feature-card {
   border: 1px solid var(--docs-border);
   border-radius: 12px;

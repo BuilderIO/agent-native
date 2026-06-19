@@ -13,7 +13,11 @@ import {
   FeedbackButton,
   appBasePath,
   appPath,
+  focusAgentChat,
+  navigateWithAgentChatViewTransition,
   useActionQuery,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -318,7 +322,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     switchThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, undefined, undefined, { autoCreate: false });
+  } = useChatThreads(undefined, "dispatch", undefined, { autoCreate: false });
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -364,7 +368,10 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigate(dispatchNavLinkTarget("/chat"));
+    navigateWithAgentChatViewTransition(
+      navigate,
+      dispatchNavLinkTarget("/chat"),
+    );
     onNavigate?.();
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
@@ -533,6 +540,7 @@ export function NavContent({
   extensions?: DispatchExtensionConfig;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { data: workspace } = useActionQuery(
     "get-workspace-info",
     {},
@@ -561,7 +569,25 @@ export function NavContent({
       <li key={item.id}>
         <NavLink
           to={dispatchNavLinkTarget(item.to)}
-          onClick={onNavigate}
+          onClick={(event) => {
+            if (
+              item.id === "chat" &&
+              localPathname !== "/chat" &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              navigateWithAgentChatViewTransition(
+                navigate,
+                dispatchNavLinkTarget("/chat"),
+              );
+              onNavigate?.();
+              return;
+            }
+            onNavigate?.();
+          }}
           className={({ isActive }) => {
             const active = isActive || itemMatchesLocalPath;
             return cn(
@@ -663,15 +689,29 @@ export function Layout({
   extensions?: DispatchExtensionConfig;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const localPathname = localDispatchPath(location.pathname);
+  const isChatRoute = localPathname === "/chat";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "dispatch",
+    activePath: localPathname,
+    enabled: !isChatRoute,
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "dispatch", chatPath: "/chat" });
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
   }
 
-  const isChatRoute = localPathname === "/chat";
   const showHeader = !isChatRoute && !pageOwnsToolbar(localPathname);
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(
+      navigate,
+      dispatchNavLinkTarget("/chat"),
+    );
+  }
   const appContent = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
@@ -698,6 +738,10 @@ export function Layout({
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      chatViewTransition
+      storageKey="dispatch"
+      openOnChatRunning={chatHomeHandoffActive}
+      onFullscreenRequest={openAskAgentFullscreen}
       emptyStateText="Create apps, manage vault keys, and route work across the workspace."
       suggestions={SIDEBAR_SUGGESTIONS}
     >

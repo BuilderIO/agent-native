@@ -604,7 +604,7 @@ async function createStandaloneApp(
   const s = clack.spinner();
   s.start(
     template === "headless"
-      ? "Scaffolding the headless action app..."
+      ? "Scaffolding the headless agent app..."
       : `Downloading the ${template} template from GitHub...`,
   );
   try {

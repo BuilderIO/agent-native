@@ -6,7 +6,7 @@ import {
 
 export default function TemplatesPage() {
   return (
-    <main className="mx-auto max-w-[1200px] px-6 py-20">
+    <main className="templates-index-page mx-auto w-full min-w-0 max-w-[1200px] overflow-x-clip px-4 py-20 sm:px-6">
       <div className="mb-12 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           Open-source, Agent-native apps you own
@@ -20,7 +20,7 @@ export default function TemplatesPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-w-0 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {featuredTemplates.map((t) => (
           <TemplateCard key={t.name} template={t} />
         ))}

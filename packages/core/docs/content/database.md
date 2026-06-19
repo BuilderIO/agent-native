@@ -36,7 +36,7 @@ The framework auto-detects the dialect from the URL and configures Drizzle accor
 
 ## Builder.io Managed Database {#builder-managed}
 
-When connected to Builder.io, your app can use a managed database provisioned automatically — no connection strings required. Coming soon.
+_Planned (not yet available):_ when connected to Builder.io, your app will be able to use a managed database provisioned automatically, with no connection strings required.
 
 ## Where the DB Client Lives {#db-client}
 

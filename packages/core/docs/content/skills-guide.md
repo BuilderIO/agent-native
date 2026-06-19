@@ -15,7 +15,7 @@ Every skill's frontmatter `name` and `description` are always injected into the 
 
 ## Framework skills {#framework-skills}
 
-These skills ship with the default template and are available in every new agent-native app:
+These are the skills bundled with the **default template**. The exact set available in any given app depends on the template you scaffolded from — check that template's `.agents/skills/` directory for what it actually ships.
 
 | Skill                 | When to use                                             |
 | --------------------- | ------------------------------------------------------- |
@@ -171,6 +171,8 @@ This replaces the old hack of relying on Claude Code only reading `.claude/skill
 If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Workspace Memory](/docs/workspace#memory) for the full treatment.
 
 ---
+
+# Advanced
 
 ## App-backed skills — full details {#app-backed-skills-full}
 

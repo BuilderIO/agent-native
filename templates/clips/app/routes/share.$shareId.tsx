@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useNavigate, useParams } from "react-router";
+import { useLoaderData, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
@@ -43,10 +43,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
 
 type SharePageMetaRecording = {
   id: string;
@@ -56,6 +60,13 @@ type SharePageMetaRecording = {
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
+  archivedAt: string | null;
+  trashedAt: string | null;
+};
+
+type SharePageLoaderData = {
+  recording: SharePageMetaRecording | null;
+  agentContextUrl: string | null;
 };
 
 const CLIPS_DEFAULT_TITLE = "Untitled recording";
@@ -115,9 +126,9 @@ function metaDescription(recording: SharePageMetaRecording | null): string {
   return "Watch this screen recording on Clips.";
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.shareId;
-  if (!id) return { recording: null };
+  if (!id) return { recording: null, agentContextUrl: null };
 
   const [rec] = await getDb()
     .select({
@@ -128,21 +139,56 @@ export async function loader({ params }: LoaderFunctionArgs) {
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
+      ownerEmail: schema.recordings.ownerEmail,
+      password: schema.recordings.password,
+      archivedAt: schema.recordings.archivedAt,
+      trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  if (!rec) return { recording: null };
+  if (!rec) return { recording: null, agentContextUrl: null };
 
   if (rec.visibility !== "public") {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return { recording: null };
+    if (!access) return { recording: null, agentContextUrl: null };
   }
 
-  const recording: SharePageMetaRecording = rec;
-  return { recording };
+  const recording: SharePageMetaRecording = {
+    id: rec.id,
+    title: rec.title,
+    description: rec.description,
+    thumbnailUrl: rec.thumbnailUrl,
+    animatedThumbnailUrl: rec.animatedThumbnailUrl,
+    visibility: rec.visibility,
+    status: rec.status,
+    archivedAt: rec.archivedAt,
+    trashedAt: rec.trashedAt,
+  };
+  const canExposeAgentContext =
+    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
+  const token =
+    canExposeAgentContext &&
+    rec.password &&
+    getRequestUserEmail() === rec.ownerEmail
+      ? signShortLivedToken({ resourceId: id })
+      : undefined;
+  const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
+  const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
+  return {
+    recording,
+    agentContextUrl:
+      canExposeAnonymousAgentContext || canExposeOwnerAgentContext
+        ? buildAgentApiUrls(id, {
+            origin: new URL(request.url).origin,
+            basePath:
+              process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
+            token,
+          }).contextUrl
+        : null,
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
@@ -170,7 +216,46 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 
+function AgentDiscovery({
+  recording,
+  agentContextUrl,
+}: {
+  recording: SharePageMetaRecording | null;
+  agentContextUrl: string | null;
+}) {
+  if (!recording || !agentContextUrl) return null;
+
+  const payload = {
+    type: "agent-native.clip.discovery",
+    clipId: recording.id,
+    title: recording.title,
+    agentContextUrl,
+    instructions:
+      "Fetch agentContextUrl for timestamped transcript segments and frame API links.",
+  };
+
+  return (
+    <>
+      <a
+        href={agentContextUrl}
+        rel="alternate"
+        type="application/json"
+        className="sr-only"
+        data-agent-context-url={agentContextUrl}
+      >
+        Agent-readable clip context
+      </a>
+      <script
+        type="application/json"
+        id="clips-agent-context"
+        dangerouslySetInnerHTML={{ __html: safeJsonForHtml(payload) }}
+      />
+    </>
+  );
+}
+
 export default function ShareRoute() {
+  const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -232,6 +317,12 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const agentDiscovery = (
+    <AgentDiscovery
+      recording={loaderData.recording}
+      agentContextUrl={loaderData.agentContextUrl}
+    />
+  );
 
   useEffect(() => {
     if (!recording) return;
@@ -324,56 +415,71 @@ export default function ShareRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-background">
-        <Spinner className="h-8 w-8 text-muted-foreground" />
-      </div>
+      <>
+        {agentDiscovery}
+        <div className="flex items-center justify-center h-screen w-full bg-background">
+          <Spinner className="h-8 w-8 text-muted-foreground" />
+        </div>
+      </>
     );
   }
 
   if (needsPassword) {
     return (
-      <AccessPasswordPrompt
-        onSubmit={onSubmitPassword}
-        error={pwError}
-        title="This clip is password-protected"
-      />
+      <>
+        {agentDiscovery}
+        <AccessPasswordPrompt
+          onSubmit={onSubmitPassword}
+          error={pwError}
+          title="This clip is password-protected"
+        />
+      </>
     );
   }
 
   if (dataQ.data?.status === 410) {
     return (
-      <EndState
-        title="Link expired"
-        message="The creator set an expiry on this share link."
-      />
+      <>
+        {agentDiscovery}
+        <EndState
+          title="Link expired"
+          message="The creator set an expiry on this share link."
+        />
+      </>
     );
   }
 
   if (dataQ.data?.status === 401 || dataQ.data?.status === 404) {
     return (
-      <EndState
-        title="Clip unavailable"
-        message="This recording isn't public, or the link is invalid. If it's your clip, sign in to check access."
-        action={
-          shareId ? (
-            <Button asChild size="sm">
-              <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
-                <IconLogin2 className="h-4 w-4" />
-                Sign in
-              </a>
-            </Button>
-          ) : null
-        }
-      />
+      <>
+        {agentDiscovery}
+        <EndState
+          title="Clip unavailable"
+          message="This recording isn't public, or the link is invalid. If it's your clip, sign in to check access."
+          action={
+            shareId ? (
+              <Button asChild size="sm">
+                <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
+                  <IconLogin2 className="h-4 w-4" />
+                  Sign in
+                </a>
+              </Button>
+            ) : null
+          }
+        />
+      </>
     );
   }
 
   if (!recording) {
     return (
-      <EndState
-        title="Something went wrong"
-        message={dataQ.data?.data?.error ?? "Please try again."}
-      />
+      <>
+        {agentDiscovery}
+        <EndState
+          title="Something went wrong"
+          message={dataQ.data?.data?.error ?? "Please try again."}
+        />
+      </>
     );
   }
 
@@ -410,86 +516,90 @@ export default function ShareRoute() {
           : "Uploading and assembling the video. This page will update automatically.";
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
-        {!isFailure ? (
-          <Spinner className="h-8 w-8 mb-4 text-muted-foreground" />
-        ) : (
-          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
-            <IconAlertTriangle className="h-5 w-5" />
-          </div>
-        )}
-        <h1 className="mb-1 text-center text-lg font-semibold">{label}</h1>
-        <p className="mb-4 max-w-md text-center text-sm text-muted-foreground">
-          {message}
-        </p>
-        {isFailure && detail && canManageStorage ? (
-          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Details
+      <>
+        {agentDiscovery}
+        <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
+          {!isFailure ? (
+            <Spinner className="h-8 w-8 mb-4 text-muted-foreground" />
+          ) : (
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive">
+              <IconAlertTriangle className="h-5 w-5" />
             </div>
-            <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
-              {detail}
-            </pre>
-          </div>
-        ) : null}
-        {!isFailure && progress > 0 ? (
-          <div className="w-64 h-1.5 rounded-full bg-accent overflow-hidden mb-4">
-            <div
-              className="h-full bg-foreground"
-              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-            />
-          </div>
-        ) : null}
-        {storageSetupFailure && canManageStorage ? (
-          <div className="mb-4 w-full">
-            <StorageSetupCard
-              title="Connect storage to finish saving"
-              description="Choose where Clips should store videos. After it connects, this page will check again."
-              connectedDescription="Storage connected. Checking this clip..."
-              onConfigured={() => {
+          )}
+          <h1 className="mb-1 text-center text-lg font-semibold">{label}</h1>
+          <p className="mb-4 max-w-md text-center text-sm text-muted-foreground">
+            {message}
+          </p>
+          {isFailure && detail && canManageStorage ? (
+            <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Details
+              </div>
+              <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+                {detail}
+              </pre>
+            </div>
+          ) : null}
+          {!isFailure && progress > 0 ? (
+            <div className="w-64 h-1.5 rounded-full bg-accent overflow-hidden mb-4">
+              <div
+                className="h-full bg-foreground"
+                style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+              />
+            </div>
+          ) : null}
+          {storageSetupFailure && canManageStorage ? (
+            <div className="mb-4 w-full">
+              <StorageSetupCard
+                title="Connect storage to finish saving"
+                description="Choose where Clips should store videos. After it connects, this page will check again."
+                connectedDescription="Storage connected. Checking this clip..."
+                onConfigured={() => {
+                  void dataQ.refetch();
+                }}
+              />
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {!session && isFailure ? (
+              <Button asChild size="sm">
+                <a href={signInHref} className="gap-1.5">
+                  <IconLogin2 className="h-4 w-4" />
+                  Sign in to finish
+                </a>
+              </Button>
+            ) : !session && !sessionLoading && !isFailure ? (
+              <Button asChild variant="ghost" size="sm">
+                <a href={signInHref} className="gap-1.5">
+                  <IconLogin2 className="h-4 w-4" />
+                  Sign in if this is yours
+                </a>
+              </Button>
+            ) : canManageStorage && isFailure ? (
+              <Button asChild size="sm">
+                <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => {
+                setProcessingTimeout(false);
                 void dataQ.refetch();
               }}
-            />
+              variant="outline"
+              size="sm"
+              className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
+            >
+              Check again
+            </Button>
           </div>
-        ) : null}
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {!session && isFailure ? (
-            <Button asChild size="sm">
-              <a href={signInHref} className="gap-1.5">
-                <IconLogin2 className="h-4 w-4" />
-                Sign in to finish
-              </a>
-            </Button>
-          ) : !session && !sessionLoading && !isFailure ? (
-            <Button asChild variant="ghost" size="sm">
-              <a href={signInHref} className="gap-1.5">
-                <IconLogin2 className="h-4 w-4" />
-                Sign in if this is yours
-              </a>
-            </Button>
-          ) : canManageStorage && isFailure ? (
-            <Button asChild size="sm">
-              <a href={appPath(`/r/${recording.id}`)}>Open dashboard</a>
-            </Button>
-          ) : null}
-          <Button
-            onClick={() => {
-              setProcessingTimeout(false);
-              void dataQ.refetch();
-            }}
-            variant="outline"
-            size="sm"
-            className="border-foreground/20 bg-muted/50 hover:bg-accent text-foreground"
-          >
-            Check again
-          </Button>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+      {agentDiscovery}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
           <div className="min-w-0 flex-1">
@@ -540,6 +650,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
                   <IconShare3 className="h-4 w-4" />
@@ -644,29 +755,38 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
-        <Tabs defaultValue="transcript" className="flex h-full flex-col">
+        <Tabs
+          defaultValue={recording.enableComments ? "comments" : "transcript"}
+          className="flex h-full flex-col"
+        >
           <TabsList
-            className={`mx-3 mt-3 grid w-auto ${
+            className={`grid h-14 w-full rounded-none border-b border-border bg-transparent p-0 px-6 ${
               recording.enableComments ? "grid-cols-2" : "grid-cols-1"
             }`}
           >
-            <TabsTrigger value="transcript" className="text-xs">
-              Transcript
-            </TabsTrigger>
             {recording.enableComments ? (
-              <TabsTrigger value="comments" className="text-xs gap-1">
-                Comments
+              <TabsTrigger
+                value="comments"
+                className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+              >
+                Activity
                 {comments.length > 0 ? (
-                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-foreground tabular-nums">
                     {comments.length}
                   </span>
                 ) : null}
               </TabsTrigger>
             ) : null}
+            <TabsTrigger
+              value="transcript"
+              className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+            >
+              Transcript
+            </TabsTrigger>
           </TabsList>
           <TabsContent
             value="transcript"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
           >
             <TranscriptPanel
               segments={transcriptSegments}
@@ -682,7 +802,7 @@ export default function ShareRoute() {
           {recording.enableComments ? (
             <TabsContent
               value="comments"
-              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+              className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
             >
               <CommentsPanel
                 recordingId={recording.id}
@@ -697,6 +817,7 @@ export default function ShareRoute() {
                 applyComments={(d: any, next) =>
                   d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
                 }
+                presentation="share"
               />
             </TabsContent>
           ) : null}

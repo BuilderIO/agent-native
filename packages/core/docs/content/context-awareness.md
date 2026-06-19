@@ -13,7 +13,7 @@ How the agent knows what the user is looking at -- and how the agent can control
 
 Without context awareness, the agent is blind. It asks "which email?" when the user is staring at one. It cannot act on the current selection, cannot provide relevant suggestions, and cannot modify what the user sees. With context awareness, the user can click a row, highlight a paragraph, select a slide element, or press Cmd+I, then say "summarize this" and the agent already knows what "this" means.
 
-Six patterns solve this. To understand what to put in which surface (AGENTS.md vs. skills vs. application_state), see [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
+To understand what to put in which surface (AGENTS.md vs. skills vs. application_state), see [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
 
 Six patterns solve this:
 
@@ -76,7 +76,7 @@ const navigation = await readAppState("navigation");
 
 `AgentPanel` automatically syncs the current React Router URL into the `__url__` application-state key. The built-in agent includes it in every turn as a `<current-url>` block:
 
-```txt
+```text
 <current-url>
 pathname: /adhoc/revenue
 search: ?f_region=west&q=renewal
@@ -88,7 +88,7 @@ searchParams:
 
 This is the canonical layer for shareable filter state. If the user can copy a URL and come back to the same filtered list, the filter belongs in the query string. The agent can change those filters with the built-in `set-search-params` tool:
 
-```txt
+```text
 set-search-params({ "params": { "f_region": "east", "q": null } })
 ```
 

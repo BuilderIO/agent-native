@@ -29,6 +29,12 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Public recordings expose AI-readable URLs for external agents:
+  `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
+  API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript
+  segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
+  frame at a timestamp. Password-protected clips require the password once to
+  mint a short-lived token returned inside agent-context links.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
 
@@ -38,6 +44,9 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   selected ids, and transcript context.
 - `navigate` moves the UI to recording/library/meeting/share surfaces.
 - Use data actions for full transcripts and media metadata.
+- For the in-app Clips agent, prefer `get-recording-player-data` for full
+  private/authenticated recording context. Use the public agent-context URLs
+  when preparing a link for another agent outside Clips.
 
 ## Skills
 
