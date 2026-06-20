@@ -438,18 +438,56 @@ function isChildDevServerUrlLine(line: string): boolean {
   );
 }
 
+// Header of Nitro 3 (beta)'s transient cold-start 503. On the first SSR request,
+// Nitro's dev runner waits ~3.1s for the SSR entry import; if Vite is still
+// optimizing deps it throws `NitroViteError: Vite environment "nitro" is
+// unavailable`, which surfaces via the worker's unhandledRejection trap. It is
+// self-healing \u2014 the next request succeeds \u2014 and in practice is provoked only by
+// our own readiness probes during warm-up. A genuine SSR import failure uses a
+// different message (the actual import error) and the runner's entryError path,
+// so matching this exact signature does not hide real bugs.
+function isNitroUnavailableHeader(line: string): boolean {
+  return /environment "[^"]*" is unavailable/.test(stripAnsi(line));
+}
+
+// One line of the transient-503 block (header, its stack frames, or the
+// `{ status: 503 }` wrapper). Only ever applied to a chunk already known to
+// contain the header (see pipeOutput), so the loose `}`/`at node:internal`
+// matchers can't strip unrelated output.
+function isNitroWarmupNoiseLine(line: string): boolean {
+  const s = stripAnsi(line).trimEnd();
+  return (
+    /\[NitroViteError\][^\n]*is unavailable/.test(s) ||
+    /environment "[^"]*" is unavailable/.test(s) ||
+    /^\s*at \S+ \([^)]*dev-worker\.mjs/.test(s) ||
+    /^\s*at \w+ \(node:internal\/(?:process|timers)/.test(s) ||
+    /^\s*status:\s*\d+\s*$/.test(s) ||
+    /^\s*\}\s*$/.test(s)
+  );
+}
+
 function pipeOutput(
   prefix: string,
   chunk: unknown,
   write: (value: string) => void,
+  suppressNitroNoise = false,
 ): string {
   const lines = String(chunk)
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((line) => !isChildDevServerUrlLine(line));
   if (lines.length === 0) return "";
+  // Return the full text for outputTail (failure diagnostics) regardless, but
+  // keep the transient cold-start 503 block off the console while the app is
+  // still warming up — only touching chunks that actually contain its header.
   const output = lines.join("\n") + "\n";
-  write(lines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+  const displayLines =
+    suppressNitroNoise && lines.some(isNitroUnavailableHeader)
+      ? lines.filter((line) => !isNitroWarmupNoiseLine(line))
+      : lines;
+  if (displayLines.length > 0) {
+    write(displayLines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+  }
   return output;
 }
 
@@ -682,7 +720,12 @@ function probeHttpReady(
       },
       (res) => {
         res.resume();
-        finish(true);
+        // A 5xx here is Nitro's transient cold-start 503 ("Vite environment
+        // ... is unavailable") — the SSR entry is still importing, so the app
+        // is not ready. Only a non-5xx response means it can actually serve;
+        // otherwise we'd flip app.ready and proxy real traffic into a cold
+        // dev server (and the prewarm would "warm" nothing).
+        finish((res.statusCode ?? 500) < 500);
       },
     );
     req.setTimeout(timeoutMs, () => finish(false));
@@ -705,12 +748,16 @@ async function waitForHttpReady(
   app: TemplateApp,
   deadline: number,
 ): Promise<boolean> {
+  let retryDelay = PROXY_READY_RETRY_DELAY_MS;
   while (Date.now() < deadline) {
-    const timeoutMs = Math.min(1_000, Math.max(1, deadline - Date.now()));
+    // Nitro's dev SSR runner waits ~3.1s for the entry import before returning
+    // 503, so give each probe long enough to receive that real response rather
+    // than abandoning it at 1s — an abandoned request still completes (and
+    // logs) server-side. Backing off between polls keeps the warm-up quiet.
+    const timeoutMs = Math.min(4_000, Math.max(1, deadline - Date.now()));
     if (await probeHttpReady(app, timeoutMs)) return true;
-    await new Promise((resolve) =>
-      setTimeout(resolve, PROXY_READY_RETRY_DELAY_MS),
-    );
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    retryDelay = Math.min(retryDelay * 2, 2_000);
   }
   return false;
 }
@@ -864,7 +911,12 @@ function startApp(app: TemplateApp): void {
   child.stderr?.on("data", (chunk) => {
     appendAppOutputTail(
       app,
-      pipeOutput(prefix, chunk, (value) => process.stderr.write(value)),
+      pipeOutput(
+        prefix,
+        chunk,
+        (value) => process.stderr.write(value),
+        !app.ready,
+      ),
     );
   });
   child.on("exit", (code) => {

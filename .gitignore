@@ -10,6 +10,7 @@ tmp/
 
 # Playwright MCP logs
 .playwright-mcp/
+.playwright-cli/
 
 # Screenshot artifacts from design iterations
 packages/docs/*.png
