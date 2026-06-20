@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.63.5
+
+### Patch Changes
+
+- 7c28a87: Fix CLI commands hanging indefinitely on success due to Node.js keep-alive and telemetry timers
+
 ## 0.63.4
 
 ### Patch Changes
