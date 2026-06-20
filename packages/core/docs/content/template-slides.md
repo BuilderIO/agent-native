@@ -7,17 +7,14 @@ description: "Generate decks from a prompt, edit visually, and present full-scre
 
 Generate full presentation decks from a prompt, edit slides visually, and present full-screen. Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and watch it stream slide-by-slide into the editor in seconds. An open-source replacement for Google Slides, Pitch, and PowerPoint.
 
-<!-- screenshot:
-  app: slides
-  view: /deck/<id>
-  shows: Deck editor with a "Q3 Board Update" deck open — collapsed left icon rail (Decks / Design Systems / Team), slides thumbnail strip (6 slides — title, agenda, metrics, what we shipped, what we're watching), main slide preview showing the title slide by Maya Chen CEO, speaker notes pane, and the agent chat sidebar with deck-aware suggestions
-  account: screenshot-account (deck authored on this account via the standard create-deck + add-slide flow)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710); collapse the left rail before capture
--->
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Board Update</h1><span class='wf-pill accent'>Title slide</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Share</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 Board Update</strong><br/><small>Maya Chen · CEO</small><div style='height:46px'></div><span class='wf-pill'>Product momentum</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Slide outline</strong><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div></div><div class='wf-card' style='flex:1'><strong>Speaker notes</strong><p class='wf-muted' style='margin:8px 0 0'>Open with launch progress and retention story.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div></div>"
+}
+```
 
-![Slides deck editor with a deck open and slide thumbnails on the left](/screenshots/slides.png)
-
-When you open a deck, you get a slide editor in the middle, a sidebar of slides on the left, and the agent on the right.
+When you open a deck, the slide canvas, outline, notes, and filmstrip stay in one editor surface while the agent can still create, revise, and navigate slides through actions.
 
 ```an-diagram title="Prompt to deck" summary="Ask for a deck and the agent streams slides in one at a time through the same actions you could call from the CLI."
 {
@@ -46,7 +43,7 @@ Live demo: [slides.agent-native.com](https://slides.agent-native.com).
 When you open the app:
 
 1. Click **New deck**.
-2. In the agent sidebar, ask: "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+2. Ask the agent: "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
 3. Watch slides stream in. Click any slide to edit, or keep asking the agent to refine.
 
 ### Useful prompts
@@ -76,75 +73,17 @@ pnpm install
 pnpm dev
 ```
 
-### Key features (technical) {#key-features}
+### Key features {#key-features}
 
-#### Import and export
+**Prompt-to-deck generation.** Ask for a deck and the agent streams slides into the editor using the same create and edit actions you can run yourself.
 
-The template can pull content in from PPTX (`import-pptx`), DOCX (`import-docx`), Google Docs (`import-google-doc`), arbitrary URLs (`import-from-url`), and GitHub repos (`import-github`). Export paths cover PPTX (`export-pptx`), Google Slides (`export-google-slides`), and HTML (`export-html`). Importing uses the same action surface as the rest of the template — no separate pipeline.
+**Editable slide canvas.** Inline text editing, slash inserts, code editing, drag-and-drop ordering, undo/redo, comments, and presentation mode all live in the deck surface.
 
-#### Design systems
+**Import and export.** Bring in PPTX, DOCX, Google Docs, PDFs, URLs, and GitHub repos; export to PPTX, Google Slides, HTML, or a share link.
 
-Reusable brand tokens are stored in the `design_systems` table (colors, typography, spacing, assets, custom instructions, and an `is_default` flag). Sharing is managed via `design_system_shares`. Actions: `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system`, and `analyze-brand-assets` (collects brand data before analysis). See the `design-systems` and `image-generation-via-a2a` skills for the full pattern.
+**Design systems and media.** Saved brand systems, image generation, stock search, and logo lookup keep decks closer to the intended visual direction.
 
-#### Deck versions
-
-Every significant deck change is snapshotted in the `deck_versions` table (stores a full copy of title and deck data with an optional `changeLabel`). Actions: `list-deck-versions`, `restore-deck-version`, `get-deck-version`.
-
-#### Prompt-to-deck generation
-
-Ask the agent for a deck and it builds one slide at a time. Slides stream into the editor live as each one is generated — the agent fires parallel `add-slide` calls so you see the deck assemble in seconds.
-
-Under the hood, this is powered by the `add-slide` and `create-deck` actions in `templates/slides/actions/`.
-
-#### Seven slide layouts
-
-Built-in layouts: title, section divider, content with bullets, two-column, statement or quote, metrics or stats, and closing or CTA. Each layout is a pure HTML template with inline styles — the agent picks the right one based on slide purpose. The exact templates live inside `templates/slides/.agents/skills/create-deck/SKILL.md` so the agent can reference them without exploring the codebase.
-
-#### Visual and code editing
-
-- Double-click any text to edit inline.
-- Click a block to open the bubble menu for styles, alignment, and layout.
-- Switch to the code editor (`app/components/editor/CodeEditor.tsx`) to edit raw slide HTML.
-- Use the slash menu (`SlideSlashMenu.tsx`) to insert blocks by typing `/`.
-
-#### AI image generation
-
-Generate images through the Assets app when brand libraries matter; once the managed backend is deployed, that path can use Builder-managed image generation and keep the audit trail with the source library. Direct provider-key generation remains the fallback for standalone decks.
-
-Actions: `generate-image`, `edit-image`, `image-search`, `logo-lookup`. UI panels: `ImageGenPanel.tsx`, `ImageSearchPanel.tsx`, `LogoSearchPanel.tsx`.
-
-#### Logo and stock image search
-
-- `logo-lookup --domain acme.com` fetches a company logo via Logo.dev or Brandfetch.
-- `image-search --query "mountain landscape"` searches Google Images for stock photos.
-
-#### Comments and threads
-
-Leave comments on specific slides, quote selected text, and reply in threads. Stored in the `slide_comments` table. Actions: `add-slide-comment`, `list-slide-comments`.
-
-#### Drag and drop reordering
-
-Reorder slides in the sidebar, duplicate, or delete with hover controls. The sidebar lives in `app/components/editor/EditorSidebar.tsx`.
-
-#### Presentation mode
-
-Full-screen presentation at `/deck/:id/present` with keyboard navigation (arrow keys, space, escape), auto-hiding controls, and speaker notes. See `app/routes/deck.$id_.present.tsx` and `app/components/presentation/PresentationView.tsx`.
-
-#### Share links
-
-Generate a public read-only URL for a deck so reviewers can view without an account. The share page is `app/routes/share.$token.tsx`. Fine-grained sharing (viewer, editor, admin roles, per-user or org-wide) is also available via the framework's `share-resource` action.
-
-#### Real-time collaboration
-
-Multiple people can edit the same deck simultaneously. Text edits sync through Yjs CRDT so there are no conflicts, and the agent sees and edits the same live document via the `update-slide --find/--replace` action.
-
-#### Undo and redo
-
-Cmd+Z and Cmd+Shift+Z work across the whole deck, with a labeled history panel (`HistoryPanel.tsx`) you can scrub through.
-
-#### Extract from PDF
-
-Turn a PDF into a starter deck. The `extract-pdf` action parses the file and hands the content to the agent for layout.
+**Collaboration and history.** Real-time Yjs editing, threaded comments, share roles, and deck version snapshots are built in.
 
 ### Working with the agent
 

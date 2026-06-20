@@ -45,6 +45,16 @@ function artboardStyle(html: string): string {
   return match[1];
 }
 
+/** Pull the inline `style` attribute of the scale-reservation wrapper. */
+function fitWrapperStyle(html: string): string {
+  const outerTag =
+    html.match(/<div[^>]*class="plan-kit-wireframe"[^>]*>/)?.[0] ?? "";
+  const outerEnd = html.indexOf(outerTag) + outerTag.length;
+  const rest = html.slice(Math.max(outerEnd, 0));
+  const innerTag = rest.match(/<div[^>]*style="([^"]*)"[^>]*>/)?.[0] ?? "";
+  return innerTag.match(/style="([^"]*)"/)?.[1] ?? "";
+}
+
 describe("wireframe auto-height frame", () => {
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
     const html = render({
@@ -79,6 +89,27 @@ describe("wireframe auto-height frame", () => {
 
     // browser preset width is 900 — the footprint is preserved.
     expect(style).toMatch(/width\s*:\s*900px/);
+  });
+
+  it("keeps the unscaled auto-height wrapper in natural SSR flow", () => {
+    const html = render({
+      surface: "desktop",
+      html: "<div>Short mockup</div>",
+    });
+    const style = fitWrapperStyle(html);
+
+    expect(style).not.toMatch(/(^|;)\s*height\s*:/);
+  });
+
+  it("renders captions in static markup", () => {
+    const html = render({
+      surface: "desktop",
+      html: "<div>Mockup with caption</div>",
+      caption: "Review the main editor state",
+    });
+
+    expect(html).toContain("Review the main editor state");
+    expect(html).toContain("text-plan-muted");
   });
 
   it("does not add decorative shadows around the artboard", () => {

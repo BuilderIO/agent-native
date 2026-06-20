@@ -1030,6 +1030,28 @@ describe("server/auth", () => {
         expect((result as Response).status).toBe(302);
         expect((result as Response).headers.get("location")).toBe("/dispatch");
       }
+
+      const recapResult = await guard(
+        createMockEvent({
+          path: "/dispatch/login?return=%2Fdispatch%2Frecaps%2Frecap_123",
+        }),
+      );
+      expect(recapResult).toBeInstanceOf(Response);
+      expect((recapResult as Response).status).toBe(302);
+      expect((recapResult as Response).headers.get("location")).toBe(
+        "/dispatch/recaps/recap_123",
+      );
+
+      const unsafeResult = await guard(
+        createMockEvent({
+          path: "/dispatch/login?return=https%3A%2F%2Fevil.example%2Fx",
+        }),
+      );
+      expect(unsafeResult).toBeInstanceOf(Response);
+      expect((unsafeResult as Response).status).toBe(302);
+      expect((unsafeResult as Response).headers.get("location")).toBe(
+        "/dispatch",
+      );
     });
 
     it("quietly falls back when auto dev account signup loses a duplicate-user race", async () => {

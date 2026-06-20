@@ -1,5 +1,25 @@
 # @agent-native/core
 
+## 0.63.6
+
+### Patch Changes
+
+- 0105ab5: Fix a broken in-docs anchor in the "creating templates" guide: the headless on-ramp link now points to `/docs/getting-started#1-create-your-app` instead of the stale `#create-your-agent`, which no longer matches any heading on the Getting Started page.
+
+## 0.63.5
+
+### Patch Changes
+
+- 7c28a87: Fix CLI commands hanging indefinitely on success due to Node.js keep-alive and telemetry timers
+
+## 0.63.4
+
+### Patch Changes
+
+- 7d72d52: Restore subtle glowing hover indicators on annotated code ranges.
+- 7d72d52: Use fast shadcn tooltips and clearer Tabler icons for diagram style toggles.
+- 7d72d52: Preserve deep-link return targets through auth and federated SSO sign-in.
+
 ## 0.63.3
 
 ### Patch Changes

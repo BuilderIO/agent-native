@@ -129,6 +129,45 @@ describe("structured plan content", () => {
     expect(html).toContain("Implementation Map");
   });
 
+  it("renders kit-tree wireframe captions in standalone HTML", () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Captioned wireframe",
+      blocks: [
+        {
+          id: "wf-1",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            caption: "Calendar availability view",
+            screen: [
+              {
+                id: "screen-root",
+                el: "screen",
+                children: [
+                  {
+                    id: "title-1",
+                    el: "title",
+                    text: "Weekly calendar",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const html = buildPlanContentHtml({
+      content,
+      title: "Captioned wireframe",
+      brief: "Render a captioned wireframe in standalone HTML.",
+    });
+
+    expect(html).toContain("kit-wireframe");
+    expect(html).toContain('<p class="caption">Calendar availability view</p>');
+  });
+
   it("anchors component context sidebar actions after a flexible content stack", () => {
     const content = createUiPlanContent({
       title: "Context X-Ray cleanup",

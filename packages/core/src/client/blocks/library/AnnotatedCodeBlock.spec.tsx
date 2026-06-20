@@ -133,6 +133,55 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(basename?.className).toContain("text-plan-code-text");
   });
 
+  it("renders subtle hover indicators on the first line of each annotated range", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: [
+              "const one = 1;",
+              "const two = 2;",
+              "const three = 3;",
+              "const four = 4;",
+            ].join("\n"),
+            annotations: [
+              {
+                lines: "2-3",
+                label: "Middle",
+                note: "This range has a visible marker.",
+              },
+              {
+                lines: "4",
+                label: "End",
+                note: "This single line has another marker.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const markers = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-annotated-code-marker]"),
+    );
+    expect(markers).toHaveLength(2);
+    expect(markers.map((marker) => marker.textContent)).toEqual(["", ""]);
+    expect(
+      container.querySelector(
+        '[data-code-line="2"] [data-annotated-code-marker="1"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      container.querySelector(
+        '[data-code-line="3"] [data-annotated-code-marker="1"]',
+      ),
+    ).toBeNull();
+    expect(markers[0]?.className).toContain("cursor-pointer");
+  });
+
   it("anchors a multi-line annotation popover to the first line in the range", () => {
     act(() => {
       root.render(

@@ -7,17 +7,14 @@ description: "An agent-powered calendar with Google Calendar sync and Calendly-s
 
 An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
 
-<!-- screenshot:
-  app: calendar
-  view: / (week)
-  shows: Calendar week view (May 3-9) with ~17 events scattered across the week (All-hands kickoff, Q3 launch sync, Design review, 1:1 with Marcus, Coffee w/ Hannah, Eng standup, Lunch block, Customer call - Acme, Design crit, Focus block, Roadmap planning, Skip-level w/ Priya, Friday demo, All-hands) — events render in the default blue tone — and the agent sidebar with calendar-aware suggestions
-  account: screenshot-account (Google Calendar connected and a representative week populated via create-event)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
+}
+```
 
-![Calendar week view with a populated week and the agent sidebar](/screenshots/calendar.png)
-
-When you open the app, you'll see your calendar in the middle and the agent in the sidebar. The agent always knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
+When you open the app, the active calendar view is the primary surface. The agent still knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
 
 ```an-diagram title="How a scheduling request flows" summary="Whether you click in the calendar or ask the agent, the same actions read live from Google Calendar and write back to the same view."
 {
@@ -87,60 +84,17 @@ Open `http://localhost:8082` (the default Calendar dev port).
 
 To connect Google Calendar in dev, open the Settings view, paste a `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from [Google Cloud Console](https://console.cloud.google.com/), and click "Connect Google Calendar". The OAuth redirect URI is `http://localhost:8082/_agent-native/google/callback` in dev. Tokens are stored in the `oauth_tokens` SQL table and refresh automatically.
 
-### Key features (technical)
+### Key features
 
-**Calendar views.** The main view at `/` (route `app/routes/_app._index.tsx`) renders the calendar in day, week, or month mode. Switch views from the toolbar, or ask the agent to switch for you. Events are fetched live from Google Calendar — no local sync step is required to see the latest state.
+**Live calendar views.** Day, week, and month views read directly from connected Google accounts, with optional read-only ICS feeds layered into the same schedule.
 
-**Multi-account Google Calendar sync.** Connect as many Google accounts as you like. Each connection appears in Settings, and events from every connected calendar overlay in the main view. Sync is pull-based, so no webhooks or background workers are required. The `sync-google-calendar` action refetches a date range on demand. Supporting actions: `list-events`, `search-events`, `get-event`, `create-event`, `sync-google-calendar`.
+**Availability and free-slot search.** Weekly availability rules, timezone support, and existing events all feed the same availability action the UI and agent use.
 
-**External calendars (ICS subscriptions).** Subscribe to read-only ICS or `webcal://` feeds — useful for HR time off, conference schedules, or shared team calendars. Feeds are added in Settings and stored per user. Relevant actions: `add-external-calendar`, `list-external-calendars`, `remove-external-calendar`, `update-external-calendars`.
+**Booking links.** Public `/book/{slug}` pages collect name, email, custom fields, conferencing preferences, and cancellation/reschedule tokens.
 
-**Availability rules.** Availability is a weekly schedule of time windows per day, plus a timezone. It is stored in the settings table under the key `calendar-availability`:
+**Shareable management.** Booking links are private by default, but can be shared with teammates through the framework sharing actions.
 
-```json
-{
-  "timezone": "America/Los_Angeles",
-  "schedule": {
-    "monday": [{ "start": "09:00", "end": "17:00" }],
-    "tuesday": [{ "start": "09:00", "end": "17:00" }],
-    "wednesday": [
-      { "start": "09:00", "end": "12:00" },
-      { "start": "13:00", "end": "17:00" }
-    ],
-    "thursday": [{ "start": "09:00", "end": "17:00" }],
-    "friday": [{ "start": "09:00", "end": "16:00" }],
-    "saturday": [],
-    "sunday": []
-  }
-}
-```
-
-Edit it at `/availability` (`app/routes/_app.availability.tsx`) or via the `update-availability` action. The `check-availability` action reads this schedule, subtracts your existing Google Calendar events, and returns free slots of the requested duration.
-
-**Public booking pages.** Booking links are the Calendly replacement. Create one in the UI at `/booking-links` (`app/routes/_app.booking-links._index.tsx`), configure it in the editor at `/booking-links/{id}`, and share the public URL.
-
-Every link has:
-
-- A URL slug, so the public page lives at `/book/{slug}`.
-- A primary duration plus an optional list of alternative durations (for example 15, 30, or 60 minutes).
-- Optional custom fields collected at booking time.
-- A conferencing option (Google Meet, Zoom, or a custom meeting link).
-- An `isActive` toggle to pause bookings without deleting the link.
-
-Visitors land on the public page, pick a date and time from the available slots, fill in name, email, and any custom fields, and receive a confirmation. Bookings are stored in the `bookings` table with a `cancelToken`, which powers the public cancel/reschedule page at `/booking/manage/{token}`.
-
-There is also a per-user public URL at `/meet/{username}/{slug}` for clean personal sharing.
-
-**Sharing booking links with teammates.** Booking links are private by default — only the creator can edit or delete them. To let a teammate manage a link, either change the link's visibility or grant explicit access. The framework ships these actions, auto-mounted for any `booking-link` resource:
-
-- `share-resource` — grant a user or org `viewer`, `editor`, or `admin` access.
-- `unshare-resource` — revoke a grant.
-- `list-resource-shares` — show current visibility plus all grants.
-- `set-resource-visibility` — change the coarse visibility (`private`, `org`, or `public`).
-
-Sharing only controls who can manage the link. The public booking URL always accepts bookings from unauthenticated visitors as long as `isActive` is true.
-
-**Inline event previews in chat.** The `/event` route (`app/routes/event.tsx`) renders a compact, chromeless event card that the agent can embed in chat when you ask about a specific event. Title, time, location, attendees, and a description snippet are shown with a button to jump into the main calendar.
+**Inline event previews.** The agent can embed compact event cards in chat with title, time, location, attendees, and a jump-back button.
 
 ### Working with the agent
 

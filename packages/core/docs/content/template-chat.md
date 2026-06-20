@@ -9,15 +9,12 @@ Chat is the basic agent-native app starting point. It gives you a clean ChatGPT-
 
 If you want the smallest action-only runtime with no browser UI, start with [Pure-Agent Apps](/docs/pure-agent-apps). If you want a finished domain product shape, start from [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or another domain template.
 
-<!-- screenshot:
-  app: chat
-  view: /
-  shows: Full-page chat app with standard left sidebar, centered empty-state composer, model controls, and no domain data
-  account: screenshot-account (no domain data needed — chat ships with no seed schema)
-  capture: 2434x1440 app screenshot
--->
-
-![Chat template with a centered agent composer and app navigation sidebar](/screenshots/chat.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
 
 ## What's in it {#whats-in-it}
 

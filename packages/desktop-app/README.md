@@ -50,7 +50,7 @@ node scripts/dev-electron.ts --apps calendar,slides
 Or run just the Electron shell (if apps are already running):
 
 ```bash
-pnpm --filter @agent-native/electron-shell dev
+pnpm --filter @agent-native/desktop-app dev
 ```
 
 ---
@@ -58,8 +58,7 @@ pnpm --filter @agent-native/electron-shell dev
 ## Architecture
 
 ```
-packages/electron-shell/
-├── index.html                    # Renderer entry point
+packages/desktop-app/
 ├── electron.vite.config.ts       # Build config (main + preload + renderer)
 ├── shared/
 │   ├── app-registry.ts           # App definitions (id, name, port, color…)
@@ -231,7 +230,7 @@ agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ## Building for distribution
 
 ```bash
-pnpm --filter @agent-native/electron-shell build
+pnpm --filter @agent-native/desktop-app build
 ```
 
 This outputs:

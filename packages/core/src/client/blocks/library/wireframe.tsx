@@ -211,6 +211,7 @@ function ArtboardFrame({
   // by the fit factor. Falls back to the surface floor before the first measure
   // so SSR / first paint reserves a sensible box rather than collapsing.
   const reservedHeight = (measuredHeight ?? minHeight) * fitScale;
+  const reserveScaledHeight = fixedHeight != null || fitScale !== 1;
 
   return (
     <div
@@ -225,7 +226,7 @@ function ArtboardFrame({
         style={{
           width: "100%",
           maxWidth: maxFrameWidth,
-          height: reservedHeight,
+          ...(reserveScaledHeight ? { height: reservedHeight } : {}),
           marginInline: "auto",
         }}
       >
