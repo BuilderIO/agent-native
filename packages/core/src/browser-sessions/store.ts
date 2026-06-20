@@ -272,7 +272,11 @@ function rowToRequest(
     ...(row.error ? { error: String(row.error) } : {}),
     ...(row.result_json != null ? { result } : {}),
   };
-  if (type === "run-action") request.args = payload;
+  if (type === "run-action")
+    request.args =
+      typeof payload === "object" && payload !== null && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {};
   else request.payload = payload;
   return request;
 }
