@@ -78,6 +78,12 @@ export interface CreateAppOptions {
   standalone?: boolean;
   /** Internal: skip pnpm install at the end (for tests). */
   noInstall?: boolean;
+  /**
+   * Internal: always scaffold a workspace and skip the start-shape prompt.
+   * Used by the deprecated `create-workspace` alias, whose contract is an
+   * unconditional workspace scaffold.
+   */
+  forceWorkspace?: boolean;
 }
 
 /**
@@ -138,6 +144,12 @@ export async function createApp(
   // cannot live in a workspace), while Template continues into the workspace
   // multi-select.
   if (parsed.length === 0) {
+    // The deprecated `create-workspace` alias forces workspace semantics, so
+    // it must skip the start-shape prompt and scaffold a workspace directly.
+    if (opts?.forceWorkspace) {
+      await createWorkspaceInteractive(name, opts, clack);
+      return;
+    }
     const shape = await promptStartShape(clack);
     if (shape === "headless" || shape === "chat") {
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
