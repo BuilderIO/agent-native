@@ -21,6 +21,18 @@ export default defineAction({
 - **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
 - **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 
+## Agents and UIs, Fully Connected
+
+The agent and the UI are equal citizens of one system. Every action works both ways: click it or ask for it.
+
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
+
+- **Everything syncs**: One database, one state. Changes from either side show up instantly on the other.
+- **Real-time multiplayer**: Humans and agents edit the same document together, with the agent as a first-class peer.
+- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Agents call agents**: Tag another agent from any app and they coordinate over A2A.
+- **Self-improving**: The agent can add features, fix bugs, and refine the UI over time.
+
 ## Templates
 
 Start with a full featured template. Each one is a complete, 100% free and open-source SaaS app: cloneable, not scaffolded, except you own the code and can customize everything.
@@ -134,19 +146,6 @@ Want a single app instead of a monorepo? Add `--standalone`. The picker leads wi
 
 - **Headless**: an action-first app with one primitive and no UI shell. The CLI walks you through calling your first action and agent, and you can add a UI later.
 - **Chat**: a minimal chat UI with the browser shell already wired, the simplest starting point when you want a UI.
-
-## Agents and UIs, Fully Connected
-
-The agent and the UI are equal citizens of the same system. Every action works both ways: click it or ask for it.
-
-![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
-
-- **Everything syncs**: Agent and UI share one database and one state. Changes from either side show up instantly on the other.
-- **Real-time multiplayer**: Humans and agents collaborate in the same document with CRDT merging, live presence, and the agent as a first-class peer editor. Works on any SQL database and any host.
-- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
-- **Agents call agents**: Tag another agent from any app. They discover each other over A2A and take action across your stack.
-- **Apps that improve themselves**: The agent can add features, fix bugs, and refine the UI over time.
-- **Any database, any host**: Any SQL database Drizzle supports. Any host Nitro supports. No lock-in.
 
 ## The Best of Both Worlds
 
