@@ -357,6 +357,25 @@ export default function ShareRoute() {
     document.title = pageTitle(recording.title);
   }, [recording?.title]);
 
+  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
+  // agent mounted in the side panel has no navigation context. Write it
+  // explicitly for signed-in viewers so view-screen grounds the chat to this
+  // clip instead of falling back to a generic library view.
+  useEffect(() => {
+    if (!session || !recording?.id) return;
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        view: "share",
+        shareId: recording.id,
+        recordingId: recording.id,
+        path: `/share/${recording.id}`,
+      }),
+    }).catch(() => {});
+  }, [session, recording?.id]);
+
   useEffect(() => {
     if (!recording) {
       setProcessingTimeout(false);
