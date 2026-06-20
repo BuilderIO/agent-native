@@ -62,6 +62,65 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
+`registerBuiltinAgentHarnesses()` also registers the [ACP](#acp) harnesses
+(`acp`, `acp:gemini`, `acp:claude-code`).
+
+## ACP agents {#acp}
+
+Agent-Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
+Protocol) **client** and drive a local coding agent — Gemini CLI, Claude Code,
+or any ACP-compliant agent — through this same substrate. The agent runs as a
+local subprocess that speaks newline-delimited JSON-RPC over stdio; ACP's editor
+↔ agent model is exactly this shape.
+
+This adapter is scoped to **local coding**. The child process inherits the
+parent environment, so the agent reuses whatever local CLI login it already has
+(for example `gemini` or `claude` auth in the user's home dir). It is not a
+hosted or sandboxed transport, and it is not a chat/A2A transport — for those,
+see [Agent Surfaces](/docs/agent-surfaces).
+
+| Name              | Default command                                | Resumable\* |
+| ----------------- | ---------------------------------------------- | ----------- |
+| `acp`             | _(supply `command`/`args` via config)_         | yes         |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | yes         |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | yes         |
+
+\*Resume works when the agent advertises the `loadSession` capability and
+degrades to a fresh session otherwise.
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+
+// A built-in preset (command/args are overridable through the resolve config):
+const adapter = resolveAgentHarness("acp:gemini");
+
+// Or any ACP agent by command:
+const custom = resolveAgentHarness("acp", {
+  command: "gemini",
+  args: ["--experimental-acp"],
+});
+```
+
+The protocol transport (`@zed-industries/agent-client-protocol`) is an optional
+dependency loaded lazily through the `installPackage` hint, just like the AI SDK
+harnesses. The agent binary itself (`@google/gemini-cli`,
+`@zed-industries/claude-code-acp`, …) is a separate external CLI; the presets
+launch it through `npx` and the command/args stay overridable because agent ACP
+entry flags still evolve.
+
+`permissionMode` maps onto ACP `session/request_permission` using the tool-call
+kind the agent reports: reads always run, edits run under `allow-edits`, and
+everything risky prompts unless `allow-all`. Approvals surface as the normal
+`approval-request` events. The adapter serves `fs/read_text_file` and
+`fs/write_text_file` against the session workspace (refusing paths that escape
+it) and writes emit `file-change` events; terminal methods are not advertised,
+so the agent uses its own shell.
+
 ## Codex auth: Code UI vs harness sandboxes {#codex-auth}
 
 There are two Codex surfaces, and they authenticate differently:

@@ -295,8 +295,10 @@ export function SupportAgentChat() {
 Ready-made runtime helpers exist for OpenAI Agents, OpenAI Responses, the Claude
 Agent SDK, the Vercel AI SDK, and AG-UI, plus the normalized HTTP runtime above
 for any other agent (Mastra, Flue, Eve, LangGraph, or a custom service). ACP is
-not the default end-user app chat protocol, and Agent-Native does not currently
-claim A2UI support.
+not the end-user app chat or A2A transport, and Agent-Native does not currently
+claim A2UI support. ACP is supported in one specific place — driving a local
+coding agent (Gemini CLI, Claude Code, …) through the
+[harness layer](/docs/harness-agents#acp), not as the chat runtime here.
 
 [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 is the canonical home for the event shapes, the runtime helpers, and `chatUI`
