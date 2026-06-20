@@ -126,13 +126,21 @@ export async function createApp(
   // Use `--template a,b` or pass no --template to opt into the workspace
   // flow with the multi-select picker.
   const parsed = parseTemplateList(opts?.template);
-  if (parsed.includes("headless") && parsed.length > 1) {
+  // Headless can't live in a workspace, so reject it when more than one
+  // template is requested or when workspace semantics are forced.
+  if (
+    parsed.includes("headless") &&
+    (parsed.length > 1 || opts?.forceWorkspace)
+  ) {
     clack.cancel(
       "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Chat template when adding a UI app to a workspace.",
     );
     process.exit(1);
   }
-  if (parsed.length === 1) {
+  // A single explicit template scaffolds a standalone app, unless the caller
+  // forces workspace semantics (the deprecated `create-workspace` alias), in
+  // which case the template is preselected in the workspace picker below.
+  if (parsed.length === 1 && !opts?.forceWorkspace) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
