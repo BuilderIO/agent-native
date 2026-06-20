@@ -28,8 +28,8 @@ everything after (defining actions, running the agent) is the same either way.
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
 
-Run `create` with no flags and it asks how you want to start — a full template,
-Chat, or Headless — before anything else:
+Run `create` with no flags and it asks how you want to start (a full template,
+Chat, or Headless) before anything else:
 
 ```bash
 npx @agent-native/core@latest create my-app

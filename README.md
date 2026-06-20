@@ -131,11 +131,11 @@ See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-s
 
 ## Quick Start
 
-One command to fork a template and start building locally.
+One command to start a new project locally.
 
 ```bash
-npx @agent-native/core@latest create my-platform
-cd my-platform
+npx @agent-native/core@latest create my-app
+cd my-app
 pnpm install
 pnpm dev
 ```
