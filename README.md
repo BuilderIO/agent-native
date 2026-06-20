@@ -120,7 +120,7 @@ Don't want to scaffold a whole app yet? Add visual planning and PR recaps to Cla
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-![Visual plan review surface](https://raw.githubusercontent.com/builderio/skills/main/media/visual-plan.png)
+![Visual plan and recap in action](https://raw.githubusercontent.com/builderio/skills/main/media/visual-recap.gif)
 
 You get two slash commands:
 
