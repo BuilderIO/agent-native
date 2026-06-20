@@ -95,6 +95,12 @@ export async function createApp(
 ): Promise<void> {
   const clack = await import("@clack/prompts");
 
+  // Reject an invalid provided name before any interactive prompt so bad input
+  // fails fast instead of blocking on the start-shape picker below.
+  if (name !== undefined) {
+    assertValidProjectName(name, clack);
+  }
+
   // If we're already inside a workspace, the meaning of `create <name>` is
   // "add a new app to this workspace". Delegate to add-app.
   const workspace = detectWorkspace(process.cwd());
@@ -125,8 +131,83 @@ export async function createApp(
     return;
   }
 
-  // Default: create a workspace.
+  // No template specified: ask what shape to start from before diving into
+  // "which templates?". The on-ramp choice implies the project structure, so
+  // we don't ask a separate "workspace or standalone?" question — Chat and
+  // Headless scaffold a single standalone app (the lightest starts; headless
+  // cannot live in a workspace), while Template continues into the workspace
+  // multi-select.
+  if (parsed.length === 0) {
+    const shape = await promptStartShape(clack);
+    if (shape === "headless" || shape === "chat") {
+      await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    // shape === "template" → full app(s) in a workspace.
+    await createWorkspaceInteractive(name, opts, clack);
+    return;
+  }
+
+  // Multiple explicit templates: create a workspace with them.
   await createWorkspaceInteractive(name, opts, clack);
+}
+
+/**
+ * Top-level on-ramp shown by the bare `create <name>` command (no flags). The
+ * choice made here implies the project structure, so we deliberately avoid a
+ * separate "workspace or standalone?" question:
+ *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a single standalone chat UI app
+ *   - "headless" → a single standalone action-first app with no UI shell
+ * Chat and headless are standalone on purpose: a monorepo is unnecessary
+ * ceremony for the lightest on-ramps, and headless cannot be a workspace
+ * member. Either can grow into a workspace later via `add-app`.
+ */
+async function promptStartShape(
+  clack: typeof import("@clack/prompts"),
+): Promise<"template" | "chat" | "headless"> {
+  const choice = await clack.select({
+    message: "How do you want to start?",
+    options: [
+      {
+        value: "template",
+        label: "Full template(s)",
+        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
+      },
+      {
+        value: "chat",
+        label: "Chat",
+        hint: "A single app with a minimal chat UI and the browser shell wired up",
+      },
+      {
+        value: "headless",
+        label: "Headless",
+        hint: "A single action-first app with one primitive and no UI shell",
+      },
+    ],
+  });
+  if (clack.isCancel(choice)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return choice as "template" | "chat" | "headless";
+}
+
+/**
+ * Validate a project name supplied on the command line. Mirrors the rule in
+ * `promptNameIfMissing` so an invalid name is rejected before any interactive
+ * prompt runs (the sub-flows re-validate, which is a harmless no-op).
+ */
+function assertValidProjectName(
+  name: string,
+  clack: typeof import("@clack/prompts"),
+): void {
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+    clack.cancel(
+      `Invalid name "${name}". Use lowercase letters, numbers, and hyphens (must start with a letter).`,
+    );
+    process.exit(1);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
