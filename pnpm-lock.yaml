@@ -1457,9 +1457,6 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-native/embedding':
-        specifier: workspace:*
-        version: link:../../packages/embedding
       '@aws-sdk/client-s3':
         specifier: ^3.1044.0
         version: 3.1044.0
@@ -2462,9 +2459,6 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-native/embedding':
-        specifier: workspace:*
-        version: link:../../packages/embedding
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -2703,9 +2697,6 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-native/embedding':
-        specifier: workspace:*
-        version: link:../../packages/embedding
       '@agent-native/pinpoint':
         specifier: workspace:*
         version: link:../../packages/pinpoint

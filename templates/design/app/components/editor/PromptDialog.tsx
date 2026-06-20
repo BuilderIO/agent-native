@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
-} from "@agent-native/embedding/react";
+} from "@agent-native/core/embedding/react";
 import {
   appBasePath,
   PromptComposer,
