@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.64.0
+
+### Minor Changes
+
+- 9d5f12b: `create` now asks how you want to start (Full template / Chat / Headless) before
+  the template picker. Chat and Headless scaffold a single standalone app; Full
+  template continues into the workspace multi-select. Flag-driven paths
+  (`--template`, `--headless`, `--standalone`) skip the prompt and are unchanged.
+
 ## 0.63.6
 
 ### Patch Changes
