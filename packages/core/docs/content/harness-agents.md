@@ -79,11 +79,11 @@ parent environment, so the agent reuses whatever local CLI login it already has
 hosted or sandboxed transport, and it is not a chat/A2A transport — for those,
 see [Agent Surfaces](/docs/agent-surfaces).
 
-| Name              | Default command                              | Resumable\*       |
-| ----------------- | -------------------------------------------- | ----------------- |
-| `acp`             | _(supply `command`/`args` via config)_       | yes               |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | yes             |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`     | yes               |
+| Name              | Default command                                | Resumable\* |
+| ----------------- | ---------------------------------------------- | ----------- |
+| `acp`             | _(supply `command`/`args` via config)_         | yes         |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | yes         |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | yes         |
 
 \*Resume works when the agent advertises the `loadSession` capability and
 degrades to a fresh session otherwise.
