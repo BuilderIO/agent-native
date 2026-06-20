@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
-} from "@agent-native/embedding/bridge";
+} from "@agent-native/core/embedding/bridge";
 import {
   agentNativePath,
   appPath,
