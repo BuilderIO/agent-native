@@ -65,7 +65,9 @@ function enqueue(
   if (queue.length >= MAX_BATCH_SIZE) {
     drainQueue();
   } else if (!getTimer()) {
-    setTimer(setTimeout(drainQueue, BATCH_INTERVAL_MS));
+    const timer = setTimeout(drainQueue, BATCH_INTERVAL_MS);
+    if (timer.unref) timer.unref();
+    setTimer(timer);
   }
 }
 

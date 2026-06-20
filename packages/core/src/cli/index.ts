@@ -613,7 +613,7 @@ switch (command) {
     import("./invoke.js")
       .then(async (m) => {
         const code = await m.runInvoke(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -626,7 +626,7 @@ switch (command) {
     import("./agents.js")
       .then(async (m) => {
         const code = await m.runAgents(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -667,7 +667,10 @@ switch (command) {
     // browser device-code flow (no token copying). `--all` connects every
     // first-party hosted app; `--token` is the no-browser fallback.
     import("./connect.js")
-      .then((m) => m.runConnect(args))
+      .then(async (m) => {
+        await m.runConnect(args);
+        process.exit(process.exitCode ?? 0);
+      })
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -790,7 +793,7 @@ switch (command) {
     import("./add.js")
       .then((m) => {
         const code = m.runAdd(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
