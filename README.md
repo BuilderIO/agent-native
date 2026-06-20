@@ -131,21 +131,22 @@ See the **[Skills Guide](https://agent-native.com/docs/skills-guide#app-backed-s
 
 ## Quick Start
 
-One command to fork a template and start building locally.
+One command to start a new project locally.
 
 ```bash
-npx @agent-native/core@latest create my-platform
-cd my-platform
+npx @agent-native/core@latest create my-app
+cd my-app
 pnpm install
 pnpm dev
 ```
 
-`create` scaffolds a workspace with a multi-select picker, so you can include as many apps as you want in one place. Pick Mail + Calendar + Forms and you get all three wired up and sharing auth.
+`create` first asks how you want to start:
 
-Want a single app instead of a monorepo? Add `--standalone`. The picker leads with two on-ramps:
+- **Full template(s)**: clone one or more complete apps into a workspace. Pick Mail + Calendar + Forms and you get all three wired up and sharing auth.
+- **Chat**: a single app with a minimal chat UI and the browser shell already wired, the simplest way to get a UI.
+- **Headless**: a single action-first app with no UI shell. The CLI walks you through calling your first action and agent, and you can add a UI later.
 
-- **Headless**: an action-first app with one primitive and no UI shell. The CLI walks you through calling your first action and agent, and you can add a UI later.
-- **Chat**: a minimal chat UI with the browser shell already wired, the simplest starting point when you want a UI.
+Prefer flags? `create my-app --template mail`, `--headless`, or `--standalone` skip the prompt.
 
 ## The Best of Both Worlds
 
