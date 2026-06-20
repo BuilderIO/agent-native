@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.63.6
+
+### Patch Changes
+
+- 0105ab5: Fix a broken in-docs anchor in the "creating templates" guide: the headless on-ramp link now points to `/docs/getting-started#1-create-your-app` instead of the stale `#create-your-agent`, which no longer matches any heading on the Getting Started page.
+
 ## 0.63.5
 
 ### Patch Changes
