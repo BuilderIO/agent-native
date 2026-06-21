@@ -26,7 +26,7 @@ describe("resolvePlayerVideoUrl", () => {
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
         videoUrl: "https://cdn.example.com/reuploaded.mp4",
       }),
-    ).toBe("/api/video/rec-1");
+    ).toBe("/api/video/rec-1?loomMedia=1");
   });
 
   it("keeps non-Loom provider URLs direct", () => {
@@ -73,6 +73,6 @@ describe("resolvePlayerVideoUrl", () => {
         },
         { addPasswordToken: true },
       ),
-    ).toBe("/api/video/rec-3?t=signed-token");
+    ).toBe("/api/video/rec-3?loomMedia=1&t=signed-token");
   });
 });

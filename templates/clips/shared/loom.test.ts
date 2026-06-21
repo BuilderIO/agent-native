@@ -91,6 +91,17 @@ describe("Loom URL helpers", () => {
     expect(isLoomEmbedBackedRecording(recording)).toBe(false);
   });
 
+  it("does not treat proxied native Loom media as iframe-backed", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "/api/video/rec-1?loomMedia=1&t=signed-token",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(false);
+  });
+
   it("rejects unsupported protocols, hosts, paths, and IDs", () => {
     expect(normalizeLoomShareUrl("javascript:alert(1)")).toBeNull();
     expect(

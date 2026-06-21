@@ -1,8 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { uploadFile } from "@agent-native/core/file-upload";
-import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getActiveFileUploadProvider,
+  uploadFile,
+} from "@agent-native/core/file-upload";
+import {
+  buildDeepLink,
+  resolveBuilderPrivateKey,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -77,6 +83,22 @@ const ImportLoomRecordingSchema = z.object({
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage, then retry this Loom import.";
+
+async function hasConfiguredUploadStorage(): Promise<boolean> {
+  const provider = getActiveFileUploadProvider();
+  if (!provider) return false;
+  if (provider.id !== "builder") return true;
+
+  try {
+    return Boolean(await resolveBuilderPrivateKey());
+  } catch (err) {
+    console.warn(
+      "[clips] Builder storage credential check failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -155,22 +177,29 @@ export default defineAction({
       if (existingRecording.sourceAppName?.trim().toLowerCase() !== "loom") {
         throw new Error("Only Loom recordings can be retried this way.");
       }
+      const existingSourceUrl = normalizeLoomShareUrl(
+        existingRecording.sourceWindowTitle ?? "",
+      );
+      const isWaitingStorageRetry =
+        existingRecording.status === "uploading" &&
+        !existingRecording.videoUrl &&
+        existingRecording.failureReason ===
+          LOOM_STORAGE_SETUP_REQUIRED_REASON &&
+        existingSourceUrl === shareUrl;
+      if (!isWaitingStorageRetry) {
+        throw new Error(
+          "Only a waiting-storage Loom import can be retried in place.",
+        );
+      }
     }
 
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
 
-    const oembed = await fetchLoomOembed(shareUrl);
-    const media = await downloadLoomVideo({ loomId, shareUrl });
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
-    const upload = await uploadFile({
-      data: media.bytes,
-      filename: `${id}.mp4`,
-      mimeType: media.mimeType,
-      ownerEmail,
-    });
+    const oembed = await fetchLoomOembed(shareUrl);
 
     const spaceIds = (
       args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
@@ -193,7 +222,7 @@ export default defineAction({
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
 
-    const recordingValues = {
+    const buildRecordingValues = (videoSizeBytes: number) => ({
       organizationId,
       orgId: organizationId,
       folderId,
@@ -207,7 +236,7 @@ export default defineAction({
         oembed.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
       durationMs,
       videoFormat: "mp4" as const,
-      videoSizeBytes: media.sizeBytes,
+      videoSizeBytes,
       width,
       height,
       hasAudio: true,
@@ -215,9 +244,10 @@ export default defineAction({
       uploadProgress: 100,
       visibility,
       updatedAt: now,
-    };
+    });
 
-    if (upload === null) {
+    const saveWaitingForStorage = async (videoSizeBytes: number) => {
+      const recordingValues = buildRecordingValues(videoSizeBytes);
       if (existingRecording) {
         await db
           .update(schema.recordings)
@@ -267,9 +297,28 @@ export default defineAction({
         thumbnailUrl: oembed.thumbnail_url ?? null,
         durationMs,
         importMode: "reuploaded" as const,
-        videoSizeBytes: media.sizeBytes,
+        videoSizeBytes,
         note: LOOM_STORAGE_SETUP_REQUIRED_REASON,
       };
+    };
+
+    if (!(await hasConfiguredUploadStorage())) {
+      return await saveWaitingForStorage(
+        existingRecording?.videoSizeBytes ?? 0,
+      );
+    }
+
+    const media = await downloadLoomVideo({ loomId, shareUrl });
+    const upload = await uploadFile({
+      data: media.bytes,
+      filename: `${id}.mp4`,
+      mimeType: media.mimeType,
+      ownerEmail,
+    });
+
+    const recordingValues = buildRecordingValues(media.sizeBytes);
+    if (upload === null) {
+      return await saveWaitingForStorage(media.sizeBytes);
     }
 
     if (!upload?.url) {
