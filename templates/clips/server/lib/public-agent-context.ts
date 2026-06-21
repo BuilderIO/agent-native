@@ -17,7 +17,10 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../shared/transcript-segments.js";
-import { isLoomRecordingSource } from "../../shared/loom.js";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "../../shared/loom.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 
@@ -326,8 +329,9 @@ export function buildPublicAgentContext({
     token: access.apiToken,
   });
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
-  const isLoomRecording = isLoomRecordingSource(recording);
-  const suggestedFrames = isLoomRecording
+  const isLoomSource = isLoomRecordingSource(recording);
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const suggestedFrames = isLoomEmbedBacked
     ? []
     : buildRecommendedFrames({
         durationMs: recording.durationMs,
@@ -339,9 +343,9 @@ export function buildPublicAgentContext({
       }));
   const instructions = [
     "Use transcript.segments for timestamped spoken context.",
-    ...(isLoomRecording
+    ...(isLoomEmbedBacked
       ? [
-          "This clip is imported from Loom and uses Loom embedded playback; frame extraction is not available through Clips.",
+          "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
         ]
       : [
           "Use apis.frame.urlTemplate with atMs to fetch a JPEG frame when the spoken transcript references something visible on screen.",
@@ -358,7 +362,7 @@ export function buildPublicAgentContext({
       title: recording.title,
       description: recording.description,
       publicPageUrl,
-      sourceProvider: isLoomRecording ? "loom" : null,
+      sourceProvider: isLoomSource ? "loom" : null,
       thumbnailUrl: recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
@@ -376,7 +380,7 @@ export function buildPublicAgentContext({
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      ...(isLoomRecording
+      ...(isLoomEmbedBacked
         ? {}
         : {
             frame: {
@@ -425,9 +429,9 @@ export async function loadRecordingMediaBytes(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const videoUrl = recording.videoUrl ?? "";
   if (!videoUrl) throw new Error("Recording has no videoUrl");
-  if (isLoomRecordingSource(recording)) {
+  if (isLoomEmbedBackedRecording(recording)) {
     throw new Error(
-      "Frame extraction is not available for Loom embed imports.",
+      "Frame extraction is not available for legacy Loom embed imports.",
     );
   }
   assertFrameMediaSize(recording.videoSizeBytes);

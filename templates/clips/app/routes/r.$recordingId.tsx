@@ -47,7 +47,10 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
-import { isLoomRecordingSource } from "@shared/loom";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "@shared/loom";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];
@@ -200,22 +203,34 @@ export default function RecordingPage() {
     : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
-  const canUseNativeEditor = canEdit && !isLoomRecording;
+  const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
     setProcessingTimeout(false);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/finalize-recording"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: recordingId }),
-        },
-      );
+      const retryingLoomImport = isLoomRecording;
+      const actionPath = retryingLoomImport
+        ? "/_agent-native/actions/import-loom-recording"
+        : "/_agent-native/actions/finalize-recording";
+      if (retryingLoomImport && !recording?.sourceWindowTitle) {
+        throw new Error("This Loom recording is missing its source URL.");
+      }
+      const res = await fetch(agentNativePath(actionPath), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          retryingLoomImport
+            ? {
+                recordingId,
+                url: recording?.sourceWindowTitle,
+              }
+            : { id: recordingId },
+        ),
+      });
       const body = (await res.json().catch(() => null)) as {
         error?: string;
         result?: { status?: string; storageSetupRequired?: boolean };
@@ -236,19 +251,26 @@ export default function RecordingPage() {
         });
         return;
       }
-      toast.success("Clip upload resumed");
+      toast.success(
+        retryingLoomImport ? "Loom import resumed" : "Clip upload resumed",
+      );
       await playerDataQ.refetch();
     } catch (err) {
-      toast.error("Couldn't resume upload", {
-        description:
-          err instanceof Error ? err.message : "Try again in a moment.",
-        duration: 12_000,
-      });
+      toast.error(
+        isLoomRecording
+          ? "Couldn't retry Loom import"
+          : "Couldn't resume upload",
+        {
+          description:
+            err instanceof Error ? err.message : "Try again in a moment.",
+          duration: 12_000,
+        },
+      );
     } finally {
       setRetryingFinalize(false);
       void playerDataQ.refetch();
     }
-  }, [playerDataQ, recordingId]);
+  }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
@@ -410,6 +432,7 @@ export default function RecordingPage() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
       isNativeSaveFailureReason(rawFailureReason);
@@ -428,14 +451,18 @@ export default function RecordingPage() {
           : "Uploading and assembling your video — this usually takes just a few seconds.";
     const storageSetupFailure = waitingForStorage;
     const label = storageSetupFailure
-      ? "Connect storage to finish saving this clip."
+      ? loomStorageSetupFailure
+        ? "Connect storage to import this Loom."
+        : "Connect storage to finish saving this clip."
       : nativeSaveFailed
         ? "Upload paused; clip saved locally."
         : isFailure
           ? "Something went wrong while saving this clip."
           : "Finishing up your clip…";
     const failureReason = storageSetupFailure
-      ? "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
+      ? loomStorageSetupFailure
+        ? "The Loom source link is preserved. Connect Builder.io or S3 storage and Clips will retry saving its own copy."
+        : "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
       : displayReason;
     const detail = failureDetail(rawFailureReason);
     return (
@@ -478,16 +505,34 @@ export default function RecordingPage() {
             {retryingFinalize ? (
               <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-border bg-card p-6 shadow-lg">
                 <Spinner className="h-8 w-8 text-muted-foreground" />
-                <div className="text-sm font-medium">Uploading saved clip…</div>
+                <div className="text-sm font-medium">
+                  {loomStorageSetupFailure
+                    ? "Importing Loom..."
+                    : "Uploading saved clip…"}
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  Storage is connected. Clips is finishing the upload now.
+                  {loomStorageSetupFailure
+                    ? "Storage is connected. Clips is saving its own copy now."
+                    : "Storage is connected. Clips is finishing the upload now."}
                 </p>
               </div>
             ) : (
               <StorageSetupCard
-                title="Connect storage to finish saving"
-                description="Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
-                connectedDescription="Storage connected. Uploading this clip..."
+                title={
+                  loomStorageSetupFailure
+                    ? "Connect storage to import Loom"
+                    : "Connect storage to finish saving"
+                }
+                description={
+                  loomStorageSetupFailure
+                    ? "Choose where Clips should store videos. After it connects, Clips will retry this Loom import."
+                    : "Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
+                }
+                connectedDescription={
+                  loomStorageSetupFailure
+                    ? "Storage connected. Importing Loom..."
+                    : "Storage connected. Uploading this clip..."
+                }
                 onConfigured={retryFinalizeAfterStorage}
               />
             )}
@@ -507,7 +552,11 @@ export default function RecordingPage() {
             size="sm"
             disabled={retryingFinalize}
           >
-            {storageSetupFailure ? "Retry upload" : "Check again"}
+            {storageSetupFailure
+              ? loomStorageSetupFailure
+                ? "Retry import"
+                : "Retry upload"
+              : "Check again"}
           </Button>
           <Button onClick={() => navigate("/")} variant="ghost" size="sm">
             Back to library
@@ -678,7 +727,7 @@ export default function RecordingPage() {
             recordingTitle={recording.title}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
-            isLoomRecording={isLoomRecording}
+            isLoomRecording={isLoomEmbedBacked}
             hasPassword={Boolean(recording.hasPassword)}
           >
             <Button
@@ -713,7 +762,7 @@ export default function RecordingPage() {
                   ref={playerRef}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
-                  embedProvider={isLoomRecording ? "loom" : null}
+                  embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}

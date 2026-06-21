@@ -26,6 +26,33 @@ Every agent-native app is three things working together:
 
 Headless apps can run the same production app-agent loop from the folder with `pnpm agent`, while UI apps mount the embedded agent panel and run locally with `pnpm dev`. In the cloud, Builder.io provides a managed frame — the environment that hosts the agent next to your app — with collaboration, visual editing, and managed infrastructure for teams.
 
+## Agent building blocks {#agent-building-blocks}
+
+Every agent-native app has the same agent building blocks, regardless of whether
+the product surface is headless, chat-first, or a full UI:
+
+```an-file-tree title="Guidance and behavior"
+{
+  "entries": [
+    { "path": "AGENTS.md", "note": "always-on instructions: purpose, core rules, state keys, action index, skills index" },
+    { "path": ".agents/skills/<name>/SKILL.md", "note": "reusable behavior: workflow steps, policies, examples, references, and do/don't lists" },
+    { "path": "actions/<name>.ts", "note": "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks" }
+  ]
+}
+```
+
+| Building block   | Use it for                                                                                          | Loaded when                                           |
+| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Instructions** | Stable guidance the agent should carry into every task: what the app is, invariants, tone, indexes  | Every turn                                            |
+| **Skills**       | Reusable behavior: how to follow a workflow, apply a policy, inspect evidence, or verify an output  | On demand when the skill description matches the task |
+| **Actions**      | Real operations: read or write data, call APIs, send messages, run approvals, produce typed results | Listed as tools every turn; executed only when called |
+
+Skills and actions work together. A skill teaches the agent how to do a class of
+work; an action is the code path it can call while doing that work. For example,
+a `customer-research` skill might tell the agent which sources to inspect and
+how to summarize evidence, while `search-crm` and `create-brief` actions fetch
+and write the actual data.
+
 Six rules govern the architecture:
 
 1. **Data lives in SQL** — all app state lives in the database via Drizzle ORM

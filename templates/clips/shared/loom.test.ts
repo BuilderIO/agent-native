@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractLoomEmbedUrlFromHtml,
   extractLoomVideoId,
+  isLoomEmbedBackedRecording,
   isLoomEmbedUrl,
   isLoomRecordingSource,
   loomEmbedUrlWithTimestamp,
@@ -65,7 +66,7 @@ describe("Loom URL helpers", () => {
     ).toBe(null);
   });
 
-  it("recognizes Loom recording metadata after Clips proxies the player URL", () => {
+  it("recognizes legacy Loom embed metadata after Clips proxies the player URL", () => {
     const recording = {
       sourceAppName: "Loom",
       sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
@@ -73,9 +74,54 @@ describe("Loom URL helpers", () => {
     };
 
     expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(true);
     expect(loomEmbedUrlForRecording(recording)).toBe(
       "https://www.loom.com/embed/abcDEF_123456",
     );
+  });
+
+  it("recognizes base-prefixed legacy Loom video routes as iframe-backed", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "/clips/api/video/rec-1?t=signed-token",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(true);
+  });
+
+  it("does not treat reuploaded Loom source recordings as iframe-backed", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "https://cdn.example.com/reuploaded.mp4",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(false);
+  });
+
+  it("does not treat proxied native Loom media as iframe-backed", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "/api/video/rec-1?loomMedia=1&t=signed-token",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(false);
+  });
+
+  it("does not treat base-prefixed proxied native Loom media as iframe-backed", () => {
+    const recording = {
+      sourceAppName: "Loom",
+      sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      videoUrl: "/clips/api/video/rec-1?loomMedia=1&t=signed-token",
+    };
+
+    expect(isLoomRecordingSource(recording)).toBe(true);
+    expect(isLoomEmbedBackedRecording(recording)).toBe(false);
   });
 
   it("rejects unsupported protocols, hosts, paths, and IDs", () => {

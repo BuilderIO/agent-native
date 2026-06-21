@@ -52,7 +52,7 @@ import {
 } from "@agent-native/core/server";
 import {
   LOOM_START_MS_QUERY_PARAM,
-  isLoomRecordingSource,
+  isLoomEmbedBackedRecording,
   loomEmbedUrlWithTimestamp,
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
@@ -268,7 +268,7 @@ export default defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      if (isLoomRecordingSource(rec)) {
+      if (isLoomEmbedBackedRecording(rec)) {
         let embedUrl = loomEmbedUrlForRecording(rec);
         if (!embedUrl) {
           setResponseStatus(event, 404);

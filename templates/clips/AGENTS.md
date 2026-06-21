@@ -15,10 +15,11 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Recording start/stop/pause are UI gestures because browser media capture needs
   user activation; navigate the user to the recording view instead of trying a
   server action.
-- Use `import-loom-recording` for Loom share/embed URLs. It creates a ready,
-  playable Loom-backed recording and imports Loom's public transcript when the
-  share page exposes one. Use "Upload video" instead when Clips-native editing,
-  frame extraction, or upload-based transcription is required.
+- Use `import-loom-recording` for Loom share/embed URLs. It downloads Loom's
+  public MP4, reuploads it to Clips storage, creates a ready playable
+  Clips-hosted recording, and imports Loom's public transcript when the share
+  page exposes one. If Loom does not expose a downloadable MP4, ask the user to
+  download the original from Loom and use "Upload video".
 - Native transcript first. Cleanup and title generation can run in the
   background; do not hide a usable native transcript behind a failed cleanup.
 - Cloud transcription is fallback-only for Clips recordings and should use the

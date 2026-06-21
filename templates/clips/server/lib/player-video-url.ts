@@ -1,5 +1,9 @@
 import { signShortLivedToken } from "@agent-native/core/server";
-import { isLoomRecordingSource } from "../../shared/loom.js";
+import {
+  LOOM_NATIVE_MEDIA_QUERY_PARAM,
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "../../shared/loom.js";
 
 type PlayerVideoRecording = {
   id: string;
@@ -13,6 +17,11 @@ export function localRecordingVideoRoute(recordingId: string): string {
   return `/api/video/${encodeURIComponent(recordingId)}`;
 }
 
+function appendQueryParam(url: string, key: string, value: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
 export function resolvePlayerVideoUrl(
   recording: PlayerVideoRecording,
   options: {
@@ -23,8 +32,19 @@ export function resolvePlayerVideoUrl(
   let resolvedVideoUrl = recording.videoUrl ?? null;
   if (!resolvedVideoUrl) return null;
 
-  if (isLoomRecordingSource(recording)) {
+  const isLoomSource = isLoomRecordingSource(recording);
+  const isLoomNativeMedia =
+    isLoomSource && !isLoomEmbedBackedRecording(recording);
+
+  if (isLoomSource) {
     resolvedVideoUrl = localRecordingVideoRoute(recording.id);
+    if (isLoomNativeMedia) {
+      resolvedVideoUrl = appendQueryParam(
+        resolvedVideoUrl,
+        LOOM_NATIVE_MEDIA_QUERY_PARAM,
+        "1",
+      );
+    }
   } else {
     const legacyMatch = resolvedVideoUrl.match(
       /^\/api\/uploads\/([^/]+)\/blob$/,
@@ -40,8 +60,7 @@ export function resolvePlayerVideoUrl(
     resolvedVideoUrl.startsWith("/api/video/")
   ) {
     const token = signShortLivedToken({ resourceId: recording.id });
-    const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-    resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
+    resolvedVideoUrl = appendQueryParam(resolvedVideoUrl, "t", token);
   }
 
   if (options.appPath && resolvedVideoUrl.startsWith("/")) {

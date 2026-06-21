@@ -28,7 +28,7 @@ interface FormSchema {
 }
 
 const DEFAULT_PLACEHOLDER =
-  'What\'s working, what\'s broken, or what would you change?\n\ne.g. "The Send button isn\'t obvious", "I wish I could change the theme", "Search is slow when…"';
+  "What's working, what's broken, or what would you change?";
 const DEFAULT_SUBMIT_TEXT = "Send feedback";
 const DEFAULT_SUCCESS_MESSAGE = "Thanks for the feedback!";
 

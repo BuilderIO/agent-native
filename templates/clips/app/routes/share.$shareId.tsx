@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
   IconDownload,
+  IconDots,
   IconExternalLink,
   IconLogin2,
   IconShare3,
@@ -37,15 +38,15 @@ import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
 import {
@@ -56,7 +57,10 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
-import { isLoomRecordingSource } from "../../shared/loom";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "../../shared/loom";
 
 type SharePageMetaRecording = {
   id: string;
@@ -338,7 +342,7 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
-  const isLoomRecording = isLoomRecordingSource(recording);
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
       ? dataQ.data.data.agentContextUrl
@@ -391,7 +395,7 @@ export default function ShareRoute() {
       },
     } as any,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomRecording,
+    trackOpenWithoutVideo: isLoomEmbedBacked,
   });
 
   // If the backend returned 401 with passwordRequired, prompt.
@@ -516,6 +520,8 @@ export default function ShareRoute() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const loomStorageSetupFailure =
+      storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure = !explicitFailure && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
@@ -530,7 +536,9 @@ export default function ShareRoute() {
           : "Finishing up this clip...";
     const message = storageSetupFailure
       ? canManageStorage
-        ? "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+        ? loomStorageSetupFailure
+          ? "The Loom source link is preserved. Connect Builder.io or S3 storage, then retry the import."
+          : "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
         : session
           ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
           : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."
@@ -624,6 +632,10 @@ export default function ShareRoute() {
     );
   }
 
+  const canDownloadRecording = Boolean(
+    recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
@@ -659,6 +671,31 @@ export default function ShareRoute() {
                 </a>
               </Button>
             )}
+            {!viewerCanEdit && canDownloadRecording ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 shrink-0 px-0"
+                    aria-label="Clip options"
+                  >
+                    <IconDots className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void downloadRecording();
+                    }}
+                    disabled={downloading}
+                  >
+                    <IconDownload className="h-4 w-4" />
+                    {downloading ? "Downloading..." : "Download MP4"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {viewerIsOwner ? (
               <DeleteRecordingMenu
                 recordingId={recording.id}
@@ -671,7 +708,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
-                isLoomRecording={isLoomRecording}
+                isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
@@ -689,7 +726,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
-              embedProvider={isLoomRecording ? "loom" : null}
+              embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -733,7 +770,7 @@ export default function ShareRoute() {
                       return;
                     }
                     tracking.reportReaction(emoji);
-                    const liveCt = isLoomRecording
+                    const liveCt = isLoomEmbedBacked
                       ? null
                       : playerRef.current?.video?.currentTime;
                     const liveMs =
@@ -762,9 +799,7 @@ export default function ShareRoute() {
                   }}
                 />
               ) : null}
-              {recording.enableDownloads &&
-              recording.videoUrl &&
-              !isLoomRecording ? (
+              {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -888,70 +923,60 @@ function PublicAgentEmptyState() {
         : "Download desktop app";
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-        <div className="mb-6 flex flex-col items-center gap-3">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt="Agent-Native"
-            className="block h-8 w-auto dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt="Agent-Native"
-            className="hidden h-8 w-auto dark:block"
-          />
-        </div>
-        <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
-          <a
-            href={CLIPS_TEMPLATE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-          >
-            Agent-Native Clips
-          </a>{" "}
-          is a free,{" "}
-          <a
-            href={CLIPS_SOURCE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-          >
-            open-source
-          </a>
-          ,{" "}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href={CLIPS_AGENT_DOCS_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-              >
-                agent-friendly
-              </a>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-[260px] text-left text-xs leading-5">
-              Paste a Clips link into an agent and it can see timestamped
-              screenshots, hear the transcript, and fetch the context it needs.
-            </TooltipContent>
-          </Tooltip>{" "}
-          Loom alternative
-        </p>
-        <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-          <Button asChild className="w-full gap-2">
-            <a href={appPath("/download")}>
-              <IconDownload className="h-4 w-4" />
-              {downloadLabel}
-            </a>
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <a href={appPath("/signup")}>Sign up</a>
-          </Button>
-        </div>
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <div className="mb-6 flex flex-col items-center gap-3">
+        <img
+          src={appPath("/agent-native-icon-light.svg")}
+          alt="Agent-Native"
+          className="block h-8 w-auto dark:hidden"
+        />
+        <img
+          src={appPath("/agent-native-icon-dark.svg")}
+          alt="Agent-Native"
+          className="hidden h-8 w-auto dark:block"
+        />
       </div>
-    </TooltipProvider>
+      <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
+        <a
+          href={CLIPS_TEMPLATE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          Agent-Native Clips
+        </a>{" "}
+        is a free,{" "}
+        <a
+          href={CLIPS_SOURCE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          open-source
+        </a>
+        ,{" "}
+        <a
+          href={CLIPS_AGENT_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          agent-friendly
+        </a>{" "}
+        Loom alternative
+      </p>
+      <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
+        <Button asChild className="w-full gap-2">
+          <a href={appPath("/download")}>
+            <IconDownload className="h-4 w-4" />
+            {downloadLabel}
+          </a>
+        </Button>
+        <Button asChild variant="outline" className="w-full">
+          <a href={appPath("/signup")}>Sign up</a>
+        </Button>
+      </div>
+    </div>
   );
 }
 

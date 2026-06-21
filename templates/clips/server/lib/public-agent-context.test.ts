@@ -181,7 +181,7 @@ describe("loadRecordingMediaBytes", () => {
     ).rejects.toThrow(/too large/i);
   });
 
-  it("does not fetch bytes for Loom embed imports", async () => {
+  it("does not fetch bytes for legacy Loom embed imports", async () => {
     await expect(
       loadRecordingMediaBytes(
         makeRecording({
@@ -191,13 +191,13 @@ describe("loadRecordingMediaBytes", () => {
           videoFormat: "mp4",
         }) as any,
       ),
-    ).rejects.toThrow(/Loom embed/i);
+    ).rejects.toThrow(/legacy Loom embed/i);
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 });
 
 describe("buildPublicAgentContext", () => {
-  it("omits frame APIs and recommended frames for Loom embed imports", () => {
+  it("omits frame APIs and recommended frames for legacy Loom embed imports", () => {
     const context = buildPublicAgentContext({
       event: {
         url: new URL(
@@ -229,5 +229,37 @@ describe("buildPublicAgentContext", () => {
     expect(context.instructions.join(" ")).toMatch(
       /frame extraction is not available/i,
     );
+  });
+
+  it("keeps frame APIs for reuploaded Loom source recordings", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "https://cdn.example.com/reuploaded.mp4",
+          videoFormat: "mp4",
+          videoSizeBytes: 1024,
+        }) as any,
+        viewerIsOwner: false,
+        apiToken: "signed-token",
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [{ startMs: 1000, title: "Chapter" }],
+      ctas: [],
+    });
+
+    expect(context.clip.sourceProvider).toBe("loom");
+    expect(context.apis).toHaveProperty("frame");
+    expect(context.recommendedFrames.length).toBeGreaterThan(0);
   });
 });
