@@ -49,19 +49,35 @@ describe("createFetchToolEntry", () => {
     );
   });
 
-  it("errors when render:true is requested without FIRECRAWL_API_KEY", async () => {
+  it("errors when provider:firecrawl is requested without FIRECRAWL_API_KEY", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const entry = createFetchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
     })["web-request"];
 
     await expect(
-      entry.run({ url: "https://93.184.216.34/spa", render: true }),
-    ).resolves.toContain("render:true requires FIRECRAWL_API_KEY");
+      entry.run({ url: "https://93.184.216.34/spa", provider: "firecrawl" }),
+    ).resolves.toContain("provider:'firecrawl' requires FIRECRAWL_API_KEY");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("renders via Firecrawl and extracts the page when render:true", async () => {
+  it("rejects provider:firecrawl for non-GET methods", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn(async () => "fc-key"),
+    })["web-request"];
+
+    await expect(
+      entry.run({
+        url: "https://93.184.216.34/api",
+        method: "POST",
+        provider: "firecrawl",
+      }),
+    ).resolves.toContain("provider:'firecrawl' supports GET only");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("renders via Firecrawl and extracts the page when provider:firecrawl", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -82,7 +98,7 @@ describe("createFetchToolEntry", () => {
 
     const result = await entry.run({
       url: "https://93.184.216.34/spa",
-      render: true,
+      provider: "firecrawl",
     });
 
     // Routed through Firecrawl's scrape API, not a direct fetch of the page.

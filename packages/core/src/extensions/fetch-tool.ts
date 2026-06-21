@@ -162,7 +162,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. For JavaScript-rendered SPAs or pages that return empty/blocked content with a normal request, set render:true to fetch a fully-rendered page via Firecrawl (GET only; requires FIRECRAWL_API_KEY). Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. For JavaScript-rendered SPAs or pages that return empty/blocked content with the built-in request, set provider:'firecrawl' to fetch a fully-rendered page (GET only; requires FIRECRAWL_API_KEY). Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -190,10 +190,11 @@ export function createFetchToolEntry(
               type: "number",
               description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: 30000.`,
             },
-            render: {
-              type: "boolean",
+            provider: {
+              type: "string",
               description:
-                "Render JavaScript and bypass anti-bot via Firecrawl before extracting. Default: false. Use for SPAs or sites that return an empty/blocked page with a normal request. GET only; requires FIRECRAWL_API_KEY to be configured.",
+                "How the page is fetched. Default: builder (the built-in request + extraction; works for APIs, JSON, RSS, and most pages). Use firecrawl to render JavaScript and bypass anti-bot for SPAs or pages that come back empty/blocked with the built-in fetch (GET only; requires FIRECRAWL_API_KEY).",
+              enum: ["builder", "firecrawl"],
             },
             maxChars: {
               type: "number",
@@ -313,11 +314,18 @@ export function createFetchToolEntry(
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
-        // Optional Firecrawl render path. GET only — rendering a POST/PUT body
-        // through a scrape API is not meaningful.
-        const renderWanted = parseBooleanArg(args.render);
+        // Fetch provider. Default "builder" = the built-in request + extraction.
+        // "firecrawl" renders JS / bypasses anti-bot via Firecrawl's scrape API;
+        // GET only, since rendering a POST/PUT body through a scrape API is not
+        // meaningful (those stay on the built-in path).
+        const provider = String(args.provider ?? "builder")
+          .trim()
+          .toLowerCase();
         let firecrawlKey: string | null = null;
-        if (renderWanted && method === "GET") {
+        if (provider === "firecrawl") {
+          if (method !== "GET") {
+            return "provider:'firecrawl' supports GET only. Use the default builder provider for this request.";
+          }
           if (opts.resolveSecret) {
             try {
               firecrawlKey = await opts.resolveSecret("FIRECRAWL_API_KEY");
@@ -329,7 +337,7 @@ export function createFetchToolEntry(
             firecrawlKey = process.env.FIRECRAWL_API_KEY || null;
           }
           if (!firecrawlKey) {
-            return "render:true requires FIRECRAWL_API_KEY. Add it in Settings (or set the env var), or retry without render to use a plain request.";
+            return "provider:'firecrawl' requires FIRECRAWL_API_KEY. Add it in Settings (or set the env var), or use the default builder provider.";
           }
         }
 
@@ -460,7 +468,7 @@ export function createFetchToolEntry(
 
           // Audit log
           console.log(
-            `[fetch-tool] ${method}${firecrawlKey ? " (render)" : ""} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
+            `[fetch-tool] ${method}${firecrawlKey ? " (firecrawl)" : ""} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
 
           // saveToFile: write full body to workspace and return compact summary.
