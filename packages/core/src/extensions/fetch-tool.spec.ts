@@ -106,9 +106,13 @@ describe("createFetchToolEntry", () => {
     expect(String(fetchSpy.mock.calls[0][0])).toBe(
       "https://api.firecrawl.dev/v2/scrape",
     );
-    const body = JSON.parse(
-      String((fetchSpy.mock.calls[0][1] as RequestInit).body),
-    );
+    const req = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(req.method).toBe("POST");
+    expect(req.headers).toMatchObject({
+      Authorization: "Bearer fc-key",
+      "Content-Type": "application/json",
+    });
+    const body = JSON.parse(String(req.body));
     expect(body).toEqual(
       expect.objectContaining({
         url: "https://93.184.216.34/spa",

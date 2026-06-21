@@ -327,13 +327,15 @@ export function createFetchToolEntry(
             return "provider:'firecrawl' supports GET only. Use the default builder provider for this request.";
           }
           if (opts.resolveSecret) {
+            // Respect the request-scoped secret policy: when a resolver is
+            // wired, its decision (including null) is final — do not fall back
+            // to a server-wide env var. Mirrors web-search's resolveSearchKey.
             try {
               firecrawlKey = await opts.resolveSecret("FIRECRAWL_API_KEY");
             } catch {
-              // Secret lookup failures are non-fatal; fall through to env.
+              // Secret lookup failures are non-fatal; leave the key unset.
             }
-          }
-          if (!firecrawlKey) {
+          } else {
             firecrawlKey = process.env.FIRECRAWL_API_KEY || null;
           }
           if (!firecrawlKey) {
