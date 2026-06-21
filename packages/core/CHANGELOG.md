@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.66.1
+
+### Patch Changes
+
+- 113abe7: Clarify in the docs how instructions, skills, and actions work together as the
+  core building blocks of Agent Native agents.
+- 113abe7: Shorten the default feedback popover placeholder.
+
 ## 0.66.0
 
 ### Minor Changes
