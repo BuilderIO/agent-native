@@ -85,7 +85,7 @@ export function isLoomEmbedUrl(value: string | null | undefined): boolean {
 function isLocalVideoRoute(value: string): boolean {
   try {
     const parsed = new URL(value, "http://local.test");
-    return /^\/api\/video\/[^/]+$/.test(parsed.pathname);
+    return /(?:^|\/)api\/video\/[^/]+$/.test(parsed.pathname);
   } catch {
     return false;
   }

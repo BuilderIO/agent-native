@@ -29,6 +29,20 @@ describe("resolvePlayerVideoUrl", () => {
     ).toBe("/api/video/rec-1?loomMedia=1");
   });
 
+  it("can app-prefix reuploaded Loom media routes once", () => {
+    expect(
+      resolvePlayerVideoUrl(
+        {
+          id: "rec-1",
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "https://cdn.example.com/reuploaded.mp4",
+        },
+        { appPath: (path) => `/clips${path}` },
+      ),
+    ).toBe("/clips/api/video/rec-1?loomMedia=1");
+  });
+
   it("keeps non-Loom provider URLs direct", () => {
     expect(
       resolvePlayerVideoUrl({
