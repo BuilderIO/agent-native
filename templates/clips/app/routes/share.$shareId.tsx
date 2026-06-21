@@ -47,12 +47,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { getDb, schema } from "../../server/db";
 import {
@@ -922,70 +916,60 @@ function PublicAgentEmptyState() {
         : "Download desktop app";
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-        <div className="mb-6 flex flex-col items-center gap-3">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt="Agent-Native"
-            className="block h-8 w-auto dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt="Agent-Native"
-            className="hidden h-8 w-auto dark:block"
-          />
-        </div>
-        <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
-          <a
-            href={CLIPS_TEMPLATE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-          >
-            Agent-Native Clips
-          </a>{" "}
-          is a free,{" "}
-          <a
-            href={CLIPS_SOURCE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-          >
-            open-source
-          </a>
-          ,{" "}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href={CLIPS_AGENT_DOCS_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-              >
-                agent-friendly
-              </a>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-[260px] text-left text-xs leading-5">
-              Paste a Clips link into an agent and it can see timestamped
-              screenshots, hear the transcript, and fetch the context it needs.
-            </TooltipContent>
-          </Tooltip>{" "}
-          Loom alternative
-        </p>
-        <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-          <Button asChild className="w-full gap-2">
-            <a href={appPath("/download")}>
-              <IconDownload className="h-4 w-4" />
-              {downloadLabel}
-            </a>
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <a href={appPath("/signup")}>Sign up</a>
-          </Button>
-        </div>
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <div className="mb-6 flex flex-col items-center gap-3">
+        <img
+          src={appPath("/agent-native-icon-light.svg")}
+          alt="Agent-Native"
+          className="block h-8 w-auto dark:hidden"
+        />
+        <img
+          src={appPath("/agent-native-icon-dark.svg")}
+          alt="Agent-Native"
+          className="hidden h-8 w-auto dark:block"
+        />
       </div>
-    </TooltipProvider>
+      <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
+        <a
+          href={CLIPS_TEMPLATE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          Agent-Native Clips
+        </a>{" "}
+        is a free,{" "}
+        <a
+          href={CLIPS_SOURCE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          open-source
+        </a>
+        ,{" "}
+        <a
+          href={CLIPS_AGENT_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          agent-friendly
+        </a>{" "}
+        Loom alternative
+      </p>
+      <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
+        <Button asChild className="w-full gap-2">
+          <a href={appPath("/download")}>
+            <IconDownload className="h-4 w-4" />
+            {downloadLabel}
+          </a>
+        </Button>
+        <Button asChild variant="outline" className="w-full">
+          <a href={appPath("/signup")}>Sign up</a>
+        </Button>
+      </div>
+    </div>
   );
 }
 
