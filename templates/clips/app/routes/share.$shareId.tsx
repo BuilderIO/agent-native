@@ -57,7 +57,10 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
-import { isLoomEmbedBackedRecording } from "../../shared/loom";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "../../shared/loom";
 
 type SharePageMetaRecording = {
   id: string;
@@ -517,6 +520,8 @@ export default function ShareRoute() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const loomStorageSetupFailure =
+      storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure = !explicitFailure && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
@@ -531,7 +536,9 @@ export default function ShareRoute() {
           : "Finishing up this clip...";
     const message = storageSetupFailure
       ? canManageStorage
-        ? "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+        ? loomStorageSetupFailure
+          ? "The Loom source link is preserved. Connect Builder.io or S3 storage, then retry the import."
+          : "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
         : session
           ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
           : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."

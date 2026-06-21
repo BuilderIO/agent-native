@@ -1,5 +1,5 @@
 import { signShortLivedToken } from "@agent-native/core/server";
-import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
+import { isLoomRecordingSource } from "../../shared/loom.js";
 
 type PlayerVideoRecording = {
   id: string;
@@ -23,7 +23,7 @@ export function resolvePlayerVideoUrl(
   let resolvedVideoUrl = recording.videoUrl ?? null;
   if (!resolvedVideoUrl) return null;
 
-  if (isLoomEmbedBackedRecording(recording)) {
+  if (isLoomRecordingSource(recording)) {
     resolvedVideoUrl = localRecordingVideoRoute(recording.id);
   } else {
     const legacyMatch = resolvedVideoUrl.match(

@@ -1410,13 +1410,28 @@ export default function RecordRoute() {
             spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
             folderId: folderIdFromUrl ?? undefined,
           } as any,
-        )) as { recordingId?: string };
+        )) as {
+          recordingId?: string;
+          status?: string;
+          storageSetupRequired?: boolean;
+        };
         const recordingId = result?.recordingId;
         if (!recordingId) {
           throw new Error("Loom import did not return a recording id.");
         }
 
-        toast.success("Loom imported");
+        if (
+          result?.storageSetupRequired ||
+          result?.status === "waiting_storage"
+        ) {
+          toast.info("Storage needed to finish Loom import", {
+            description:
+              "Connect Builder.io or S3 storage on the next screen and Clips will retry the import.",
+            duration: 12_000,
+          });
+        } else {
+          toast.success("Loom imported");
+        }
         await writeAppState("navigate", {
           view: "recording",
           recordingId,

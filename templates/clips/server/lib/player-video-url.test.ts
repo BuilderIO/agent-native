@@ -18,12 +18,22 @@ describe("resolvePlayerVideoUrl", () => {
     ).toBe("/api/video/rec-1");
   });
 
-  it("keeps reuploaded Loom imports on their Clips-hosted media URL", () => {
+  it("keeps reuploaded Loom imports behind the same-origin video route", () => {
     expect(
       resolvePlayerVideoUrl({
         id: "rec-1",
         sourceAppName: "Loom",
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        videoUrl: "https://cdn.example.com/reuploaded.mp4",
+      }),
+    ).toBe("/api/video/rec-1");
+  });
+
+  it("keeps non-Loom provider URLs direct", () => {
+    expect(
+      resolvePlayerVideoUrl({
+        id: "rec-1",
+        sourceAppName: "Screen Recorder",
         videoUrl: "https://cdn.example.com/reuploaded.mp4",
       }),
     ).toBe("https://cdn.example.com/reuploaded.mp4");
@@ -51,5 +61,18 @@ describe("resolvePlayerVideoUrl", () => {
         { addPasswordToken: true },
       ),
     ).toBe("https://cdn.example.com/clip.mp4");
+
+    expect(
+      resolvePlayerVideoUrl(
+        {
+          id: "rec-3",
+          password: "encrypted",
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "https://cdn.example.com/loom.mp4",
+        },
+        { addPasswordToken: true },
+      ),
+    ).toBe("/api/video/rec-3?t=signed-token");
   });
 });
