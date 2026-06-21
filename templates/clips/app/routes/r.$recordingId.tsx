@@ -47,7 +47,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
-import { isLoomRecordingSource } from "@shared/loom";
+import { isLoomEmbedBackedRecording } from "@shared/loom";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];
@@ -200,8 +200,8 @@ export default function RecordingPage() {
     : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
-  const isLoomRecording = isLoomRecordingSource(recording);
-  const canUseNativeEditor = canEdit && !isLoomRecording;
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
@@ -678,7 +678,7 @@ export default function RecordingPage() {
             recordingTitle={recording.title}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
-            isLoomRecording={isLoomRecording}
+            isLoomRecording={isLoomEmbedBacked}
             hasPassword={Boolean(recording.hasPassword)}
           >
             <Button
@@ -713,7 +713,7 @@ export default function RecordingPage() {
                   ref={playerRef}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
-                  embedProvider={isLoomRecording ? "loom" : null}
+                  embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}

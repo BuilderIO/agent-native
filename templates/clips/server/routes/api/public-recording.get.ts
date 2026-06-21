@@ -145,8 +145,10 @@ export default defineEventHandler(async (event) => {
   // Normalize the player videoUrl:
   //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
   //      `/api/video/:id` endpoint so old rows keep playing after the move.
-  //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
-  //      gate instead of returning the underlying public Loom embed URL.
+  //   2. Keep legacy Loom embed imports behind the same-origin
+  //      `/api/video/:id` access gate instead of returning the underlying
+  //      public Loom embed URL. New Loom imports are reuploaded and keep their
+  //      provider URL.
   //   3. For password-protected recordings, mint a short-lived HMAC token
   //      bound to this recording id and pass it via `?t=<token>` instead of
   //      the plaintext password. Sticking the password in the URL leaks it

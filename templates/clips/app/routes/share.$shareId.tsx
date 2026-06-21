@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
   IconDownload,
+  IconDots,
   IconExternalLink,
   IconLogin2,
   IconShare3,
@@ -37,6 +38,12 @@ import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -56,7 +63,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
-import { isLoomRecordingSource } from "../../shared/loom";
+import { isLoomEmbedBackedRecording } from "../../shared/loom";
 
 type SharePageMetaRecording = {
   id: string;
@@ -338,7 +345,7 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
-  const isLoomRecording = isLoomRecordingSource(recording);
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
       ? dataQ.data.data.agentContextUrl
@@ -391,7 +398,7 @@ export default function ShareRoute() {
       },
     } as any,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomRecording,
+    trackOpenWithoutVideo: isLoomEmbedBacked,
   });
 
   // If the backend returned 401 with passwordRequired, prompt.
@@ -624,6 +631,10 @@ export default function ShareRoute() {
     );
   }
 
+  const canDownloadRecording = Boolean(
+    recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
@@ -659,6 +670,31 @@ export default function ShareRoute() {
                 </a>
               </Button>
             )}
+            {!viewerCanEdit && canDownloadRecording ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 shrink-0 px-0"
+                    aria-label="Clip options"
+                  >
+                    <IconDots className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void downloadRecording();
+                    }}
+                    disabled={downloading}
+                  >
+                    <IconDownload className="h-4 w-4" />
+                    {downloading ? "Downloading..." : "Download MP4"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {viewerIsOwner ? (
               <DeleteRecordingMenu
                 recordingId={recording.id}
@@ -671,7 +707,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
-                isLoomRecording={isLoomRecording}
+                isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
@@ -689,7 +725,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
-              embedProvider={isLoomRecording ? "loom" : null}
+              embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -733,7 +769,7 @@ export default function ShareRoute() {
                       return;
                     }
                     tracking.reportReaction(emoji);
-                    const liveCt = isLoomRecording
+                    const liveCt = isLoomEmbedBacked
                       ? null
                       : playerRef.current?.video?.currentTime;
                     const liveMs =
@@ -762,9 +798,7 @@ export default function ShareRoute() {
                   }}
                 />
               ) : null}
-              {recording.enableDownloads &&
-              recording.videoUrl &&
-              !isLoomRecording ? (
+              {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
                   size="sm"

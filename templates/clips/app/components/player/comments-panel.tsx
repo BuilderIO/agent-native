@@ -439,16 +439,13 @@ function EmptyCommentsState({
     );
   }
 
-  if (!isSharePresentation) {
-    return (
-      <div className="p-6 text-center text-sm text-muted-foreground">
-        No comments yet. Add one at the current timestamp.
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-8 py-12 text-center">
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center px-8 py-12 text-center",
+        isSharePresentation ? "flex-1" : "min-h-full",
+      )}
+    >
       <div className="relative mb-5 flex size-16 items-center justify-center text-muted-foreground/40">
         <IconMessageCircle className="size-16 stroke-[1.35]" />
         <span className="absolute -right-1 top-1 flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
@@ -459,7 +456,9 @@ function EmptyCommentsState({
         Be the first to comment
       </p>
       <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        Leave a note at the top of this panel.
+        {isSharePresentation
+          ? "Leave a note at the top of this panel."
+          : "Leave a note at the current timestamp."}
       </p>
     </div>
   );

@@ -114,6 +114,26 @@ defineAction({
 });
 ```
 
+## Skills vs actions {#skills-vs-actions}
+
+Skills and actions are complementary. A skill is guidance the agent reads; an
+action is code the agent can run.
+
+| Need                                                                   | Use                                |
+| ---------------------------------------------------------------------- | ---------------------------------- |
+| The agent needs to follow a workflow, policy, checklist, or rubric     | **Skill**                          |
+| The agent needs examples, reference material, or domain-specific rules | **Skill**                          |
+| The agent needs to read or write app data                              | **Action**                         |
+| The agent needs to call an external API or perform an approval         | **Action**                         |
+| The agent calls the right operation but in the wrong way               | Improve the **skill**              |
+| The agent cannot reliably invoke the operation                         | Improve the **action**             |
+| The agent chooses the wrong tool                                       | Improve the **action description** |
+
+Most real features use both: the skill explains how to approach the task, and
+the action provides the typed operation. For example, an `invoice-review` skill
+can explain the review policy and escalation rules, while `list-invoices`,
+`flag-invoice`, and `approve-invoice` actions do the actual reads and writes.
+
 ## Bake in anti-fabrication and verify-before-done {#anti-fabrication}
 
 App instructions should make honesty and verification the default behavior:

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -10,17 +11,12 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import {
-  extractLoomEmbedUrlFromHtml,
-  extractLoomVideoId,
-  loomEmbedUrlForId,
-  normalizeLoomShareUrl,
-} from "@shared/loom.js";
+import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { localRecordingVideoRoute } from "../server/lib/player-video-url.js";
+import { downloadLoomVideo } from "./lib/loom-video.js";
 
 const LoomOembedSchema = z
   .object({
@@ -120,7 +116,7 @@ async function fetchLoomOembed(shareUrl: string) {
 
 export default defineAction({
   description:
-    "Import a public Loom share URL into Clips as a playable recording. Creates a ready recording that uses Loom's embedded player, thumbnail, title, duration metadata, and a public Loom transcript when available. Loom imports are embed-backed; upload the original video file instead when Clips-native editing or upload-based transcription is required.",
+    "Import a public Loom share URL into Clips as a playable recording. Downloads Loom's public MP4, reuploads it to the configured Clips storage provider, and imports Loom's public transcript when available.",
   schema: ImportLoomRecordingSchema,
   run: async (args) => {
     const shareUrl = normalizeLoomShareUrl(args.url);
@@ -129,17 +125,29 @@ export default defineAction({
       throw new Error("Paste a Loom share or embed URL.");
     }
 
-    const oembed = await fetchLoomOembed(shareUrl);
-    const embedUrl =
-      extractLoomEmbedUrlFromHtml(oembed.html) ?? loomEmbedUrlForId(loomId);
-    const now = new Date().toISOString();
-    const id = nanoid();
-    const videoUrl = localRecordingVideoRoute(id);
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
+
+    const oembed = await fetchLoomOembed(shareUrl);
+    const media = await downloadLoomVideo({ loomId, shareUrl });
+    const now = new Date().toISOString();
+    const id = nanoid();
+    const upload = await uploadFile({
+      data: media.bytes,
+      filename: `${id}.mp4`,
+      mimeType: media.mimeType,
+      ownerEmail,
+    });
+    if (!upload?.url) {
+      throw new Error(
+        "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage before importing Loom videos.",
+      );
+    }
+
+    const videoUrl = upload.url;
     const spaceIds = (args.spaceIds ?? []).filter(
       (value, index, arr) => value && arr.indexOf(value) === index,
     );
@@ -164,7 +172,7 @@ export default defineAction({
       durationMs,
       videoUrl,
       videoFormat: "mp4",
-      videoSizeBytes: 0,
+      videoSizeBytes: media.sizeBytes,
       width: boundedDimension(oembed.width ?? oembed.thumbnail_width),
       height: boundedDimension(oembed.height ?? oembed.thumbnail_height),
       hasAudio: true,
@@ -207,15 +215,19 @@ export default defineAction({
       status: "ready" as const,
       provider: "loom" as const,
       sourceUrl: shareUrl,
+      videoUrl,
       embedUrl: videoUrl,
       thumbnailUrl: oembed.thumbnail_url ?? null,
       durationMs,
       transcriptStatus: transcript
         ? ("ready" as const)
         : ("unavailable" as const),
+      importMode: "reuploaded" as const,
+      storageProvider: upload.provider,
+      videoSizeBytes: media.sizeBytes,
       note: transcript
-        ? "Imported as a Loom embed with Loom's public transcript. Upload the original video file when Clips-native editing or upload-based transcription is required."
-        : "Imported as a Loom embed. Loom did not expose an importable transcript; upload the original video file when Clips-native editing or transcription is required.",
+        ? "Imported as a Clips-hosted MP4 with Loom's public transcript."
+        : "Imported as a Clips-hosted MP4. Loom did not expose an importable transcript; use request-transcript to transcribe the uploaded media.",
     };
   },
   link: ({ result }) => {

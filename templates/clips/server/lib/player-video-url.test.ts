@@ -18,6 +18,17 @@ describe("resolvePlayerVideoUrl", () => {
     ).toBe("/api/video/rec-1");
   });
 
+  it("keeps reuploaded Loom imports on their Clips-hosted media URL", () => {
+    expect(
+      resolvePlayerVideoUrl({
+        id: "rec-1",
+        sourceAppName: "Loom",
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        videoUrl: "https://cdn.example.com/reuploaded.mp4",
+      }),
+    ).toBe("https://cdn.example.com/reuploaded.mp4");
+  });
+
   it("adds short-lived password tokens only to same-origin video routes", () => {
     expect(
       resolvePlayerVideoUrl(

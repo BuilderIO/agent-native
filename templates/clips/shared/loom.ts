@@ -101,6 +101,17 @@ export function isLoomRecordingSource(
   );
 }
 
+export function isLoomEmbedBackedRecording(
+  recording: LoomRecordingLike | null | undefined,
+): boolean {
+  if (!recording) return false;
+  if (isLoomEmbedUrl(recording.videoUrl)) return true;
+  if (!isLoomSourceName(recording.sourceAppName)) return false;
+
+  const videoUrl = recording.videoUrl?.trim() ?? "";
+  return !videoUrl || /^\/api\/video\/[^/?#]+(?:[?#].*)?$/.test(videoUrl);
+}
+
 export function loomEmbedUrlForId(id: string): string {
   return `https://www.loom.com/embed/${encodeURIComponent(id)}`;
 }
