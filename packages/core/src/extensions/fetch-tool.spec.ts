@@ -49,6 +49,62 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("errors when render:true is requested without FIRECRAWL_API_KEY", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn().mockResolvedValue(null),
+    })["web-request"];
+
+    await expect(
+      entry.run({ url: "https://93.184.216.34/spa", render: true }),
+    ).resolves.toContain("render:true requires FIRECRAWL_API_KEY");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("renders via Firecrawl and extracts the page when render:true", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            html: "<html><body><article><h1>Rendered</h1><p>JS content.</p></article></body></html>",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn(async (key: string) =>
+        key === "FIRECRAWL_API_KEY" ? "fc-key" : null,
+      ),
+    })["web-request"];
+
+    const result = await entry.run({
+      url: "https://93.184.216.34/spa",
+      render: true,
+    });
+
+    // Routed through Firecrawl's scrape API, not a direct fetch of the page.
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      "https://api.firecrawl.dev/v2/scrape",
+    );
+    const body = JSON.parse(
+      String((fetchSpy.mock.calls[0][1] as RequestInit).body),
+    );
+    expect(body).toEqual(
+      expect.objectContaining({
+        url: "https://93.184.216.34/spa",
+        formats: ["html"],
+      }),
+    );
+    // Rendered HTML flowed through the normal extraction pipeline.
+    expect(result).toContain("HTTP 200");
+    expect(result).toContain("Rendered");
+    expect(result).toContain("JS content.");
+  });
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {

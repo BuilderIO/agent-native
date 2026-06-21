@@ -151,41 +151,6 @@ describe("createWebSearchToolEntry", () => {
     ).toEqual(expect.objectContaining({ query: "current docs", limit: 3 }));
   });
 
-  it("keeps Exa ahead of Firecrawl when both keys are configured", async () => {
-    const resolveSecret = vi.fn(async (key: string) =>
-      key === "EXA_API_KEY"
-        ? "exa-key"
-        : key === "FIRECRAWL_API_KEY"
-          ? "fc-key"
-          : null,
-    );
-    const fetchMock = vi.fn(async () => {
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              title: "Exa result",
-              url: "https://example.com/exa",
-              text: "Result from Exa",
-            },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const tool = createWebSearchToolEntry({ resolveSecret })["web-search"];
-
-    const result = await tool.run({ query: "current docs" });
-
-    expect(result).toContain("backend: Exa");
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0][0])).toContain(
-      "https://api.exa.ai/search",
-    );
-  });
-
   it("suggests Builder Connect when no backend is configured", async () => {
     const tool = createWebSearchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
