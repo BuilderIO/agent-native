@@ -903,6 +903,11 @@ blocks for normal plans. For architecture/code reviews, use \`diagram\`
 requested mockup, UI state, or visual comparison. If UI fidelity requires
 HTML/CSS, image capture, or real React/CSS, the product fix is canvas support
 for that artifact type, not moving the mockup into the document.
+When \`custom-html\` is genuinely needed, author it against the sandbox-provided
+theme tokens (\`--wf-paper\`, \`--wf-card\`, \`--wf-ink\`, \`--wf-muted\`,
+\`--wf-line\`, \`--wf-radius\`, and the matching \`--plan-*\` aliases). Do not hardcode
+hex/rgb/hsl light palettes such as white cards with dark ink; the same fragment
+must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
@@ -1195,6 +1200,12 @@ is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
    and put \`diagram\`, \`data-model\`,
    \`api-endpoint\`, \`diff\`, \`file-tree\`, \`code\`, and \`annotated-code\` blocks
    directly next to the relevant prose.
+   Wide document layout is renderer-owned and intentionally allowlisted: only
+   literal code-review surfaces (\`diff\`, \`annotated-code\`) and \`tabs\` blocks
+   with vertical orientation or diff-like children break out wider than prose.
+   Keep \`api-endpoint\`, \`openapi-spec\`, \`data-model\`, \`json-explorer\`,
+   \`wireframe\`, question, and \`custom-html\` blocks in normal document flow unless
+   their own renderer says otherwise.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel
@@ -1950,6 +1961,11 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   full document width. Let that heading label the section — do NOT also set a
   \`title\` on the \`tabs\` block. Keep each tab label to the file path or a short
   basename plus directory hint.
+  The renderer's wide document layout is intentionally allowlisted: \`diff\`,
+  \`annotated-code\`, vertical \`tabs\`, and \`tabs\` containing diff-like children
+  break out wider than prose. Do not put API endpoints, OpenAPI specs, data
+  models, JSON explorers, wireframes, question forms, or custom HTML into tabs
+  merely to make them wide.
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one horizontal \`tabs\` block under its own \`## Key changes\`
   heading, not a stack of separate \`diff\` blocks.

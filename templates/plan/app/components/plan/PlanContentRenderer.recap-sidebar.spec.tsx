@@ -630,7 +630,7 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(container.querySelector(".plan-document-toc-inline")).toBeNull();
   });
 
-  it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
+  it("moves file-tree blocks into the sidebar for non-recap wide plans too", () => {
     act(() => {
       root.render(
         <PlanContentRenderer
@@ -642,13 +642,17 @@ describe("PlanContentRenderer recap files sidebar", () => {
       );
     });
 
-    expect(container.querySelector(".plan-document-files")).toBeNull();
+    const aside = container.querySelector(".plan-document-files");
+    expect(aside).not.toBeNull();
+    expect(
+      aside?.querySelector(".plan-document-files__label")?.textContent?.trim(),
+    ).toBe("Files changed");
     const flow = container.querySelector(".plan-document-flow");
     expect(flow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
     const styles = Array.from(container.querySelectorAll("style"))
       .map((node) => node.textContent ?? "")
       .join("\n");
-    expect(styles).not.toContain('[data-block-id="tree-1"]');
+    expect(styles).toContain('[data-block-id="tree-1"]');
   });
 
   it("can hide recap chrome, changed files, and contents for screenshot mode", () => {

@@ -528,20 +528,18 @@ export function PlanContentRenderer({
     ],
   );
 
-  // On wide recap screens the "Files touched" tree moves to a permanent left
-  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
-  // document body. Keep the block in the document so it stays the editable
-  // source of truth and is never dropped on save; render a read-only mirror in
-  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
-  // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
-  // unaffected, and to the first file-tree block (the conventional files-touched
-  // summary).
+  // In wide layout, the first file-tree block moves to a permanent left sidebar
+  // (mirroring the right-hand contents rail) instead of sitting in the document
+  // body. Keep the block in the document so it stays the editable source of
+  // truth and is never dropped on save; render a read-only mirror in the aside,
+  // and hide the in-flow copy at the same breakpoint the rail appears (see
+  // `filesSidebarHideCss`).
   const filesSidebarBlockIndex = useMemo(
     () =>
-      isRecap
+      documentLayout === "wide"
         ? content.blocks.findIndex((block) => block.type === "file-tree")
         : -1,
-    [isRecap, content.blocks],
+    [documentLayout, content.blocks],
   );
   const filesSidebarBlock =
     filesSidebarBlockIndex >= 0
@@ -556,6 +554,7 @@ export function PlanContentRenderer({
   )
     ? filesSidebarHeadingBlock
     : undefined;
+  const filesSidebarLabel = fileTreeSidebarLabel(filesSidebarBlock, isRecap);
   // Drop the relocated file-tree and its heading from the contents nav (both are
   // hidden in the rail layout), so no contents link points at a hidden element.
   const tocOmitBlockIds = useMemo(
@@ -803,21 +802,18 @@ export function PlanContentRenderer({
                     </style>
                     <aside
                       className="plan-document-files"
-                      aria-label="Files changed"
+                      aria-label={filesSidebarLabel}
                       onClick={handleFilesRailClick}
                     >
                       <div className="plan-document-files__nav">
-                        {/* The sidebar owns the heading: a single fixed "Files
-                          changed" label. Strip BOTH the block-level `title` (the
-                          eyebrow `plan-block-label`) and the file-tree's own
-                          `data.title` (the bold summary-header heading) from the
-                          mirrored block so the file-tree renders heading-free and
-                          the label is never duplicated — regardless of what title
-                          the block was authored with (e.g. one carrying a
-                          "(+N / −M, K files)" stats suffix). The in-flow source
-                          block keeps both titles untouched. */}
+                        {/* The sidebar owns the heading. Strip BOTH the block-level
+                          `title` (the eyebrow `plan-block-label`) and the
+                          file-tree's own `data.title` (the bold summary-header
+                          heading) from the mirrored block so the file-tree renders
+                          heading-free and the label is never duplicated. The
+                          in-flow source block keeps both titles untouched. */}
                         <div className="plan-document-files__label">
-                          Files changed
+                          {filesSidebarLabel}
                         </div>
                         <PlanBlockView
                           block={stripFileTreeTitles({
@@ -998,6 +994,25 @@ function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
   );
   if (markdown === block.data.markdown) return block;
   return { ...block, data: { ...block.data, markdown: markdown.trimEnd() } };
+}
+
+function fileTreeSidebarLabel(
+  block: PlanBlock | undefined,
+  isRecap: boolean,
+): string {
+  if (!block || block.type !== "file-tree") {
+    return isRecap ? "Files changed" : "Files";
+  }
+  const label = block.title?.trim() || block.data.title?.trim();
+  return stripFileTreeStatsSuffix(
+    label || (isRecap ? "Files changed" : "Files"),
+  );
+}
+
+function stripFileTreeStatsSuffix(label: string): string {
+  return label
+    .replace(/\s*\((?=[^)]*(?:\+|-|−|\d+\s+files?))[^)]*\)\s*$/i, "")
+    .trim();
 }
 
 function filesSidebarHideCss(blockId: string, headingBlockId?: string): string {
