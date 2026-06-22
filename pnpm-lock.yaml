@@ -2403,7 +2403,7 @@ importers:
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(@vitest/coverage-v8@4.1.5)(happy-dom@20.8.9)(jsdom@29.1.1(@noble/hashes@2.0.1)(canvas@3.2.3))(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/clips/chrome-extension:
-    dependencies:
+    devDependencies:
       '@types/chrome':
         specifier: ^0.2.0
         version: 0.2.0
