@@ -31,6 +31,8 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Preview public clips in Slack** with a Loom-style playable unfurl after the
+  workspace installs your Clips Slack app.
 - **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
@@ -52,6 +54,11 @@ The endpoints follow the same public/password/expiry rules as the share page.
 Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
+
+Slack previews use the same sharing boundary. The `/api/slack/unfurl` webhook
+only returns a playable Slack `video` block for ready, public clips without a
+password, expiry hit, archive marker, or trash marker. Other clips still get the
+normal share-page title/thumbnail metadata and require opening Clips.
 
 ```an-api title="Agent context entry point"
 {
@@ -137,6 +144,7 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
+4. **Slack previews (optional).** Create a Slack app with `chat:write`, `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; and set the Request URL to `https://your-clips.example.com/api/slack/unfurl`. Configure `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Clips deployment.
 
 ### Key features
 
@@ -147,6 +155,11 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 **Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
 
 **Agent-readable share links.** Public share links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
+
+**Slack playable unfurls.** Public share links can render a Slack `video` block
+that points at the existing `/embed/:id` player. This is a workspace Slack app
+install, not a global crawler behavior: normal Open Graph/Twitter metadata is
+the fallback when the app is not installed.
 
 ### Data model
 

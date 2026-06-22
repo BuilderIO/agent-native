@@ -33,6 +33,10 @@ import {
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
 import {
+  createBrowserDiagnosticsCapture,
+  type BrowserDiagnosticsCapture,
+} from "@/lib/browser-diagnostics-capture";
+import {
   buildCaptureTitle,
   defaultRecordingTitle,
   inferWindowTitleFromDisplayStream,
@@ -741,6 +745,7 @@ export default function RecordRoute() {
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
+  const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
 
@@ -1432,6 +1437,31 @@ export default function RecordRoute() {
     [folderIdFromUrl, navigate, spaceIdFromUrl],
   );
 
+  const saveBrowserDiagnostics = useCallback(async (recordingId: string) => {
+    const capture = browserDiagnosticsRef.current;
+    if (!capture) return;
+    browserDiagnosticsRef.current = null;
+    const snapshot = capture.stop();
+    try {
+      await callAction(
+        "save-browser-diagnostics" as any,
+        {
+          recordingId,
+          source: "browser-recorder",
+          phase: "recording",
+          pageUrl: snapshot.pageUrl,
+          userAgent: snapshot.userAgent,
+          startedAt: snapshot.startedAt,
+          endedAt: snapshot.endedAt,
+          consoleLogs: snapshot.consoleLogs,
+          networkRequests: snapshot.networkRequests,
+        } as any,
+      );
+    } catch (err) {
+      console.warn("[recorder] browser diagnostics save failed:", err);
+    }
+  }, []);
+
   // -------------------------------------------------------------------------
   // After countdown → actually start MediaRecorder.
   // -------------------------------------------------------------------------
@@ -1440,9 +1470,13 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = createBrowserDiagnosticsCapture();
       setUiState("recording");
       setIsPaused(false);
     } catch (err) {
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = null;
       const message =
         err instanceof Error ? err.message : "Could not start recorder";
       setError(message);
@@ -1536,6 +1570,7 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
+      await saveBrowserDiagnostics(pending.id);
       await finishSavedRecording(pending.id, stopResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
@@ -1559,6 +1594,7 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
+      await saveBrowserDiagnostics(pending.id);
       fetch(pending.abortUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1571,7 +1607,7 @@ export default function RecordRoute() {
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording, liveTranscription]);
+  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
@@ -1635,6 +1671,8 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();
+    browserDiagnosticsRef.current?.dispose();
+    browserDiagnosticsRef.current = null;
     try {
       await engine?.cancel();
     } catch {
@@ -1765,6 +1803,8 @@ export default function RecordRoute() {
         fileUploadAbortRef.current = null;
       }
       stopLiveTranscription();
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = null;
       const engine = engineRef.current;
       engineRef.current = null;
       pendingRef.current = null;

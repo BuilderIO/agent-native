@@ -4,6 +4,10 @@ packages:
   - templates/*
   - templates/*/desktop
 
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@agent-native/core"
+
 catalog:
   "@tabler/icons-react": ^3.41.1
   "@tailwindcss/vite": ^4.2.4
