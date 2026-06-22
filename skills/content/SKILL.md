@@ -64,7 +64,6 @@ Content roots for `docs/`, `blog/`, `content/`, and `resources/`, plus a
 ```json
 {
   "version": 1,
-  "mode": "local-files",
   "apps": {
     "content": {
       "mode": "local-files",

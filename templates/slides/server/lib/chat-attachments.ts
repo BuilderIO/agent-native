@@ -133,10 +133,22 @@ function stripForwardedAttachmentData(
   saved: { path: string; url?: string },
 ): AgentChatAttachment {
   const next = { ...attachment };
-  delete next.data;
+  // Keep image data for the current model turn when storage only gives Slides
+  // an import path. A hosted URL is the replacement that lets us strip it.
+  if (saved.url || !isVisualAttachment(attachment)) {
+    delete next.data;
+  }
   (next as any).slidesUploadPath = saved.path;
   if (saved.url) {
     (next as any).url = saved.url;
   }
   return next;
+}
+
+function isVisualAttachment(attachment: AgentChatAttachment): boolean {
+  return (
+    attachment.type === "image" ||
+    (typeof attachment.contentType === "string" &&
+      attachment.contentType.toLowerCase().startsWith("image/"))
+  );
 }

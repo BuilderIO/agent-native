@@ -27,6 +27,73 @@ function tmpDir(): string {
   return root;
 }
 
+function writeContentAppSkillFixture(root: string): string {
+  const skillRoot = path.join(root, ".agents", "skills", "content");
+  fs.mkdirSync(skillRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillRoot, "SKILL.md"),
+    [
+      "---",
+      "name: content",
+      "description: Use Content for local docs.",
+      "metadata:",
+      "  visibility: exported",
+      "---",
+      "",
+      "# Content",
+      "",
+      "Use Content for docs.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  fs.writeFileSync(
+    path.join(root, "agent-native.app-skill.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        id: "content",
+        displayName: "Content",
+        description: "Edit docs, blogs, resources, and MDX content.",
+        hosted: {
+          url: "https://content.agent-native.com",
+          mcpUrl: "https://content.agent-native.com/_agent-native/mcp",
+        },
+        mcp: {
+          serverName: "agent-native-content",
+        },
+        local: {
+          sourcePath: ".",
+          defaultUrl: "http://127.0.0.1:8083",
+          commands: {
+            install: "pnpm install",
+            dev: "pnpm dev",
+          },
+        },
+        surfaces: [
+          {
+            id: "content-documents",
+            action: "list-documents",
+            path: "/",
+          },
+        ],
+        skills: [
+          {
+            path: ".agents/skills/content",
+            visibility: "both",
+            exportAs: "content",
+          },
+        ],
+        hostAdapters: ["plain-skill", "claude-skill", "generic-mcp"],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf-8",
+  );
+  return root;
+}
+
 function workspaceRoot(): string {
   let current = process.cwd();
   while (current !== path.dirname(current)) {
@@ -337,7 +404,6 @@ describe("agent-native skills", () => {
     );
     expect(manifest).toMatchObject({
       version: 1,
-      mode: "local-files",
       apps: {
         content: {
           mode: "local-files",
@@ -352,6 +418,7 @@ describe("agent-native skills", () => {
       "content",
       "resources",
     ]);
+    expect(manifest.mode).toBeUndefined();
   });
 
   it("preserves existing Content local-files manifest customizations", async () => {
@@ -361,7 +428,11 @@ describe("agent-native skills", () => {
       `${JSON.stringify(
         {
           version: 1,
+          mode: "workspace",
           apps: {
+            plan: {
+              mode: "hosted",
+            },
             content: {
               roots: [
                 {
@@ -408,6 +479,80 @@ describe("agent-native skills", () => {
     ]);
     expect(manifest.apps.content.components).toEqual(["blocks"]);
     expect(manifest.apps.content.extensions).toBe("extensions");
+    expect(manifest.mode).toBe("workspace");
+    expect(manifest.apps.plan).toEqual({ mode: "hosted" });
+  });
+
+  it("accepts Content app-skill directories with local-files mode", async () => {
+    const root = tmpDir();
+    const appDir = writeContentAppSkillFixture(tmpDir());
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        appDir,
+        "--mode",
+        "local-files",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    const manifestPath = path.join(root, "agent-native.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+
+    expect(result.id).toBe("content");
+    expect(result.planMode).toBe("local-files");
+    expect(result.mcpUrl).toBe("");
+    expect(result.mcpClients).toEqual([]);
+    expect(result.localManifestPath).toBe(manifestPath);
+    expect(commands).toHaveLength(1);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining(["--mode", "local-files"]),
+    );
+    expect(manifest.mode).toBeUndefined();
+    expect(manifest.apps.content.mode).toBe("local-files");
+  });
+
+  it("accepts Content app-skill manifests with local-files mode", async () => {
+    const root = tmpDir();
+    const appDir = writeContentAppSkillFixture(tmpDir());
+    const appManifest = path.join(appDir, "agent-native.app-skill.json");
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        appManifest,
+        "--mode",
+        "local-files",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      { baseDir: root, runCommand: async () => 0 },
+    );
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(root, "agent-native.json"), "utf-8"),
+    );
+
+    expect(result.id).toBe("content");
+    expect(result.planMode).toBe("local-files");
+    expect(result.mcpUrl).toBe("");
+    expect(result.mcpClients).toEqual([]);
+    expect(manifest.mode).toBeUndefined();
+    expect(manifest.apps.content.mode).toBe("local-files");
   });
 
   it("accepts design-exploration aliases for the built-in Design skill", async () => {
