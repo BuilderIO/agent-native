@@ -678,7 +678,7 @@ export function PlanContentRenderer({
           // (not canvas) so its containment can't disturb fixed canvas chrome.
           <div className="plan-document-region">
             <div
-              className="plan-document-shell relative mx-auto w-full max-w-[1035px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
+              className="plan-document-shell relative mx-auto w-full max-w-[1040px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
               data-plan-direction={documentDirection}
               dir={documentDirection}
             >

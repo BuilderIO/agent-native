@@ -376,7 +376,7 @@
 .plan-document-body {
   position: relative;
   --toc-rail-width: 11rem;
-  --doc-col-width: 53rem;
+  --doc-col-width: 60rem;
   --rail-gap: 2rem;
 }
 
@@ -654,7 +654,7 @@
 }
 
 .plan-copy {
-  max-width: 989px;
+  max-width: 60rem;
   color: var(--plan-muted);
   font-size: 1.125rem;
   line-height: 1.8;
@@ -677,7 +677,7 @@
 
 /* ── Notion-like rich-text prose ─────────────────────────────────────── */
 .plan-rich-markdown-editor {
-  max-width: 943px;
+  max-width: 60rem;
   color: var(--plan-text);
 }
 
@@ -860,7 +860,7 @@
 }
 
 .plan-prose {
-  max-width: 943px;
+  max-width: 60rem;
   color: var(--plan-text);
   font-size: var(--plan-body-size);
   line-height: 1.75;
@@ -1490,7 +1490,7 @@
 }
 
 .plan-callout {
-  max-width: 989px;
+  max-width: 60rem;
   border-inline-start: 3px solid hsl(var(--ring));
   border-start-start-radius: 0;
   border-end-start-radius: 0;
