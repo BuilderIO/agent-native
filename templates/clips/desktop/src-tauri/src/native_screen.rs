@@ -1156,9 +1156,14 @@ fn native_extension_for_mime_type(mime_type: &str) -> &'static str {
 
 #[cfg(target_os = "macos")]
 fn normalize_audio_device_name(value: &str) -> String {
+    // Collapse to lowercase alphanumeric tokens so WebKit labels and CoreAudio
+    // names compare equal despite punctuation/possessive differences
+    // (e.g. "User's AirPods" vs "User AirPods", "Mic (Default)" vs "Mic").
     value
         .to_lowercase()
-        .replace("(default)", "")
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -1168,7 +1173,23 @@ fn normalize_audio_device_name(value: &str) -> String {
 fn names_match(a: &str, b: &str) -> bool {
     let a = normalize_audio_device_name(a);
     let b = normalize_audio_device_name(b);
-    !a.is_empty() && !b.is_empty() && (a == b || a.contains(&b) || b.contains(&a))
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b || a.contains(&b) || b.contains(&a) {
+        return true;
+    }
+    // Token-subset fallback: every token of the shorter name must appear in the
+    // longer one (covers reordering and dropped possessives that substring
+    // matching misses, e.g. "User's AirPods" -> "User s airpods").
+    let a_tokens: Vec<&str> = a.split(' ').collect();
+    let b_tokens: Vec<&str> = b.split(' ').collect();
+    let (short, long) = if a_tokens.len() <= b_tokens.len() {
+        (&a_tokens, &b_tokens)
+    } else {
+        (&b_tokens, &a_tokens)
+    };
+    short.iter().all(|token| long.contains(token))
 }
 
 #[cfg(target_os = "macos")]
@@ -1182,10 +1203,18 @@ fn resolve_microphone_capture_device(
         .filter(|value| !value.is_empty());
 
     if device_id.is_none() && device_label.is_none() {
+        eprintln!("[clips-tray] audio input devices not provided");
         return Ok(None);
     }
 
     let devices = AudioInputDevice::list();
+    devices.iter().for_each(|device| {
+        eprintln!(
+            "[clips-tray] audio input device: id={} name={}",
+            device.id, device.name
+        );
+    });
+
     let resolved = device_id
         .and_then(|id| devices.iter().find(|device| device.id == id))
         .or_else(|| {
@@ -1196,6 +1225,14 @@ fn resolve_microphone_capture_device(
             })
         })
         .cloned();
+
+    eprintln!(
+        "[clips-tray] mic resolve: requested id={device_id:?} label={device_label:?} -> {}",
+        match &resolved {
+            Some(device) => format!("matched {} ({})", device.name, device.id),
+            None => "NO MATCH".to_string(),
+        }
+    );
 
     resolved.map(Some).ok_or_else(|| {
         let requested = device_label.or(device_id).unwrap_or("selected microphone");
