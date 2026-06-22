@@ -1467,39 +1467,6 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] invoking show_countdown for native local recording"
         : "[clips-recorder] invoking show_countdown + createServerRecording",
     );
-    const countdownPromise = runRecordingCountdown(true);
-    if (localOnly) {
-      await countdownPromise;
-      id = localFolderName;
-    } else {
-      const captureTitle = await captureTitleForRecording({
-        mode: params.mode,
-        source: "full-screen",
-      });
-      console.time("[clips-recorder] createServerRecording duration");
-      const recordingPromise = createServerRecording(
-        params.serverUrl,
-        wantsCamera,
-        wantsAudio,
-        captureTitle,
-      ).finally(() => {
-        console.timeEnd("[clips-recorder] createServerRecording duration");
-      });
-      let createRes: Awaited<ReturnType<typeof createServerRecording>>;
-      try {
-        [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
-      } catch (err) {
-        abortCreatedRecordingOnCountdownCancel(
-          err,
-          recordingPromise,
-          params.serverUrl,
-        );
-        throw err;
-      }
-      id = createRes.id;
-    }
-
-    await audioCue.playBeforeCapture();
     const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
     // Resolve the mic's REAL device name for the native recorder. WebKit's
     // deviceId is a salted hash that never equals ScreenCaptureKit's CoreAudio
@@ -1508,7 +1475,8 @@ async function startNativeFullscreenRecording(
     // deviceId salt after an app update) — that's what makes "only Default
     // works": the hash matches nothing and there's no name to fall back to.
     // A one-shot getUserMedia gives the exact current device name, the same
-    // string ScreenCaptureKit exposes, so name resolution succeeds.
+    // string ScreenCaptureKit exposes, so name resolution succeeds. Done before
+    // warming so both phases pin the same input.
     let micDeviceLabel = params.micLabel || null;
     if (wantsAudio && params.micId) {
       try {
@@ -1530,12 +1498,70 @@ async function startNativeFullscreenRecording(
         );
       }
     }
-    await invoke("native_fullscreen_recording_start", {
-      recordingId: id,
+    // Audio config shared by the warm + begin phases — built once so the two
+    // phases can't drift.
+    const captureAudioParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
       micDeviceId: params.micId || null,
       micDeviceLabel,
+    };
+    // Warm the mic DURING the countdown. ScreenCaptureKit delivers its first
+    // mic sample ~1s after capture starts; warming now lets `begin` attach the
+    // recording output to an already-live mic, so the clip no longer starts
+    // with a silent second. No-op when there's nothing to pre-warm (mic off /
+    // SCK unavailable) — `begin` then does a normal immediate start.
+    const warmMic = (recordingId: string) =>
+      invoke("native_fullscreen_recording_warm", {
+        recordingId,
+        ...captureAudioParams,
+      }).catch((err) => {
+        console.warn("[clips-recorder] mic warm failed:", err);
+      });
+    const countdownPromise = runRecordingCountdown(true);
+    if (localOnly) {
+      id = localFolderName;
+      await Promise.all([countdownPromise, warmMic(id)]);
+    } else {
+      const captureTitle = await captureTitleForRecording({
+        mode: params.mode,
+        source: "full-screen",
+      });
+      console.time("[clips-recorder] createServerRecording duration");
+      const recordingPromise = createServerRecording(
+        params.serverUrl,
+        wantsCamera,
+        wantsAudio,
+        captureTitle,
+      ).finally(() => {
+        console.timeEnd("[clips-recorder] createServerRecording duration");
+      });
+      // The recording id usually lands well before the countdown ends — warm
+      // the mic as soon as it does so the warm-up overlaps the 3-2-1.
+      const warmAndId = (async () => {
+        const createRes = await recordingPromise;
+        await warmMic(createRes.id);
+        return createRes.id;
+      })();
+      try {
+        const [, warmedId] = await Promise.all([countdownPromise, warmAndId]);
+        id = warmedId;
+      } catch (err) {
+        abortCreatedRecordingOnCountdownCancel(
+          err,
+          recordingPromise,
+          params.serverUrl,
+        );
+        throw err;
+      }
+    }
+
+    await audioCue.playBeforeCapture();
+    // Phase 2: attach the recording output now that the mic is warm (or do a
+    // normal immediate start if warming was skipped/failed).
+    await invoke("native_fullscreen_recording_begin", {
+      recordingId: id,
+      ...captureAudioParams,
     });
     // Capture is now live — stamp the timer baseline before any further awaits
     // so the toolbar clock and toolbar-enable line up with the real start.
@@ -1543,6 +1569,10 @@ async function startNativeFullscreenRecording(
     localCameraExport?.start(2_000);
   } catch (err) {
     await localCameraExport?.cancel().catch(() => {});
+    // Tear down any capture started by the warm phase — on a countdown cancel
+    // (or a `begin` failure) the SCStream is already running with the mic live,
+    // and without this it would keep capturing after the aborted start.
+    await invoke("native_fullscreen_recording_cancel").catch(() => {});
     if (bubbleCaptureExcluded) {
       await invoke("set_bubble_capture_excluded", {
         excluded: false,
@@ -1652,6 +1682,19 @@ async function startNativeFullscreenRecording(
         }
 
         let uploadResult: NativeFullscreenUploadResult | null = null;
+        const viewUrl = `/r/${id}`;
+        const uploadPromise = invoke<NativeFullscreenUploadResult>(
+          "native_fullscreen_recording_stop_and_upload",
+          {
+            serverUrl: params.serverUrl,
+            recordingId: id,
+            authToken: params.authToken ?? "",
+            cookie: params.cookie ?? "",
+            hasAudio: wantsAudio,
+            hasCamera: wantsCamera,
+          },
+        );
+        uploadPromise.catch(() => {});
         try {
           const capturedTranscript = await transcriptionCapture
             ?.stop()
@@ -1690,19 +1733,8 @@ async function startNativeFullscreenRecording(
             );
           });
 
-          const viewUrl = `/r/${id}`;
           try {
-            uploadResult = await invoke<NativeFullscreenUploadResult>(
-              "native_fullscreen_recording_stop_and_upload",
-              {
-                serverUrl: params.serverUrl,
-                recordingId: id,
-                authToken: params.authToken ?? "",
-                cookie: params.cookie ?? "",
-                hasAudio: wantsAudio,
-                hasCamera: wantsCamera,
-              },
-            );
+            uploadResult = await uploadPromise;
           } catch (err) {
             await abortRecordingUpload(
               params.serverUrl,
