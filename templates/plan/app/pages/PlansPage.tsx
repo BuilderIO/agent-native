@@ -7861,7 +7861,9 @@ function PlansOverview({
 
   const activePlans = plans.filter((p) => !p.deletedAt);
   const deletedPlans = plans.filter((p) => p.deletedAt);
-  const normalizedViewerEmail = viewerEmail?.trim().toLowerCase() || null;
+  const ownedEmail = plans.find((p) => p.canDelete)?.ownerEmail?.trim() || null;
+  const normalizedViewerEmail =
+    (ownedEmail ?? viewerEmail)?.trim().toLowerCase() || null;
   const authorEmails = Array.from(
     new Set(
       plans
@@ -7885,7 +7887,7 @@ function PlansOverview({
         if (filter === "recaps" && p.kind !== "recap") return false;
       }
     }
-    if (author === "mine") {
+    if (author === "me") {
       return Boolean(
         normalizedViewerEmail &&
         p.ownerEmail?.trim().toLowerCase() === normalizedViewerEmail,
@@ -7959,12 +7961,20 @@ function PlansOverview({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All authors</SelectItem>
-                  {hasMine && <SelectItem value="mine">Mine</SelectItem>}
-                  {authorEmails.map((email) => (
-                    <SelectItem key={email} value={email}>
-                      {emailToName(email)}
-                    </SelectItem>
-                  ))}
+                  {hasMine && <SelectItem value="me">Me</SelectItem>}
+                  {authorEmails
+                    .filter(
+                      (email) =>
+                        !(
+                          hasMine &&
+                          email.toLowerCase() === normalizedViewerEmail
+                        ),
+                    )
+                    .map((email) => (
+                      <SelectItem key={email} value={email}>
+                        {emailToName(email)}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             )}
