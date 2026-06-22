@@ -27,6 +27,7 @@ import {
   InvitationBanner,
   OrgSwitcher,
   RequireActiveOrg,
+  useOrg,
 } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -102,14 +103,21 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
 
-  const { data: organizations } = useOrganizations();
+  const { data: org } = useOrg();
+  const hasActiveOrg = Boolean(org?.orgId);
+  const { data: organizations } = useOrganizations({ enabled: hasActiveOrg });
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
 
-  const { data: spaces } = useSpaces(currentOrganizationId);
-  const { data: libFolders } = useFolders({
-    organizationId: currentOrganizationId,
+  const { data: spaces } = useSpaces(currentOrganizationId, {
+    enabled: hasActiveOrg && Boolean(currentOrganizationId),
   });
+  const { data: libFolders } = useFolders(
+    {
+      organizationId: currentOrganizationId,
+    },
+    { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
+  );
 
   const libFolderList: FolderNode[] = useMemo(
     () =>
