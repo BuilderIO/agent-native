@@ -888,6 +888,7 @@ export default function ShareRoute() {
                   "List follow-up actions",
                   "Draft questions for the author",
                 ]}
+                browserTabId={getBrowserTabId()}
               />
             ) : (
               <PublicAgentEmptyState />
