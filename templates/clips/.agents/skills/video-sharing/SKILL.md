@@ -141,7 +141,7 @@ The playable Slack embed is deliberately narrower than the share page:
 
 Required Slack app setup:
 
-- Bot scopes: `chat:write`, `links:read`, `links:write`, `links.embed:write`
+- Bot scopes: `links:read`, `links:write`, `links.embed:write`
 - Event subscription: `link_shared`
 - App unfurl domains: the public Clips share domain, for example `clips.agent-native.com`
 - Request URL: `https://<clips-host>/api/slack/unfurl`
