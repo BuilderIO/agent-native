@@ -769,22 +769,22 @@ function tabsBlockUsesWideLayout(
 ): boolean {
   return (
     block.data.orientation === "vertical" ||
-    block.data.tabs.some((tab) => blocksContainDiff(tab.blocks))
+    block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
   );
 }
 
-function blocksContainDiff(blocks: PlanBlock[]): boolean {
-  return blocks.some(blockContainsDiff);
+function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
+  return blocks.some(blockContainsDiffLike);
 }
 
-function blockContainsDiff(block: PlanBlock): boolean {
-  if (block.type === "diff") return true;
+function blockContainsDiffLike(block: PlanBlock): boolean {
+  if (block.type === "diff" || block.type === "annotated-code") return true;
   if (block.type === "tabs") {
-    return block.data.tabs.some((tab) => blocksContainDiff(tab.blocks));
+    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
   }
   if (block.type === "columns") {
     return block.data.columns.some((column) =>
-      blocksContainDiff(column.blocks),
+      blocksContainDiffLike(column.blocks),
     );
   }
   return false;

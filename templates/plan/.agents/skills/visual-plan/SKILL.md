@@ -166,6 +166,12 @@ is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
    and put `diagram`, `data-model`,
    `api-endpoint`, `diff`, `file-tree`, `code`, and `annotated-code` blocks
    directly next to the relevant prose.
+   Wide document layout is renderer-owned and intentionally allowlisted: only
+   literal code-review surfaces (`diff`, `annotated-code`) and `tabs` blocks
+   with vertical orientation or diff-like children break out wider than prose.
+   Keep `api-endpoint`, `openapi-spec`, `data-model`, `json-explorer`,
+   `wireframe`, question, and `custom-html` blocks in normal document flow unless
+   their own renderer says otherwise.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel

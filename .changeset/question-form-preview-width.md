@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Fix question-form visual previews so single wireframe previews use the available option width instead of collapsing into a tiny grid column.
+Fix visual plan layout polish: compact question previews, mark wide-eligible tabs for diff-like content, align drag handles with wide blocks, and theme custom HTML iframes for dark mode.
