@@ -392,7 +392,7 @@ function Field({
   multiline,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   multiline?: boolean;
 }) {
   return (
@@ -411,7 +411,13 @@ function formatDimensions(width?: number | null, height?: number | null) {
   const dimensions = `${width || "?"} x ${height || "?"}`;
   if (!width || !height) return dimensions;
   const divisor = gcd(width, height);
-  return `${dimensions} | ${width / divisor}:${height / divisor}`;
+  return (
+    <span className="flex items-center gap-2">
+      {dimensions}
+      <span className="h-4 w-px bg-border" />
+      {`${width / divisor}:${height / divisor}`}
+    </span>
+  );
 }
 
 function gcd(a: number, b: number): number {
