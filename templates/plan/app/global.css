@@ -386,13 +386,12 @@
     --plan-wide-component-width: min(1560px, calc(100vw - 5rem));
   }
 
-  .plan-content-surface[data-plan-layout="wide"]
-    .plan-document-flow-block--wide {
-    width: var(--plan-wide-component-width);
-    max-width: var(--plan-wide-component-width);
-    margin-inline: calc((100% - var(--plan-wide-component-width)) / 2);
+  .plan-content-surface[data-plan-layout="wide"] .plan-document-flow-stack {
+    min-width: 0;
   }
 
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-flow-block--wide,
   .plan-content-surface[data-plan-layout="wide"]
     .plan-document-editor
     .ProseMirror:not(.plan-nested-document-editor-prose)
@@ -403,11 +402,23 @@
     .plan-document-editor
     .ProseMirror:not(.plan-nested-document-editor-prose)
     > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="annotated-code"]
+    ),
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
       > .plan-block-node[data-block-type="tabs"] [data-wide-layout-block]
     ) {
+    position: relative;
+    z-index: 4;
     width: var(--plan-wide-component-width);
     max-width: var(--plan-wide-component-width);
     margin-inline: calc((100% - var(--plan-wide-component-width)) / 2);
+    background-color: var(--plan-document);
+    box-shadow:
+      -1.5rem 0 1.5rem var(--plan-document),
+      1.5rem 0 1.5rem var(--plan-document);
   }
 
   .plan-content-surface[data-plan-layout="wide"]
