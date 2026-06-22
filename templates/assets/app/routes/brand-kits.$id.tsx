@@ -18,6 +18,7 @@ import {
   ShareButton,
   appBasePath,
   agentNativePath,
+  getBrowserTabId,
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
@@ -734,7 +735,7 @@ export default function LibraryPage() {
   }, [activeTab, libraryBoardAssets]);
 
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+    fetch(agentNativePath(`/_agent-native/application-state/navigation:${getBrowserTabId()}`), {
       method: "PUT",
       headers: {
         "content-type": "application/json",

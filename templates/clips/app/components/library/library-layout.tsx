@@ -22,6 +22,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  getBrowserTabId,
 } from "@agent-native/core/client";
 import {
   InvitationBanner,
@@ -221,6 +222,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           "Remove filler words from this clip",
         ]}
         scope={recordingScope}
+        browserTabId={getBrowserTabId()}
       >
         <div className="flex h-full w-full">
           {/* Mobile backdrop */}

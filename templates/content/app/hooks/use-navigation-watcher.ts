@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, getBrowserTabId } from "@agent-native/core/client";
 
 /**
  * Polls /_agent-native/poll for app-state "navigate" events and calls
@@ -48,7 +48,9 @@ export function useNavigationWatcher() {
             handledVersionRef.current = navEvent.version;
             // Fetch the navigation path from app state
             const stateRes = await fetch(
-              agentNativePath("/_agent-native/application-state/navigate"),
+              agentNativePath(
+                `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+              ),
             );
             if (stateRes.ok) {
               const stateData = (await stateRes.json()) as {
