@@ -374,6 +374,34 @@ describe("createBuilderEngine", () => {
     expect(events.find((e) => e.type === "tool-call")).toBeDefined();
   });
 
+  it("maps gateway heartbeat frames to gateway-heartbeat engine events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "heartbeat",
+            requestId: "req_1",
+            timestamp: 1_700_000_000_000,
+          },
+          { type: "text-delta", text: "Hi" },
+          { type: "usage", inputTokens: 10, outputTokens: 2 },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "gateway-heartbeat")).toEqual([
+      { type: "gateway-heartbeat" },
+    ]);
+    expect(events.some((e) => e.type === "text-delta" && e.text === "Hi")).toBe(
+      true,
+    );
+  });
+
   it("maps 402 credits-limit-monthly to stop-error with errorCode + upgradeUrl", async () => {
     vi.stubGlobal(
       "fetch",
@@ -685,6 +713,42 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
     expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("uses the localhost gateway timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
+    vi.stubEnv(
+      "BUILDER_GATEWAY_BASE_URL",
+      "http://localhost:8080/agent-native/gateway/v1",
+    );
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(135_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("180s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {

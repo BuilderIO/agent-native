@@ -2559,6 +2559,8 @@ export async function runAgentLoop(opts: {
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
             sendToolInputActivity(toolName);
+          } else if (event.type === "gateway-heartbeat") {
+            send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
           } else if (event.type === "tool-call-error") {

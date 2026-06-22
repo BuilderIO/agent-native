@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatGuidedAnswersForAgent,
   getOtherGuidedAnswerText,
+  guidedQuestionsFingerprint,
   hasGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
@@ -37,5 +38,28 @@ describe("guided question answers", () => {
         density: "balanced",
       }),
     ).toBe("sections: overview, Other: risks\ndensity: balanced");
+  });
+
+  it("builds stable fingerprints for equivalent question payloads", () => {
+    const questions = [
+      {
+        id: "form_factor",
+        type: "text-options" as const,
+        question: "What form factor?",
+        options: [{ label: "Mobile", value: "mobile" }],
+      },
+    ];
+    const clone = structuredClone(questions);
+    expect(guidedQuestionsFingerprint(questions)).toBe(
+      guidedQuestionsFingerprint(clone),
+    );
+    expect(guidedQuestionsFingerprint(questions)).not.toBe(
+      guidedQuestionsFingerprint([
+        {
+          ...questions[0],
+          options: [{ label: "Desktop", value: "desktop" }],
+        },
+      ]),
+    );
   });
 });

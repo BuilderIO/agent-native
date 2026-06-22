@@ -169,6 +169,7 @@ export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "activity"; label: string; tool?: string }
+  | { type: "stream_keepalive" }
   | { type: "tool_start"; tool: string; input: Record<string, string> }
   | {
       type: "tool_done";
