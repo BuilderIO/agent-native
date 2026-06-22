@@ -3362,7 +3362,10 @@ function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
 function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
   const surface = escapeHtml(data.surface || "desktop");
   const screen = data.screen.map(renderKitNodeHtml).join("");
-  return `<div class="kit-wireframe surface-${surface}">${screen}</div>`;
+  const caption = data.caption
+    ? `<p class="caption">${escapeHtml(data.caption)}</p>`
+    : "";
+  return `<div class="kit-wireframe surface-${surface}">${screen}</div>${caption}`;
 }
 
 function renderKitNodeHtml(node: PlanWireframeNode): string {

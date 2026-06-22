@@ -50,6 +50,13 @@ Three things change when you reach rung 3:
 
 That's rung 3. That's agent-native.
 
+```an-diagram title="The Ladder Principle" summary="Most teams stop at rung 1 or 2. Agent-native is rung 3 — a real app and a real agent over one shared action surface."
+{
+  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
+  "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
+}
+```
+
 See [Key Concepts — Protocols](/docs/key-concepts#protocols) for how all of this hangs off the same action definition.
 
 ## Why every agent needs a UI {#why-every-agent-needs-a-ui}
@@ -81,6 +88,13 @@ This is the defining principle.
 > **From the UI** — click buttons, fill forms, navigate views. The UI writes to the database; the agent sees the results.
 >
 > **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
+
+```an-diagram title="One system, two ways in" summary="The agent and the UI write to the same actions and the same database. Whatever one does, the other sees."
+{
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL database</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 When the agent creates a draft email, it appears in the UI. When you click "Send," the agent knows it was sent. There's no separate "agent world" and "UI world" — it's one system. See [Key Concepts](/docs/key-concepts) for the architecture that makes this work.
 
@@ -145,19 +159,17 @@ This is powered by [A2A](/docs/a2a-protocol) and [MCP](/docs/mcp-protocol) under
 
 If you're building or extending an agent-native app, here's the central pattern: every operation in the app is an **action** — defined once, available to both the agent and the UI.
 
-```ts
-// actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Reply to an email thread",
-  schema: z.object({ emailId: z.string(), body: z.string() }),
-  run: async ({ emailId, body }) => {
-    // db and schema come from your app's server/db setup
-    await db.insert(schema.replies).values({ emailId, body });
-  },
-});
+```an-annotated-code title="One action, defined once"
+{
+  "filename": "actions/reply-to-email.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
+    { "lines": "6", "label": "Typed contract", "note": "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
+  ]
+}
 ```
 
 ```tsx

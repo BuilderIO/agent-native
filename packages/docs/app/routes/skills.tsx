@@ -40,7 +40,7 @@ type Skill = {
   features: string[];
   docsTo: string;
   videoAriaLabel: string;
-  videoUrl: string;
+  videoUrl?: string;
 };
 
 const SKILLS: Skill[] = [
@@ -56,8 +56,7 @@ const SKILLS: Skill[] = [
     ],
     docsTo: "/docs/template-plan",
     videoAriaLabel: "Visual Plan skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a",
+    videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
   },
   {
     command: "/visual-recap",
@@ -71,8 +70,7 @@ const SKILLS: Skill[] = [
     ],
     docsTo: "/docs/pr-visual-recap",
     videoAriaLabel: "Visual Recap skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77",
+    videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
   },
 ];
 
@@ -137,6 +135,8 @@ function CliCopy({
 
 function SkillVideo({ skill }: { skill: Skill }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  if (!skill.videoUrl) return null;
+
   function handleVideoReady(event: SyntheticEvent<HTMLVideoElement>) {
     setIsLoaded(true);
     void event.currentTarget.play().catch(() => {
@@ -223,7 +223,7 @@ function SkillCard({ skill }: { skill: Skill }) {
         </Link>
       </div>
 
-      <SkillVideo skill={skill} />
+      {skill.videoUrl ? <SkillVideo skill={skill} /> : null}
     </article>
   );
 }

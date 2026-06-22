@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import type {
   AgentHarnessAdapter,
   AgentHarnessCapabilities,
@@ -9,6 +13,20 @@ import type {
 
 export type AiSdkHarnessRuntime = "claude-code" | "codex" | "pi";
 
+export type CodexCliAuthConfig =
+  | boolean
+  | {
+      /**
+       * Local Codex home to read auth from. Defaults to CODEX_HOME, then
+       * ~/.codex.
+       */
+      codexHome?: string;
+      /**
+       * Explicit local auth file path. Defaults to <codexHome>/auth.json.
+       */
+      authJsonPath?: string;
+    };
+
 export interface AiSdkHarnessAdapterOptions {
   runtime: AiSdkHarnessRuntime;
   label?: string;
@@ -16,7 +34,38 @@ export interface AiSdkHarnessAdapterOptions {
   permissionMode?: AgentHarnessCreateSessionOptions["permissionMode"];
   harnessOptions?: Record<string, unknown>;
   agentOptions?: Record<string, unknown>;
+  /**
+   * Opt in to copying the local Codex CLI auth file into the harness sandbox
+   * before @ai-sdk/harness-codex starts. Use only with trusted/private
+   * sandboxes: ChatGPT login tokens from ~/.codex/auth.json are copied into
+   * the sandbox so the in-sandbox codex CLI can reuse `codex login`.
+   */
+  codexCliAuth?: CodexCliAuthConfig;
 }
+
+type SandboxRunResult = {
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+};
+
+export type CodexCliAuthSandboxSession = {
+  run(options: {
+    command: string;
+    abortSignal?: AbortSignal;
+  }): PromiseLike<SandboxRunResult>;
+  writeTextFile(options: {
+    path: string;
+    content: string;
+    abortSignal?: AbortSignal;
+  }): PromiseLike<void>;
+};
+
+export type CodexCliAuthSandboxHook = (opts: {
+  session: CodexCliAuthSandboxSession;
+  sessionWorkDir: string;
+  abortSignal?: AbortSignal;
+}) => Promise<void> | void;
 
 const RUNTIME_IMPORTS: Record<
   AiSdkHarnessRuntime,
@@ -95,8 +144,9 @@ export function createAiSdkHarnessAdapter(
         (hasHarnessOptions || exportName?.startsWith("create"))
           ? harnessFactory(options.harnessOptions)
           : harnessFactory;
+      const agentOptions = agentOptionsWithCodexCliAuth(options);
       const agent = new HarnessAgent({
-        ...(options.agentOptions ?? {}),
+        ...agentOptions,
         harness,
         ...(sessionOptions.sandbox ? { sandbox: sessionOptions.sandbox } : {}),
         ...(sessionOptions.instructions
@@ -114,6 +164,168 @@ export function createAiSdkHarnessAdapter(
       return new AiSdkHarnessSession(agent, nativeSession);
     },
   };
+}
+
+function agentOptionsWithCodexCliAuth(
+  options: AiSdkHarnessAdapterOptions,
+): Record<string, unknown> {
+  const agentOptions = { ...(options.agentOptions ?? {}) };
+  if (!options.codexCliAuth) return agentOptions;
+  if (options.runtime !== "codex") {
+    throw new Error(
+      "[agent-harness] codexCliAuth is only supported for the codex AI SDK harness runtime.",
+    );
+  }
+  const existingHook = agentOptions.onSandboxSession;
+  if (existingHook !== undefined && typeof existingHook !== "function") {
+    throw new Error(
+      "[agent-harness] agentOptions.onSandboxSession must be a function when codexCliAuth is enabled.",
+    );
+  }
+  agentOptions.onSandboxSession = createCodexCliAuthSandboxHook(
+    options.codexCliAuth,
+    existingHook as CodexCliAuthSandboxHook | undefined,
+  );
+  return agentOptions;
+}
+
+/** @internal */
+export function createCodexCliAuthSandboxHook(
+  config: CodexCliAuthConfig,
+  existingHook?: CodexCliAuthSandboxHook,
+): CodexCliAuthSandboxHook {
+  const codexCliAuth = normalizeCodexCliAuthConfig(config);
+  return async (hookOptions) => {
+    await installCodexCliAuthIntoSandbox(codexCliAuth, hookOptions);
+    await existingHook?.(hookOptions);
+  };
+}
+
+/** @internal */
+export function normalizeCodexCliAuthConfig(
+  config: CodexCliAuthConfig,
+): Required<Exclude<CodexCliAuthConfig, boolean>> {
+  const input = typeof config === "object" ? config : {};
+  const codexHome =
+    input.codexHome ??
+    // guard:allow-env-credential -- CODEX_HOME is a local auth-directory path override, not a credential value.
+    process.env.CODEX_HOME ??
+    path.join(os.homedir(), ".codex");
+  return {
+    codexHome,
+    authJsonPath: input.authJsonPath ?? path.join(codexHome, "auth.json"),
+  };
+}
+
+async function installCodexCliAuthIntoSandbox(
+  config: Required<Exclude<CodexCliAuthConfig, boolean>>,
+  opts: {
+    session: CodexCliAuthSandboxSession;
+    abortSignal?: AbortSignal;
+  },
+): Promise<void> {
+  const authJson = readCodexCliAuthJson(config.authJsonPath);
+  const home = await resolveSandboxHome(opts.session, opts.abortSignal);
+  const codexHome = path.posix.join(home, ".codex");
+  const sandboxAuthPath = path.posix.join(codexHome, "auth.json");
+
+  const mkdirResult = await opts.session.run({
+    command: `mkdir -p ${shellQuote(codexHome)} && chmod 700 ${shellQuote(codexHome)}`,
+    abortSignal: opts.abortSignal,
+  });
+  if (mkdirResult.exitCode !== undefined && mkdirResult.exitCode !== 0) {
+    throw new Error(
+      `[agent-harness] Unable to create sandbox Codex home: ${mkdirResult.stderr || mkdirResult.stdout || `exit ${mkdirResult.exitCode}`}`,
+    );
+  }
+  await opts.session.writeTextFile({
+    path: sandboxAuthPath,
+    content: authJson,
+    abortSignal: opts.abortSignal,
+  });
+  const chmodResult = await opts.session.run({
+    command: `chmod 600 ${shellQuote(sandboxAuthPath)}`,
+    abortSignal: opts.abortSignal,
+  });
+  if (chmodResult.exitCode !== undefined && chmodResult.exitCode !== 0) {
+    throw new Error(
+      `[agent-harness] Unable to secure sandbox Codex auth file: ${chmodResult.stderr || chmodResult.stdout || `exit ${chmodResult.exitCode}`}`,
+    );
+  }
+}
+
+function readCodexCliAuthJson(authJsonPath: string): string {
+  let authJson: string;
+  try {
+    authJson = fs.readFileSync(authJsonPath, "utf8");
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : undefined;
+    const hint =
+      code === "ENOENT"
+        ? " Run `codex login`, or pass harnessOptions.auth for API-key/gateway auth."
+        : "";
+    throw new Error(
+      `[agent-harness] Codex CLI auth file was not readable at ${authJsonPath}.${hint}`,
+    );
+  }
+  assertCodexCliAuthJson(authJson, authJsonPath);
+  return authJson;
+}
+
+function assertCodexCliAuthJson(authJson: string, authJsonPath: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(authJson);
+  } catch {
+    throw new Error(
+      `[agent-harness] Codex CLI auth file at ${authJsonPath} is not valid JSON.`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      `[agent-harness] Codex CLI auth file at ${authJsonPath} has an invalid shape.`,
+    );
+  }
+  const record = parsed as Record<string, unknown>;
+  const tokens = record.tokens;
+  const hasChatGptTokens =
+    tokens !== null &&
+    typeof tokens === "object" &&
+    (typeof (tokens as Record<string, unknown>).access_token === "string" ||
+      typeof (tokens as Record<string, unknown>).refresh_token === "string");
+  const hasApiKey = typeof record.OPENAI_API_KEY === "string";
+  if (!hasChatGptTokens && !hasApiKey) {
+    throw new Error(
+      `[agent-harness] Codex CLI auth file at ${authJsonPath} does not contain usable ChatGPT tokens or an API key.`,
+    );
+  }
+}
+
+async function resolveSandboxHome(
+  session: CodexCliAuthSandboxSession,
+  abortSignal?: AbortSignal,
+): Promise<string> {
+  const result = await session.run({
+    command: 'printf "%s" "$HOME"',
+    abortSignal,
+  });
+  const home = result.stdout?.trim();
+  if (result.exitCode !== undefined && result.exitCode !== 0) {
+    throw new Error(
+      `[agent-harness] Unable to resolve sandbox HOME: ${result.stderr || result.stdout || `exit ${result.exitCode}`}`,
+    );
+  }
+  if (!home || !path.posix.isAbsolute(home)) {
+    throw new Error("[agent-harness] Sandbox HOME was not an absolute path.");
+  }
+  return home;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 async function createNativeSession(

@@ -96,29 +96,25 @@ const bidirectionalTabs = [
     title: "The agent sees everything",
     description:
       "It can read and update any UI, any data, any state in the application.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true",
+    video: import.meta.env.VITE_AGENT_NATIVE_AGENT_SEES_DEMO_VIDEO_URL,
   },
   {
     title: "The UI talks to the agent",
     description:
       "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true",
+    video: import.meta.env.VITE_AGENT_NATIVE_UI_TALKS_DEMO_VIDEO_URL,
   },
   {
     title: "The agent updates its own code",
     description:
       "It can modify the app itself to change features and functionality. Your tools get better over time.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true",
+    video: import.meta.env.VITE_AGENT_NATIVE_CODE_UPDATES_DEMO_VIDEO_URL,
   },
   {
     title: "Everything works both ways",
     description:
       "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f",
+    video: import.meta.env.VITE_AGENT_NATIVE_BIDIRECTIONAL_DEMO_VIDEO_URL,
   },
 ];
 
@@ -261,22 +257,49 @@ function BidirectionalTabs() {
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) => (
-          <video
-            key={i}
-            ref={(el) => {
-              videoRefs.current[i] = el;
-            }}
-            src={tab.video}
-            muted
-            playsInline
-            preload="auto"
-            onEnded={() => handleVideoEnded(i)}
-            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-              i === activeTab ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-          />
-        ))}
+        {bidirectionalTabs.map((tab, i) =>
+          tab.video ? (
+            <video
+              key={i}
+              ref={(el) => {
+                videoRefs.current[i] = el;
+              }}
+              src={tab.video}
+              muted
+              playsInline
+              preload="auto"
+              onEnded={() => handleVideoEnded(i)}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+                i === activeTab
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0"
+              }`}
+            />
+          ) : (
+            <div
+              key={i}
+              aria-hidden
+              className={`absolute inset-0 bg-[var(--bg-secondary)] transition-opacity duration-300 ${
+                i === activeTab
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0"
+              }`}
+            >
+              <div className="flex h-full w-full animate-pulse flex-col justify-between p-5">
+                <div className="space-y-3">
+                  <div className="h-4 w-2/5 rounded-full bg-[var(--docs-border)]" />
+                  <div className="h-3 w-3/4 rounded-full bg-[var(--docs-border)]" />
+                  <div className="h-3 w-1/2 rounded-full bg-[var(--docs-border)]" />
+                </div>
+                <div className="grid gap-3">
+                  <div className="h-28 rounded-lg bg-[var(--docs-border)]/70" />
+                  <div className="h-16 rounded-lg bg-[var(--docs-border)]/50" />
+                </div>
+                <div className="h-8 w-1/3 rounded-full bg-[var(--docs-border)]" />
+              </div>
+            </div>
+          ),
+        )}
       </div>
     </div>
   );
@@ -372,23 +395,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Bidirectional Awareness - above templates */}
-        <section className="py-20 px-6 border-t border-[var(--docs-border)]">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Agents and UIs — fully connected
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-[1200px]">
-            <BidirectionalTabs />
-          </div>
-        </section>
-
         {/* Framework */}
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
           <div className="mx-auto max-w-[1200px]">
@@ -474,7 +480,7 @@ export default function Home() {
 
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
-          <div className="mx-auto grid min-w-0 max-w-[1100px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
+          <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
             <div className="min-w-0">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 Try it with a skill
@@ -538,6 +544,23 @@ export default function Home() {
             </div>
 
             <AgentNativeDemoVideo className="aspect-square w-full" />
+          </div>
+        </section>
+
+        {/* Bidirectional Awareness */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Agents and UIs — fully connected
+            </h2>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              The agent and the UI are equal citizens of the same system. Every
+              action works both ways — click it or ask for it.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-[1200px]">
+            <BidirectionalTabs />
           </div>
         </section>
 

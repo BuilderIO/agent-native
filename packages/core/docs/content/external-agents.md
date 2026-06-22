@@ -19,6 +19,15 @@ An agent-native app is reachable by any MCP-compatible host — Claude, Claude D
 
 The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — either by pasting the app's remote MCP URL into a chat host like Claude or ChatGPT, or by running the developer CLI flow for local coding agents. Then the agent does the work over MCP and hands the user either an inline **MCP App** UI in compatible hosts or a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
 
+```an-diagram title="The external-agent round-trip" summary="An external host calls a tool over MCP; the app returns an artifact plus an Open link. Clicking it resolves the browser session and focuses the artifact in the running UI — the link carries no privileged state."
+{
+  "html": "<div class=\"xa-trip\"><div class=\"diagram-box\" data-rough>External host<br><small class=\"diagram-muted\">Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP tool call</span><small class=\"diagram-muted\">e.g. <code>manage-draft</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>App produces artifact<br><small class=\"diagram-muted\">+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>User clicks link</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill ok\"><code>/_agent-native/open</code></span><small class=\"diagram-muted\">resolves the <strong>browser</strong> session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes <code>navigate</code> app-state<br><small class=\"diagram-muted\">UI focuses the artifact</small></div></div>",
+  "css": ".xa-trip{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.xa-trip .center{display:flex;flex-direction:column;align-items:center;gap:4px}.xa-trip .diagram-arrow{font-size:22px;line-height:1}.xa-trip code{font-size:.85em}"
+}
+```
+
+The identity rule is the safety hinge: the link is just `view` + record ids + filters, and the record-focusing `navigate` write is scoped to whoever is logged into the **browser** — never the external agent's MCP token. That is why the link is safe to paste into a terminal or chat transcript.
+
 ## Which agent path do you need? {#which-agent-path}
 
 - **External MCP host:** use this page when Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP-compatible host should call your hosted agent-native app.
@@ -238,6 +247,13 @@ This is the canonical explanation of MCP catalog tiers — other pages link here
 
 The MCP server serves a **compact catalog by default to every caller** — hosted connectors (ChatGPT, Claude), code clients (Claude Code, Cursor, Codex), and the local CLI/stdio proxy alike. The full action surface is served only on explicit opt-in. The catalog is never inferred from the client name or user-agent.
 
+```an-diagram title="Two catalog tiers" summary="Every caller gets the compact tier by default; the full ~105-tool surface is opt-in only. tool-search bridges the gap so nothing is ever truly hidden."
+{
+  "html": "<div class=\"xa-tiers\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Compact / connector tier &middot; default</span><strong>~20&ndash;30 tools</strong><small class=\"diagram-muted\">Template-declared app actions + cross-app builtins (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>, <code>create_embed_session</code>) + always-present <code>tool-search</code>.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Full tier &middot; opt-in</span><strong>~105 tools</strong><small class=\"diagram-muted\">Explicit opt-in only: <code>--full-catalog</code> token or <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small></div></div><p class=\"diagram-muted note\"><code>tool-search</code> reaches any full-tier tool on demand &mdash; so the compact default keeps context small without hiding capability.</p>",
+  "css": ".xa-tiers{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.xa-tiers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;flex:1;min-width:240px}.xa-tiers .diagram-arrow{align-self:center;font-size:24px;line-height:1}.xa-tiers .note{flex-basis:100%;margin:4px 0 0;font-size:.85em}.xa-tiers code{font-size:.85em}"
+}
+```
+
 ### Compact / connector tier (default) {#connector-tier}
 
 By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface):
@@ -416,11 +432,32 @@ See [MCP Apps](/docs/mcp-apps) for the full authoring guide — `embedRoute` vs 
 
 The `link` builder is **pure and synchronous — no I/O, no awaits**. It runs best-effort: a throw, `null`, or `undefined` is swallowed and **never** fails the tool call. It only reads the call's `args` and `result`; it must not query the DB, read app-state, or call other actions. Return `null` when there's nothing to open.
 
-`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builderio.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
+`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builder.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
 
 ### The `/_agent-native/open` route {#open-route}
 
-When the user clicks the link in any browser or inline webview, `GET /_agent-native/open` (`createOpenRouteHandler`, mounted by the core routes plugin):
+When the user clicks the link in any browser or inline webview, `GET /_agent-native/open` (`createOpenRouteHandler`, mounted by the core routes plugin) runs the steps below.
+
+```an-api
+{
+  "method": "GET",
+  "path": "/_agent-native/open",
+  "summary": "Deep-link open route — focuses the browser UI on a record",
+  "description": "Resolves the browser session, writes a one-shot `navigate` application-state command scoped to that session, and 302-redirects to a safe same-origin path. Always build the URL with `buildDeepLink(...)`; never hand-format it. Can be disabled per app with `disableOpenRoute`.",
+  "auth": "Browser session via `getSession`. The auth guard bypasses this exact path; if unauthenticated it serves login HTML at the same URL, and the form reload re-enters authenticated (no `?next=` plumbing).",
+  "params": [
+    { "name": "app", "in": "query", "type": "string", "description": "Target app id (e.g. `mail`)." },
+    { "name": "view", "in": "query", "type": "string", "description": "View to focus; also folded into the `navigate` payload." },
+    { "name": "to", "in": "query", "type": "string", "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`." },
+    { "name": "compose", "in": "query", "type": "string", "description": "base64url-encoded draft, decoded into a `compose-<id>` application-state key." },
+    { "name": "f_*", "in": "query", "type": "string", "description": "Filter params forwarded to the redirect so lists/dashboards open pre-filtered." }
+  ],
+  "responses": [
+    { "status": "302", "description": "Redirect to a safe same-origin relative path. Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard)." },
+    { "status": "200", "description": "Login HTML served at the same URL when the browser session is unauthenticated." }
+  ]
+}
+```
 
 1. Resolves the **browser** session via `getSession` (the auth guard bypasses the exact path `/_agent-native/open`).
 2. If unauthenticated, serves the configured login HTML **at the same URL**; the form's success handler reloads `window.location`, re-entering the route authenticated — no `?next=` plumbing.

@@ -35,6 +35,7 @@ import {
 } from "./PlanVisualSurface";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { collectPlanTocItems } from "./PlanTableOfContents.utils";
+import { usePlanHashScroll } from "./usePlanHashScroll";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { getPlanContentDirection } from "./planTextDirection";
 
@@ -160,6 +161,8 @@ export function PlanContentRenderer({
   recapScreenshotTheme = null,
   sourceUrl,
 }: PlanContentRendererProps) {
+  // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
+  usePlanHashScroll(content.blocks);
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
@@ -409,11 +412,13 @@ export function PlanContentRenderer({
   };
   const codeAnnotationLayout = useMemo(
     () =>
-      !isRecap && !showCodeAnnotationOverlays
+      !showCodeAnnotationOverlays
         ? ({
-            hoverSide: "left",
+            hoverSide: isRecap ? "right" : "left",
             hoverFallbackSide: "right",
             marginSide: "auto",
+            showByDefaultWhenRoom: true,
+            defaultVisibleAnnotations: "first",
           } as const)
         : undefined,
     [isRecap, showCodeAnnotationOverlays],

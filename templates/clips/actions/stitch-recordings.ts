@@ -34,6 +34,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
@@ -98,6 +99,9 @@ export default defineAction({
 
     const byId = new Map(sources.map((s) => [s.id, s]));
     const ordered = ids.map((id) => byId.get(id)!);
+    for (const source of ordered) {
+      assertNativeRecordingMedia(source);
+    }
     const organizationId = ordered[0].organizationId;
 
     const totalDuration =

@@ -39,6 +39,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { MediaDeviceRow } from "./components/MediaDeviceRow";
 import { Switch } from "./components/Switch";
+import { ReadinessPanel } from "./components/ReadinessPanel";
 import {
   CamIcon,
   ClockIcon,
@@ -52,6 +53,7 @@ import {
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { normalizeServerUrl } from "./lib/url";
+import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -114,6 +116,8 @@ const AUTH_TOKEN_KEY = "clips:auth-token";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
+const CAM_LABEL_KEY = "clips:last-camera-label";
+const MIC_LABEL_KEY = "clips:last-mic-label";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
@@ -145,6 +149,15 @@ function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
 function concreteMediaDeviceId(value: string | null | undefined): string {
   const id = normalizedMediaDeviceId(value);
   return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
+// Prefer this page's own enumeration; fall back to the bubble-relayed list
+// when the popover can't see labels itself (local-camera path).
+function preferEnumerated(
+  own: MediaDeviceInfo[],
+  relayed: MediaDeviceInfo[],
+): MediaDeviceInfo[] {
+  return own.length > 0 ? own : relayed;
 }
 
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
@@ -361,21 +374,6 @@ const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
   "input-monitoring": "ms-settings:privacy",
 };
 
-function isMacPlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-}
-
-function isWindowsPlatform(): boolean {
-  return (
-    typeof navigator !== "undefined" &&
-    (/Win/i.test(navigator.platform) ||
-      /Win/i.test(
-        (navigator as { userAgentData?: { platform?: string } }).userAgentData
-          ?.platform ?? "",
-      ))
-  );
-}
-
 function openPrivacySettings(pane: MacosPrivacyPane): void {
   if (isMacPlatform()) {
     invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
@@ -402,9 +400,6 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
     return;
   }
 }
-
-// Keep backward-compatible alias so all existing call-sites continue to work.
-const openMacosPrivacySettings = openPrivacySettings;
 
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
@@ -563,10 +558,25 @@ export function App() {
   );
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  // Device lists relayed from the bubble page when IT owns the camera grant
+  // (full-screen / local-camera path). The popover page can't enumerate device
+  // labels itself there without muting the live bubble, so we use these lists
+  // when our own enumeration comes back empty.
+  const [bubbleCameras, setBubbleCameras] = useState<MediaDeviceInfo[]>([]);
+  const [bubbleMics, setBubbleMics] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>(() =>
     loadString(CAM_KEY, ""),
   );
   const [micId, setMicId] = useState<string>(() => loadString(MIC_KEY, ""));
+  // Remembered human labels for the saved ids, so a cold launch (device list
+  // still locked behind a getUserMedia grant) can show the device by name
+  // instead of "Selected camera unavailable".
+  const [cameraLabel, setCameraLabel] = useState<string>(() =>
+    loadString(CAM_LABEL_KEY, ""),
+  );
+  const [micLabel, setMicLabel] = useState<string>(() =>
+    loadString(MIC_LABEL_KEY, ""),
+  );
   const [cameraOn, setCameraOn] = useState<boolean>(() =>
     loadBool(CAM_ON_KEY, false),
   );
@@ -652,6 +662,14 @@ export function App() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
+  const cameraDevices = useMemo(
+    () => preferEnumerated(cameras, bubbleCameras),
+    [cameras, bubbleCameras],
+  );
+  const micDevices = useMemo(
+    () => preferEnumerated(mics, bubbleMics),
+    [mics, bubbleMics],
+  );
   const selectedMicLabel = useMemo(
     () =>
       selectedMicId
@@ -1108,7 +1126,10 @@ export function App() {
     // popover. If the user has picked a concrete mic, use that exact device;
     // otherwise leave labels locked until a real user action needs access.
     try {
-      if (!selectedMicId) {
+      // While the bubble owns the camera, even this audio-only probe trips
+      // WebKit's single-page capture-exclusion and blacks the bubble. Don't
+      // probe — leave mic labels locked until the bubble is gone.
+      if (bubbleActiveRef.current || !selectedMicId) {
         await loadDevices();
         return;
       }
@@ -1128,6 +1149,26 @@ export function App() {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("Device selection is not available in this WebView.");
+        }
+        // When the camera bubble is live, ANY getUserMedia in this page —
+        // camera OR mic — hits WebKit's single-page capture-exclusion (one
+        // process, one webview): the bubble page's camera stream gets muted
+        // and goes black with no reliable unmute. The exclusion is not
+        // per-kind, so an audio-only probe blacks the bubble just the same.
+        // So we never probe here while the bubble owns the camera. Instead the
+        // bubble page — the only page that can capture without muting its own
+        // camera — does the probe and relays the device list back to us.
+        if (bubbleActiveRef.current) {
+          if (kind === "mic") {
+            // Ask the bubble to probe + relay the mic list (it has no mic
+            // grant of its own, so it must open a transient mic stream).
+            emit("clips:refresh-mics", {
+              micId: selectedMicId || null,
+            }).catch(() => {});
+          }
+          // Cameras are already relayed when the bubble's local camera starts.
+          await loadDevices();
+          return;
         }
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
@@ -1156,7 +1197,7 @@ export function App() {
         await loadDevices();
       }
     },
-    [loadDevices],
+    [loadDevices, selectedMicId],
   );
 
   // ---- Esc closes the popover --------------------------------------------
@@ -1222,6 +1263,20 @@ export function App() {
         setCameraOn(false);
       }),
     );
+    // The bubble relays its device lists (it holds the grant in the
+    // local-camera path). Used by the picker when our own enumeration is empty.
+    const trackRelay = (
+      event: string,
+      set: (devices: MediaDeviceInfo[]) => void,
+    ) =>
+      track(
+        listen<{ devices?: Array<{ deviceId: string; label: string }> }>(
+          event,
+          (ev) => set((ev.payload?.devices ?? []) as MediaDeviceInfo[]),
+        ),
+      );
+    trackRelay("clips:camera-devices", setBubbleCameras);
+    trackRelay("clips:mic-devices", setBubbleMics);
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
@@ -1689,9 +1744,24 @@ export function App() {
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
+  useEffect(() => saveString(CAM_LABEL_KEY, cameraLabel), [cameraLabel]);
+  useEffect(() => saveString(MIC_LABEL_KEY, micLabel), [micLabel]);
   useEffect(() => saveBool(CAM_ON_KEY, cameraOn), [cameraOn]);
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
   useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
+
+  // Once the device list unlocks (after a grant), refresh the remembered
+  // label for the saved id so the persisted name stays current.
+  useEffect(() => {
+    if (!cameraId) return;
+    const match = cameraDevices.find((d) => d.deviceId === cameraId);
+    if (match?.label) setCameraLabel(match.label);
+  }, [cameraDevices, cameraId]);
+  useEffect(() => {
+    if (!micId) return;
+    const match = micDevices.find((d) => d.deviceId === micId);
+    if (match?.label) setMicLabel(match.label);
+  }, [micDevices, micId]);
 
   // ---- actions -----------------------------------------------------------
 
@@ -1833,7 +1903,7 @@ export function App() {
         if (!granted) {
           setReadinessOpen(true);
           setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
-          openMacosPrivacySettings("screen");
+          openPrivacySettings("screen");
           return;
         }
       } catch (err) {
@@ -2322,9 +2392,13 @@ export function App() {
         {showCameraRow ? (
           <MediaDeviceRow
             kind="camera"
-            devices={cameras}
+            devices={cameraDevices}
             selectedId={cameraId}
-            onSelect={setCameraId}
+            selectedLabel={cameraLabel}
+            onSelect={(id, label) => {
+              setCameraId(id);
+              setCameraLabel(label);
+            }}
             onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={setCameraOn}
@@ -2333,9 +2407,13 @@ export function App() {
 
         <MediaDeviceRow
           kind="mic"
-          devices={mics}
+          devices={micDevices}
           selectedId={selectedMicId}
-          onSelect={setMicId}
+          selectedLabel={micLabel}
+          onSelect={(id, label) => {
+            setMicId(id);
+            setMicLabel(label);
+          }}
           onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
@@ -2352,7 +2430,7 @@ export function App() {
         includeFnMonitoring={fnShortcutEnabled}
         open={readinessOpen}
         onOpenChange={updateReadinessOpen}
-        onOpenPermission={openMacosPrivacySettings}
+        onOpenPermission={openPrivacySettings}
       />
 
       <button
@@ -2481,135 +2559,6 @@ function permissionPaneLabel(pane: MacosPrivacyPane): string {
   }[pane];
 }
 
-type ReadinessItem = {
-  label: string;
-  detail: string;
-  pane: MacosPrivacyPane;
-  active: boolean;
-};
-
-function readinessItems({
-  mode,
-  cameraOn,
-  micOn,
-  includeFnMonitoring,
-  includeVoicePaste,
-}: {
-  mode: CaptureMode;
-  cameraOn: boolean;
-  micOn: boolean;
-  includeFnMonitoring: boolean;
-  includeVoicePaste: boolean;
-}): ReadinessItem[] {
-  const items: ReadinessItem[] = [
-    {
-      label: "Screen Recording",
-      detail: "Needed for screen or window capture.",
-      pane: "screen",
-      active: mode !== "camera",
-    },
-    {
-      label: "Microphone",
-      detail: "Needed when the mic is on.",
-      pane: "microphone",
-      active: micOn,
-    },
-    {
-      label: "Speech Recognition",
-      detail: "Used for native transcripts.",
-      pane: "speech",
-      active: micOn,
-    },
-    {
-      label: "Camera",
-      detail: "Needed when camera is on.",
-      pane: "camera",
-      active: mode !== "screen" && cameraOn,
-    },
-    {
-      label: "Accessibility",
-      detail: "Needed to paste dictated text into other apps.",
-      pane: "accessibility",
-      active: includeVoicePaste,
-    },
-    {
-      label: "Input Monitoring",
-      detail: "Only needed for the Fn dictation shortcut.",
-      pane: "input-monitoring",
-      active: includeFnMonitoring,
-    },
-  ];
-
-  return items.filter((item) => item.active);
-}
-
-function ReadinessPanel({
-  mode,
-  cameraOn,
-  micOn,
-  includeFnMonitoring,
-  includeVoicePaste,
-  open,
-  onOpenChange,
-  onOpenPermission,
-}: {
-  mode: CaptureMode;
-  cameraOn: boolean;
-  micOn: boolean;
-  includeFnMonitoring: boolean;
-  includeVoicePaste: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onOpenPermission: (pane: MacosPrivacyPane) => void;
-}) {
-  const items = readinessItems({
-    mode,
-    cameraOn,
-    micOn,
-    includeFnMonitoring,
-    includeVoicePaste,
-  });
-
-  return (
-    <div className={`readiness ${open ? "readiness-open" : ""}`}>
-      <button
-        type="button"
-        className="readiness-summary"
-        aria-expanded={open}
-        onClick={() => onOpenChange(!open)}
-      >
-        <span className="readiness-title">Setup</span>
-        <span className="readiness-action">{open ? "Hide" : "Review"}</span>
-      </button>
-      {open ? (
-        <div className="readiness-list">
-          {items.length ? (
-            items.map((item) => (
-              <div className="readiness-item" key={item.pane}>
-                <div className="readiness-item-copy">
-                  <span className="readiness-item-title">{item.label}</span>
-                  <span className="readiness-item-detail">{item.detail}</span>
-                </div>
-                <button
-                  type="button"
-                  className="readiness-open-button"
-                  onClick={() => onOpenPermission(item.pane)}
-                >
-                  Open
-                </button>
-              </div>
-            ))
-          ) : (
-            <div className="readiness-empty">
-              Turn on camera or mic when you need them.
-            </div>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function PermissionRecoveryBanner({
   kind,
   message,
@@ -2640,7 +2589,7 @@ function PermissionRecoveryBanner({
           <button
             type="button"
             key={pane}
-            onClick={() => openMacosPrivacySettings(pane)}
+            onClick={() => openPrivacySettings(pane)}
           >
             {permissionPaneLabel(pane)}
           </button>
@@ -3174,6 +3123,7 @@ function Setup({
   onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
+  const [readinessOpen, setReadinessOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const featureConfig = useFeatureConfig();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -3869,51 +3819,22 @@ function Setup({
         ) : null}
       </div>
 
-      {isMacPlatform() ? (
-        <div className="setup-section">
-          <SettingLabel
-            label="macOS permissions"
-            hint="Open the exact Privacy & Security pane for each permission Clips can need."
-          />
-          <div className="setup-permission-grid">
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("camera")}
-            >
-              Camera
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("microphone")}
-            >
-              Microphone
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("screen")}
-            >
-              Screen Recording
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("speech")}
-            >
-              Speech Recognition
-            </button>
-            <button
-              type="button"
-              className="setup-permission-button"
-              onClick={() => openMacosPrivacySettings("accessibility")}
-            >
-              Accessibility
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <div className="setup-section">
+        <SettingLabel
+          label="Privacy permissions"
+          hint="Open the exact Privacy & Security pane for each permission Clips can need."
+        />
+        <ReadinessPanel
+          mode="screen-camera"
+          cameraOn={true}
+          micOn={true}
+          includeVoicePaste={voiceEnabled}
+          includeFnMonitoring={fnShortcutSelected}
+          open={readinessOpen}
+          onOpenChange={setReadinessOpen}
+          onOpenPermission={openPrivacySettings}
+        />
+      </div>
 
       {voiceEnabled ? (
         <>
@@ -4078,7 +3999,7 @@ function Setup({
               <button
                 type="button"
                 className="secondary"
-                onClick={() => openMacosPrivacySettings("input-monitoring")}
+                onClick={() => openPrivacySettings("input-monitoring")}
               >
                 Open Input Monitoring
               </button>

@@ -63,6 +63,7 @@ export const COMPRESSION_ENABLED = false;
 /** Start compressing at 24 MB. Below this, the upload clears Builder's ~32 MB
  * Cloud Run edge cap and we don't pay for ffmpeg.wasm load + transcode. */
 export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
+export const AUDIO_LOUDNESS_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
 
 // The per-recording upload ceiling lives in `@shared/upload-limits`
 // (MAX_UPLOAD_BYTES) — it's shared with the server routes and actions and is
@@ -280,6 +281,10 @@ export function pickVideoFilters(
   return filters;
 }
 
+export function pickAudioFilters(): string[] {
+  return ["-af", AUDIO_LOUDNESS_FILTER];
+}
+
 /** Build a HandBrake-style MP4 transcode command. */
 function pickEncodeArgs(
   width: number | undefined,
@@ -299,6 +304,7 @@ function pickEncodeArgs(
       "-map",
       "0:a?",
       ...scaleArgs,
+      ...pickAudioFilters(),
       "-fpsmax",
       String(profile.frameRate),
       "-c:v",

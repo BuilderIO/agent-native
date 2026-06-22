@@ -41,6 +41,7 @@
     "@react-router/dev": "^7.16.0",
     "@react-router/fs-routes": "^7.16.0",
     "@tabler/icons-react": "catalog:",
+    "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.100.10",
     "@types/node": "^25.8.0",

@@ -42,8 +42,13 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain('id="identity-sso-btn"');
       expect(html).toContain('href="/_agent-native/identity/login"');
       expect(html).toContain("Sign in with Agent-Native");
-      // Exactly one occurrence — not duplicated across layout branches.
-      expect(html.split("identity-sso-btn").length - 1).toBe(1);
+      expect(html).toContain("function __anIdentitySsoUrl()");
+      expect(html).toContain("params.set('return', __anGetReturnPath())");
+      expect(html).toContain(
+        "identity.addEventListener('click', __anStartIdentitySso)",
+      );
+      // Exactly one rendered element — not duplicated across layout branches.
+      expect(html.split('id="identity-sso-btn"').length - 1).toBe(1);
     });
 
     it("malformed env value is treated as OFF (no button, no throw)", () => {
@@ -110,6 +115,22 @@ describe("getOnboardingHtml", () => {
       "__anPath('/_agent-native/auth/ba/request-password-reset')",
     );
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
+  });
+
+  it("normalizes sign-in return targets before redirect and preserves hashes", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain("function __anNormalizeReturnPath(raw)");
+    expect(html).toContain(
+      "if (url.origin !== window.location.origin) return '';",
+    );
+    expect(html).toContain("return url.pathname + url.search + url.hash;");
+    expect(html).toContain(
+      "return window.location.pathname + window.location.search + window.location.hash;",
+    );
+    expect(html).toContain(
+      "if (value.charAt(0) === '/' && (value.charAt(1) === '/' || value.charAt(1) === '\\\\')) return '';",
+    );
   });
 
   it("uses branded first-party marketing from the request host", () => {

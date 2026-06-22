@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { IconLink, IconMail, IconCode } from "@tabler/icons-react";
+import {
+  IconCode,
+  IconExternalLink,
+  IconLink,
+  IconMail,
+} from "@tabler/icons-react";
 import {
   appBasePath,
   appPath,
@@ -30,6 +35,7 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { buildAgentApiUrls } from "../../../shared/agent-context";
+import { isLoomEmbedUrl } from "../../../shared/loom";
 
 const PUBLIC_DESCRIPTION =
   "Anyone with the link can view — sign in to comment or react";
@@ -44,6 +50,7 @@ export interface ShareRecordingPopoverProps {
   recordingTitle?: string;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  isLoomRecording?: boolean;
   hasPassword?: boolean;
   /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
@@ -71,6 +78,7 @@ export function ShareRecordingPopover({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  isLoomRecording = false,
   hasPassword = false,
   children,
   open,
@@ -88,6 +96,7 @@ export function ShareRecordingPopover({
           recordingTitle={recordingTitle}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
+          isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
         />
       </PopoverContent>
@@ -105,6 +114,7 @@ export function ShareRecordingDialog({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  isLoomRecording = false,
   hasPassword = false,
   open,
   onOpenChange,
@@ -120,6 +130,7 @@ export function ShareRecordingDialog({
           recordingTitle={recordingTitle}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
+          isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
           reserveCloseButton
         />
@@ -133,6 +144,7 @@ function ShareRecordingContent({
   recordingTitle,
   videoUrl,
   animatedThumbnailUrl,
+  isLoomRecording = false,
   hasPassword = false,
   reserveCloseButton = false,
 }: {
@@ -140,6 +152,7 @@ function ShareRecordingContent({
   recordingTitle?: string;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  isLoomRecording?: boolean;
   hasPassword?: boolean;
   reserveCloseButton?: boolean;
 }) {
@@ -191,6 +204,7 @@ function ShareRecordingContent({
             canManage={canManage}
             videoUrl={videoUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
             hasPassword={hasPassword}
           />
         </TabsContent>
@@ -228,6 +242,7 @@ function LinkTab({
   canManage,
   videoUrl,
   animatedThumbnailUrl,
+  isLoomRecording: isLoomRecordingProp,
   hasPassword,
 }: {
   recordingId: string;
@@ -236,6 +251,7 @@ function LinkTab({
   canManage: boolean;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  isLoomRecording?: boolean;
   hasPassword: boolean;
 }) {
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
@@ -247,6 +263,7 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const publicAgentContextUrl =
     typeof window === "undefined"
       ? ""
@@ -343,9 +360,19 @@ function LinkTab({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(videoUrl, "_blank")}
+              className={isLoomRecording ? "gap-1.5" : undefined}
+              onClick={() =>
+                window.open(videoUrl, "_blank", "noopener,noreferrer")
+              }
             >
-              Download MP4
+              {isLoomRecording ? (
+                <>
+                  <IconExternalLink className="h-4 w-4" />
+                  Open player
+                </>
+              ) : (
+                "Download MP4"
+              )}
             </Button>
           ) : null}
         </div>

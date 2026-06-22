@@ -16,6 +16,7 @@
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -23,7 +24,9 @@ import { asc, eq } from "drizzle-orm";
 import { getSession, signShortLivedToken } from "@agent-native/core/server";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
+import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import { verifySharePassword } from "../../lib/share-password.js";
+import { buildAgentApiUrls } from "../../../shared/agent-context.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -34,6 +37,12 @@ function appPath(path: string): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
   const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   return base ? `/${base}${path}` : path;
+}
+
+function appBasePath(): string {
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}` : "";
 }
 
 export default defineEventHandler(async (event) => {
@@ -133,10 +142,12 @@ export default defineEventHandler(async (event) => {
     durationMs: rec.durationMs,
   });
 
-  // Normalize the dev-fallback videoUrl:
+  // Normalize the player videoUrl:
   //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
   //      `/api/video/:id` endpoint so old rows keep playing after the move.
-  //   2. For password-protected recordings, mint a short-lived HMAC token
+  //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
+  //      gate instead of returning the underlying public Loom embed URL.
+  //   3. For password-protected recordings, mint a short-lived HMAC token
   //      bound to this recording id and pass it via `?t=<token>` instead of
   //      the plaintext password. Sticking the password in the URL leaks it
   //      into browser history, CDN logs, and the Referer header on outbound
@@ -145,23 +156,24 @@ export default defineEventHandler(async (event) => {
   //      old share pages keep working during rollout. (audit 11 F-07)
   //      Real provider URLs (R2/S3/Builder) are left untouched; those are
   //      already signed.
-  let resolvedVideoUrl = rec.videoUrl ?? null;
-  if (resolvedVideoUrl) {
-    const legacyMatch = resolvedVideoUrl.match(
-      /^\/api\/uploads\/([^/]+)\/blob$/,
-    );
-    if (legacyMatch) {
-      resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
-    }
-    if (rec.password && resolvedVideoUrl.startsWith("/api/video/")) {
-      const token = signShortLivedToken({ resourceId: recordingId });
-      const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-      resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
-    }
-    if (resolvedVideoUrl.startsWith("/")) {
-      resolvedVideoUrl = appPath(resolvedVideoUrl);
-    }
-  }
+  const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
+    addPasswordToken: true,
+    appPath,
+  });
+
+  const canExposeAgentContext =
+    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
+  const agentToken =
+    canExposeAgentContext && rec.password
+      ? signShortLivedToken({ resourceId: recordingId })
+      : undefined;
+  const agentContextUrl = canExposeAgentContext
+    ? buildAgentApiUrls(recordingId, {
+        origin: getRequestURL(event).origin,
+        basePath: appBasePath(),
+        token: agentToken,
+      }).contextUrl
+    : null;
 
   // Don't leak the URL (which now carries a short-lived token) into the
   // Referer of any outbound link the share page renders.
@@ -174,6 +186,7 @@ export default defineEventHandler(async (event) => {
       description: rec.description,
       thumbnailUrl: rec.thumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
+      sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
       editsJson: rec.editsJson,
       videoUrl: resolvedVideoUrl,
@@ -198,6 +211,7 @@ export default defineEventHandler(async (event) => {
       createdAt: rec.createdAt,
       updatedAt: rec.updatedAt,
     },
+    agentContextUrl,
     transcript: transcript
       ? {
           status: transcript.status,

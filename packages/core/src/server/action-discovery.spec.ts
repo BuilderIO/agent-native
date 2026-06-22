@@ -1,12 +1,49 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  autoDiscoverActions,
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
 } from "./action-discovery.js";
 
 const CORE_ACTION_DISCOVERY_TIMEOUT_MS = 15_000;
+const tmpDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("action discovery", () => {
+  it("loads TypeScript action files from plain source directories", async () => {
+    const actionsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-actions-"),
+    );
+    tmpDirs.push(actionsDir);
+    fs.writeFileSync(
+      path.join(actionsDir, "hello.ts"),
+      [
+        "export default {",
+        '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
+        "  readOnly: true,",
+        '  run: async () => ({ message: "Hello from TS" }),',
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    const registry = await autoDiscoverActions(actionsDir);
+
+    expect(registry.hello).toBeDefined();
+    expect(registry.hello.readOnly).toBe(true);
+    await expect(registry.hello.run({})).resolves.toEqual({
+      message: "Hello from TS",
+    });
+  });
+
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "mutating-read": {

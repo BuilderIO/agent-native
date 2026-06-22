@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { DEFAULT_EDITS, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
@@ -40,6 +41,7 @@ export default defineAction({
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
+    assertNativeRecordingMedia(existing);
 
     await db
       .update(schema.recordings)

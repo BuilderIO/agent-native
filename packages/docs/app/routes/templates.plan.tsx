@@ -354,8 +354,16 @@ export default function PlanTemplate() {
             </div>
             <h3 className="mb-1 text-sm font-semibold">VS Code Handoffs</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Open plan links in a VS Code side panel with the Agent Native
-              extension, so review stays beside the code.
+              Open plan links in a VS Code side panel with the{" "}
+              <a
+                href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--fg)] underline underline-offset-2"
+              >
+                Agent Native Plans extension
+              </a>
+              , so review stays beside the code.
             </p>
           </div>
         </div>

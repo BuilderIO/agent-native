@@ -20,6 +20,7 @@ import {
   parseEdits,
   serializeEdits,
 } from "../app/lib/timestamp-mapping.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
@@ -48,6 +49,7 @@ export default defineAction({
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
+    assertNativeRecordingMedia(existing);
 
     const edits = parseEdits(existing.editsJson);
     const next = appendSplit(edits, args.atMs);

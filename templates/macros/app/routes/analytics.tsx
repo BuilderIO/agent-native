@@ -29,13 +29,17 @@ import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 const GOAL_CALORIES = 2000;
 
 export function meta() {
+  const description =
+    "Open Source AI macro tracker for reviewing calorie, macro, exercise, and weight trends.";
+
   return [
-    { title: "Analytics — Agent-Native Macros" },
+    { title: "Macro analytics - Open Source Agent-Native Macros" },
     {
       name: "description",
-      content:
-        "Calorie, macro, and weight trends across the last week, month, or quarter.",
+      content: description,
     },
+    { property: "og:description", content: description },
+    { name: "twitter:description", content: description },
   ];
 }
 

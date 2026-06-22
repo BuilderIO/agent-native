@@ -17,6 +17,13 @@ each a full-featured app you customize.
 Building from scratch? The only choice up front is whether you want a UI —
 everything after (defining actions, running the agent) is the same either way.
 
+```an-diagram title="The three-step on-ramp" summary="Create an app, add one action, run it. The action is then reachable from every surface."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Create</strong><small class=\"diagram-muted\">chat template or headless</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Add an action</strong><small class=\"diagram-muted\">one defineAction file</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Run it</strong><small class=\"diagram-muted\">CLI, agent, or browser</small></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## 1. Create your app
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
@@ -49,22 +56,19 @@ From here on, the two are identical.
 An action is one operation your agent — and your UI — can call. Both scaffolds
 ship with this example:
 
-```ts
-// actions/hello.ts
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Say hello from the local agent.",
-  schema: z.object({
-    name: z.string().default("world"),
-  }),
-  http: { method: "GET" },
-  readOnly: true,
-  run: async ({ name }) => {
-    return { message: `Hello, ${name}!` };
-  },
-});
+```an-annotated-code title="Your first action"
+{
+  "filename": "actions/hello.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Say hello from the local agent.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Tool description", "note": "The agent reads `description` to decide when to call this as a tool." },
+    { "lines": "6-8", "label": "Typed contract", "note": "One zod `schema` validates input from every surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
+    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
+    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+  ]
+}
 ```
 
 Replace `hello` with the smallest real operation in your domain. You define it
@@ -94,12 +98,26 @@ pnpm dev
 That one action is now reachable from the chat UI, the CLI, HTTP, MCP, A2A,
 scheduled jobs, and webhooks. Define once, call from anywhere.
 
+```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+{
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## State is built in
 
 Headless doesn't mean stateless. Actions, sessions, application state, threads,
 run history, and credentials all live in SQL. Locally that's SQLite at
 `data/app.db`; in production you set `DATABASE_URL`. See
 [Deployment](/docs/deployment).
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+}
+```
 
 ## Customize the UI
 

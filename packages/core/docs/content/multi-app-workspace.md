@@ -45,22 +45,21 @@ The CLI shows a multi-select picker of every first-party template. Pick as many 
 
 You get a pnpm monorepo with the private shared package, a root `package.json` that wires up workspace discovery, a shared `.env`, and one sub-directory per app you picked:
 
-```text
-my-company-platform/
-├── package.json                 # declares agent-native.workspaceCore
-├── pnpm-workspace.yaml          # packages: ["packages/*", "apps/*"]
-├── .env.example                 # shared ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY,
-│                                # A2A_SECRET, DATABASE_URL, ...
-├── packages/
-│   └── shared/             # @my-company-platform/shared
-│       ├── src/
-│       │   ├── server/          # plugin overrides only when needed
-│       │   └── client/          # shared React code only when needed
-│       └── AGENTS.md            # workspace-wide instructions
-└── apps/
-    ├── mail/
-    ├── calendar/
-    └── forms/
+```an-file-tree title="A scaffolded workspace"
+{
+  "entries": [
+    { "path": "package.json", "note": "declares agent-native.workspaceCore" },
+    { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
+    { "path": ".env.example", "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..." },
+    { "path": "packages/shared/", "note": "@my-company-platform/shared" },
+    { "path": "packages/shared/src/server/", "note": "plugin overrides only when needed" },
+    { "path": "packages/shared/src/client/", "note": "shared React code only when needed" },
+    { "path": "packages/shared/AGENTS.md", "note": "workspace-wide instructions" },
+    { "path": "apps/mail/" },
+    { "path": "apps/calendar/" },
+    { "path": "apps/forms/" }
+  ]
+}
 ```
 
 Then boot it:
@@ -115,6 +114,13 @@ Agent-native apps inside a workspace resolve cross-cutting behavior from three p
 3. **Framework default** — `@agent-native/core` (lowest)
 
 The merge happens by file name. If an app provides a local file that also exists upstream, the local one wins. If it doesn't, the workspace shared version applies. If shared doesn't provide one either, the framework default kicks in. This applies to plugins, skills, actions, and `AGENTS.md`.
+
+```an-diagram title="Three layers, merged by file name" summary="Each app resolves plugins, skills, actions, and AGENTS.md from app-local first, then the shared package, then the framework default."
+{
+  "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
+  "css": ".layer{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;min-width:300px}.layer .diagram-arrow{font-size:20px;align-self:center}.layer .diagram-box{align-self:center;margin-top:4px}"
+}
+```
 
 When one app needs something different, drop a local file:
 
@@ -218,6 +224,13 @@ npx @agent-native/core@latest deploy
 ```
 
 Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted through the selected Nitro preset. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is supported with `npx @agent-native/core@latest deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first. Vercel is supported with `npx @agent-native/core@latest deploy --preset vercel`; it writes a root `.vercel/output` bundle using Vercel's Build Output API.
+
+```an-diagram title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free."
+{
+  "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
+  "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
+}
+```
 
 Being on the **same origin** is where the real payoff lives:
 

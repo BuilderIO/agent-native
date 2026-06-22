@@ -9,15 +9,12 @@ Chat is the basic agent-native app starting point. It gives you a clean ChatGPT-
 
 If you want the smallest action-only runtime with no browser UI, start with [Pure-Agent Apps](/docs/pure-agent-apps). If you want a finished domain product shape, start from [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or another domain template.
 
-<!-- screenshot:
-  app: chat
-  view: /
-  shows: Full-page chat app with standard left sidebar, centered empty-state composer, model controls, and no domain data
-  account: screenshot-account (no domain data needed — chat ships with no seed schema)
-  capture: 2434x1440 app screenshot
--->
-
-![Chat template with a centered agent composer and app navigation sidebar](/screenshots/chat.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>How can I help?</h1><p class='wf-muted' style='margin:10px 0 0'>Chat about anything. Add actions, components, pages, jobs, or your own backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Message the agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
 
 ## What's in it {#whats-in-it}
 
@@ -37,6 +34,13 @@ If you want the smallest action-only runtime with no browser UI, start with [Pur
 - No domain-specific actions beyond the example stub.
 
 That's the point. Chat is a thin, useful default shell for your own agent, not a domain product pretending to be generic.
+
+```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+{
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
+  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 ## When to pick it {#when-to-pick}
 
@@ -69,6 +73,18 @@ From there, copy the Chat template's `/` route and sidebar thread list into your
 - `app/routes/_index.tsx` renders the full-page chat surface. Adjust the
   suggestions, empty state, composer, or surrounding layout here.
 - `AGENTS.md` tells the built-in agent how to work inside this app.
+
+```an-file-tree title="Chat template layout"
+{
+  "entries": [
+    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
+    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
+    { "path": "actions/navigate.ts", "note": "standard navigation action" },
+    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
+    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+  ]
+}
+```
 
 The chat page is intentionally thin:
 

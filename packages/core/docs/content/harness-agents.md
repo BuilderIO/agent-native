@@ -23,6 +23,13 @@ beneath `runAgentLoop`. A harness is not an `AgentEngine` provider — it runs i
 own loop end to end, so Agent-Native drives it as a session, not as a single
 model call.
 
+```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+{
+  "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
+  "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## Which coding doc do I want? {#which-doc}
 
 | You want to…                                                               | Use                                          |
@@ -55,12 +62,38 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
-Codex auth has two paths. The `ai-sdk-harness:codex` adapter loads the AI SDK
-Codex harness package and does not implement a separate Agent-Native OAuth flow.
-For Agent-Native Code or Desktop coding sessions, Agent-Native can use the
-local Codex CLI after the user runs `codex login`; that reuses whatever
-ChatGPT subscription or API-key auth the installed Codex CLI reports through
-`codex login status`.
+## Codex auth: Code UI vs harness sandboxes {#codex-auth}
+
+There are two Codex surfaces, and they authenticate differently:
+
+- **Agent-Native Code / Desktop** runs `codex exec` on the user's machine. If
+  the user has run `codex login`, this local run reuses whatever ChatGPT
+  subscription or API-key auth the installed Codex CLI reports through
+  `codex login status`.
+- **`ai-sdk-harness:codex`** loads `@ai-sdk/harness-codex`, which drives Codex
+  inside the harness sandbox through `@openai/codex-sdk`. It does not silently
+  inherit the user's Desktop `~/.codex` login because the sandbox may be remote
+  or isolated. For trusted/private sandboxes, opt in with `codexCliAuth: true`;
+  Agent-Native copies the local Codex CLI auth file into the sandbox before the
+  harness starts. For hosted or shared sandboxes, configure API-key / gateway
+  auth instead.
+
+So if someone asks which package carries the Codex OAuth path: for local coding
+sessions, use `@agent-native/core` / Desktop plus the installed
+`@openai/codex` CLI and `codex login`. For sandboxed `ai-sdk-harness:codex`,
+use the explicit `codexCliAuth` opt-in when copying that login into the sandbox
+is acceptable.
+
+```ts
+const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
+  codexCliAuth: true,
+});
+```
+
+`codexCliAuth: true` reads `CODEX_HOME/auth.json` or `~/.codex/auth.json`. To
+point at a different local login, pass
+`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` or
+`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
 
 ## Register and resolve {#register-resolve}
 
@@ -77,8 +110,9 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` returns an `AgentHarnessAdapter`. The
 optional `config` is forwarded to the adapter factory — for the AI SDK adapters
 that maps to `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions`). Use `listAgentHarnesses()`
-to enumerate what is registered for a picker.
+`permissionMode`, `harnessOptions`, `agentOptions`, and the Codex-only
+`codexCliAuth`). Use `listAgentHarnesses()` to enumerate what is registered for
+a picker.
 
 ## Run a turn {#run-a-turn}
 
@@ -119,6 +153,13 @@ A harness owns long-lived native session state. Agent-Native persists it in SQL
 so a thread can survive across turns, processes, and deploys. The `resumeState`
 is **opaque** — Agent-Native stores it and hands it back, but never inspects or
 interprets it.
+
+```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+{
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 ```ts
 import {

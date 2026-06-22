@@ -39,6 +39,8 @@ const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
+const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
+const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -1837,6 +1839,7 @@ async fn upload_recording_file(
         session.width,
         session.height,
         Some(duration_ms),
+        has_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -1872,6 +1875,7 @@ async fn upload_saved_recording_file(
         saved.width,
         saved.height,
         Some(saved.duration_ms),
+        saved.has_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -2184,6 +2188,7 @@ fn prepare_recording_file(
     width: Option<u32>,
     height: Option<u32>,
     duration_ms: Option<u128>,
+    has_audio: bool,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
@@ -2207,13 +2212,52 @@ fn prepare_recording_file(
         temporary: false,
     };
 
+    let mut smallest_attempt_bytes: Option<u64> = None;
+    let ffmpeg_path = resolve_ffmpeg_path();
+
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
+        if has_audio {
+            if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
+                let normalized_path = normalized_recording_path(path);
+                let _ = std::fs::remove_file(&normalized_path);
+                match normalize_audio_with_ffmpeg(ffmpeg_path, path, &normalized_path) {
+                    Ok(()) => {
+                        let normalized_bytes = std::fs::metadata(&normalized_path)
+                            .map_err(|e| format!("normalized recording file missing: {e}"))?
+                            .len();
+                        if normalized_bytes > 0 && normalized_bytes <= max_upload_bytes() {
+                            eprintln!(
+                                "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
+                                source_bytes, normalized_bytes
+                            );
+                            return Ok(PreparedRecordingFile {
+                                path: normalized_path,
+                                mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+                                bytes: normalized_bytes,
+                                temporary: true,
+                            });
+                        }
+                        let _ = std::fs::remove_file(&normalized_path);
+                        eprintln!(
+                            "[clips-tray] audio normalization produced unusable output ({} bytes); uploading original",
+                            normalized_bytes
+                        );
+                    }
+                    Err(err) => {
+                        let _ = std::fs::remove_file(&normalized_path);
+                        eprintln!(
+                            "[clips-tray] audio normalization failed; uploading original: {err}"
+                        );
+                    }
+                }
+            } else {
+                eprintln!("[clips-tray] ffmpeg unavailable; uploading original without audio normalization");
+            }
+        }
         return Ok(original);
     }
 
-    let mut smallest_attempt_bytes: Option<u64> = None;
-
-    if let Some(ffmpeg_path) = resolve_ffmpeg_path() {
+    if let Some(ffmpeg_path) = ffmpeg_path {
         let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
@@ -2233,6 +2277,7 @@ fn prepare_recording_file(
                 width,
                 height,
                 duration_ms,
+                has_audio,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -2408,6 +2453,15 @@ fn compressed_recording_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{stem}-compressed.mp4"))
 }
 
+fn normalized_recording_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("recording");
+    path.with_file_name(format!("{stem}-normalized.mp4"))
+}
+
 #[derive(Clone, Copy)]
 struct FfmpegTranscodePreset {
     label: &'static str,
@@ -2538,6 +2592,48 @@ fn ffmpeg_scaled_dimensions(
     ))
 }
 
+fn normalize_audio_with_ffmpeg(
+    ffmpeg_path: &str,
+    source: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
+    let mut command = Command::new(ffmpeg_path);
+    command
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("warning")
+        .arg("-i")
+        .arg(source)
+        .arg("-map")
+        .arg("0:v:0")
+        .arg("-map")
+        .arg("0:a?")
+        .arg("-c:v")
+        .arg("copy")
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(audio_bitrate)
+        .arg("-af")
+        .arg(AUDIO_LOUDNESS_FILTER)
+        .arg("-ac")
+        .arg("2")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg("-f")
+        .arg("mp4")
+        .arg(output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let child = command
+        .spawn()
+        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    wait_for_transcode_child(child, FFMPEG_TIMEOUT, "ffmpeg")
+}
+
 fn native_transcode_presets(
     width: Option<u32>,
     height: Option<u32>,
@@ -2581,6 +2677,7 @@ fn transcode_with_ffmpeg(
     width: Option<u32>,
     height: Option<u32>,
     duration_ms: Option<u128>,
+    normalize_audio: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -2601,6 +2698,10 @@ fn transcode_with_ffmpeg(
         command
             .arg("-vf")
             .arg(format!("scale={scaled_w}:{scaled_h}:flags=lanczos"));
+    }
+
+    if normalize_audio {
+        command.arg("-af").arg(AUDIO_LOUDNESS_FILTER);
     }
 
     let duration_rate_limit =

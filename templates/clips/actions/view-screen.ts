@@ -44,6 +44,8 @@ function mapRecording(r: any) {
     status: r.status,
     visibility: r.visibility,
     ownerEmail: r.ownerEmail,
+    sourceAppName: r.sourceAppName,
+    sourceProvider: r.sourceAppName === "Loom" ? "loom" : null,
     folderId: r.folderId,
     spaceIds: parseSpaceIds(r.spaceIds),
     hasAudio: Boolean(r.hasAudio),

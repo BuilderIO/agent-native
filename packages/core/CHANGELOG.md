@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.63.4
+
+### Patch Changes
+
+- 7d72d52: Restore subtle glowing hover indicators on annotated code ranges.
+- 7d72d52: Use fast shadcn tooltips and clearer Tabler icons for diagram style toggles.
+- 7d72d52: Preserve deep-link return targets through auth and federated SSO sign-in.
+
+## 0.63.3
+
+### Patch Changes
+
+- ad14341: Diagram primitives got a polish pass: `.diagram-pill`/badge/chip elements now hug
+  their label (`width: fit-content`) instead of stretching to fill a flex column,
+  and `.diagram-node`/`box`/`card`/`panel` carry sensible base padding so text never
+  touches the box edge when an author diagram omits its own padding.
+
+## 0.63.2
+
+### Patch Changes
+
+- d9e93a3: Add an explicit `codexCliAuth` opt-in for `ai-sdk-harness:codex` so trusted sandboxes can reuse local Codex CLI login, and document how it differs from Agent-Native Code/Desktop auth.
+- d9e93a3: Fix headless app onboarding so plain Node action discovery can load generated
+  TypeScript actions, and avoid Tailwind peer warnings for headless installs.
+- d9e93a3: Show the first code or diff annotation by default when Plan has room for margin notes, while keeping additional annotations available on hover. Add contextual controls for switching wireframe and diagram visuals between sketchy and clean styles.
+
 ## 0.63.1
 
 ### Patch Changes

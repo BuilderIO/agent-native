@@ -7,17 +7,21 @@ description: "Agent-native form builder — create, edit, publish, and route for
 
 Forms is an agent-native form builder. Describe the form you want, refine it in the editor, and publish a public form that stores submissions in your own SQL database.
 
-<!-- screenshot:
-  app: forms
-  view: /forms/<id>
-  shows: Editor for a "Beta signup" form — sidebar with 5 forms (Beta signup selected, Customer feedback Q3, Job application Engineering, Event RSVP, New customer onboarding); editor pane with title, description, and field cards (Full name, Work email, Your role, Team size, What problem are you hoping to solve?); Edit/Results/Settings/Integrations tabs and Share + Unpublish buttons; agent sidebar with form-related suggestions
-  account: screenshot-account (forms authored on this account via the standard build flow, with realistic response counts seeded by submitting through the public URL)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
-
-![Forms editor with a form open and the agent sidebar](/screenshots/forms.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta signup</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Share</button><button class='primary'>Unpublish</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Edit</span><span class='wf-pill'>Results 187</span><span class='wf-pill'>Settings</span><span class='wf-pill'>Integrations</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta signup</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>Full name</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Work email</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Your role</strong><input value='Select...'/></div><div class='wf-card'><strong>Team size</strong><input value='Select...'/></div></div></div>"
+}
+```
 
 When you open the app, you see your forms, the current editor, and a live preview. The agent can create a form from a prompt, update field labels and options, change validation, and connect submission destinations using the same actions the UI uses.
+
+```an-diagram title="Build, publish, collect" summary="The agent and the visual editor edit one SQL-backed form definition. The public fill page is unauthenticated, and submissions route server-side to your destinations."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agent prompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visual editor<br><small class=\"diagram-muted\">labels, validation, order</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON, settings JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL via Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Public fill page<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Sheets</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 ## What you can do with it
 
@@ -70,13 +74,13 @@ npx @agent-native/core@latest create my-platform
 
 Pick Forms and any other templates you want during the workspace setup.
 
-### Key features (technical) {#key-features}
+### Key features {#key-features}
 
-Forms are defined as JSON field arrays (`FormField[]`) and stored in a single `fields` column — no separate table per field type. This makes the schema additive and the agent's edits surgical: changing a field label is a JSON-patch on one column, not a row update across a join table. All field types (text, email, number, long text, select, multi-select, checkbox, radio, date, rating, scale) are handled by the renderer and editor without schema changes.
+**JSON form definitions.** Fields live in one `fields` JSON column, so the agent can make surgical edits without schema changes for every field type.
 
-The public fill page is fully unauthenticated. `toPublicFormSettings` strips integration URLs and other owner-private settings before the form data reaches the browser, so secrets never leak to respondents.
+**Public fill pages.** Respondents can submit unauthenticated forms, while private settings are stripped before data reaches the browser.
 
-Integrations (Slack, Discord, Google Sheets, webhooks) are stored as settings inside the form's `settings` JSON column and executed server-side at submission time.
+**Server-side destinations.** Slack, Discord, Google Sheets, and webhook integrations live in form settings and run after submission.
 
 ### Data model
 
@@ -89,6 +93,58 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema
 | `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
 
 The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
+
+```an-schema title="Forms data model" summary="Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+{
+  "entities": [
+    {
+      "id": "forms",
+      "name": "forms",
+      "note": "A form definition (ownable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string", "nullable": true },
+        { "name": "slug", "type": "string", "note": "unique; public URL" },
+        { "name": "fields", "type": "json", "note": "FormField[] — all field types" },
+        { "name": "settings", "type": "json", "note": "FormSettings — integrations, etc." },
+        { "name": "status", "type": "enum", "note": "draft | published | closed" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "responses",
+      "name": "responses",
+      "note": "One submission per row",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "data", "type": "json", "note": "{ fieldId: value }" },
+        { "name": "submitted_at", "type": "datetime" },
+        { "name": "ip", "type": "string", "nullable": true },
+        { "name": "submitter_email", "type": "string", "nullable": true }
+      ]
+    },
+    {
+      "id": "form_shares",
+      "name": "form_shares",
+      "note": "Framework shares table — principals to roles per form",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "principal", "type": "string", "note": "user or org" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "forms", "to": "responses", "kind": "1-n", "label": "has responses" },
+    { "from": "forms", "to": "form_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
 
 ### Key actions
 
