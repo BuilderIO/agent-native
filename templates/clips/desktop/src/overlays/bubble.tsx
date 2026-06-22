@@ -3,64 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconCameraOff } from "@tabler/icons-react";
-
 type BubbleSize = "small" | "medium";
-const LOCAL_CAMERA_TARGET_FPS = 60;
-const LOCAL_CAMERA_MIN_FPS = 30;
-const LOCAL_CAMERA_FALLBACK_FPS = 30;
-const LOCAL_CAMERA_MIN_CANVAS_PX = 640;
-
-function buildLocalCameraConstraints(
-  cameraId: string | null,
-  strictFps: boolean,
-): MediaStreamConstraints {
-  const video: MediaTrackConstraints = {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: strictFps
-      ? {
-          min: LOCAL_CAMERA_MIN_FPS,
-          ideal: LOCAL_CAMERA_TARGET_FPS,
-          max: 60,
-        }
-      : { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
-  };
-  if (cameraId) {
-    video.deviceId = { exact: cameraId };
-  }
-  return { video, audio: false };
-}
-
-// This page holds a capture grant, so it can enumerate the full device list
-// WITH labels — something the popover page can't do without its own
-// getUserMedia (which would mute this bubble via WebKit's single-page
-// capture-exclusion). Relay the labelled list so the popover's picker can show
-// every device
-async function relayDeviceList(
-  kind: MediaDeviceKind,
-  event: string,
-): Promise<void> {
-  const all = await navigator.mediaDevices.enumerateDevices();
-  const devices = all
-    .filter((d) => d.kind === kind && d.deviceId)
-    .map((d) => ({ deviceId: d.deviceId, label: d.label }));
-  emit(event, { devices }).catch(() => {});
-}
-
-async function getLocalCameraStream(
-  cameraId: string | null,
-): Promise<MediaStream> {
-  try {
-    return await navigator.mediaDevices.getUserMedia(
-      buildLocalCameraConstraints(cameraId, true),
-    );
-  } catch (err) {
-    console.warn("[bubble] strict local camera constraints failed", err);
-    return await navigator.mediaDevices.getUserMedia(
-      buildLocalCameraConstraints(cameraId, false),
-    );
-  }
-}
 
 /**
  * Draggable, circular camera bubble — a PURE RENDERER.
@@ -103,11 +46,6 @@ async function getLocalCameraStream(
  * stops trying and the popover starts the canvas pump instead, at
  * which point the canvas path takes over seamlessly.
  *
- * Full-screen capture is the exception. It uses native macOS capture instead
- * of WebKit `getDisplayMedia`, so the bubble can own a local camera stream
- * directly. That avoids the hidden-popover relay during recording and keeps
- * the face bubble live at native camera quality.
- *
  * # Hover controls (Loom-style)
  *
  * On pointerenter, a small horizontal pill fades in under the bubble
@@ -128,18 +66,12 @@ export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const localCameraIdRef = useRef<string | null>(null);
-  const localVideoFrameCallbackRef = useRef<number | null>(null);
-  const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
   // JPEG frame, whichever lands first.
   const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
     "none",
   );
-  const [localCameraActive, setLocalCameraActive] = useState(false);
   // Small is the default bubble size — matches the Rust-side default in
   // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
   // read the persisted choice and override this if the user previously
@@ -220,315 +152,6 @@ export function Bubble() {
       console.warn("[bubble] close_bubble failed", err);
     }
   };
-
-  useEffect(() => {
-    let stopped = false;
-    let unlisten: (() => void) | null = null;
-    listen<{ active?: boolean }>("clips:bubble-recording-mode", (event) => {
-      if (stopped) return;
-      recordingModeRef.current = event.payload?.active === true;
-      if (!recordingModeRef.current && videoRef.current?.srcObject) {
-        setActivePath("webrtc");
-      }
-    })
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        unlisten = u;
-      })
-      .catch(() => {});
-    return () => {
-      stopped = true;
-      try {
-        unlisten?.();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  // ---- local camera receiver (native full-screen capture path) ------------
-  useEffect(() => {
-    let stopped = false;
-    let startUnlisten: (() => void) | null = null;
-    let stopUnlisten: (() => void) | null = null;
-    let refreshMicsUnlisten: (() => void) | null = null;
-    let renderedFrames = 0;
-    let lastFpsLogAt = 0;
-
-    const stopLocalCanvasRenderer = () => {
-      const videoEl = videoRef.current;
-      if (
-        localVideoFrameCallbackRef.current != null &&
-        videoEl?.cancelVideoFrameCallback
-      ) {
-        videoEl.cancelVideoFrameCallback(localVideoFrameCallbackRef.current);
-      }
-      localVideoFrameCallbackRef.current = null;
-      if (localDrawTimerRef.current) {
-        clearInterval(localDrawTimerRef.current);
-        localDrawTimerRef.current = null;
-      }
-    };
-
-    const clearLocalCanvas = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    };
-
-    const drawLocalCameraFrame = (stream: MediaStream) => {
-      if (stopped || localStreamRef.current !== stream) return;
-      const videoEl = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!videoEl || !canvas) return;
-      if (videoEl.readyState < 2 || videoEl.videoWidth === 0) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const canvasSize = Math.max(
-        LOCAL_CAMERA_MIN_CANVAS_PX,
-        Math.round(Math.max(rect.width, rect.height, 1) * dpr),
-      );
-      if (canvas.width !== canvasSize) canvas.width = canvasSize;
-      if (canvas.height !== canvasSize) canvas.height = canvasSize;
-
-      const ctx = canvas.getContext("2d", { willReadFrequently: false });
-      if (!ctx) return;
-
-      const vw = videoEl.videoWidth;
-      const vh = videoEl.videoHeight;
-      const side = Math.min(vw, vh);
-      const sx = (vw - side) / 2;
-      const sy = (vh - side) / 2;
-      ctx.drawImage(videoEl, sx, sy, side, side, 0, 0, canvasSize, canvasSize);
-
-      renderedFrames += 1;
-      const now = performance.now();
-      if (!lastFpsLogAt) lastFpsLogAt = now;
-      if (now - lastFpsLogAt >= 3000) {
-        const fps = Math.round((renderedFrames * 1000) / (now - lastFpsLogAt));
-        renderedFrames = 0;
-        lastFpsLogAt = now;
-        console.log("[bubble] local camera canvas fps =", fps);
-      }
-    };
-
-    const startLocalCanvasRenderer = (stream: MediaStream) => {
-      stopLocalCanvasRenderer();
-      renderedFrames = 0;
-      lastFpsLogAt = performance.now();
-      drawLocalCameraFrame(stream);
-
-      const scheduleVideoFrame = () => {
-        if (stopped || localStreamRef.current !== stream) return;
-        const videoEl = videoRef.current;
-        if (!videoEl?.requestVideoFrameCallback) return;
-        localVideoFrameCallbackRef.current = videoEl.requestVideoFrameCallback(
-          () => {
-            localVideoFrameCallbackRef.current = null;
-            drawLocalCameraFrame(stream);
-            scheduleVideoFrame();
-          },
-        );
-      };
-
-      if (videoRef.current?.requestVideoFrameCallback) {
-        scheduleVideoFrame();
-        return;
-      }
-
-      localDrawTimerRef.current = setInterval(
-        () => drawLocalCameraFrame(stream),
-        Math.round(1000 / LOCAL_CAMERA_FALLBACK_FPS),
-      );
-    };
-
-    const stopLocalCamera = () => {
-      stopLocalCanvasRenderer();
-      const stream = localStreamRef.current;
-      localStreamRef.current = null;
-      localCameraIdRef.current = null;
-      if (!stopped) setLocalCameraActive(false);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-
-      const videoEl = videoRef.current;
-      if (videoEl && (!stream || videoEl.srcObject === stream)) {
-        try {
-          videoEl.pause();
-        } catch {
-          // ignore
-        }
-        videoEl.srcObject = null;
-      }
-      clearLocalCanvas();
-    };
-
-    listen<{ cameraId?: string | null }>(
-      "clips:bubble-start-local-camera",
-      async (event) => {
-        if (stopped) return;
-        const cameraId = event.payload?.cameraId?.trim() || null;
-        if (localStreamRef.current && localCameraIdRef.current === cameraId) {
-          return;
-        }
-
-        stopLocalCamera();
-
-        try {
-          const stream = await getLocalCameraStream(cameraId);
-          if (stopped) {
-            stream.getTracks().forEach((track) => track.stop());
-            return;
-          }
-
-          const videoEl = videoRef.current;
-          if (!videoEl) {
-            stream.getTracks().forEach((track) => track.stop());
-            return;
-          }
-
-          localStreamRef.current = stream;
-          localCameraIdRef.current = cameraId;
-          const track = stream.getVideoTracks()[0];
-          if (track && "contentHint" in track) {
-            try {
-              track.contentHint = "motion";
-            } catch {
-              // ignore
-            }
-          }
-          track
-            ?.applyConstraints({
-              frameRate: { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            })
-            .catch((err) => {
-              console.warn(
-                "[bubble] local camera applyConstraints failed",
-                err,
-              );
-            });
-          videoEl.srcObject = stream;
-          await videoEl.play().catch((err) => {
-            console.warn("[bubble] local camera video.play() rejected", err);
-          });
-          setLocalCameraActive(true);
-          // The bubble now holds the camera grant — relay the full camera list.
-          relayDeviceList("videoinput", "clips:camera-devices").catch(() => {});
-          startLocalCanvasRenderer(stream);
-          if (firstFrameAtRef.current == null) {
-            firstFrameAtRef.current = Date.now();
-            console.log(
-              "[bubble] local camera started",
-              track?.getSettings?.() ?? {},
-            );
-          }
-          setActivePath("canvas");
-        } catch (err) {
-          console.warn("[bubble] local camera failed", err);
-          stopLocalCamera();
-        }
-      },
-    )
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-        } else {
-          startUnlisten = u;
-        }
-      })
-      .catch(() => {});
-
-    listen("clips:bubble-stop-local-camera", () => {
-      if (stopped) return;
-      stopLocalCamera();
-      setActivePath("none");
-    })
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-        } else {
-          stopUnlisten = u;
-        }
-      })
-      .catch(() => {});
-
-    // The popover can't probe the mic itself while this bubble is live —
-    // WebKit mutes our camera the moment another page in this process calls
-    // getUserMedia. But THIS page opening a mic doesn't mute its own camera
-    // (the exclusion is cross-page). So when the popover asks, we open a
-    // transient mic stream here to unlock the labels, enumerate, relay the
-    // audioinput list back, then drop the stream. The camera stays live.
-    listen<{ micId?: string | null }>("clips:refresh-mics", async (event) => {
-      if (stopped) return;
-      const micId = event.payload?.micId?.trim() || null;
-      let micStream: MediaStream | null = null;
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: micId ? { deviceId: { exact: micId } } : true,
-          video: false,
-        });
-        await relayDeviceList("audioinput", "clips:mic-devices");
-      } catch (err) {
-        console.warn("[bubble] mic refresh probe failed", err);
-      } finally {
-        // Drop the probe stream immediately — we only needed the grant to
-        // read labels, not to keep the mic hot.
-        micStream?.getTracks().forEach((t) => t.stop());
-      }
-    })
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-        } else {
-          refreshMicsUnlisten = u;
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      stopped = true;
-      try {
-        startUnlisten?.();
-      } catch {
-        // ignore
-      }
-      try {
-        stopUnlisten?.();
-      } catch {
-        // ignore
-      }
-      try {
-        refreshMicsUnlisten?.();
-      } catch {
-        // ignore
-      }
-      stopLocalCamera();
-    };
-  }, []);
 
   // ---- WebRTC receiver ----------------------------------------------------
   // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
@@ -644,7 +267,6 @@ export function Bubble() {
 
       localPc.ontrack = (ev) => {
         if (stopped) return;
-        if (localStreamRef.current) return;
         const videoEl = videoRef.current;
         if (!videoEl) return;
         const incomingStream = ev.streams[0];
@@ -660,9 +282,7 @@ export function Bubble() {
           firstFrameAtRef.current = Date.now();
           console.log("[bubble] first webrtc track received");
         }
-        if (!recordingModeRef.current) {
-          setActivePath("webrtc");
-        }
+        setActivePath("webrtc");
       };
 
       try {
@@ -853,7 +473,6 @@ export function Bubble() {
         h: number;
       }>("clips:bubble-frame", async (ev) => {
         if (stopped) return;
-        if (localStreamRef.current) return;
         const { dataUrl, bytes, w, h } = ev.payload;
 
         if (firstFrameAtRef.current == null) {
@@ -1043,13 +662,7 @@ export function Bubble() {
           autoPlay
           playsInline
           muted
-          style={
-            activePath === "canvas"
-              ? localCameraActive
-                ? { opacity: 0.001 }
-                : { display: "none" }
-              : undefined
-          }
+          style={activePath === "canvas" ? { display: "none" } : undefined}
         />
         <canvas
           ref={canvasRef}

@@ -1051,20 +1051,6 @@ export function App() {
         setCameraOn(false);
       }),
     );
-    // The bubble relays its device lists (it holds the grant in the
-    // local-camera path). Used by the picker when our own enumeration is empty.
-    const trackRelay = (
-      event: string,
-      set: (devices: MediaDeviceInfo[]) => void,
-    ) =>
-      track(
-        listen<{ devices?: Array<{ deviceId: string; label: string }> }>(
-          event,
-          (ev) => set((ev.payload?.devices ?? []) as MediaDeviceInfo[]),
-        ),
-      );
-    trackRelay("clips:camera-devices", setBubbleCameras);
-    trackRelay("clips:mic-devices", setBubbleMics);
     // Query the CURRENT visibility on mount in case the event already
     // fired before React subscribed.
     getCurrentWindow()
@@ -1138,8 +1124,6 @@ export function App() {
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
-  const bubbleUsesLocalCamera =
-    nativeFullscreenRecordingActive && localRecordingMode !== "separate";
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the CURRENT flow state
   // at the moment it actually runs. Without this, if `recordingFlowActive`
@@ -1214,85 +1198,6 @@ export function App() {
     console.log(
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
-
-    if (bubbleUsesLocalCamera) {
-      const localStartTimers: Array<ReturnType<typeof setTimeout>> = [];
-      let localReadyUnlisten: (() => void) | null = null;
-      const emitLocalCameraStart = (reason: string) => {
-        if (cancelled) return;
-        console.log(
-          "[clips-popover] starting local bubble camera — %s",
-          reason,
-        );
-        emit("clips:bubble-start-local-camera", {
-          cameraId: cameraId || null,
-        }).catch((err) => {
-          if (!cancelled) {
-            console.warn(
-              "[clips-popover] emit local bubble camera start failed:",
-              err,
-            );
-          }
-        });
-      };
-
-      listen("clips:bubble-ready", () => emitLocalCameraStart("ready"))
-        .then((u) => {
-          if (cancelled) {
-            try {
-              u();
-            } catch {
-              // ignore
-            }
-          } else {
-            localReadyUnlisten = u;
-          }
-        })
-        .catch(() => {});
-
-      invoke("show_bubble")
-        .then(() => {
-          // The bubble's React listener may mount just after the Rust window
-          // reports as shown. Send a few idempotent starts; the bubble ignores
-          // repeats for the same camera but this avoids a first-show race.
-          for (const delay of [100, 500, 1000]) {
-            localStartTimers.push(
-              setTimeout(
-                () => emitLocalCameraStart(`show-bubble+${delay}ms`),
-                delay,
-              ),
-            );
-          }
-        })
-        .catch((err) => {
-          if (!cancelled) {
-            console.error("[clips-popover] local bubble start failed:", err);
-            setCameraError(`Camera unavailable: ${err?.message ?? err}`);
-          }
-        });
-
-      return () => {
-        cancelled = true;
-        for (const timer of localStartTimers) clearTimeout(timer);
-        try {
-          localReadyUnlisten?.();
-        } catch {
-          // ignore
-        }
-        emit("clips:bubble-stop-local-camera", {}).catch(() => {});
-        const recordingInFlight = recordingFlowGateRef.current;
-        console.log(
-          "[clips-popover] local bubble session end — recordingInFlight=%o stillActive=%o",
-          recordingInFlight,
-          bubbleActiveRef.current,
-        );
-        // Skip teardown when the bubble is still wanted (only the capture
-        // source changed). Hiding here would race the re-run's show_bubble.
-        if (!recordingInFlight && !bubbleActiveRef.current) {
-          invoke("hide_overlays").catch(() => {});
-        }
-      };
-    }
 
     navigator.mediaDevices
       .getUserMedia({
@@ -1411,14 +1316,13 @@ export function App() {
       // the bubble correctly). Hiding here mid-flow would kill the
       // on-screen bubble window the user sees during the recording.
       // Also skip when the bubble is still wanted and only the capture
-      // source changed (window ↔ full-screen flips `bubbleUsesLocalCamera`,
-      // re-running this effect): hiding would race the re-run's show_bubble
-      // and close the window out from under it.
+      // source changed (e.g. cameraId flip re-runs this effect): hiding
+      // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
         invoke("hide_overlays").catch(() => {});
       }
     };
-  }, [bubbleActive, bubbleUsesLocalCamera, cameraId]);
+  }, [bubbleActive, cameraId]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -1685,9 +1589,7 @@ export function App() {
     // effect's deps still include `isRecording`, so the stream + bubble
     // + pump stay alive for the entire recording.
     const preAcquiredCameraStream =
-      mode !== "screen" && cameraOn && !bubbleUsesLocalCamera
-        ? bubbleStreamRef.current
-        : null;
+      mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
     // Flip the ownership flag BEFORE kicking off the recorder. Any
     // bubble-session cleanup that fires after this point must leave the
     // tracks alone — the recorder now owns them. Cleared in the stop /
@@ -2171,6 +2073,7 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
+          meterActive={popoverVisible && !isRecording}
         />
       </div>
 
