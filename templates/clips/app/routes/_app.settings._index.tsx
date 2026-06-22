@@ -12,8 +12,6 @@ import {
   useSession,
   agentNativePath,
   openBuilderConnectPopup,
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -36,64 +34,6 @@ export function meta() {
 }
 
 const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
-
-type AiKeyField =
-  | {
-      key: "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
-      label: string;
-      description: string;
-      placeholder: string;
-      docsUrl: string;
-      kind: "agent-engine";
-      provider: AgentEngineProvider;
-    }
-  | {
-      key: "GEMINI_API_KEY" | "GROQ_API_KEY";
-      label: string;
-      description: string;
-      placeholder: string;
-      docsUrl: string;
-      kind: "registered-secret";
-    };
-
-const AI_KEY_FIELDS: AiKeyField[] = [
-  {
-    key: "ANTHROPIC_API_KEY",
-    label: "Anthropic API key",
-    description: "Runs the agent chat for summaries, chapters, and AI tools.",
-    placeholder: "sk-ant-...",
-    docsUrl: "https://console.anthropic.com/settings/keys",
-    kind: "agent-engine",
-    provider: "anthropic",
-  },
-  {
-    key: "OPENAI_API_KEY",
-    label: "OpenAI API key",
-    description: "Alternate agent-chat provider for AI tools.",
-    placeholder: "sk-...",
-    docsUrl: "https://platform.openai.com/api-keys",
-    kind: "agent-engine",
-    provider: "openai",
-  },
-  {
-    key: "GEMINI_API_KEY",
-    label: "Gemini API key",
-    description:
-      "Cleans transcripts, titles clips, and generates meeting notes.",
-    placeholder: "AIza...",
-    docsUrl: "https://aistudio.google.com/apikey",
-    kind: "registered-secret",
-  },
-  {
-    key: "GROQ_API_KEY",
-    label: "Groq API key",
-    description:
-      "Backup speech-to-text when native or Builder transcription is unavailable.",
-    placeholder: "gsk_...",
-    docsUrl: "https://console.groq.com/keys",
-    kind: "registered-secret",
-  },
-];
 
 const S3_STORAGE_FIELDS = [
   {
@@ -197,24 +137,6 @@ async function saveS3StorageSettings(
   }
 }
 
-async function saveRegisteredSecret(key: string, value: string): Promise<void> {
-  const res = await fetch(
-    agentNativePath(`/_agent-native/secrets/${encodeURIComponent(key)}`),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value }),
-    },
-  );
-
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(body?.error ?? `Save failed (${res.status})`);
-  }
-}
-
 export default function SettingsIndexRoute() {
   const { session } = useSession();
   const email = session?.email ?? "";
@@ -228,8 +150,6 @@ export default function SettingsIndexRoute() {
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
-  const [aiKeyValues, setAiKeyValues] = useState<Record<string, string>>({});
-  const [savingAiKey, setSavingAiKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,32 +211,6 @@ export default function SettingsIndexRoute() {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSavingStorage(false);
-    }
-  }
-
-  async function handleSaveAiKey(field: AiKeyField) {
-    const value = (aiKeyValues[field.key] ?? "").trim();
-    if (!value) {
-      toast.error("Paste a key first.");
-      return;
-    }
-
-    setSavingAiKey(field.key);
-    try {
-      if (field.kind === "agent-engine") {
-        await saveAgentEngineApiKey({
-          provider: field.provider,
-          apiKey: value,
-        });
-      } else {
-        await saveRegisteredSecret(field.key, value);
-      }
-      setAiKeyValues((current) => ({ ...current, [field.key]: "" }));
-      toast.success(`${field.label} saved`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save key");
-    } finally {
-      setSavingAiKey(null);
     }
   }
 
@@ -406,19 +300,20 @@ export default function SettingsIndexRoute() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <IconBrain className="size-4 text-primary" />
-              AI providers
+              AI setup
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-4">
             <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <IconKey className="h-4 w-4 text-muted-foreground" />
-                  Builder.io or bring your own keys
+                  Builder.io is the easiest setup
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Builder.io uses your Builder credits. BYOK routes usage to
-                  your provider account.
+                  Connect Builder first for included AI credits, object storage,
+                  uploads, and managed transcription. BYOK is still available
+                  from the agent sidebar.
                 </p>
               </div>
               <Button
@@ -438,65 +333,15 @@ export default function SettingsIndexRoute() {
               </Button>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              {AI_KEY_FIELDS.map((field) => (
-                <div
-                  key={field.key}
-                  className="space-y-2 rounded-md border border-border p-3"
-                >
-                  <div className="min-w-0">
-                    <Label htmlFor={field.key}>{field.label}</Label>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {field.description}
-                    </p>
-                  </div>
-                  <Input
-                    id={field.key}
-                    type="password"
-                    value={aiKeyValues[field.key] ?? ""}
-                    onChange={(event) =>
-                      setAiKeyValues((current) => ({
-                        ...current,
-                        [field.key]: event.target.value,
-                      }))
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        void handleSaveAiKey(field);
-                      }
-                    }}
-                    placeholder={field.placeholder}
-                    autoComplete="off"
-                    disabled={savingAiKey === field.key}
-                  />
-                  <div className="flex items-center justify-between gap-2">
-                    <a
-                      href={field.docsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Get key
-                      <IconExternalLink className="h-3 w-3" />
-                    </a>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void handleSaveAiKey(field)}
-                      disabled={
-                        savingAiKey === field.key ||
-                        !(aiKeyValues[field.key] ?? "").trim()
-                      }
-                    >
-                      {savingAiKey === field.key && (
-                        <IconLoader2 className="h-4 w-4 animate-spin" />
-                      )}
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-md border border-border p-3">
+              <div className="text-sm font-medium">
+                Bring your own provider key
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open the agent sidebar menu, then API Keys & Connections, to add
+                Anthropic, OpenAI, Gemini, Groq, or other supported keys. Usage
+                bills to the provider account you connect.
+              </p>
             </div>
           </CardContent>
         </Card>

@@ -49,6 +49,13 @@ describe("prepareSlidesChatAttachments", () => {
       "embeddable URL: https://cdn.example.com/editor-ai.jpeg",
     );
     expect(result?.message).toContain("PDF/PPTX/DOCX/FIG/image");
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.url).toBe(
+      "https://cdn.example.com/editor-ai.jpeg",
+    );
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/editor-ai.jpeg",
+    );
   });
 
   it("saves SVG attachments from chat as slide reference uploads", async () => {
@@ -82,6 +89,40 @@ describe("prepareSlidesChatAttachments", () => {
     });
     expect(result?.message).toContain("vector.svg");
     expect(result?.message).toContain("data/uploads/user/vector.svg");
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/vector.svg",
+    );
+  });
+
+  it("strips raw PDF data after saving it as a Slides reference upload", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "data/uploads/user/source.pdf",
+      originalName: "source.pdf",
+      filename: "stored.pdf",
+      type: "application/pdf",
+      size: 12,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "recreate this deck",
+      attachments: [
+        {
+          type: "file",
+          name: "source.pdf",
+          contentType: "application/pdf",
+          data: "data:application/pdf;base64,JVBERi0x",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
+    expect(result?.message).toContain("data/uploads/user/source.pdf");
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/source.pdf",
+    );
   });
 
   it("keeps unsupported attachments out of the slides upload context", async () => {
