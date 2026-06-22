@@ -123,9 +123,11 @@ fn append_line(path: &Path, line: &str) {
 #[cfg(not(debug_assertions))]
 fn spawn_log_pump(read_fd: libc::c_int, path: PathBuf) {
     std::thread::spawn(move || {
-        let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
-            return;
-        };
+        // Keep draining the pipe even if the file can't be opened: stdout and
+        // stderr are already redirected into it, so a pump that stops reading
+        // would let the buffer fill and block every later println!. When there
+        // is no file we simply discard the bytes.
+        let mut file = OpenOptions::new().create(true).append(true).open(&path).ok();
         let mut buf = [0u8; 4096];
         let mut line: Vec<u8> = Vec::new();
         loop {
@@ -148,10 +150,13 @@ fn spawn_log_pump(read_fd: libc::c_int, path: PathBuf) {
             if n == 0 {
                 break; // all writers closed → real EOF
             }
+            // Discard the chunk when there's no destination, but keep looping so
+            // the pipe never fills and blocks writers.
+            let Some(file) = file.as_mut() else { continue };
             for &byte in &buf[..n as usize] {
                 match byte {
                     b'\n' => {
-                        write_stamped_line(&mut file, &line);
+                        write_stamped_line(file, &line);
                         line.clear();
                     }
                     b'\r' => {}
@@ -159,8 +164,10 @@ fn spawn_log_pump(read_fd: libc::c_int, path: PathBuf) {
                 }
             }
         }
-        if !line.is_empty() {
-            write_stamped_line(&mut file, &line);
+        if let Some(file) = file.as_mut() {
+            if !line.is_empty() {
+                write_stamped_line(file, &line);
+            }
         }
     });
 }
