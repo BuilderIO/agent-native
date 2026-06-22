@@ -2350,9 +2350,10 @@ function PendingUploadBanner({
 {latest.kind === "native" && latest.corrupt ? (
           <button
             type="button"
-            className="pending-upload-retry"
+            className="pending-upload-discard pending-upload-record-again"
             disabled={actionsDisabled}
             onClick={() => onDiscard(latest)}
+            aria-label="Discard corrupted clip and record again"
             title="This clip is corrupted and cannot be recovered. Click to discard it and record again."
           >
             Record again

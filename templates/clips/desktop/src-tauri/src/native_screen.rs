@@ -649,8 +649,16 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
-        if stop_err.contains("finalize failed") {
+        // Gate the corrupt flag on both the error string AND actual file
+        // validation — a transient finalize error that still produces a valid
+        // MP4 should remain retryable rather than forcing a re-record.
+        if stop_err.contains("finalize failed")
+            && !mp4_has_moov(&saved.file_path)
+        {
             saved.corrupt = true;
+            eprintln!(
+                "[clips-tray] recording marked corrupt: finalize error + missing moov atom"
+            );
         }
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
@@ -729,6 +737,25 @@ pub async fn native_fullscreen_recording_stop_and_save(
                 "segment consolidation failed: {merge_err}. The raw segments remain in the pending recordings folder."
             ));
         }
+    }
+    // If the finalization callback reported an error AND the file is missing
+    // a moov atom, the exported MP4 would be unplayable. Fail now rather than
+    // handing the user a broken local file with no server-side backstop.
+    if stop_outcome
+        .as_ref()
+        .err()
+        .map(|e| e.contains("finalize failed"))
+        .unwrap_or(false)
+        && !mp4_has_moov(&session.path)
+    {
+        eprintln!(
+            "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
+        );
+        return Err(
+            "Recorded file is corrupted — the video is incomplete and cannot be saved. \
+             Please record again."
+                .into(),
+        );
     }
 
     save_native_recording_to_local_export(&app, &session, &folder_name, &file_role, duration_ms)
@@ -2097,23 +2124,19 @@ fn stop_native_recording(
             let stop_result = stream
                 .stop_capture()
                 .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
-            if stop_result.is_ok() {
-                eprintln!("[clips-tray] waiting 200ms for SCK frame buffer to drain before remove_recording_output");
-                std::thread::sleep(Duration::from_millis(200));
-            }
             // remove_recording_output() occasionally fails with
             // StreamError("Failed due to an invalid parameter") when the audio
-            // tap or stream state hasn't fully drained yet. Retry once after a
-            // short pause before giving up — the underlying MP4 file is
-            // already on disk by this point, so the recovery path can still
-            // pick it up via write_saved_recording_metadata().
+            // tap or stream state hasn't fully drained yet. We retry once after
+            // a 200ms drain delay; the sleep is in the error branch only so
+            // healthy clips pay no extra stop latency.
             let remove_result = stream
                 .remove_recording_output(recording)
                 .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
             let remove_result = match remove_result {
                 Ok(v) => Ok(v),
                 Err(first_err) => {
-                    std::thread::sleep(Duration::from_millis(150));
+                    eprintln!("[clips-tray] waiting 200ms for SCK frame buffer to drain before remove_recording_output retry");
+                    std::thread::sleep(Duration::from_millis(200));
                     stream.remove_recording_output(recording).map_err(|e| {
                         format!(
                             "ScreenCaptureKit recording finalize failed (retry): {e:?}; first attempt: {first_err}"
@@ -2566,6 +2589,43 @@ fn upload_url(
     Ok(url.to_string())
 }
 
+/// Walk the top-level ISO BMFF boxes of a file and return `true` when a
+/// `moov` box is present. SCK finalization errors leave the file with an
+/// `ftyp` box and audio/video data (`mdat`) but no `moov`, making it
+/// permanently unplayable and unrecoverable by retrying the upload.
+///
+/// Returns `false` on any I/O error or if the box structure is malformed —
+/// in both cases we treat the file as unplayable (safe-fail).
+fn mp4_has_moov(path: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        eprintln!("[clips-tray] mp4_has_moov: could not open file for moov scan");
+        return false;
+    };
+    let mut buf = [0u8; 8];
+    loop {
+        if f.read_exact(&mut buf).is_err() {
+            // EOF or read error — moov was never found
+            return false;
+        }
+        let box_size = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64;
+        let box_type = &buf[4..8];
+        if box_type == b"moov" {
+            return true;
+        }
+        // box_size == 0 means "extends to EOF"; box_size == 1 is a 64-bit
+        // extended-size box (rare in practice for these files). Both cases
+        // mean we can't skip forward cheaply, so stop scanning.
+        if box_size < 8 {
+            return false;
+        }
+        // Skip to the next top-level box (box_size includes the 8-byte header).
+        if f.seek(SeekFrom::Current(box_size as i64 - 8)).is_err() {
+            return false;
+        }
+    }
+}
+
 fn prepare_recording_file(
     app: &AppHandle,
     path: &Path,
@@ -2588,25 +2648,20 @@ fn prepare_recording_file(
         );
         return Err("Native recording produced an empty file.".into());
     }
-    // For MP4/QuickTime files, verify the container header is intact. A SCK
-    // finalization error (-5814) leaves the file without a moov atom; bytes
-    // 4-7 of a well-formed MP4/MOV must be the ASCII box type "ftyp". If
-    // that's missing the file is unplayable and uploading it wastes time.
+    // For MP4/QuickTime files check that a top-level moov atom exists. SCK
+    // finalization errors (-5814) produce a file with ftyp + mdat but no
+    // moov, making it permanently unplayable. Catching this here avoids a
+    // full chunked upload that the server will reject anyway.
     if mime_type == "video/mp4" || mime_type == "video/quicktime" {
-        use std::io::Read;
-        let mut header = [0u8; 8];
-        if let Ok(mut f) = std::fs::File::open(path) {
-            let n = f.read(&mut header).unwrap_or(0);
-            if n >= 8 && &header[4..8] != b"ftyp" {
-                eprintln!(
-                    "[clips-tray] native recording corrupt ftyp check failed — skipping upload"
-                );
-                return Err(
-                    "Recorded file is corrupted or incomplete — the video header is missing. \
-                     Please record again."
-                        .into(),
-                );
-            }
+        if !mp4_has_moov(path) {
+            eprintln!(
+                "[clips-tray] native recording corrupt moov check failed — skipping upload"
+            );
+            return Err(
+                "Recorded file is corrupted or incomplete — the video is missing required \
+                 metadata. Please record again."
+                    .into(),
+            );
         }
     }
     emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
