@@ -7,7 +7,7 @@
  *
  * Actions must export a default function: (args: string[]) => Promise<void>
  *
- * Usage: pnpm action <action-name> [--args]
+ * Usage: pnpm action <action-name> ['{"arg":"value"}'] [--args]
  */
 
 import path from "path";
@@ -59,7 +59,9 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
 
   if (!actionName || actionName === "--help") {
-    console.log(`Usage: pnpm action <action-name> [--arg value ...]`);
+    console.log(
+      `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
+    );
     console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
@@ -158,7 +160,8 @@ function parseActionArgs(
   args: string[],
   options: { coerceBooleans?: boolean } = {},
 ): Record<string, unknown> {
-  const parsed: Record<string, unknown> = {};
+  const parsed = parsePositionalJsonArg(args);
+  const flagArgs: Record<string, unknown> = {};
   const coerceBooleans = options.coerceBooleans ?? false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -166,7 +169,7 @@ function parseActionArgs(
     const eqIdx = arg.indexOf("=");
     if (eqIdx > 0) {
       setParsedArg(
-        parsed,
+        flagArgs,
         arg.slice(2, eqIdx),
         coerceCliValue(arg.slice(eqIdx + 1), coerceBooleans),
       );
@@ -174,14 +177,49 @@ function parseActionArgs(
       const key = arg.slice(2);
       const next = args[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
-        setParsedArg(parsed, key, coerceCliValue(next, coerceBooleans));
+        setParsedArg(flagArgs, key, coerceCliValue(next, coerceBooleans));
         i++;
       } else {
-        setParsedArg(parsed, key, coerceBooleans ? true : "true");
+        setParsedArg(flagArgs, key, coerceBooleans ? true : "true");
       }
     }
   }
-  return parsed;
+  return { ...parsed, ...flagArgs };
+}
+
+function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
+  let jsonArg: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("--")) {
+      if (!arg.includes("=") && args[i + 1] && !args[i + 1].startsWith("--")) {
+        i++;
+      }
+      continue;
+    }
+
+    const trimmed = arg.trim();
+    if (!trimmed.startsWith("{")) continue;
+    if (jsonArg !== undefined) {
+      throw new Error("Only one positional JSON object argument is supported.");
+    }
+    jsonArg = trimmed;
+  }
+
+  if (jsonArg === undefined) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonArg);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid positional JSON argument: ${message}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Positional JSON argument must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 /**

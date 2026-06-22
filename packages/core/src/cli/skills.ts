@@ -36,13 +36,14 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   npx @agent-native/core@latest skills add assets
+  npx @agent-native/core@latest skills add content --mode local-files
   npx @agent-native/core@latest skills add design-exploration
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
@@ -87,6 +88,12 @@ files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
 Pass --mode to choose directly. Local-files mode skips MCP registration and
 auth and installs instructions that default to a no-auth block catalog fetch,
 MDX folders, and the localhost bridge viewer.
+
+When installing content with --mode local-files, the CLI installs Content
+instructions and writes or updates agent-native.json with repo-backed Markdown /
+MDX roots for docs, blog, content, and resources. Use a local Content app, Agent
+Native Desktop, or another trusted local bridge for Content actions to read and
+write those files.
 
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
@@ -178,6 +185,117 @@ of using a generic image generator.
   \`count: 1\` only after telling the user the multi-candidate request timed out.
 - If you inspect local MCP config, redact \`Authorization\`, \`http_headers\`,
   and token values. Never paste bearer tokens into chat or logs.
+`;
+
+const CONTENT_SKILL_MD = `---
+name: content
+description: >-
+  Use Content for repo-backed Markdown/MDX docs, blogs, resources, rich
+  document editing, local components, shareable copies, and Content local-file
+  workspaces. Prefer Content actions over raw filesystem writes when available.
+metadata:
+  visibility: exported
+---
+
+# Content
+
+Use the Content app when a workflow is about authoring, editing, reviewing, or
+publishing Markdown/MDX documents: docs sites, blogs, resource libraries,
+marketing pages, internal notes, and local MDX components. Content gives the
+agent a document tree, a rich editor, normal document actions, and optional
+local-file source of truth.
+
+## Choose The Path
+
+- Use Content actions when the Content MCP/action tools are available:
+  \`list-documents\`, \`search-documents\`, \`get-document\`,
+  \`pull-document\`, \`create-document\`, \`edit-document\`,
+  \`update-document\`, \`delete-document\`, \`share-local-file-document\`,
+  \`list-local-component-files\`, and \`write-local-component-file\`.
+- Use \`pull-document\` or \`get-document\` before editing a page. Use
+  \`edit-document\` for precise find/replace changes and \`update-document\`
+  for full rewrites or new content.
+- In Local File Mode, Content actions read and write the repo files declared in
+  \`agent-native.json\`; SQL remains cache/history/search glue, not the source of
+  truth for those pages.
+- If Content tools are not visible and no local Content app or Desktop bridge is
+  running, treat this skill as repo-editing guidance. Edit configured
+  \`.md\`/\`.mdx\` files directly, preserve frontmatter and MDX imports, and tell
+  the user the Content action surface was not available.
+
+## Action Examples
+
+Prefer JSON input for action calls:
+
+\`\`\`bash
+pnpm action list-documents
+pnpm action get-document '{"id":"local-file:..."}'
+pnpm action edit-document '{"id":"local-file:...","find":"old copy","replace":"new copy"}'
+pnpm action update-document '{"id":"local-file:...","content":"# Updated\\n\\nBody"}'
+pnpm action share-local-file-document '{"id":"local-file:..."}'
+\`\`\`
+
+Run \`refresh-list\` after create/update/delete operations when you need the
+open Content UI sidebar to repaint immediately.
+
+## Local File Mode
+
+Install into an existing repo with:
+
+\`\`\`bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+\`\`\`
+
+The installer copies this skill and writes or updates \`agent-native.json\` with
+Content roots for \`docs/\`, \`blog/\`, \`content/\`, and \`resources/\`, plus a
+\`components/\` folder for local MDX components. A typical manifest looks like:
+
+\`\`\`json
+{
+  "version": 1,
+  "mode": "local-files",
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [
+        { "name": "Docs", "path": "docs", "kind": "docs", "extensions": [".md", ".mdx"] },
+        { "name": "Blog", "path": "blog", "kind": "blog", "extensions": [".md", ".mdx"] },
+        { "name": "Content", "path": "content", "kind": "content", "extensions": [".md", ".mdx"] },
+        { "name": "Resources", "path": "resources", "kind": "resources", "extensions": [".md", ".mdx"] }
+      ],
+      "components": "components",
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}
+\`\`\`
+
+Local File Mode does not make the host language model local, and the hosted
+Content app cannot read private repo files by itself. File access requires a
+local Content app, Agent Native Desktop, or another trusted local bridge.
+
+## MDX And Components
+
+- Preserve frontmatter keys you do not understand. Preserve MDX imports,
+  exports, JSX, and expression props unless the user explicitly asks to change
+  them.
+- Use local components from the configured \`components\` folder. Components
+  should be PascalCase exports from \`.tsx\` files; simple editable input metadata
+  can live next to them as \`ComponentNameInputs\`.
+- Use \`list-local-component-files\` and \`write-local-component-file\` for
+  component source changes when Content tools are available. Otherwise edit the
+  component files directly like normal repo source.
+
+## Boundaries
+
+- Moving, renaming, and reordering local-file pages are not first-class Content
+  UI operations yet. Use normal file operations when the user asks for those,
+  then let Content rediscover the file tree.
+- Do not push/pull Notion, Builder.io, or other provider-backed content unless
+  the user explicitly asks for provider sync.
+- Do not paste secrets, private provider data, or credential-looking values into
+  docs, generated pages, frontmatter, examples, or local components.
 `;
 
 const DESIGN_EXPLORATION_SKILL_MD = `---
@@ -2202,6 +2320,55 @@ export const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: ASSETS_SKILL_MD,
   },
+  content: {
+    skillName: "content",
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "content",
+      displayName: "Content",
+      description:
+        "Edit docs, blogs, resources, and MDX content through the Content app, including repo-backed Local File Mode.",
+      hosted: {
+        url: "https://content.agent-native.com",
+        mcpUrl: "https://content.agent-native.com/_agent-native/mcp",
+      },
+      mcp: { serverName: "agent-native-content" },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate with the Content MCP connector in the host app. Local File Mode requires a local Content app, Agent Native Desktop, or trusted local bridge for filesystem access.",
+      },
+      surfaces: [
+        {
+          id: "content-documents",
+          action: "list-documents",
+          path: "/",
+        },
+        {
+          id: "content-local-files",
+          action: "share-local-file-document",
+          path: "/local-files",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/content",
+          visibility: "exported",
+          exportAs: "content",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: CONTENT_SKILL_MD,
+  },
   design: {
     skillName: "design-exploration",
     manifest: normalizeAppSkillManifest({
@@ -2382,6 +2549,12 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "image-generation": "assets",
   "agent-native-assets": "assets",
   "agent-native-images": "assets",
+  content: "content",
+  docs: "content",
+  documents: "content",
+  "local-content": "content",
+  "content-local-files": "content",
+  "agent-native-content": "content",
   design: "design",
   "ui-design": "design",
   "ux-design": "design",
@@ -2410,6 +2583,13 @@ const BUILT_IN_APP_SKILL_ALIASES = {
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   assets: ["images", "image-generation", "agent-native-images"],
+  content: [
+    "docs",
+    "documents",
+    "local-content",
+    "content-local-files",
+    "agent-native-content",
+  ],
   design: [
     "design-exploration",
     "ux-exploration",
@@ -2529,9 +2709,9 @@ export interface ParsedSkillsArgs {
    */
   mcpUrl?: string;
   /**
-   * Storage/backend mode for the Plans skills. Hosted is the existing default;
-   * local-files installs instructions that default to DB-free MDX + local
-   * preview and skips MCP registration/auth.
+   * Storage/backend mode for app-backed skills that support install modes. The
+   * field name is kept for CLI/API compatibility with the original Plan-only
+   * implementation.
    */
   planMode?: PlanInstallMode;
   /**
@@ -2593,6 +2773,7 @@ export interface SkillsAddResult {
   githubActionPath?: string;
   githubActionExisted?: boolean;
   githubActionSuggestedCommand?: string;
+  localManifestPath?: string;
   planMode?: PlanInstallMode;
 }
 
@@ -2781,6 +2962,19 @@ function isLocalOnlyBuiltInSkill(
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
+function targetSupportsInstallMode(
+  knownTarget: BuiltInAppSkillId | undefined,
+): boolean {
+  return knownTarget === "visual-plans" || knownTarget === "content";
+}
+
+function localFilesModeSkipsMcp(
+  knownTarget: BuiltInAppSkillId | undefined,
+  mode: PlanInstallMode | undefined,
+): boolean {
+  return mode === "local-files" && targetSupportsInstallMode(knownTarget);
+}
+
 function builtInExtraSkills(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
 ): Record<string, string> {
@@ -2870,7 +3064,34 @@ for plans and recaps instead of assuming \`https://plan.agent-native.com\`.`;
   return "";
 }
 
-function applyPlanModeToSkillMarkdown(
+function contentModeInstructionBlock(input: {
+  mode: PlanInstallMode | undefined;
+  mcpUrl?: string;
+}): string {
+  if (input.mode === "local-files") {
+    return `## Installed Mode
+
+Default storage for this installation: Content Local File Mode. This repo should
+have an \`agent-native.json\` file with \`mode: "local-files"\` and
+\`apps.content.mode: "local-files"\`; the installer writes one if missing and
+fills in default roots for \`docs/\`, \`blog/\`, \`content/\`, and
+\`resources/\`. Prefer Content document actions when a local Content app,
+Agent Native Desktop, or another trusted local bridge exposes them. If those
+tools are not currently available, edit the configured Markdown/MDX files and
+local components directly, preserving frontmatter, imports, JSX, and unknown MDX
+syntax. The hosted Content app cannot read private repo files by itself.`;
+  }
+  if (input.mode === "self-hosted") {
+    return `## Installed Mode
+
+Default storage for this installation: the configured self-hosted/custom Content
+app${input.mcpUrl ? ` at \`${input.mcpUrl}\`` : ""}. Use that Content MCP
+connector instead of assuming \`https://content.agent-native.com\`.`;
+  }
+  return "";
+}
+
+function applyInstallModeToSkillMarkdown(
   markdown: string,
   input: {
     appSkillId: BuiltInAppSkillId;
@@ -2878,11 +3099,18 @@ function applyPlanModeToSkillMarkdown(
     mcpUrl?: string;
   },
 ): string {
-  if (input.appSkillId !== "visual-plans") return markdown;
-  const block = planModeInstructionBlock({
-    mode: input.mode,
-    mcpUrl: input.mcpUrl,
-  });
+  let block = "";
+  if (input.appSkillId === "visual-plans") {
+    block = planModeInstructionBlock({
+      mode: input.mode,
+      mcpUrl: input.mcpUrl,
+    });
+  } else if (input.appSkillId === "content") {
+    block = contentModeInstructionBlock({
+      mode: input.mode,
+      mcpUrl: input.mcpUrl,
+    });
+  }
   return insertAfterFrontmatter(markdown, block);
 }
 
@@ -2892,7 +3120,7 @@ function skillFilesForBuiltIn(
 ): Record<string, SkillFolderBundle> {
   const entry = BUILT_IN_APP_SKILLS[appSkillId];
   const skills: Record<string, string> = {
-    [entry.skillName]: applyPlanModeToSkillMarkdown(entry.skillMarkdown, {
+    [entry.skillName]: applyInstallModeToSkillMarkdown(entry.skillMarkdown, {
       appSkillId,
       mode: options.planMode,
       mcpUrl: options.mcpUrl,
@@ -2902,7 +3130,7 @@ function skillFilesForBuiltIn(
   for (const [skillName, skillMarkdown] of Object.entries(
     builtInExtraSkills(entry),
   )) {
-    skills[skillName] = applyPlanModeToSkillMarkdown(skillMarkdown, {
+    skills[skillName] = applyInstallModeToSkillMarkdown(skillMarkdown, {
       appSkillId,
       mode: options.planMode,
       mcpUrl: options.mcpUrl,
@@ -2920,7 +3148,8 @@ function skillFilesForBuiltIn(
       displayName: entry.manifest.displayName,
       skillName,
       mcpUrl:
-        isLocalOnlyBuiltInSkill(entry) || options.planMode === "local-files"
+        isLocalOnlyBuiltInSkill(entry) ||
+        localFilesModeSkipsMcp(appSkillId, options.planMode)
           ? ""
           : (options.mcpUrl ?? entry.manifest.hosted.mcpUrl),
       files,
@@ -2970,6 +3199,110 @@ function writeSkillFolder(
     `${JSON.stringify(metadata, null, 2)}\n`,
     "utf-8",
   );
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function defaultContentLocalFilesAppConfig(): Record<string, unknown> {
+  return {
+    mode: "local-files",
+    roots: [
+      {
+        name: "Docs",
+        path: "docs",
+        kind: "docs",
+        extensions: [".md", ".mdx"],
+      },
+      {
+        name: "Blog",
+        path: "blog",
+        kind: "blog",
+        extensions: [".md", ".mdx"],
+      },
+      {
+        name: "Content",
+        path: "content",
+        kind: "content",
+        extensions: [".md", ".mdx"],
+      },
+      {
+        name: "Resources",
+        path: "resources",
+        kind: "resources",
+        extensions: [".md", ".mdx"],
+      },
+    ],
+    components: "components",
+    extensions: "extensions",
+    hide: ["**/_*.md", "**/_*.mdx"],
+  };
+}
+
+function contentLocalFilesManifestPath(baseDir: string): string {
+  return path.join(baseDir, "agent-native.json");
+}
+
+function shouldWriteContentLocalFilesManifest(
+  knownTarget: BuiltInAppSkillId | undefined,
+  mode: PlanInstallMode | undefined,
+): boolean {
+  return knownTarget === "content" && mode === "local-files";
+}
+
+function mergeContentLocalFilesManifest(
+  existing: unknown,
+): Record<string, unknown> {
+  const manifest = isJsonRecord(existing) ? { ...existing } : {};
+  if (manifest.version === undefined) manifest.version = 1;
+  manifest.mode = "local-files";
+
+  const apps = isJsonRecord(manifest.apps) ? { ...manifest.apps } : {};
+  const contentApp = isJsonRecord(apps.content) ? { ...apps.content } : {};
+  const defaults = defaultContentLocalFilesAppConfig();
+  contentApp.mode = "local-files";
+  if (!Array.isArray(contentApp.roots) || contentApp.roots.length === 0) {
+    contentApp.roots = defaults.roots;
+  }
+  if (contentApp.components === undefined) {
+    contentApp.components = defaults.components;
+  }
+  if (contentApp.extensions === undefined) {
+    contentApp.extensions = defaults.extensions;
+  }
+  if (!Array.isArray(contentApp.hide) || contentApp.hide.length === 0) {
+    contentApp.hide = defaults.hide;
+  }
+  apps.content = contentApp;
+  manifest.apps = apps;
+  return manifest;
+}
+
+function writeContentLocalFilesManifest(
+  baseDir: string,
+  options: { dryRun?: boolean } = {},
+): string {
+  const manifestPath = contentLocalFilesManifestPath(baseDir);
+  let existing: unknown = {};
+  if (fs.existsSync(manifestPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    } catch (error: any) {
+      throw new Error(
+        `Could not parse ${manifestPath}: ${error?.message ?? error}`,
+      );
+    }
+  }
+  const manifest = mergeContentLocalFilesManifest(existing);
+  if (!options.dryRun) {
+    fs.writeFileSync(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf-8",
+    );
+  }
+  return manifestPath;
 }
 
 /**
@@ -3468,6 +3801,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
   },
   {
+    value: "content",
+    label: "content",
+    hint: BUILT_IN_APP_SKILLS.content.manifest.description,
+  },
+  {
     value: "design-exploration",
     label: "design-exploration",
     hint: BUILT_IN_APP_SKILLS.design.manifest.description,
@@ -3815,6 +4153,14 @@ function targetsIncludePlans(targets: string[]): boolean {
   return targets.some(targetIncludesPlans);
 }
 
+function targetIncludesInstallModeSkill(target: string): boolean {
+  return targetSupportsInstallMode(normalizeKnownSkillTarget(target));
+}
+
+function targetsIncludeInstallModeSkills(targets: string[]): boolean {
+  return targets.some(targetIncludesInstallModeSkill);
+}
+
 function planSkillNamesSelected(skillNames: string[] | undefined): boolean {
   return Boolean(
     skillNames?.some(
@@ -3823,11 +4169,24 @@ function planSkillNamesSelected(skillNames: string[] | undefined): boolean {
   );
 }
 
+function installModeSkillNamesSelected(
+  skillNames: string[] | undefined,
+): boolean {
+  return Boolean(
+    skillNames?.some((name) =>
+      targetSupportsInstallMode(normalizeKnownSkillTarget(name)),
+    ),
+  );
+}
+
 function shouldForwardPlanModeFlag(
   target: string,
   skillNames: string[] | undefined,
 ): boolean {
-  return targetIncludesPlans(target) || planSkillNamesSelected(skillNames);
+  return (
+    targetIncludesInstallModeSkill(target) ||
+    installModeSkillNamesSelected(skillNames)
+  );
 }
 
 function recapSkillNamesSelected(skillNames: string[] | undefined): boolean {
@@ -4356,7 +4715,7 @@ async function addPlainSkillRepo(
       "Plain skill repositories only install skill instructions. Run without --mcp-only.",
     );
   }
-  if (parsed.mcpUrl && !planSkillNamesSelected(parsed.plainSkillNames)) {
+  if (parsed.mcpUrl && !installModeSkillNamesSelected(parsed.plainSkillNames)) {
     throw new Error(
       "--mcp-url only applies to app-backed Agent Native skills.",
     );
@@ -4584,12 +4943,18 @@ export async function addAgentNativeSkill(
     );
   }
   const knownTarget = normalizeKnownSkillTarget(target);
-  const planMode =
-    knownTarget === "visual-plans"
-      ? (parsed.planMode ?? (parsed.mcpUrl ? "self-hosted" : "hosted"))
-      : undefined;
-  if (parsed.planMode && knownTarget !== "visual-plans") {
-    throw new Error("--mode only applies to visual-plan / visual-recap.");
+  const planMode = targetSupportsInstallMode(knownTarget)
+    ? (parsed.planMode ??
+      (parsed.mcpUrl
+        ? "self-hosted"
+        : knownTarget === "visual-plans"
+          ? "hosted"
+          : undefined))
+    : undefined;
+  if (parsed.planMode && !targetSupportsInstallMode(knownTarget)) {
+    throw new Error(
+      "--mode only applies to visual-plan / visual-recap / content.",
+    );
   }
   if (planMode === "local-files" && parsed.mcpUrl) {
     throw new Error("--mode local-files cannot be combined with --mcp-url.");
@@ -4598,8 +4963,7 @@ export async function addAgentNativeSkill(
     throw new Error("--mode self-hosted requires --mcp-url <url>.");
   }
   const shouldRegisterMcp =
-    parsed.mcp &&
-    !(knownTarget === "visual-plans" && planMode === "local-files");
+    parsed.mcp && !localFilesModeSkipsMcp(knownTarget, planMode);
   // For multi-skill bundles (the plan bundle), a single-skill target installs
   // only that skill. `installsRecap` controls the PR Visual Recap github-action
   // offer, which is only relevant when the recap skill is part of the install.
@@ -4618,6 +4982,7 @@ export async function addAgentNativeSkill(
     );
   }
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  const baseDir = options.baseDir ?? process.cwd();
   if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
     if (parsed.mcpUrl) {
       throw new Error(
@@ -4658,7 +5023,7 @@ export async function addAgentNativeSkill(
       };
     }
     const localInstall = installLocalContextXray({
-      baseDir: options.baseDir ?? process.cwd(),
+      baseDir,
       clients,
       scope: parsed.scope,
     });
@@ -4699,6 +5064,12 @@ export async function addAgentNativeSkill(
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
+      const localManifestPath = shouldWriteContentLocalFilesManifest(
+        knownTarget,
+        planMode,
+      )
+        ? contentLocalFilesManifestPath(baseDir)
+        : undefined;
       const githubActionPath =
         parsed.withGithubAction && installsRecap
           ? prVisualRecapWorkflowDisplayPath()
@@ -4718,16 +5089,19 @@ export async function addAgentNativeSkill(
         displayName: installTarget.displayName,
         skillNames: installTarget.skillNames,
         skillsAgents,
-        mcpUrl:
-          knownTarget === "visual-plans" && planMode === "local-files"
-            ? ""
-            : installTarget.loaded.manifest.hosted.mcpUrl,
+        mcpUrl: localFilesModeSkipsMcp(knownTarget, planMode)
+          ? ""
+          : installTarget.loaded.manifest.hosted.mcpUrl,
         mcpClients: shouldRegisterMcp ? mcpClients : [],
         dryRun: true,
-        commands: [dryRunInstallCommand(parsed, target)],
+        commands: [
+          dryRunInstallCommand(parsed, target),
+          ...(localManifestPath ? [`write ${localManifestPath}`] : []),
+        ],
         githubActionPath,
         githubActionSuggestedCommand,
         planMode,
+        localManifestPath,
       };
     } finally {
       installTarget.cleanup?.();
@@ -4740,6 +5114,7 @@ export async function addAgentNativeSkill(
   let connected = false;
   let connectCommand: string | undefined;
   let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
+  let localManifestPath: string | undefined;
 
   try {
     if (parsed.instructions) {
@@ -4759,7 +5134,7 @@ export async function addAgentNativeSkill(
           onlySkillNames,
           skillsAgents,
           scope: parsed.scope as "project" | "user",
-          baseDir: options.baseDir ?? process.cwd(),
+          baseDir,
           dryRun: parsed.dryRun,
           planMode,
           mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
@@ -4794,6 +5169,11 @@ export async function addAgentNativeSkill(
             );
         }
       }
+    }
+
+    if (shouldWriteContentLocalFilesManifest(knownTarget, planMode)) {
+      localManifestPath = writeContentLocalFilesManifest(baseDir);
+      commands.push(`write ${localManifestPath}`);
     }
 
     // Skill instructions are now on disk (built-in folders copied or external
@@ -4858,7 +5238,6 @@ export async function addAgentNativeSkill(
 
     // `--with-github-action`: also drop the PR Visual Recap workflow into the
     // repo so PRs get automatic recaps. Only meaningful for the plan family.
-    const baseDir = options.baseDir ?? process.cwd();
     let withGithubAction = Boolean(parsed.withGithubAction);
     let githubActionPath: string | undefined;
     let githubActionExisted: boolean | undefined;
@@ -4916,10 +5295,9 @@ export async function addAgentNativeSkill(
       instructionSource,
       skillNames: installTarget.skillNames,
       skillsAgents,
-      mcpUrl:
-        knownTarget === "visual-plans" && planMode === "local-files"
-          ? ""
-          : installTarget.loaded.manifest.hosted.mcpUrl,
+      mcpUrl: localFilesModeSkipsMcp(knownTarget, planMode)
+        ? ""
+        : installTarget.loaded.manifest.hosted.mcpUrl,
       mcpClients: registeredMcpClients,
       dryRun: parsed.dryRun,
       commands,
@@ -4927,6 +5305,7 @@ export async function addAgentNativeSkill(
       connected,
       connectCommand,
       planMode,
+      localManifestPath,
       githubActionPath,
       githubActionExisted,
       githubActionSuggestedCommand,
@@ -4997,9 +5376,10 @@ function formatSkillState(state: SkillInstallState): string {
 }
 
 function planModeSummary(mode: PlanInstallMode): string {
-  if (mode === "local-files") return "Local files - No sharing, all local.";
-  if (mode === "self-hosted") return "Self-hosted/custom Plan app";
-  return "Hosted Plans - shareable links and comments";
+  if (mode === "local-files")
+    return "Local files - no hosted writes by default";
+  if (mode === "self-hosted") return "Self-hosted/custom app";
+  return "Hosted app";
 }
 
 function skillInstructionAgentLabel(agent: string): string {
@@ -5017,7 +5397,7 @@ function targetInstallsMcp(
   if (!parsed.mcp) return false;
   if (publicSkillSelectionNames(target)) return false;
   const knownTarget = normalizeKnownSkillTarget(target);
-  if (knownTarget === "visual-plans") return parsed.planMode !== "local-files";
+  if (localFilesModeSkipsMcp(knownTarget, parsed.planMode)) return false;
   if (knownTarget) {
     return !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[knownTarget]);
   }
@@ -5255,8 +5635,13 @@ export async function runSkills(
     const includesPlans =
       targetsIncludePlans(targets) ||
       planSkillNamesSelected(parsed.plainSkillNames);
-    if (parsed.planMode && !includesPlans) {
-      throw new Error("--mode only applies to visual-plan / visual-recap.");
+    const includesInstallModeSkills =
+      targetsIncludeInstallModeSkills(targets) ||
+      installModeSkillNamesSelected(parsed.plainSkillNames);
+    if (parsed.planMode && !includesInstallModeSkills) {
+      throw new Error(
+        "--mode only applies to visual-plan / visual-recap / content.",
+      );
     }
     if (includesPlans) {
       if (!parsed.planMode && parsed.mcpUrl) {
@@ -5491,7 +5876,7 @@ export async function runSkills(
         : "MCP config           not required",
       mcpUrls.length ? `MCP URL              ${mcpUrls.join(", ")}` : "",
       planModes.length
-        ? `Plan mode            ${planModes.map(planModeSummary).join(", ")}`
+        ? `Install mode         ${planModes.map(planModeSummary).join(", ")}`
         : "",
       authConnected
         ? "Authentication       completed"

@@ -96,9 +96,12 @@ export default async (nitroApp: any): Promise<void> => {
       try {
         if (await resolveHasBuilderPrivateKey()) return true;
       } catch {
-        // Fall back to sync provider status below.
+        // Treat credential lookup failures as incomplete so users can connect.
       }
-      return !!active;
+      // Do not let the built-in Builder provider's sync env check complete
+      // onboarding for signed-in hosted users. The actual upload path resolves
+      // Builder credentials request-aware, so this step should do the same.
+      return false;
     },
   });
 };
