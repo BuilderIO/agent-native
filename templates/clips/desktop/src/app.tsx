@@ -2353,10 +2353,10 @@ function PendingUploadBanner({
             className="pending-upload-discard"
             disabled={actionsDisabled}
             onClick={() => onDiscard(latest)}
-            title="This clip is corrupted and cannot be recovered."
+            aria-label="Discard corrupted clip"
+            title="This clip is corrupted and cannot be recovered. Discard it and record again."
           >
             <IconTrash size={14} stroke={2} />
-            Discard
           </button>
         ) : (
           <>

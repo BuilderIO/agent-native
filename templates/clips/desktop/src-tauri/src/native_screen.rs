@@ -2589,32 +2589,29 @@ fn upload_url(
     Ok(url.to_string())
 }
 
-/// Walk the top-level ISO BMFF boxes of a file and return `true` when a
-/// `moov` box is present. SCK finalization errors leave the file with an
-/// `ftyp` box and audio/video data (`mdat`) but no `moov`, making it
-/// permanently unplayable and unrecoverable by retrying the upload.
-///
-/// Returns `false` on any I/O error or if the box structure is malformed —
-/// in both cases we treat the file as unplayable (safe-fail).
-/// Returns `Some(true)` when a `moov` box is found, `Some(false)` when the
-/// scan completed without finding one (file is unplayable), or `None` when
-/// the file could not be read (transient I/O error — caller should not treat
-/// this as permanent corruption).
+/// Walk the top-level ISO BMFF boxes of a file and return `Some(true)` when a
+/// `moov` box is present, `Some(false)` when the scan reached EOF without
+/// finding one (file is unplayable), or `None` when the file could not be
+/// read (transient I/O error — callers must not treat this as permanent
+/// corruption).
 fn mp4_has_moov(path: &Path) -> Option<bool> {
-    use std::io::{Read, Seek, SeekFrom};
+    use std::io::{ErrorKind, Read, Seek, SeekFrom};
     let mut f = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            // I/O failure — can't determine; let the caller decide.
             eprintln!("[clips-tray] mp4_has_moov: could not open file for moov scan: {e}");
             return None;
         }
     };
     let mut buf = [0u8; 8];
     loop {
-        if f.read_exact(&mut buf).is_err() {
-            // Clean EOF without finding moov — file is missing the atom.
-            return Some(false);
+        match f.read_exact(&mut buf) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
+                // Clean EOF — moov was never found; file is missing the atom.
+                return Some(false);
+            }
+            Err(_) => return None, // Transient read error; don't mark as corrupt.
         }
         let box_size_raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
         let box_type = &buf[4..8];
@@ -2622,12 +2619,14 @@ fn mp4_has_moov(path: &Path) -> Option<bool> {
             return Some(true);
         }
         let skip: u64 = match box_size_raw {
-            0 => return Some(false), // extends to EOF — moov not found before it
+            0 => return Some(false), // box extends to EOF — moov not before it
             1 => {
                 // 64-bit extended-size: next 8 bytes hold the real size.
                 let mut ext = [0u8; 8];
-                if f.read_exact(&mut ext).is_err() {
-                    return Some(false);
+                match f.read_exact(&mut ext) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Some(false),
+                    Err(_) => return None,
                 }
                 let full = u64::from_be_bytes(ext);
                 // full includes the 8-byte header + 8-byte ext field (16 total).
@@ -2635,8 +2634,18 @@ fn mp4_has_moov(path: &Path) -> Option<bool> {
             }
             n => (n as u64).saturating_sub(8),
         };
-        if skip > 0 && f.seek(SeekFrom::Current(skip as i64)).is_err() {
-            return Some(false);
+        if skip > 0 {
+            // Use SeekFrom::Current with a checked i64 cast; a valid box
+            // whose payload exceeds i64::MAX (~9 EiB) is treated as
+            // malformed — return Some(false) so callers can surface the
+            // error without wrapping or seeking backwards.
+            let offset = match i64::try_from(skip) {
+                Ok(v) => v,
+                Err(_) => return Some(false),
+            };
+            if f.seek(SeekFrom::Current(offset)).is_err() {
+                return None; // seek I/O error — don't assume corruption
+            }
         }
     }
 }
