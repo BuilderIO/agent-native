@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.66.3
+
+### Patch Changes
+
+- 533afe1: Default organization activation now auto-creates unless explicitly disabled, and Builder setup copy stays focused on storage and AI credits.
+
 ## 0.66.2
 
 ### Patch Changes
