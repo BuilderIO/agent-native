@@ -12,6 +12,8 @@ const MAX_UNFURL_LINKS = 5;
 
 export type SlackLinkSharedPayload = {
   type?: string;
+  team_id?: string;
+  api_app_id?: string;
   event?: {
     type?: string;
     channel?: string;
@@ -51,6 +53,55 @@ export type ChatUnfurlPayload = {
   ts: string;
   unfurls: Record<string, { blocks: SlackVideoBlock[] }>;
 };
+
+export type SlackAllowlistValidation =
+  | { ok: true }
+  | { ok: false; status: 401; error: string };
+
+function parseAllowlist(value: string | undefined): Set<string> | null {
+  const values = (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return values.length > 0 ? new Set(values) : null;
+}
+
+export function validateSlackEventAllowlist(
+  payload: SlackLinkSharedPayload,
+  env: Partial<
+    Record<
+      "NODE_ENV" | "SLACK_ALLOWED_TEAM_IDS" | "SLACK_ALLOWED_API_APP_IDS",
+      string | undefined
+    >
+  > = process.env,
+): SlackAllowlistValidation {
+  const allowedTeamIds = parseAllowlist(env.SLACK_ALLOWED_TEAM_IDS);
+  const allowedAppIds = parseAllowlist(env.SLACK_ALLOWED_API_APP_IDS);
+
+  if (!allowedTeamIds && env.NODE_ENV === "production") {
+    return {
+      ok: false,
+      status: 401,
+      error: "Slack workspace allowlist is not configured",
+    };
+  }
+
+  if (
+    allowedTeamIds &&
+    (!payload.team_id || !allowedTeamIds.has(payload.team_id))
+  ) {
+    return { ok: false, status: 401, error: "Unrecognized Slack workspace" };
+  }
+
+  if (
+    allowedAppIds &&
+    (!payload.api_app_id || !allowedAppIds.has(payload.api_app_id))
+  ) {
+    return { ok: false, status: 401, error: "Unrecognized Slack app" };
+  }
+
+  return { ok: true };
+}
 
 export function verifySlackSignature(options: {
   rawBody: string;

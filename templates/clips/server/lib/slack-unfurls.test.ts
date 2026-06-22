@@ -6,6 +6,7 @@ import {
   extractShareLink,
   postSlackUnfurl,
   slackUrlVerificationChallenge,
+  validateSlackEventAllowlist,
   verifySlackSignature,
 } from "./slack-unfurls";
 
@@ -138,6 +139,64 @@ describe("Clips Slack unfurls", () => {
       unfurls: {
         "https://clips.example.com/share/rec-1": { blocks: [block] },
       },
+    });
+  });
+
+  it("requires a Slack team allowlist in production", () => {
+    expect(
+      validateSlackEventAllowlist(
+        { type: "event_callback", team_id: "T123" },
+        { NODE_ENV: "production" },
+      ),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "Slack workspace allowlist is not configured",
+    });
+  });
+
+  it("allows configured Slack teams and app ids", () => {
+    expect(
+      validateSlackEventAllowlist(
+        { type: "event_callback", team_id: "T123", api_app_id: "A123" },
+        {
+          NODE_ENV: "production",
+          SLACK_ALLOWED_TEAM_IDS: "T123, T456",
+          SLACK_ALLOWED_API_APP_IDS: "A123",
+        },
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects Slack events from unrecognized teams or app ids", () => {
+    expect(
+      validateSlackEventAllowlist(
+        { type: "event_callback", team_id: "T999", api_app_id: "A123" },
+        {
+          NODE_ENV: "production",
+          SLACK_ALLOWED_TEAM_IDS: "T123",
+          SLACK_ALLOWED_API_APP_IDS: "A123",
+        },
+      ),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "Unrecognized Slack workspace",
+    });
+
+    expect(
+      validateSlackEventAllowlist(
+        { type: "event_callback", team_id: "T123", api_app_id: "A999" },
+        {
+          NODE_ENV: "production",
+          SLACK_ALLOWED_TEAM_IDS: "T123",
+          SLACK_ALLOWED_API_APP_IDS: "A123",
+        },
+      ),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "Unrecognized Slack app",
     });
   });
 

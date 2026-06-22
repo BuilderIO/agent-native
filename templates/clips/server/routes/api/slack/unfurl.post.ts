@@ -8,6 +8,7 @@ import {
   handleSlackLinkSharedPayload,
   parseSlackJsonPayload,
   slackUrlVerificationChallenge,
+  validateSlackEventAllowlist,
   verifySlackSignature,
   type SlackLinkSharedPayload,
 } from "../../../lib/slack-unfurls.js";
@@ -38,6 +39,14 @@ export default defineEventHandler(async (event) => {
   const payload = parseSlackJsonPayload(rawBody);
   const challenge = slackUrlVerificationChallenge(payload);
   if (challenge) return challenge;
+
+  const allowlist = validateSlackEventAllowlist(
+    payload as SlackLinkSharedPayload,
+  );
+  if (!allowlist.ok) {
+    setResponseStatus(event, allowlist.status);
+    return { ok: false, error: allowlist.error };
+  }
 
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) {
