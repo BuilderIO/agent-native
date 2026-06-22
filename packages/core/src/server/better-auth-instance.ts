@@ -22,7 +22,7 @@ import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { identify, track } from "../tracking/index.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -45,6 +45,54 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+async function flushSignupTracking(): Promise<void> {
+  try {
+    await Promise.race([
+      flushTracking(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  } catch {
+    // Signup should never fail because analytics delivery did.
+  }
+}
+
+export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+  if (!adapter) return false;
+  const existing = await adapter
+    .findUserByEmail(email, { includeAccounts: false })
+    .catch(() => null);
+  return !!existing?.user?.email;
+}
+
+export async function trackSignupEvent({
+  authProvider,
+  authUserId,
+  email,
+  name,
+}: {
+  authProvider: string;
+  authUserId?: string;
+  email: string;
+  name?: string | null;
+}): Promise<void> {
+  identify(email, {
+    email,
+    name: name ?? undefined,
+    authUserId,
+  });
+  track(
+    "signup",
+    {
+      ...resolveSignupTrackingProperties(),
+      auth_provider: authProvider,
+      ...(authUserId ? { auth_user_id: authUserId } : {}),
+    },
+    { userId: email },
+  );
+  await flushSignupTracking();
+}
 
 // ---------------------------------------------------------------------------
 // Persistent auth secret
@@ -879,20 +927,12 @@ async function createBetterAuthInstance(
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
-            identify(email, {
-              email,
-              name: user.name ?? undefined,
+            await trackSignupEvent({
+              authProvider: "better-auth",
               authUserId: user.id,
+              email,
+              name: user.name,
             });
-            track(
-              "signup",
-              {
-                ...resolveSignupTrackingProperties(),
-                auth_provider: "better-auth",
-                auth_user_id: user.id,
-              },
-              { userId: email },
-            );
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
