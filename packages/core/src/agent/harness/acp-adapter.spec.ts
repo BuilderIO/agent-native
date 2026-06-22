@@ -1,253 +1,293 @@
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
-
 import {
-  acpSessionUpdateToEvents,
-  chooseAcpPermissionOption,
-  createAcpStdioHarnessAdapter,
+  ACP_PACKAGE,
+  acpAutoPermissionDecision,
+  acpContentBlockToText,
+  acpFileChangeEventsFromToolContent,
+  acpUpdateToHarnessEvents,
+  buildAcpPromptBlocks,
+  createAcpHarnessAdapter,
+  resolveAcpWorkspacePath,
+  selectAcpPermissionOption,
 } from "./acp-adapter.js";
+import { BUILTIN_ACP_PRESETS } from "./acp-builtin.js";
 
-describe("createAcpStdioHarnessAdapter", () => {
-  it("returns an adapter with default name and capabilities", () => {
-    const adapter = createAcpStdioHarnessAdapter();
-    expect(adapter.name).toBe("acp:stdio");
-    expect(adapter.label).toBe("ACP stdio");
-    expect(adapter.capabilities.resumable).toBe(true);
-    expect(adapter.capabilities.sandbox).toBe(true);
-    expect(adapter.capabilities.approvals).toBe(true);
-    expect(adapter.capabilities.fileEvents).toBe(true);
+describe("acpUpdateToHarnessEvents", () => {
+  it("maps agent message and thought chunks to text/thinking deltas", () => {
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "hello" },
+      }),
+    ).toEqual([{ type: "text-delta", text: "hello" }]);
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "thinking" },
+      }),
+    ).toEqual([{ type: "thinking-delta", text: "thinking" }]);
   });
 
-  it("accepts name/label/description overrides", () => {
-    const adapter = createAcpStdioHarnessAdapter({
-      name: "acp:my-agent",
-      label: "My Agent",
-      description: "Custom ACP agent",
-    });
-    expect(adapter.name).toBe("acp:my-agent");
-    expect(adapter.label).toBe("My Agent");
-    expect(adapter.description).toBe("Custom ACP agent");
-  });
-});
-
-describe("acpSessionUpdateToEvents", () => {
-  it("maps agent_message_chunk text to text-delta", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "agent_message_chunk",
-      content: { type: "text", text: "Hello!" },
-    } as any);
-    expect(events).toEqual([{ type: "text-delta", text: "Hello!" }]);
+  it("ignores the user's own echoed message chunk", () => {
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "my prompt" },
+      }),
+    ).toEqual([]);
   });
 
-  it("maps agent_message_chunk with image content to text-delta with placeholder", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "agent_message_chunk",
-      content: { type: "image", uri: "https://example.com/img.png" },
-    } as any);
-    expect(events).toEqual([
-      { type: "text-delta", text: "[image: https://example.com/img.png]" },
-    ]);
-  });
-
-  it("maps agent_thought_chunk text to thinking-delta", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "agent_thought_chunk",
-      content: { type: "text", text: "Let me think..." },
-    } as any);
-    expect(events).toEqual([
-      { type: "thinking-delta", text: "Let me think..." },
-    ]);
-  });
-
-  it("maps tool_call to tool-start", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "tool_call",
-      toolCallId: "call_1",
-      title: "Read file",
-      kind: "read",
-      status: "pending",
-      locations: [{ path: "/src/index.ts" }],
-      rawInput: { path: "/src/index.ts" },
-    } as any);
-    expect(events).toEqual([
+  it("maps a tool_call to a tool-start event with raw input", () => {
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "tool_call",
+        toolCallId: "call-1",
+        title: "Read README.md",
+        kind: "read",
+        rawInput: { path: "README.md" },
+      }),
+    ).toEqual([
       {
         type: "tool-start",
-        id: "call_1",
-        name: "Read file",
-        input: { path: "/src/index.ts" },
+        id: "call-1",
+        name: "Read README.md",
+        input: { path: "README.md" },
       },
     ]);
   });
 
-  it("maps tool_call_update completed to tool-done + file-change", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "tool_call_update",
-      toolCallId: "call_2",
-      title: "Edit file",
-      kind: "edit",
-      status: "completed",
-      locations: [{ path: "/src/foo.ts" }],
-      rawOutput: { written: true },
-    } as any);
+  it("emits tool-done plus file-change when a tool_call_update completes with a diff", () => {
+    const events = acpUpdateToHarnessEvents(
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call-2",
+        status: "completed",
+        content: [
+          { type: "diff", path: "src/app.ts", oldText: "a", newText: "b" },
+          { type: "diff", path: "src/new.ts", oldText: null, newText: "x" },
+        ],
+        rawOutput: { ok: true },
+      },
+      (id) => (id === "call-2" ? "Edit files" : undefined),
+    );
     expect(events).toEqual([
+      { type: "file-change", path: "src/app.ts", operation: "update" },
+      { type: "file-change", path: "src/new.ts", operation: "create" },
       {
         type: "tool-done",
-        id: "call_2",
-        name: "Edit file",
-        result: { written: true },
-      },
-      {
-        type: "file-change",
-        path: "/src/foo.ts",
-        operation: "update",
+        id: "call-2",
+        name: "Edit files",
+        result: { ok: true },
       },
     ]);
   });
 
-  it("maps tool_call_update failed to tool-done without file-change", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "tool_call_update",
-      toolCallId: "call_3",
-      title: "shell",
-      kind: "shell",
-      status: "failed",
-      rawOutput: { error: "ENOENT" },
-    } as any);
-    expect(events).toEqual([
-      {
-        type: "tool-done",
-        id: "call_3",
-        name: "shell",
-        result: { error: "ENOENT" },
-      },
-    ]);
-  });
-
-  it("maps plan update to activity", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "plan",
-      entries: [
-        { content: "Step 1", priority: "high", status: "pending" },
-        { content: "Step 2", priority: "low", status: "pending" },
-      ],
-    } as any);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe("activity");
-    expect((events[0] as any).label).toContain("Step 1");
-  });
-
-  it("maps plan_removed to activity", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "plan_removed",
-      id: "plan-abc",
-    } as any);
-    expect(events).toEqual([
+  it("summarizes a plan update as an activity", () => {
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "plan",
+        entries: [
+          { content: "Read code", status: "completed" },
+          { content: "Make edit", status: "in_progress" },
+          { content: "Run tests", status: "pending" },
+        ],
+      }),
+    ).toEqual([
       {
         type: "activity",
-        tool: "harness:plan",
-        label: "Removed plan plan-abc",
+        label: "Updated plan (1/3) — Make edit",
+        tool: "acp:plan",
       },
     ]);
   });
 
-  it("maps usage_update to usage event", () => {
-    const events = acpSessionUpdateToEvents({
-      sessionUpdate: "usage_update",
-      used: 1500,
-      size: 8000,
-      cost: { amount: 0.05, currency: "USD" },
-    } as any);
-    expect(events).toEqual([
-      { type: "usage", totalTokens: 1500, costCents: 5 },
-    ]);
-  });
-
-  it("returns empty array for non-content update types", () => {
-    for (const sessionUpdate of [
-      "available_commands_update",
-      "config_option_update",
-      "current_mode_update",
-      "session_info_update",
-      "user_message_chunk",
-    ]) {
-      const events = acpSessionUpdateToEvents({
-        sessionUpdate,
-        content: { type: "text", text: "ignored" },
-      } as any);
-      expect(events).toEqual([]);
-    }
+  it("ignores command and mode updates", () => {
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [],
+      }),
+    ).toEqual([]);
+    expect(
+      acpUpdateToHarnessEvents({
+        sessionUpdate: "current_mode_update",
+        currentModeId: "code",
+      }),
+    ).toEqual([]);
   });
 });
 
-describe("chooseAcpPermissionOption", () => {
-  function makeRequest(kind: string) {
-    return {
-      sessionId: "s1",
-      toolCall: { toolCallId: "t1", kind, status: "pending" as const },
-      options: [
-        { kind: "allow_once", name: "Allow once", optionId: "allow_once" },
-        {
-          kind: "allow_always",
-          name: "Always allow",
-          optionId: "allow_always",
-        },
-        { kind: "reject_once", name: "Reject", optionId: "reject_once" },
-      ],
-    };
-  }
+describe("acpContentBlockToText", () => {
+  it("reads text blocks and renders resource links", () => {
+    expect(acpContentBlockToText({ type: "text", text: "hi" })).toBe("hi");
+    expect(
+      acpContentBlockToText({
+        type: "resource_link",
+        name: "spec",
+        uri: "file:///spec.md",
+      }),
+    ).toBe("[spec](file:///spec.md)");
+    expect(acpContentBlockToText({ type: "image", data: "..." })).toBe("");
+    expect(acpContentBlockToText(undefined)).toBe("");
+  });
+});
 
-  it("allow-reads: allows read tools", () => {
-    const result = chooseAcpPermissionOption(
-      makeRequest("read"),
-      "allow-reads",
-    );
-    expect(result.outcome.outcome).toBe("selected");
-    expect((result.outcome as any).optionId).toMatch(/allow/);
+describe("acpFileChangeEventsFromToolContent", () => {
+  it("returns nothing for non-diff content", () => {
+    expect(
+      acpFileChangeEventsFromToolContent([
+        { type: "content", content: { type: "text", text: "log" } },
+      ]),
+    ).toEqual([]);
+    expect(acpFileChangeEventsFromToolContent(null)).toEqual([]);
+  });
+});
+
+describe("acpAutoPermissionDecision", () => {
+  it("auto-allows everything under allow-all", () => {
+    expect(acpAutoPermissionDecision("execute", "allow-all")).toBe("allow");
+    expect(acpAutoPermissionDecision("delete", "allow-all")).toBe("allow");
   });
 
-  it("allow-reads: rejects edit tools", () => {
-    const result = chooseAcpPermissionOption(
-      makeRequest("edit"),
-      "allow-reads",
-    );
-    expect(result.outcome.outcome).toBe("selected");
-    expect((result.outcome as any).optionId).toBe("reject_once");
-  });
-
-  it("allow-edits: allows read and edit tools", () => {
-    for (const kind of ["read", "edit"]) {
-      const result = chooseAcpPermissionOption(
-        makeRequest(kind),
-        "allow-edits",
-      );
-      expect(result.outcome.outcome).toBe("selected");
-      expect((result.outcome as any).optionId).toMatch(/allow/);
+  it("always allows read-like kinds", () => {
+    for (const kind of ["read", "search", "fetch", "think"]) {
+      expect(acpAutoPermissionDecision(kind, "allow-reads")).toBe("allow");
     }
   });
 
-  it("allow-edits: rejects shell tools", () => {
-    const result = chooseAcpPermissionOption(
-      makeRequest("shell"),
-      "allow-edits",
+  it("allows edits only under allow-edits", () => {
+    expect(acpAutoPermissionDecision("edit", "allow-reads")).toBe("prompt");
+    expect(acpAutoPermissionDecision("edit", "allow-edits")).toBe("allow");
+    expect(acpAutoPermissionDecision("move", "allow-edits")).toBe("allow");
+    expect(acpAutoPermissionDecision("execute", "allow-edits")).toBe("prompt");
+  });
+
+  it("prompts for risky kinds under the default mode", () => {
+    expect(acpAutoPermissionDecision("execute", "allow-reads")).toBe("prompt");
+    expect(acpAutoPermissionDecision(undefined, "allow-reads")).toBe("prompt");
+  });
+});
+
+describe("selectAcpPermissionOption", () => {
+  const options = [
+    { optionId: "a1", name: "Allow", kind: "allow_once" as const },
+    { optionId: "a2", name: "Always", kind: "allow_always" as const },
+    { optionId: "r1", name: "Reject", kind: "reject_once" as const },
+  ];
+
+  it("prefers the once variant for approvals and rejections", () => {
+    expect(selectAcpPermissionOption(options, true)).toBe("a1");
+    expect(selectAcpPermissionOption(options, false)).toBe("r1");
+  });
+
+  it("falls back to always-allow when no once option exists", () => {
+    expect(
+      selectAcpPermissionOption(
+        [{ optionId: "a2", name: "Always", kind: "allow_always" }],
+        true,
+      ),
+    ).toBe("a2");
+  });
+
+  it("returns undefined when no matching option exists", () => {
+    expect(
+      selectAcpPermissionOption(
+        [{ optionId: "a1", name: "Allow", kind: "allow_once" }],
+        false,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("buildAcpPromptBlocks", () => {
+  it("uses the prompt string when present", () => {
+    expect(buildAcpPromptBlocks({ prompt: "do it" })).toEqual([
+      { type: "text", text: "do it" },
+    ]);
+  });
+
+  it("falls back to the last user message", () => {
+    expect(
+      buildAcpPromptBlocks({
+        messages: [
+          { role: "user", content: "first" },
+          { role: "assistant", content: "reply" },
+          { role: "user", content: "second" },
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "second" }]);
+  });
+
+  it("flattens array message content", () => {
+    expect(
+      buildAcpPromptBlocks({
+        messages: [{ role: "user", content: [{ text: "a" }, { text: "b" }] }],
+      }),
+    ).toEqual([{ type: "text", text: "ab" }]);
+  });
+});
+
+describe("resolveAcpWorkspacePath", () => {
+  const root = path.join(os.tmpdir(), "acp-workspace");
+
+  it("resolves relative and absolute paths inside the workspace", () => {
+    expect(resolveAcpWorkspacePath(root, "src/app.ts")).toBe(
+      path.join(root, "src/app.ts"),
     );
-    expect(result.outcome.outcome).toBe("selected");
-    expect((result.outcome as any).optionId).toBe("reject_once");
+    expect(resolveAcpWorkspacePath(root, path.join(root, "a.ts"))).toBe(
+      path.join(root, "a.ts"),
+    );
   });
 
-  it("allow-all: allows everything", () => {
-    for (const kind of ["read", "edit", "shell", "unknown"]) {
-      const result = chooseAcpPermissionOption(makeRequest(kind), "allow-all");
-      expect(result.outcome.outcome).toBe("selected");
-      expect((result.outcome as any).optionId).toMatch(/allow/);
+  it("refuses paths that escape the workspace", () => {
+    expect(() => resolveAcpWorkspacePath(root, "../escape.ts")).toThrow(
+      /outside the session workspace/,
+    );
+    expect(() => resolveAcpWorkspacePath(root, "/etc/passwd")).toThrow(
+      /outside the session workspace/,
+    );
+  });
+
+  it("rejects empty paths", () => {
+    expect(() => resolveAcpWorkspacePath(root, "")).toThrow(/non-empty string/);
+  });
+});
+
+describe("createAcpHarnessAdapter", () => {
+  it("describes a local, file-aware, non-sandboxed harness", () => {
+    const adapter = createAcpHarnessAdapter({
+      command: "gemini",
+      args: ["--experimental-acp"],
+    });
+    expect(adapter.name).toBe("acp");
+    expect(adapter.installPackage).toBe(ACP_PACKAGE);
+    expect(adapter.capabilities).toMatchObject({
+      sandbox: false,
+      approvals: true,
+      fileEvents: true,
+      hostTools: false,
+    });
+  });
+
+  it("fails fast when no command is configured", async () => {
+    await expect(createAcpHarnessAdapter({}).createSession({})).rejects.toThrow(
+      /requires a command/,
+    );
+  });
+});
+
+describe("BUILTIN_ACP_PRESETS", () => {
+  it("registers gemini and claude-code presets", () => {
+    expect(BUILTIN_ACP_PRESETS.map((preset) => preset.name)).toEqual([
+      "acp:gemini",
+      "acp:claude-code",
+    ]);
+    for (const preset of BUILTIN_ACP_PRESETS) {
+      expect(preset.command).toBeTruthy();
+      expect(preset.args.length).toBeGreaterThan(0);
     }
-  });
-
-  it("returns cancelled when no options available", () => {
-    const request = {
-      sessionId: "s1",
-      toolCall: { toolCallId: "t1", kind: "read", status: "pending" as const },
-      options: [],
-    };
-    const result = chooseAcpPermissionOption(request, "allow-reads");
-    expect(result.outcome.outcome).toBe("cancelled");
   });
 });

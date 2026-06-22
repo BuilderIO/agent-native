@@ -1,5 +1,82 @@
 # @agent-native/core
 
+## 0.66.1
+
+### Patch Changes
+
+- 113abe7: Clarify in the docs how instructions, skills, and actions work together as the
+  core building blocks of Agent Native agents.
+- 113abe7: Shorten the default feedback popover placeholder.
+
+## 0.66.0
+
+### Minor Changes
+
+- bd0d8b5: Add an ACP (Agent Client Protocol) harness adapter so Agent-Native can act as an
+  ACP client and drive local coding agents — Gemini CLI, Claude Code, or any
+  ACP-compliant agent — through the existing `AgentHarness` substrate.
+
+  `createAcpHarnessAdapter({ command, args })` spawns the agent over stdio and
+  maps ACP `session/update` notifications, permission requests, and `fs/*` calls
+  onto harness events, approvals, and file-change events. Built-in presets
+  `acp:gemini` and `acp:claude-code` are registered by
+  `registerBuiltinAgentHarnesses()`, alongside a generic `acp` entry. The protocol
+  transport (`@zed-industries/agent-client-protocol`) loads lazily as an optional
+  dependency.
+
+## 0.65.0
+
+### Minor Changes
+
+- 2b8cfd0: Add an `@agent-native/core/embedding` export surface (`./embedding`,
+  `./embedding/react`, `./embedding/bridge`, `./embedding/agent`,
+  `./embedding/protocol`) that hosts the `EmbeddedApp` component and embed bridge.
+
+  The implementation moved here from the workspace-only `@agent-native/embedding`
+  package, which is not published to npm. Standalone scaffolds of templates that
+  embed apps (content, design, assets) previously rewrote their `workspace:*`
+  dependency on `@agent-native/embedding` to `latest`, which 404'd on install
+  because the package isn't published. Those templates now import the embed
+  surface from the published `@agent-native/core` instead, so
+  `create --standalone --template content` installs cleanly. The
+  `@agent-native/embedding` package remains as a thin re-export for backward
+  compatibility.
+
+## 0.64.1
+
+### Patch Changes
+
+- 13c202b: Pin `@tiptap/*` dependencies to an exact, fully-published version (3.27.1) instead of caret ranges. Tiptap extension packages exact-pin their `@tiptap/core` and `@tiptap/pm` peer dependencies, so a caret range let npm climb to the newest tiptap release and fail with `ETARGET No matching version found for @tiptap/extension-table@<x>` during the brief window when a new tiptap version is only partially published. Pinning keeps installs of `@agent-native/core` (and `@agent-native/skills`, which depends on it) reproducible and unaffected by upstream staggered publishes.
+
+## 0.64.0
+
+### Minor Changes
+
+- 9d5f12b: `create` now asks how you want to start (Full template / Chat / Headless) before
+  the template picker. Chat and Headless scaffold a single standalone app; Full
+  template continues into the workspace multi-select. Flag-driven paths
+  (`--template`, `--headless`, `--standalone`) skip the prompt and are unchanged.
+
+## 0.63.6
+
+### Patch Changes
+
+- 0105ab5: Fix a broken in-docs anchor in the "creating templates" guide: the headless on-ramp link now points to `/docs/getting-started#1-create-your-app` instead of the stale `#create-your-agent`, which no longer matches any heading on the Getting Started page.
+
+## 0.63.5
+
+### Patch Changes
+
+- 7c28a87: Fix CLI commands hanging indefinitely on success due to Node.js keep-alive and telemetry timers
+
+## 0.63.4
+
+### Patch Changes
+
+- 7d72d52: Restore subtle glowing hover indicators on annotated code ranges.
+- 7d72d52: Use fast shadcn tooltips and clearer Tabler icons for diagram style toggles.
+- 7d72d52: Preserve deep-link return targets through auth and federated SSO sign-in.
+
 ## 0.63.3
 
 ### Patch Changes

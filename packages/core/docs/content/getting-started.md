@@ -37,6 +37,15 @@ guidance and behavior.
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
 
+Run `create` with no flags and it asks how you want to start (a full template,
+Chat, or Headless) before anything else:
+
+```bash
+npx @agent-native/core@latest create my-app
+```
+
+Or pass a flag to skip the prompt:
+
 **Want a UI?** Start from the Chat template. You get a working agent plus a
 customizable chat UI, and every action you add shows up in it automatically:
 
