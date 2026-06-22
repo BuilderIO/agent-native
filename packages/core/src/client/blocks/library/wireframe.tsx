@@ -223,6 +223,7 @@ function ArtboardFrame({
       }}
     >
       <div
+        className="group/wireframe-artboard relative"
         style={{
           width: "100%",
           maxWidth: maxFrameWidth,
@@ -232,7 +233,8 @@ function ArtboardFrame({
       >
         <div
           ref={ref}
-          className="group/wireframe-artboard plan-kit-artboard relative"
+          className="plan-kit-artboard relative"
+          data-rough-scope="wireframe"
           style={{
             width,
             // Auto-height by default (content-driven, floored at `minHeight`);
@@ -277,8 +279,8 @@ function ArtboardFrame({
             frameRadius={preset.radius}
             selector={selector}
           />
-          {!designMode && !skeleton && <WireframeStyleToggleButton />}
         </div>
+        {!designMode && !skeleton && <WireframeStyleToggleButton />}
       </div>
       {caption && (
         <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
@@ -297,6 +299,8 @@ function WireframeStyleToggleButton() {
     <button
       type="button"
       data-plan-interactive
+      data-rough="none"
+      data-wireframe-style-toggle
       aria-label={description}
       title={description}
       onClick={(event) => {
