@@ -25,9 +25,14 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Cloud transcription is fallback-only for Clips recordings and should use the
   configured Builder/Gemini or Groq paths, not OpenAI.
 - AI setup must be visible and paid-account-backed: lead with Builder.io Connect
-  for managed credits, and surface BYOK options in Settings → AI providers.
+  for managed credits, object storage, uploads, and transcription. BYOK belongs
+  in the agent sidebar's API Keys & Connections panel; template settings may
+  signpost that panel but should not create a second credential vault.
   Anthropic/OpenAI power the agent chat; Gemini powers cleanup, titles, and
   meeting notes; Groq powers backup speech-to-text.
+- Hosted/shared recording uploads require configured storage. Do not preserve
+  video bytes in SQL as a production fallback; only local SQLite/dev flows may
+  keep scratch chunks while a user connects Builder.io or S3-compatible storage.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
 - Calendar-sourced meeting actions are shortcuts, but do not add raw

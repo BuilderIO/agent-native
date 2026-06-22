@@ -127,7 +127,11 @@ fn spawn_log_pump(read_fd: libc::c_int, path: PathBuf) {
         // stderr are already redirected into it, so a pump that stops reading
         // would let the buffer fill and block every later println!. When there
         // is no file we simply discard the bytes.
-        let mut file = OpenOptions::new().create(true).append(true).open(&path).ok();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
         let mut buf = [0u8; 4096];
         let mut line: Vec<u8> = Vec::new();
         loop {
