@@ -100,7 +100,7 @@ export async function prepareSlidesChatAttachments(args: {
           "File handling rules:",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
           '- PPTX files: call `import-pptx --filePath "<path>" --deckId <deckId>` when updating the visible deck, or omit deckId only when the user explicitly wants a new deck.',
-          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned full text as source material before creating slides. If the user wants a direct replacement import, pass `--importIntoDeck true` as well.',
+          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating slides. The returned text is capped for reliability; re-run with maxChars only if more context is needed. If the user wants a direct replacement import, pass `--importIntoDeck true` as well.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig`, then call `create-design-system` with the returned `designSystem` data and `customInstructions`.',
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
