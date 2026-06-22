@@ -10,6 +10,7 @@ import { useLoaderData, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
+  IconArrowLeft,
   IconDownload,
   IconDots,
   IconExternalLink,
@@ -22,6 +23,7 @@ import {
   appBasePath,
   appPath,
   useSession,
+  AgentPanel,
 } from "@agent-native/core/client";
 import {
   VideoPlayer,
@@ -359,6 +361,25 @@ export default function ShareRoute() {
     document.title = pageTitle(recording.title);
   }, [recording?.title]);
 
+  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
+  // agent mounted in the side panel has no navigation context. Write it
+  // explicitly for signed-in viewers so view-screen grounds the chat to this
+  // clip instead of falling back to a generic library view.
+  useEffect(() => {
+    if (!session || !recording?.id) return;
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        view: "share",
+        shareId: recording.id,
+        recordingId: recording.id,
+        path: `/share/${recording.id}`,
+      }),
+    }).catch(() => {});
+  }, [session, recording?.id]);
+
   useEffect(() => {
     if (!recording) {
       setProcessingTimeout(false);
@@ -641,6 +662,16 @@ export default function ShareRoute() {
       {agentDiscovery}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+          {session ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("/")}
+              aria-label="Back to home"
+            >
+              <IconArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : null}
           <div className="min-w-0 flex-1">
             {showTitleSkeleton ? (
               <Skeleton
@@ -663,7 +694,7 @@ export default function ShareRoute() {
                   <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
               </Button>
-            ) : (
+            ) : session ? null : (
               <Button variant="ghost" size="sm" asChild>
                 <a href={appPath("/")} className="gap-1.5">
                   Try Clips
@@ -839,9 +870,22 @@ export default function ShareRoute() {
           </TabsList>
           <TabsContent
             value="agent"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
-            <PublicAgentEmptyState />
+            {sessionLoading ? null : session ? (
+              <AgentPanel
+                emptyStateText="Ask about this clip…"
+                dynamicSuggestions={false}
+                suggestions={[
+                  "Summarize this clip",
+                  "Find the key moments",
+                  "List follow-up actions",
+                  "Draft questions for the author",
+                ]}
+              />
+            ) : (
+              <PublicAgentEmptyState />
+            )}
           </TabsContent>
           <TabsContent
             value="transcript"
