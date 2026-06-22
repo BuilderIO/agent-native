@@ -18,6 +18,7 @@ import {
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS,
   MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
+  redactBrowserDiagnosticString,
   summarizeBrowserDiagnostics,
   type BrowserDiagnosticConsoleLevel,
 } from "../shared/browser-diagnostics.js";
@@ -52,13 +53,7 @@ function truncate(value: string, maxLength: number): string {
 }
 
 function redactString(value: string): string {
-  return value
-    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
-    .replace(
-      /\b(authorization|cookie|set-cookie|token|secret|password|passwd|pwd|api[-_]?key|session|credential)\b\s*[:=]\s*([^,\s;'"})\]]+)/gi,
-      "$1=<redacted>",
-    )
-    .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
+  return redactBrowserDiagnosticString(value);
 }
 
 function sanitizeUrl(raw: string): string {

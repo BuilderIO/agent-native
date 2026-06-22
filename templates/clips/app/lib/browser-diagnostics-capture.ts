@@ -3,6 +3,7 @@ import {
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS,
   MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
+  redactBrowserDiagnosticString,
   summarizeBrowserDiagnostics,
   type BrowserDiagnosticConsoleLevel,
   type BrowserDiagnosticConsoleLog,
@@ -17,18 +18,12 @@ export interface BrowserDiagnosticsCapture {
   dispose: () => void;
 }
 
-const SECRET_RE =
-  /\b(authorization|cookie|set-cookie|token|secret|password|passwd|pwd|api[-_]?key|session|credential)\b\s*[:=]\s*([^,\s;'"})\]]+)/gi;
-
 function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
 function redactString(value: string): string {
-  return value
-    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
-    .replace(SECRET_RE, "$1=<redacted>")
-    .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
+  return redactBrowserDiagnosticString(value);
 }
 
 function sanitizeUrl(raw: string): string {

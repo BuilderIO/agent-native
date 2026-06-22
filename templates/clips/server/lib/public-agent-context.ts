@@ -340,17 +340,15 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
       timestampMs: entry.elapsedMs,
       type: entry.type,
       method: entry.method,
-      url: entry.url,
       status: entry.status ?? null,
       error: entry.error ?? null,
       durationMs: entry.durationMs,
     }));
   return {
     summary: diagnostics.summary,
-    pageUrl: diagnostics.pageUrl,
     consoleIssues,
     failedNetworkRequests,
-    note: "Diagnostics are redacted and bounded; headers, bodies, cookies, and query values are not captured.",
+    note: "Diagnostics are redacted and bounded; public context omits page URLs, request URLs, headers, bodies, cookies, and query values.",
   };
 }
 

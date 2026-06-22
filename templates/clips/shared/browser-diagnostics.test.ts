@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseBrowserDiagnosticsRow,
+  redactBrowserDiagnosticString,
   summarizeBrowserDiagnostics,
 } from "./browser-diagnostics";
 
@@ -74,5 +75,20 @@ describe("browser diagnostics helpers", () => {
         endedAt: "end",
       }),
     ).toMatchObject({ consoleCount: 0, networkCount: 0 });
+  });
+
+  it("redacts structured and compound credential field names", () => {
+    expect(
+      redactBrowserDiagnosticString(
+        `{"accessToken":"abc","refresh_token":"def","clientSecret":"ghi","apiKey":"jkl","nested":{"sessionId":"mno"},"safe":"visible"}`,
+      ),
+    ).toBe(
+      `{"accessToken":"<redacted>","refresh_token":"<redacted>","clientSecret":"<redacted>","apiKey":"<redacted>","nested":{"sessionId":"<redacted>"},"safe":"visible"}`,
+    );
+    expect(
+      redactBrowserDiagnosticString(
+        "Authorization: Bearer abc.def token=plain secret='quoted'",
+      ),
+    ).toBe("Authorization: <redacted> token=<redacted> secret='<redacted>'");
   });
 });

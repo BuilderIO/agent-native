@@ -345,11 +345,14 @@ describe("buildPublicAgentContext", () => {
         timestampMs: 3,
         type: "fetch",
         method: "GET",
-        url: "https://api.example.com/fail?token=<redacted>",
         status: 500,
         error: null,
         durationMs: 120,
       },
     ]);
+    expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
+    expect(
+      context.browserDiagnostics?.failedNetworkRequests[0],
+    ).not.toHaveProperty("url");
   });
 });

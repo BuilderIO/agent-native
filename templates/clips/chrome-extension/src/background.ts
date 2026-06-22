@@ -4,6 +4,22 @@ const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
+const SECRET_KEY_FRAGMENT =
+  "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
+const AUTHORIZATION_SCHEME_RE =
+  /\b(authorization)\b(\s*[:=]\s*)(?:bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
+const DOUBLE_QUOTED_SECRET_VALUE_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)"(?:[^"\\\\]|\\\\.)*"`,
+  "gi",
+);
+const SINGLE_QUOTED_SECRET_VALUE_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)'(?:[^'\\\\]|\\\\.)*'`,
+  "gi",
+);
+const UNQUOTED_SECRET_VALUE_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
+  "gi",
+);
 
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
@@ -136,11 +152,11 @@ function truncate(value: string, maxLength: number): string {
 
 function redactString(value: string): string {
   return value
+    .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
-    .replace(
-      /\b(authorization|cookie|set-cookie|token|secret|password|passwd|pwd|api[-_]?key|session|credential)\b\s*[:=]\s*([^,\s;'"})\]]+)/gi,
-      "$1=<redacted>",
-    )
+    .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
+    .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
+    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>")
     .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
 }
 

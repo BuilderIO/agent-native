@@ -54,12 +54,14 @@ export default defineEventHandler(async (event) => {
     return { ok: true };
   }
 
-  void handleSlackLinkSharedPayload(
-    payload as SlackLinkSharedPayload,
-    token,
-  ).catch((err) => {
+  try {
+    await handleSlackLinkSharedPayload(
+      payload as SlackLinkSharedPayload,
+      token,
+    );
+  } catch (err) {
     console.error("[clips-slack] Failed to unfurl Clips link:", err);
-  });
+  }
 
   return { ok: true };
 });

@@ -4,6 +4,8 @@
 
 Name: Agent-Native Clips
 
+Chrome Web Store item ID: `baoipacpchggcdigagnajakiidcgcffn`
+
 Summary: Record Clips bug reports from Chrome with redacted console and network diagnostics.
 
 Category: Productivity
