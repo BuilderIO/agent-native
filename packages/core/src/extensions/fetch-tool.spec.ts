@@ -49,6 +49,72 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("errors when render:true is requested with no configured renderer", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn().mockResolvedValue(null),
+    })["web-request"];
+
+    await expect(
+      entry.run({ url: "https://93.184.216.34/spa", render: true }),
+    ).resolves.toContain("render:true requires a configured page renderer");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects render for non-GET methods", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn(async () => "fc-key"),
+    })["web-request"];
+
+    await expect(
+      entry.run({
+        url: "https://93.184.216.34/api",
+        method: "POST",
+        render: true,
+      }),
+    ).resolves.toContain("render is supported for GET requests only");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("renders via a configured renderer and extracts the page when render:true", async () => {
+    // The Firecrawl backend is the configured renderer here (FIRECRAWL_API_KEY
+    // resolves); the tool surface stays neutral (render:true), and the rendered
+    // HTML flows through the normal extraction pipeline.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            html: "<html><body><article><h1>Rendered</h1><p>JS content.</p></article></body></html>",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const entry = createFetchToolEntry({
+      resolveSecret: vi.fn(async (key: string) =>
+        key === "FIRECRAWL_API_KEY" ? "fc-key" : null,
+      ),
+    })["web-request"];
+
+    const result = await entry.run({
+      url: "https://93.184.216.34/spa",
+      render: true,
+    });
+
+    // Routed through the renderer backend, not a direct fetch of the page.
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      "https://api.firecrawl.dev/v2/scrape",
+    );
+    // Rendered HTML flowed through the normal extraction pipeline.
+    expect(result).toContain("HTTP 200");
+    expect(result).toContain("Rendered");
+    expect(result).toContain("JS content.");
+  });
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {

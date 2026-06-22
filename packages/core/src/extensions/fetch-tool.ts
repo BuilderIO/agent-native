@@ -29,6 +29,7 @@ import {
   parseWebContentSearchOptions,
   processWebContent,
 } from "./web-content.js";
+import { resolvePageRenderer } from "./web-render.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -80,6 +81,11 @@ export interface FetchToolOptions {
   }>;
   /** Validate URL against per-key allowlists. */
   validateUrl?: (url: string, usedKeys: string[]) => Promise<boolean>;
+  /**
+   * Resolve a request-scoped secret by key. Used by the `render` capability to
+   * find a configured page-renderer backend (e.g. a backend's API key).
+   */
+  resolveSecret?: (key: string) => Promise<string | null>;
 }
 
 /**
@@ -91,7 +97,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. For JavaScript-rendered SPAs or pages that come back empty/blocked with a normal request, set render:true to execute the page first (GET only; requires a configured page renderer). Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -118,6 +124,11 @@ export function createFetchToolEntry(
             timeout_ms: {
               type: "number",
               description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: 30000.`,
+            },
+            render: {
+              type: "boolean",
+              description:
+                "Execute JavaScript and bypass anti-bot before extracting, using a configured page renderer. Default: false. Use for SPAs or pages that return empty/blocked content with a normal request. GET only.",
             },
             maxChars: {
               type: "number",
@@ -237,6 +248,23 @@ export function createFetchToolEntry(
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
+        // Optional render capability. Vendor-neutral: pick whatever page
+        // renderer is configured. GET only — rendering a POST/PUT body is not
+        // meaningful, so those stay on the built-in fetch path.
+        const renderWanted = parseBooleanArg(args.render);
+        let renderer: Awaited<ReturnType<typeof resolvePageRenderer>> = null;
+        if (renderWanted) {
+          if (method !== "GET") {
+            return "render is supported for GET requests only. Retry without render, or use GET.";
+          }
+          renderer = await resolvePageRenderer({
+            resolveSecret: opts.resolveSecret,
+          });
+          if (!renderer) {
+            return "render:true requires a configured page renderer. Add a renderer backend (e.g. set FIRECRAWL_API_KEY in Settings), or retry without render.";
+          }
+        }
+
         // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
@@ -268,22 +296,34 @@ export function createFetchToolEntry(
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-          const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-          const fetchOpts: RequestInit & { dispatcher?: unknown } = {
-            method,
-            headers,
-            signal: controller.signal,
-            redirect: "manual",
-          };
-          if (dispatcher) fetchOpts.dispatcher = dispatcher;
-          if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
-            fetchOpts.body = resolvedBody;
-            if (!headers["content-type"] && !headers["Content-Type"]) {
-              headers["Content-Type"] = "application/json";
+          let response: Response;
+          if (renderer) {
+            // Renderer executes the page and returns HTML; the synthetic
+            // Response flows through the same post-processing pipeline as a
+            // normal fetch (extraction, markdown/links/matches, saveToFile).
+            const page = await renderer.render(resolvedUrl, { timeoutMs });
+            response = new Response(page.html, {
+              status: page.status,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          } else {
+            const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+            const fetchOpts: RequestInit & { dispatcher?: unknown } = {
+              method,
+              headers,
+              signal: controller.signal,
+              redirect: "manual",
+            };
+            if (dispatcher) fetchOpts.dispatcher = dispatcher;
+            if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
+              fetchOpts.body = resolvedBody;
+              if (!headers["content-type"] && !headers["Content-Type"]) {
+                headers["Content-Type"] = "application/json";
+              }
             }
-          }
 
-          const response = await fetch(resolvedUrl, fetchOpts);
+            response = await fetch(resolvedUrl, fetchOpts);
+          }
           const elapsed = Date.now() - startTime;
 
           if (response.status >= 300 && response.status < 400) {
@@ -353,7 +393,7 @@ export function createFetchToolEntry(
 
           // Audit log
           console.log(
-            `[fetch-tool] ${method} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
+            `[fetch-tool] ${method}${renderer ? ` (render:${renderer.id})` : ""} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
 
           // saveToFile: write full body to workspace and return compact summary.
