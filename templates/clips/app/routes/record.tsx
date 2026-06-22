@@ -36,6 +36,7 @@ import {
   createBrowserDiagnosticsCapture,
   type BrowserDiagnosticsCapture,
 } from "@/lib/browser-diagnostics-capture";
+import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   buildCaptureTitle,
   defaultRecordingTitle,
@@ -107,6 +108,17 @@ type UiState =
   | "complete"
   | "error";
 
+type ClipsExtensionCapture = {
+  extensionId: string;
+  sessionId: string;
+};
+
+type ClipsExtensionDiagnosticsResponse = {
+  ok?: boolean;
+  diagnostics?: BrowserDiagnosticsData;
+  error?: string;
+};
+
 const MAC_SCREEN_RECORDING_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 const MAC_CAMERA_PREF_URL =
@@ -138,6 +150,32 @@ function openUrlFromUserGesture(url: string): void {
   if (!opened) {
     window.location.href = url;
   }
+}
+
+function sendClipsExtensionMessage<T>(
+  extensionId: string,
+  message: Record<string, unknown>,
+): Promise<T | null> {
+  const runtime = (globalThis as { chrome?: any }).chrome?.runtime;
+  if (!runtime?.sendMessage) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      runtime.sendMessage(extensionId, message, (response: T | undefined) => {
+        if (runtime.lastError) {
+          console.warn("[recorder] Clips extension message failed:", {
+            message: runtime.lastError.message,
+            type: message.type,
+          });
+          resolve(null);
+          return;
+        }
+        resolve(response ?? null);
+      });
+    } catch (err) {
+      console.warn("[recorder] Clips extension message failed:", err);
+      resolve(null);
+    }
+  });
 }
 
 function capturePolicy(): BrowserDocumentPolicy | null {
@@ -711,6 +749,13 @@ export default function RecordRoute() {
       mode: getRecordingModeParam(mode),
       surface: getDisplaySurfaceParam(surface),
     };
+  }, [location.search]);
+  const extensionCapture = useMemo<ClipsExtensionCapture | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const extensionId = params.get("clipsExtensionId")?.trim();
+    const sessionId = params.get("clipsCaptureSessionId")?.trim();
+    if (!extensionId || !sessionId) return null;
+    return { extensionId, sessionId };
   }, [location.search]);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
@@ -1437,30 +1482,48 @@ export default function RecordRoute() {
     [folderIdFromUrl, navigate, spaceIdFromUrl],
   );
 
-  const saveBrowserDiagnostics = useCallback(async (recordingId: string) => {
-    const capture = browserDiagnosticsRef.current;
-    if (!capture) return;
-    browserDiagnosticsRef.current = null;
-    const snapshot = capture.stop();
-    try {
-      await callAction(
-        "save-browser-diagnostics" as any,
-        {
-          recordingId,
-          source: "browser-recorder",
-          phase: "recording",
-          pageUrl: snapshot.pageUrl,
-          userAgent: snapshot.userAgent,
-          startedAt: snapshot.startedAt,
-          endedAt: snapshot.endedAt,
-          consoleLogs: snapshot.consoleLogs,
-          networkRequests: snapshot.networkRequests,
-        } as any,
-      );
-    } catch (err) {
-      console.warn("[recorder] browser diagnostics save failed:", err);
-    }
-  }, []);
+  const saveBrowserDiagnostics = useCallback(
+    async (recordingId: string) => {
+      const capture = browserDiagnosticsRef.current;
+      browserDiagnosticsRef.current = null;
+      const localSnapshot = capture?.stop() ?? null;
+      const extensionResponse = extensionCapture
+        ? await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
+            extensionCapture.extensionId,
+            {
+              type: "CLIPS_CAPTURE_STOP",
+              sessionId: extensionCapture.sessionId,
+              recordingId,
+            },
+          )
+        : null;
+      const extensionSnapshot =
+        extensionResponse?.ok && extensionResponse.diagnostics
+          ? extensionResponse.diagnostics
+          : null;
+      const snapshot = extensionSnapshot ?? localSnapshot;
+      if (!snapshot) return;
+      try {
+        await callAction(
+          "save-browser-diagnostics" as any,
+          {
+            recordingId,
+            source: extensionSnapshot ? "extension" : "browser-recorder",
+            phase: "recording",
+            pageUrl: snapshot.pageUrl,
+            userAgent: snapshot.userAgent,
+            startedAt: snapshot.startedAt,
+            endedAt: snapshot.endedAt,
+            consoleLogs: snapshot.consoleLogs,
+            networkRequests: snapshot.networkRequests,
+          } as any,
+        );
+      } catch (err) {
+        console.warn("[recorder] browser diagnostics save failed:", err);
+      }
+    },
+    [extensionCapture],
+  );
 
   // -------------------------------------------------------------------------
   // After countdown → actually start MediaRecorder.
@@ -1472,6 +1535,15 @@ export default function RecordRoute() {
       await engine.start();
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = createBrowserDiagnosticsCapture();
+      const recordingId = pendingRef.current?.id;
+      if (extensionCapture && recordingId) {
+        void sendClipsExtensionMessage(extensionCapture.extensionId, {
+          type: "CLIPS_CAPTURE_START",
+          sessionId: extensionCapture.sessionId,
+          recordingId,
+          pageUrl: window.location.href,
+        });
+      }
       setUiState("recording");
       setIsPaused(false);
     } catch (err) {
@@ -1483,7 +1555,7 @@ export default function RecordRoute() {
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [showRecordingErrorToast]);
+  }, [extensionCapture, showRecordingErrorToast]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
@@ -1673,6 +1745,12 @@ export default function RecordRoute() {
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
+    if (extensionCapture) {
+      void sendClipsExtensionMessage(extensionCapture.extensionId, {
+        type: "CLIPS_CAPTURE_CANCEL",
+        sessionId: extensionCapture.sessionId,
+      });
+    }
     try {
       await engine?.cancel();
     } catch {
@@ -1691,7 +1769,7 @@ export default function RecordRoute() {
     setUiState("idle");
     pendingRef.current = null;
     engineRef.current = null;
-  }, [liveTranscription]);
+  }, [extensionCapture, liveTranscription]);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -1805,6 +1883,12 @@ export default function RecordRoute() {
       stopLiveTranscription();
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = null;
+      if (extensionCapture) {
+        void sendClipsExtensionMessage(extensionCapture.extensionId, {
+          type: "CLIPS_CAPTURE_CANCEL",
+          sessionId: extensionCapture.sessionId,
+        });
+      }
       const engine = engineRef.current;
       engineRef.current = null;
       pendingRef.current = null;
@@ -1825,7 +1909,7 @@ export default function RecordRoute() {
       window.removeEventListener("beforeunload", warnBeforeDiscard);
       releaseCapture();
     };
-  }, [stopLiveTranscription]);
+  }, [extensionCapture, stopLiveTranscription]);
 
   // -------------------------------------------------------------------------
   // Render.
