@@ -174,21 +174,6 @@ leaves out. The cleanest move is to start (or re-scaffold) from the Chat
 template; your `actions/`, agent, and SQL state carry over unchanged. See
 [Agent Surfaces](/docs/agent-surfaces) for every surface in between.
 
-## Compose mini-apps
-
-A big workspace is usually easier to reason about as a few focused apps than one
-giant one. A `hubspot-pipeline` app can own CRM access, a `gong-evidence` app can
-own transcripts, and a `deal-brief` app can call both over A2A:
-
-```bash
-pnpm agent-native agents list
-pnpm agent-native invoke gong-evidence "Find transcript evidence for deal_123."
-```
-
-Each app keeps its own actions, agent, and state, and can discover its siblings.
-See [Multi-App Workspaces](/docs/multi-app-workspace) and
-[A2A Protocol](/docs/a2a-protocol).
-
 ## Project structure
 
 ```text
