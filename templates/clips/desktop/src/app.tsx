@@ -2350,35 +2350,37 @@ function PendingUploadBanner({
 {latest.kind === "native" && latest.corrupt ? (
           <button
             type="button"
-            className="pending-upload-discard pending-upload-record-again"
+            className="pending-upload-discard"
             disabled={actionsDisabled}
             onClick={() => onDiscard(latest)}
-            aria-label="Discard corrupted clip and record again"
-            title="This clip is corrupted and cannot be recovered. Click to discard it and record again."
+            title="This clip is corrupted and cannot be recovered."
           >
-            Record again
+            <IconTrash size={14} stroke={2} />
+            Discard
           </button>
         ) : (
-          <button
-            type="button"
-            className="pending-upload-retry"
-            disabled={actionsDisabled}
-            onClick={() => onRetry(latest)}
-          >
-            <IconRefresh size={14} stroke={2} />
-            {retrying ? "Retrying" : "Retry"}
-          </button>
+          <>
+            <button
+              type="button"
+              className="pending-upload-retry"
+              disabled={actionsDisabled}
+              onClick={() => onRetry(latest)}
+            >
+              <IconRefresh size={14} stroke={2} />
+              {retrying ? "Retrying" : "Retry"}
+            </button>
+            <button
+              type="button"
+              className="pending-upload-discard"
+              disabled={actionsDisabled}
+              onClick={() => onDiscard(latest)}
+              aria-label="Discard saved local clip"
+              title="Discard saved local clip"
+            >
+              <IconTrash size={14} stroke={2} />
+            </button>
+          </>
         )}
-        <button
-          type="button"
-          className="pending-upload-discard"
-          disabled={actionsDisabled}
-          onClick={() => onDiscard(latest)}
-          aria-label="Discard saved local clip"
-          title="Discard saved local clip"
-        >
-          <IconTrash size={14} stroke={2} />
-        </button>
       </div>
     </div>
   );

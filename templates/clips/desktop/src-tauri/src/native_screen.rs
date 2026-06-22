@@ -653,7 +653,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         // validation — a transient finalize error that still produces a valid
         // MP4 should remain retryable rather than forcing a re-record.
         if stop_err.contains("finalize failed")
-            && !mp4_has_moov(&saved.file_path)
+            && mp4_has_moov(&saved.file_path) == Some(false)
         {
             saved.corrupt = true;
             eprintln!(
@@ -746,7 +746,7 @@ pub async fn native_fullscreen_recording_stop_and_save(
         .err()
         .map(|e| e.contains("finalize failed"))
         .unwrap_or(false)
-        && !mp4_has_moov(&session.path)
+        && mp4_has_moov(&session.path) == Some(false)
     {
         eprintln!(
             "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
@@ -2596,32 +2596,47 @@ fn upload_url(
 ///
 /// Returns `false` on any I/O error or if the box structure is malformed —
 /// in both cases we treat the file as unplayable (safe-fail).
-fn mp4_has_moov(path: &Path) -> bool {
+/// Returns `Some(true)` when a `moov` box is found, `Some(false)` when the
+/// scan completed without finding one (file is unplayable), or `None` when
+/// the file could not be read (transient I/O error — caller should not treat
+/// this as permanent corruption).
+fn mp4_has_moov(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let Ok(mut f) = std::fs::File::open(path) else {
-        eprintln!("[clips-tray] mp4_has_moov: could not open file for moov scan");
-        return false;
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            // I/O failure — can't determine; let the caller decide.
+            eprintln!("[clips-tray] mp4_has_moov: could not open file for moov scan: {e}");
+            return None;
+        }
     };
     let mut buf = [0u8; 8];
     loop {
         if f.read_exact(&mut buf).is_err() {
-            // EOF or read error — moov was never found
-            return false;
+            // Clean EOF without finding moov — file is missing the atom.
+            return Some(false);
         }
-        let box_size = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as u64;
+        let box_size_raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
         let box_type = &buf[4..8];
         if box_type == b"moov" {
-            return true;
+            return Some(true);
         }
-        // box_size == 0 means "extends to EOF"; box_size == 1 is a 64-bit
-        // extended-size box (rare in practice for these files). Both cases
-        // mean we can't skip forward cheaply, so stop scanning.
-        if box_size < 8 {
-            return false;
-        }
-        // Skip to the next top-level box (box_size includes the 8-byte header).
-        if f.seek(SeekFrom::Current(box_size as i64 - 8)).is_err() {
-            return false;
+        let skip: u64 = match box_size_raw {
+            0 => return Some(false), // extends to EOF — moov not found before it
+            1 => {
+                // 64-bit extended-size: next 8 bytes hold the real size.
+                let mut ext = [0u8; 8];
+                if f.read_exact(&mut ext).is_err() {
+                    return Some(false);
+                }
+                let full = u64::from_be_bytes(ext);
+                // full includes the 8-byte header + 8-byte ext field (16 total).
+                full.saturating_sub(16)
+            }
+            n => (n as u64).saturating_sub(8),
+        };
+        if skip > 0 && f.seek(SeekFrom::Current(skip as i64)).is_err() {
+            return Some(false);
         }
     }
 }
@@ -2653,7 +2668,7 @@ fn prepare_recording_file(
     // moov, making it permanently unplayable. Catching this here avoids a
     // full chunked upload that the server will reject anyway.
     if mime_type == "video/mp4" || mime_type == "video/quicktime" {
-        if !mp4_has_moov(path) {
+        if mp4_has_moov(path) == Some(false) {
             eprintln!(
                 "[clips-tray] native recording corrupt moov check failed — skipping upload"
             );
