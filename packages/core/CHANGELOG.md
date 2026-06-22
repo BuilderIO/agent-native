@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.66.2
+
+### Patch Changes
+
+- 89d3852: Clarify in the docs how instructions, skills, and actions work together as the
+  core building blocks of Agent Native agents.
+- 89d3852: Use the Agent Native blue accent for auth verification and success states.
+- 89d3852: Show a friendly email validation message on the built-in auth page instead of exposing raw Better Auth schema errors.
+- 89d3852: Ignore loopback app URL env values when resolving hosted auth email links.
+- 89d3852: Shorten the default feedback popover placeholder.
+
 ## 0.66.1
 
 ### Patch Changes
