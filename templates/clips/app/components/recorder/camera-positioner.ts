@@ -67,11 +67,30 @@ export function clampToViewport(
   viewport: { width: number; height: number },
   gutter = GUTTER_PX,
 ): { left: number; top: number } {
+  return clampRectToViewport(
+    left,
+    top,
+    { width: bubbleSize, height: bubbleSize },
+    viewport,
+    gutter,
+  );
+}
+
+export function clampRectToViewport(
+  left: number,
+  top: number,
+  rect: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gutter = GUTTER_PX,
+): { left: number; top: number } {
   return {
     left: Math.max(
       gutter,
-      Math.min(viewport.width - bubbleSize - gutter, left),
+      Math.min(viewport.width - rect.width - gutter, left),
     ),
-    top: Math.max(gutter, Math.min(viewport.height - bubbleSize - gutter, top)),
+    top: Math.max(
+      gutter,
+      Math.min(viewport.height - rect.height - gutter, top),
+    ),
   };
 }

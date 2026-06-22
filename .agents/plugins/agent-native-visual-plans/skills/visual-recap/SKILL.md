@@ -411,6 +411,11 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   full document width. Let that heading label the section — do NOT also set a
   `title` on the `tabs` block. Keep each tab label to the file path or a short
   basename plus directory hint.
+  The renderer's wide document layout is intentionally allowlisted: `diff`,
+  `annotated-code`, vertical `tabs`, and `tabs` containing diff-like children
+  break out wider than prose. Do not put API endpoints, OpenAPI specs, data
+  models, JSON explorers, wireframes, question forms, or custom HTML into tabs
+  merely to make them wide.
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one horizontal `tabs` block under its own `## Key changes`
   heading, not a stack of separate `diff` blocks.

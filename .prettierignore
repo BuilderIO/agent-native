@@ -3,6 +3,8 @@ dist
 .netlify
 out
 .video-bakeoff
+.video-bakeoff-recording
+packages/vscode-extension/.vscode-test
 pnpm-lock.yaml
 **/SKILL.md
 **/routeTree.gen.ts

@@ -3106,6 +3106,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const localPlanSuggestedRepoPath =
     localPlanBundle?.suggestedRepoPath ??
     (localPlanSlug ? `plans/${localPlanSlug}` : "plans");
+  const localPlanMenuPath =
+    localPlanRepoPath ??
+    localPlanBundle?.repoPath ??
+    localPlanSuggestedRepoPath ??
+    localPlanSlug ??
+    "local plan files";
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
     Boolean(selectedId && !bundle && !localPlanMode),
@@ -5691,8 +5697,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           Local files
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
-                          <div className="break-words text-foreground">
-                            {localPlanDisplayFolder}
+                          <div
+                            className="truncate text-foreground"
+                            title={localPlanDisplayFolder}
+                          >
+                            {localPlanMenuPath}
                           </div>
                           <div>No hosted database writes or sharing.</div>
                         </div>

@@ -165,6 +165,11 @@ blocks for normal plans. For architecture/code reviews, use `diagram`
 requested mockup, UI state, or visual comparison. If UI fidelity requires
 HTML/CSS, image capture, or real React/CSS, the product fix is canvas support
 for that artifact type, not moving the mockup into the document.
+When `custom-html` is genuinely needed, author it against the sandbox-provided
+theme tokens (`--wf-paper`, `--wf-card`, `--wf-ink`, `--wf-muted`,
+`--wf-line`, `--wf-radius`, and the matching `--plan-*` aliases). Do not hardcode
+hex/rgb/hsl light palettes such as white cards with dark ink; the same fragment
+must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and

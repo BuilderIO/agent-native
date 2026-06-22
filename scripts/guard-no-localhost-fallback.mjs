@@ -94,6 +94,9 @@ const SKIP_DIRS = new Set([
   ".react-router",
   ".generated",
   ".claude",
+  ".video-bakeoff",
+  ".video-bakeoff-recording",
+  ".vscode-test",
   "out",
   "coverage",
 ]);

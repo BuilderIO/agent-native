@@ -617,9 +617,11 @@ export function DiagramLightbox({
 function ExpandableDiagramBody({
   data,
   ctx,
+  compact,
 }: {
   data: DiagramData;
   ctx: BlockRenderContext;
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const supportsStyleToggle = Boolean(data.html);
@@ -633,7 +635,7 @@ function ExpandableDiagramBody({
     : "Clean diagrams - switch to hand-drawn";
   return (
     <div className="group/diagram relative">
-      <DiagramBody data={data} ctx={ctx} />
+      <DiagramBody data={data} ctx={ctx} compact={compact} />
       <TooltipProvider delayDuration={100} skipDelayDuration={0}>
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
           {supportsStyleToggle && (
@@ -693,6 +695,7 @@ export function DiagramRead({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<DiagramData>) {
   return (
     <section
@@ -701,7 +704,7 @@ export function DiagramRead({
       data-block-id={blockId}
     >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <ExpandableDiagramBody data={data} ctx={ctx} />
+      <ExpandableDiagramBody data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-muted-foreground">{summary}</p>}
     </section>
   );

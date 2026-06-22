@@ -28,11 +28,7 @@ function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
 }
 
 function findDocumentFlow(nav: HTMLElement | null) {
-  return (
-    nav
-      ?.closest(".plan-document-shell")
-      ?.querySelector<HTMLElement>(".plan-document-flow") ?? null
-  );
+  return nav?.closest<HTMLElement>(".plan-document-shell") ?? null;
 }
 
 export function PlanTableOfContents({

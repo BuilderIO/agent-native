@@ -4,6 +4,7 @@ import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
 import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
+import { useIsDark } from "./wireframe-kit.js";
 
 /**
  * Standard library HTML / Tailwind block. The registry form of the plan
@@ -24,13 +25,15 @@ import { htmlSchema, htmlMdx, type HtmlBlockData } from "./html.config.js";
 /** Build the iframe document for a fragment, applying app sanitization if given. */
 function buildSrcDoc(
   data: HtmlBlockData,
+  theme: "light" | "dark",
   sanitize?: (html: string, css?: string) => string,
 ): string {
   const css = data.css ?? "";
   const body = sanitize ? sanitize(data.html, data.css) : data.html;
-  // Use prefers-color-scheme so the iframe ink matches the host theme even
-  // though the iframe document is isolated and can't inherit CSS variables.
-  return `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}@media(prefers-color-scheme:dark){body{color:#e8e8e6}}${css}</style></head><body>${body}</body></html>`;
+  // The iframe is isolated from the host's `.dark` class and CSS variables, so
+  // bridge the current theme explicitly and expose the same semantic tokens that
+  // generated wireframe/diagram HTML already uses.
+  return `<!doctype html><html data-theme="${theme}"><head><style>:root{color-scheme:light;--wf-paper:#fbfaf6;--wf-card:#ffffff;--wf-ink:#1f1f1d;--wf-muted:#6f6a63;--wf-line:#ded8ce;--wf-radius:12px;--plan-document:var(--wf-paper);--plan-block:var(--wf-card);--plan-text:var(--wf-ink);--plan-muted:var(--wf-muted);--plan-line:var(--wf-line)}:root[data-theme="dark"]{color-scheme:dark;--wf-paper:#201f1c;--wf-card:#2a2825;--wf-ink:#ece8e1;--wf-muted:#9a948b;--wf-line:#43403a;--plan-document:var(--wf-paper);--plan-block:var(--wf-card);--plan-text:var(--wf-ink);--plan-muted:var(--wf-muted);--plan-line:var(--wf-line)}html,body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:var(--wf-ink);background:var(--wf-paper)}*{box-sizing:border-box}${css}</style></head><body>${body}</body></html>`;
 }
 
 function HtmlPreview({
@@ -42,11 +45,13 @@ function HtmlPreview({
   title?: string;
   sanitize?: (html: string, css?: string) => string;
 }) {
+  const isDark = useIsDark();
+  const theme = isDark ? "dark" : "light";
   return (
     <>
       <iframe
         title={title || "Custom HTML block"}
-        srcDoc={buildSrcDoc(data, sanitize)}
+        srcDoc={buildSrcDoc(data, theme, sanitize)}
         sandbox="allow-same-origin"
         referrerPolicy="no-referrer"
         className="mt-4 h-[360px] w-full rounded-xl border bg-muted"
