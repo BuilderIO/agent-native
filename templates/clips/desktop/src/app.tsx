@@ -160,6 +160,7 @@ function resolveDesktopThumbnailUrl(
 }
 
 function normalizeCaptureSource(value: string): CaptureSource {
+  if (value === "region" && isMacPlatform()) return "region";
   return value === "window" ? "window" : "full-screen";
 }
 
@@ -1732,7 +1733,10 @@ export function App() {
         : "";
     const message =
       startError instanceof Error ? startError.message : String(startError);
-    if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
+    if (
+      errName === "AbortError" ||
+      /was cancelled|dismissed|region selection cancelled/i.test(message)
+    ) {
       return;
     }
     if (
@@ -2044,7 +2048,11 @@ export function App() {
 
       <div className="panel">
         {showSourceRow ? (
-          <SourceRow value={source} onChange={setSource} />
+          <SourceRow
+            value={source}
+            onChange={setSource}
+            includeRegion={isMacPlatform()}
+          />
         ) : null}
 
         {showCameraRow ? (

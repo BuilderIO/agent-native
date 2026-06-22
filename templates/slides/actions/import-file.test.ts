@@ -80,6 +80,32 @@ describe("import-file PDF source extraction", () => {
     expect(result.pages[0].pageNum).toBe(3);
     expect(result.pages[0].text).toBe(fullText);
     expect(result.pages[0].textPreview).toBe(fullText.slice(0, 500));
+    expect(result.truncated).toBe(false);
+  });
+
+  it("caps large PDF extraction output by default", async () => {
+    const firstPage = "A".repeat(40_000);
+    const secondPage = "B".repeat(40_000);
+    mockPdfText.mockResolvedValue({
+      pages: [
+        { num: 1, text: firstPage },
+        { num: 2, text: secondPage },
+      ],
+    });
+
+    const result = (await action.run({
+      filePath: "large-deck.pdf",
+      format: "pdf",
+    })) as any;
+
+    expect(result.totalTextLength).toBe(80_000);
+    expect(result.truncated).toBe(true);
+    expect(result.note).toContain("first 60000 extracted characters");
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0].text).toHaveLength(40_000);
+    expect(result.pages[0].truncated).toBe(false);
+    expect(result.pages[1].text).toHaveLength(20_000);
+    expect(result.pages[1].truncated).toBe(true);
   });
 
   it("fails clearly when no PDF text can be extracted", async () => {

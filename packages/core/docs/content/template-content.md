@@ -90,6 +90,21 @@ SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
 standalone repo layout, configuration, custom MDX components, local
 `extensions/` widgets, and production safety guide.
 
+To install the Content local-files skill into an existing repo:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+The installer copies the `content` skill for your coding agent and writes or
+updates `agent-native.json` with Content roots for `docs/`, `blog/`, `content/`,
+and `resources/`. When a local Content app, Agent Native Desktop, or trusted
+local bridge is running, agents should use Content actions such as
+`list-documents`, `get-document`, `edit-document`, `update-document`, and
+`share-local-file-document` instead of raw filesystem writes. Without that local
+bridge, the installed skill still gives the agent the repo-editing contract for
+safe Markdown/MDX edits.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Content template or extending it.

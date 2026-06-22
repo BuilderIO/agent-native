@@ -125,7 +125,7 @@ export default function ImageDropPromptPopover({
       if (!res.ok || !data?.url) {
         throw new Error(
           data?.error ||
-            "Image upload failed. Connect or reconnect Builder.io in Settings → File uploads, or register a custom provider via registerFileUploadProvider().",
+            "Image upload failed. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
         );
       }
 

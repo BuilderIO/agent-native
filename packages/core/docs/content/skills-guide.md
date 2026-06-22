@@ -202,6 +202,9 @@ offline work, or privacy-sensitive use.
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add assets
 
+# Repo-first Content docs/blog/MDX editing.
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
 # Vercel/open Skills CLI: exported instructions only, no MCP config.
 npx skills@latest add BuilderIO/agent-native --skill assets
 

@@ -71,7 +71,7 @@ export default function OrganizationSettingsRoute() {
     return "member";
   }, [members, email, isOwner]);
 
-  const isAdmin = currentRole === "admin" || isOwner;
+  const isAdmin = currentRole === "admin" || currentRole === "owner" || isOwner;
 
   if (isLoading) {
     return (

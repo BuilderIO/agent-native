@@ -1,14 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import {
-  getActiveFileUploadProvider,
-  uploadFile,
-} from "@agent-native/core/file-upload";
-import {
-  buildDeepLink,
-  resolveBuilderPrivateKey,
-} from "@agent-native/core/server";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { buildDeepLink } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -25,6 +19,7 @@ import {
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
 import { downloadLoomVideo } from "./lib/loom-video.js";
+import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 
 const LoomOembedSchema = z
   .object({
@@ -83,22 +78,6 @@ const ImportLoomRecordingSchema = z.object({
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage, then retry this Loom import.";
-
-async function hasConfiguredUploadStorage(): Promise<boolean> {
-  const provider = getActiveFileUploadProvider();
-  if (!provider) return false;
-  if (provider.id !== "builder") return true;
-
-  try {
-    return Boolean(await resolveBuilderPrivateKey());
-  } catch (err) {
-    console.warn(
-      "[clips] Builder storage credential check failed:",
-      err instanceof Error ? err.message : String(err),
-    );
-    return false;
-  }
-}
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -302,7 +281,7 @@ export default defineAction({
       };
     };
 
-    if (!(await hasConfiguredUploadStorage())) {
+    if (!(await hasRequestVideoStorage())) {
       return await saveWaitingForStorage(
         existingRecording?.videoSizeBytes ?? 0,
       );

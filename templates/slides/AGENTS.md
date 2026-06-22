@@ -50,7 +50,7 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 ## Application State
 
 - `navigation` exposes the current deck, slide, selection, and editor view.
-- `navigate` moves the UI to decks, slides, imports, exports, and settings.
+- `navigate` moves the UI to decks, slides, imports, and exports.
 - Use app actions for full deck/slide data instead of relying on ambient context.
 
 ## Skills

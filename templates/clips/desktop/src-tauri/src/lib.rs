@@ -69,6 +69,7 @@ pub fn run() {
             clips::show_region_guides,
             clips::hide_region_guides,
             clips::show_region_guide_editor,
+            clips::show_region_capture_selector,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,

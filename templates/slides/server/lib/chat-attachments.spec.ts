@@ -13,7 +13,7 @@ describe("prepareSlidesChatAttachments", () => {
     saveUploadedReferenceFileMock.mockReset();
   });
 
-  it("saves image attachments from chat as slide reference uploads", async () => {
+  it("strips raw image data when storage returns an embeddable URL", async () => {
     saveUploadedReferenceFileMock.mockResolvedValue({
       path: "data/uploads/user/editor-ai.jpeg",
       url: "https://cdn.example.com/editor-ai.jpeg",
@@ -49,9 +49,51 @@ describe("prepareSlidesChatAttachments", () => {
       "embeddable URL: https://cdn.example.com/editor-ai.jpeg",
     );
     expect(result?.message).toContain("PDF/PPTX/DOCX/FIG/image");
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.url).toBe(
+      "https://cdn.example.com/editor-ai.jpeg",
+    );
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/editor-ai.jpeg",
+    );
   });
 
-  it("saves SVG attachments from chat as slide reference uploads", async () => {
+  it("keeps raw raster image data when storage returns no embeddable URL", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "data/uploads/user/reference.png",
+      originalName: "reference.png",
+      filename: "stored.png",
+      type: "image/png",
+      size: 4,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "use this visual reference",
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
+    expect(result?.message).toContain("reference.png");
+    expect(result?.message).toContain("data/uploads/user/reference.png");
+    expect(result?.message).not.toContain("embeddable URL:");
+    expect(result?.attachments?.[0]?.data).toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+    expect((result?.attachments?.[0] as any)?.url).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/reference.png",
+    );
+  });
+
+  it("keeps raw image data when storage returns no embeddable URL", async () => {
     saveUploadedReferenceFileMock.mockResolvedValue({
       path: "data/uploads/user/vector.svg",
       originalName: "vector.svg",
@@ -82,6 +124,42 @@ describe("prepareSlidesChatAttachments", () => {
     });
     expect(result?.message).toContain("vector.svg");
     expect(result?.message).toContain("data/uploads/user/vector.svg");
+    expect(result?.attachments?.[0]?.data).toBe(
+      "data:image/svg+xml;base64,PHN2Zy8+",
+    );
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/vector.svg",
+    );
+  });
+
+  it("strips raw PDF data after saving it as a Slides reference upload", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "data/uploads/user/source.pdf",
+      originalName: "source.pdf",
+      filename: "stored.pdf",
+      type: "application/pdf",
+      size: 12,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "recreate this deck",
+      attachments: [
+        {
+          type: "file",
+          name: "source.pdf",
+          contentType: "application/pdf",
+          data: "data:application/pdf;base64,JVBERi0x",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
+    expect(result?.message).toContain("data/uploads/user/source.pdf");
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/source.pdf",
+    );
   });
 
   it("keeps unsupported attachments out of the slides upload context", async () => {

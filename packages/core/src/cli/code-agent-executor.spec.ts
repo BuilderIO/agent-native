@@ -117,6 +117,7 @@ describe("executeCodeAgentRun", () => {
     for (const key of providerEnvKeys) delete process.env[key];
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
+    const argsPath = path.join(root, "codex-args.json");
     fs.mkdirSync(binDir, { recursive: true });
     const codexBin = path.join(binDir, "codex");
     fs.writeFileSync(
@@ -125,6 +126,13 @@ describe("executeCodeAgentRun", () => {
         "#!/usr/bin/env node",
         "const fs = require('fs');",
         "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "const execIndex = args.indexOf('exec');",
+        "const approvalIndex = args.indexOf('--ask-for-approval');",
+        "if (approvalIndex > execIndex) {",
+        "  process.stderr.write(\"unexpected argument '--ask-for-approval' found\");",
+        "  process.exit(2);",
+        "}",
         "const outIndex = args.indexOf('--output-last-message');",
         "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
         "let input = '';",
@@ -163,6 +171,10 @@ describe("executeCodeAgentRun", () => {
     });
     expect(output.read()).toContain("Codex streamed output");
     expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+    const execIndex = args.indexOf("exec");
+    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
+    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

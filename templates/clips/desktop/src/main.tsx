@@ -53,6 +53,8 @@ function pickRoute(route: string): React.ReactElement {
       return <RegionGuides />;
     case "region-guides-editor":
       return <RegionGuideEditor />;
+    case "region-capture-selector":
+      return <RegionGuideEditor mode="capture" />;
     default:
       return <App />;
   }

@@ -258,6 +258,8 @@ describe("preUploadAttachments", () => {
 
     expect(result.providerMissing).toBe(true);
     expect(result.injectedText).toContain("no file-upload provider");
+    expect(result.injectedText).toContain("connect-builder");
+    expect(result.injectedText).not.toContain("Settings");
   });
 
   it("does not crash when uploadFile throws; keeps base64 for that attachment", async () => {

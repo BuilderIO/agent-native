@@ -57,6 +57,13 @@ export default defineAction({
 Run it from the same folder:
 
 ```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+The CLI accepts a JSON object as the action input, which matches the structured
+tool calls agents already make. Simple flags still work for quick manual runs:
+
+```bash
 pnpm action hello --name Steve
 ```
 
@@ -415,10 +422,12 @@ headless, render in chat, or grow into a full screen.
 Every action is runnable via `pnpm action`:
 
 ```bash
-pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
 ```
 
-Flags are parsed into the shape your schema expects. Useful for agent-dev loops, scripts, and cron.
+JSON input is the preferred shape for agents and complex objects. Flags are
+still parsed into the same schema shape for simple manual runs and existing
+scripts. Useful for agent-dev loops, scripts, and cron.
 
 ## Calling it from another agent (A2A) {#a2a}
 

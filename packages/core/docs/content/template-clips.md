@@ -144,7 +144,54 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
-4. **Slack previews (optional).** Create a Slack app with `chat:write`, `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; and set the Request URL to `https://your-clips.example.com/api/slack/unfurl`. Configure `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Clips deployment.
+4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; and set the Request URL to `https://your-clips.example.com/api/slack/unfurl`. Configure `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Clips deployment.
+
+### Host your own Clips server
+
+The hosted Clips app at [clips.agent-native.com](https://clips.agent-native.com)
+is just a deployed copy of the Clips template. To run your own server, scaffold
+the template, deploy it like any other agent-native app, then point the desktop
+tray app at your deployment.
+
+1. **Create the app.**
+
+   ```bash
+   npx @agent-native/core@latest create my-clips --standalone --template clips
+   cd my-clips
+   pnpm install
+   ```
+
+2. **Configure production state.** Set a persistent `DATABASE_URL`, the normal
+   production auth/secrets variables from [Deployment](/docs/deployment), and a
+   video storage provider. Builder.io Connect is the easiest storage path; for
+   self-hosted storage, use `S3_*` or `R2_*` variables for an S3-compatible
+   bucket.
+
+3. **Deploy the web app.** For a plain Node deploy:
+
+   ```bash
+   pnpm build
+   node .output/server/index.mjs
+   ```
+
+   You can also use any Nitro target from [Deployment](/docs/deployment), such
+   as Netlify, Vercel, Cloudflare Pages, AWS Lambda, or Deno Deploy. Make sure
+   `BETTER_AUTH_URL` is the public Clips origin, for example
+   `https://clips.example.com`.
+
+4. **Connect the desktop tray app.** Open Clips Desktop settings and set
+   **Clips server URL** to the public base URL of your deployment, for example
+   `https://clips.example.com`. If the app is mounted under a workspace path,
+   include that path, such as `https://example.com/clips`. Click **Connect**,
+   then sign in with an account on that Clips server.
+
+5. **Connect optional integrations.** Google Calendar powers the Meetings tab,
+   `GEMINI_API_KEY` or Builder.io Connect powers transcript cleanup and titles,
+   `GROQ_API_KEY` can provide speech-to-text fallback, and Slack credentials
+   enable playable Slack unfurls.
+
+For local development, run the web app with `pnpm dev` and point the desktop
+tray app at `http://localhost:8094`.
 
 ### Key features
 

@@ -91,6 +91,31 @@ without requiring you to clone or fork the entire Content app.
 small sandboxed widgets that can render in app slots while their source stays in
 the repo.
 
+## Install Content Into A Repo
+
+For an existing docs, blog, or MDX workspace, install the Content local-files
+skill:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+This copies the `content` skill into the repo's agent skill folders and writes
+or updates `agent-native.json` with Content defaults:
+
+- `mode: "local-files"` at the workspace level
+- `apps.content.mode: "local-files"`
+- content roots for `docs/`, `blog/`, `content/`, and `resources/`
+- `components/` for local MDX components
+- `extensions/` for local extension widgets
+
+The installed skill tells coding agents to use Content actions
+(`list-documents`, `get-document`, `edit-document`, `update-document`,
+`share-local-file-document`, and component-file actions) when a local Content app
+or Agent Native Desktop bridge exposes them. If no bridge is running, the skill
+falls back to safe direct repo edits while preserving frontmatter, imports, JSX,
+and unknown MDX.
+
 ## Configuration
 
 Add `agent-native.json` to the repo or workspace root:

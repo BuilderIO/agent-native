@@ -149,6 +149,103 @@ describe("runScript package actions", () => {
     });
   }, 20_000);
 
+  it("runs a package action with a positional JSON object", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [
+        ...tsxLeadingArgs,
+        "actions/run.ts",
+        "package-action",
+        JSON.stringify({
+          enabled: true,
+          limit: 8,
+          cursors: { slack: "next-page" },
+          sourceIds: ["mail", "calendar"],
+        }),
+      ],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("package-ok");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({
+      enabled: true,
+      limit: 8,
+      cursors: { slack: "next-page" },
+      sourceIds: ["mail", "calendar"],
+    });
+  }, 20_000);
+
+  it("lets explicit flags override positional JSON object keys", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [
+        ...tsxLeadingArgs,
+        "actions/run.ts",
+        "package-action",
+        JSON.stringify({
+          enabled: true,
+          limit: 8,
+          cursors: { slack: "next-page" },
+        }),
+        "--enabled=false",
+        "--limit",
+        "12",
+      ],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({
+      enabled: false,
+      limit: "12",
+      cursors: { slack: "next-page" },
+    });
+  }, 20_000);
+
+  it("reports invalid positional JSON object input", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-action", "{bad-json"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid positional JSON argument");
+  }, 20_000);
+
   it("preserves empty package action arguments", () => {
     const result = spawnSync(
       tsxCommand,

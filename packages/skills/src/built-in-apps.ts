@@ -84,6 +84,15 @@ export const BUILT_IN_APP_MCP: BuiltInAppMcp[] = [
     authMode: "oauth",
   },
   {
+    appId: "content",
+    displayName: "Content",
+    skillNames: ["content"],
+    serverName: "agent-native-content",
+    mcpUrl: "https://content.agent-native.com/_agent-native/mcp",
+    hostedUrl: "https://content.agent-native.com",
+    authMode: "oauth",
+  },
+  {
     // core skills.ts:1762 (id), :1763 (displayName)
     appId: "design",
     displayName: "Design",
