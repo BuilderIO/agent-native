@@ -700,6 +700,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             saved.last_attempt_at = Some(now_iso());
             saved.last_error = Some(err.clone());
             saved.retry_count = saved.retry_count.saturating_add(1);
+            if is_moov_corrupt_error(&err) {
+                saved.corrupt = true;
+            }
             let _ = write_saved_recording_metadata(&app, &saved);
             emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
             Err(format!(
@@ -751,6 +754,10 @@ pub async fn native_fullscreen_recording_stop_and_save(
         eprintln!(
             "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
         );
+        // Remove the temporary file so it doesn't accumulate on disk
+        // (save_native_recording_to_local_export, which would normally
+        // move it, is never reached from this early-return path).
+        let _ = std::fs::remove_file(&session.path);
         return Err(
             "Recorded file is corrupted — the video is incomplete and cannot be saved. \
              Please record again."
@@ -1379,11 +1386,17 @@ pub async fn native_fullscreen_recording_retry_upload(
             Ok(result)
         }
         Err(err) => {
+            if is_moov_corrupt_error(&err) {
+                saved.corrupt = true;
+            }
             persist_saved_recording_error(&app, &mut saved, &err);
             emit_native_upload_progress(&app, "failed", "Retry paused", None, None);
-            Err(format!(
-                "{err}. The local copy is still saved, so you can retry again."
-            ))
+            let suffix = if saved.corrupt {
+                "The file is corrupted and cannot be recovered."
+            } else {
+                "The local copy is still saved, so you can retry again."
+            };
+            Err(format!("{err}. {suffix}"))
         }
     }
 }
@@ -2587,6 +2600,12 @@ fn upload_url(
         }
     }
     Ok(url.to_string())
+}
+
+/// Returns true when an upload error string indicates the file is permanently
+/// corrupt (missing moov atom) and cannot be recovered by retrying.
+fn is_moov_corrupt_error(err: &str) -> bool {
+    err.contains("video is missing required metadata")
 }
 
 /// Walk the top-level ISO BMFF boxes of a file and return `Some(true)` when a
