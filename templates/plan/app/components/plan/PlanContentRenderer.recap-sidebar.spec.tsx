@@ -317,6 +317,53 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(sourceLink?.parentElement).toBe(stats?.parentElement);
   });
 
+  it("does not reserve a contents rail when only the files heading + one section remain", () => {
+    // A "Files changed" heading + file-tree both relocate to the left rail, so
+    // the contents nav should count what's LEFT (one real section) — not enough
+    // for a rail. `data-has-toc` must stay absent so the grid reserves no empty
+    // TOC column, and PlanTableOfContents renders neither rail nor accordion.
+    const content = {
+      version: 2,
+      title: "Recap",
+      brief: "brief",
+      blocks: [
+        {
+          id: "files-h",
+          type: "rich-text",
+          data: { markdown: "## Files changed" },
+        },
+        {
+          id: "tree-1",
+          type: "file-tree",
+          title: "Files changed",
+          data: { entries: [{ path: "a.ts", change: "modified" }] },
+        },
+        {
+          id: "rt-only",
+          type: "rich-text",
+          data: { markdown: "## Overview\n\nbody" },
+        },
+      ],
+    } as unknown as PlanContent;
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={content}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const body = container.querySelector<HTMLElement>(".plan-document-body");
+    expect(body?.hasAttribute("data-has-toc")).toBe(false);
+    expect(container.querySelector(".plan-document-toc")).toBeNull();
+    expect(container.querySelector(".plan-document-toc-inline")).toBeNull();
+  });
+
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
     act(() => {
       root.render(

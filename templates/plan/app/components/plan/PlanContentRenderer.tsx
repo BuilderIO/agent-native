@@ -580,13 +580,16 @@ export function PlanContentRenderer({
   // Which rails exist, mirrored onto the body as data attributes so the grid
   // (global.css) reserves a track only for a rail that renders.
   const hasFilesRail = Boolean(filesSidebarBlock) && !hideChangedFiles;
+  // Mirror PlanTableOfContents' own omission set (file-tree AND its relocated
+  // heading) so data-has-toc is set iff the rail actually renders ≥2 items —
+  // otherwise a recap with one section left would reserve an empty TOC column.
   const hasTocRail = useMemo(
     () =>
       !hideRecapChrome &&
       collectPlanTocItems(content.blocks).filter(
-        (item) => item.blockId !== filesSidebarBlock?.id,
+        (item) => !tocOmitBlockIds.includes(item.blockId),
       ).length >= 2,
-    [content.blocks, filesSidebarBlock?.id, hideRecapChrome],
+    [content.blocks, tocOmitBlockIds, hideRecapChrome],
   );
 
   /**
