@@ -79,7 +79,11 @@ export function PlanTableOfContents({
     const getActiveId = () =>
       getActivePlanTocId(
         ids,
-        (id) => elementsRef.current.get(id) ?? null,
+        // Skip detached nodes; their rect collapses to top 0 and wrongly wins.
+        (id) => {
+          const el = elementsRef.current.get(id);
+          return el && el.isConnected ? el : null;
+        },
         OFFSET,
         scrollTarget instanceof HTMLElement ? scrollTarget : null,
       );
@@ -89,10 +93,17 @@ export function PlanTableOfContents({
       setActiveId((prev) => (prev === next ? prev : next));
     };
 
+    const refreshElements = () => {
+      const root = findDocumentFlow(navRef.current);
+      if (root) elementsRef.current = resolvePlanTocElements(root, items);
+    };
+
     const scheduleUpdateActiveId = () => {
       if (scrollRaf) return;
       scrollRaf = window.requestAnimationFrame(() => {
         scrollRaf = 0;
+        // Re-resolve so scroll reads live nodes, not refs Tiptap has swapped.
+        refreshElements();
         updateActiveId();
       });
     };
