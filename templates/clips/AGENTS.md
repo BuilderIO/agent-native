@@ -51,6 +51,12 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   duration; it never captures headers, bodies, cookies, or query values. Use
   `get-recording-player-data` for full diagnostics when you have editor access;
   public agent context only exposes a compact issue summary.
+- The Chrome extension lives in `chrome-extension/`. It launches `/record` with
+  `clipsExtensionId` and `clipsCaptureSessionId`, then the recorder sends
+  `CLIPS_CAPTURE_START/STOP/CANCEL` back to the extension. The extension uses
+  the Chrome debugger API only on the tab the user launched from, only while a
+  recording is active, and returns the same redacted diagnostics shape saved by
+  `save-browser-diagnostics`.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
 

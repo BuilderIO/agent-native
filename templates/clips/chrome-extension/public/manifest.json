@@ -4,6 +4,7 @@
   "short_name": "Clips",
   "version": "0.1.0",
   "description": "Record bug reports with Clips and include redacted console and network diagnostics from the active tab.",
+  "minimum_chrome_version": "116",
   "action": {
     "default_title": "Record with Clips",
     "default_popup": "src/popup.html"
@@ -17,9 +18,12 @@
     "32": "icons/icon-32.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["activeTab", "debugger", "storage", "tabs", "tabCapture"],
-  "host_permissions": ["https://clips.agent-native.com/*"],
+  "permissions": ["activeTab", "debugger", "storage"],
   "externally_connectable": {
-    "matches": ["https://clips.agent-native.com/*", "http://localhost:*/*"]
+    "matches": [
+      "https://clips.agent-native.com/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
   }
 }

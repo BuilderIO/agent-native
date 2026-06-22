@@ -111,6 +111,8 @@ type UiState =
 type ClipsExtensionCapture = {
   extensionId: string;
   sessionId: string;
+  sourceUrl: string | null;
+  developerLogsEnabled: boolean;
 };
 
 type ClipsExtensionDiagnosticsResponse = {
@@ -755,7 +757,13 @@ export default function RecordRoute() {
     const extensionId = params.get("clipsExtensionId")?.trim();
     const sessionId = params.get("clipsCaptureSessionId")?.trim();
     if (!extensionId || !sessionId) return null;
-    return { extensionId, sessionId };
+    const developerLogs = params.get("developerLogs");
+    return {
+      extensionId,
+      sessionId,
+      sourceUrl: params.get("sourceUrl")?.trim() || null,
+      developerLogsEnabled: developerLogs !== "0",
+    };
   }, [location.search]);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
@@ -1486,6 +1494,10 @@ export default function RecordRoute() {
     async (recordingId: string) => {
       const capture = browserDiagnosticsRef.current;
       browserDiagnosticsRef.current = null;
+      if (extensionCapture && !extensionCapture.developerLogsEnabled) {
+        capture?.dispose();
+        return;
+      }
       const localSnapshot = capture?.stop() ?? null;
       const extensionResponse = extensionCapture
         ? await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
@@ -1534,14 +1546,21 @@ export default function RecordRoute() {
     try {
       await engine.start();
       browserDiagnosticsRef.current?.dispose();
-      browserDiagnosticsRef.current = createBrowserDiagnosticsCapture();
+      browserDiagnosticsRef.current =
+        extensionCapture && !extensionCapture.developerLogsEnabled
+          ? null
+          : createBrowserDiagnosticsCapture();
       const recordingId = pendingRef.current?.id;
-      if (extensionCapture && recordingId) {
+      if (
+        extensionCapture &&
+        extensionCapture.developerLogsEnabled &&
+        recordingId
+      ) {
         void sendClipsExtensionMessage(extensionCapture.extensionId, {
           type: "CLIPS_CAPTURE_START",
           sessionId: extensionCapture.sessionId,
           recordingId,
-          pageUrl: window.location.href,
+          pageUrl: extensionCapture.sourceUrl ?? window.location.href,
         });
       }
       setUiState("recording");

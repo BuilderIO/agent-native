@@ -1,7 +1,17 @@
-import { access } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, rm } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
-const distDir = resolve(import.meta.dirname, "../dist");
+const execFileAsync = promisify(execFile);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const distDir = resolve(root, "dist");
+const releaseDir = resolve(root, "releases");
+const zipPath = resolve(releaseDir, "clips-chrome-extension-0.1.0.zip");
 
-await access(resolve(distDir, "manifest.json"));
-console.log(`Chrome extension build is ready at ${distDir}`);
+await mkdir(releaseDir, { recursive: true });
+await rm(zipPath, { force: true });
+await execFileAsync("zip", ["-qr", zipPath, "."], { cwd: distDir });
+
+console.log(`Chrome Web Store package ready: ${zipPath}`);

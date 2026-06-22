@@ -48,7 +48,7 @@ export default defineEventHandler(async (event) => {
     return { ok: false, error: allowlist.error };
   }
 
-  const token = process.env.SLACK_BOT_TOKEN;
+  const token = process.env.SLACK_BOT_TOKEN; // guard:allow-env-credential - deploy-level Slack Events API app token for signed unfurl webhooks
   if (!token) {
     console.warn("[clips-slack] SLACK_BOT_TOKEN is not configured");
     return { ok: true };

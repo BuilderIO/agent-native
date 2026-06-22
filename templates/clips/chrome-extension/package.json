@@ -9,11 +9,10 @@
     "typecheck": "tsc --noEmit",
     "package": "pnpm build && tsx scripts/package.ts"
   },
-  "dependencies": {
+  "devDependencies": {
     "vite": "catalog:",
     "typescript": "catalog:",
     "tsx": "catalog:",
     "@types/chrome": "^0.2.0"
-  },
-  "devDependencies": {}
+  }
 }
