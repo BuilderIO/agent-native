@@ -230,6 +230,14 @@ beside frames with `targetId` plus `placement`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
 
+When the user asks for a flow, storyboard, journey, wireframe, canvas, or "what
+this looks like", treat that as a canvas-first request. Make one artboard per
+user-visible state, connect only adjacent transitions, and use short canvas
+annotations for the product notes. Do not substitute a document-body `diagram`
+block for the requested storyboard just because HTML diagrams are faster to
+write; diagrams belong below the canvas for backend mechanics, architecture, or
+data-flow explanation.
+
 Keep product wireframes and explanatory/meta diagrams separate. Start with pure
 screens that look like the app state under discussion, without callout prose or
 architecture notes embedded inside the UI. Put arrows, labels, contracts, data
