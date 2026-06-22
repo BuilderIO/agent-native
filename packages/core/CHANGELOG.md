@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.66.7
+
+### Patch Changes
+
+- 3d7df7d: Normalize exhausted provider rate-limit errors in agent chat and keep raw 429
+  provider messages in diagnostics instead of the primary UI copy.
+- 3d7df7d: Dismiss code annotation hover cards on layout changes and outside interactions.
+
 ## 0.66.6
 
 ### Patch Changes
