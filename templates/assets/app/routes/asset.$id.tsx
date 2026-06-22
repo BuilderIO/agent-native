@@ -163,7 +163,7 @@ export default function AssetDetailPage() {
           ) : (
             <Field
               label="Dimensions"
-              value={`${asset.width || "?"} x ${asset.height || "?"}`}
+              value={formatDimensions(asset.width, asset.height)}
             />
           )}
           <Field label="MIME" value={asset.mimeType || "n/a"} />
@@ -405,4 +405,15 @@ function Field({
       </div>
     </div>
   );
+}
+
+function formatDimensions(width?: number | null, height?: number | null) {
+  const dimensions = `${width || "?"} x ${height || "?"}`;
+  if (!width || !height) return dimensions;
+  const divisor = gcd(width, height);
+  return `${dimensions} (${width / divisor}:${height / divisor})`;
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }
