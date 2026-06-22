@@ -136,6 +136,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  type BuilderSetupCardLayout,
   type LoopLimitInfo,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
@@ -659,6 +660,8 @@ export interface AssistantChatProps {
   composerAreaClassName?: string;
   /** Placeholder for the shared composer in its normal idle state. */
   composerPlaceholder?: string;
+  /** Sidebar uses a compact setup CTA above the composer; page chat keeps the default below-composer CTA. */
+  missingApiKeySetupLayout?: BuilderSetupCardLayout;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
@@ -949,6 +952,7 @@ const AssistantChatInner = forwardRef<
     composerSlot,
     composerAreaClassName,
     composerPlaceholder,
+    missingApiKeySetupLayout = "default",
     composerLayoutVariant = "default",
     centerComposerWhenEmpty = false,
     emptyStateDisplay = "default",
@@ -1104,6 +1108,8 @@ const AssistantChatInner = forwardRef<
     providerStatusChecksEnabled,
   ).missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
+  const missingApiKeySetupAboveComposer =
+    missingApiKeySetupLayout === "sidebar";
   // Increments each time the user clicks the (disabled) composer while no LLM
   // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
@@ -3249,6 +3255,15 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 )}
+                {missingApiKey &&
+                !authError &&
+                missingApiKeySetupAboveComposer ? (
+                  <BuilderSetupCard
+                    onConnected={handleBuilderConnected}
+                    bouncePulse={missingKeyBouncePulse}
+                    layout={missingApiKeySetupLayout}
+                  />
+                ) : null}
                 {/* Input area */}
                 <AgentComposerFrame
                   layoutVariant={composerLayoutVariant}
@@ -3269,7 +3284,9 @@ const AssistantChatInner = forwardRef<
                     disabled={isComposerDisabled}
                     placeholder={
                       missingApiKey
-                        ? "Connect AI below to start chatting..."
+                        ? missingApiKeySetupAboveComposer
+                          ? "Connect AI above to start chatting..."
+                          : "Connect AI below to start chatting..."
                         : composerDisabled
                           ? (composerDisabledPlaceholder ??
                             "Open Desktop to use this chat.")
@@ -3345,10 +3362,13 @@ const AssistantChatInner = forwardRef<
                     }
                   />
                 </AgentComposerFrame>
-                {missingApiKey && !authError ? (
+                {missingApiKey &&
+                !authError &&
+                !missingApiKeySetupAboveComposer ? (
                   <BuilderSetupCard
                     onConnected={handleBuilderConnected}
                     bouncePulse={missingKeyBouncePulse}
+                    layout={missingApiKeySetupLayout}
                   />
                 ) : null}
               </div>

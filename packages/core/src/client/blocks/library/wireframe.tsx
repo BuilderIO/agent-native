@@ -446,6 +446,7 @@ export function WireframeBlock({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<WireframeData>) {
   return (
     <section
@@ -454,7 +455,7 @@ export function WireframeBlock({
       data-block-id={blockId}
     >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <WireframeSurfaceView data={data} ctx={ctx} />
+      <WireframeSurfaceView data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );

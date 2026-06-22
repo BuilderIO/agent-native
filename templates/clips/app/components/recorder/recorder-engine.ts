@@ -1322,15 +1322,7 @@ export class RecorderEngine {
 
   private buildCombinedStream(): MediaStream {
     if (this.opts.mode === "screen") {
-      const combined = new MediaStream();
-      for (const t of this.displayStream!.getVideoTracks())
-        combined.addTrack(t);
-      const audio = this.buildMixedAudioTrack([
-        this.micStream,
-        this.displayStream,
-      ]);
-      if (audio) combined.addTrack(audio);
-      return combined;
+      return this.buildDisplayRecordingStream();
     }
 
     // Camera-only: camera video + mic.
@@ -1340,6 +1332,14 @@ export class RecorderEngine {
       const audio = this.buildMixedAudioTrack([this.micStream]);
       if (audio) combined.addTrack(audio);
       return combined;
+    }
+
+    // Full-screen capture records the Clips page itself, including the visible
+    // camera bubble. Baking in another canvas bubble would duplicate the face.
+    if (this.isFullScreenDisplayCapture()) {
+      this.cameraComposite?.cleanup();
+      this.cameraComposite = null;
+      return this.buildDisplayRecordingStream();
     }
 
     // Screen + camera: selected-window capture does not include our separate
@@ -1360,6 +1360,26 @@ export class RecorderEngine {
     ]);
     if (audio) combined.addTrack(audio);
     return combined;
+  }
+
+  private buildDisplayRecordingStream(): MediaStream {
+    const combined = new MediaStream();
+    for (const track of this.displayStream!.getVideoTracks()) {
+      combined.addTrack(track);
+    }
+    const audio = this.buildMixedAudioTrack([
+      this.micStream,
+      this.displayStream,
+    ]);
+    if (audio) combined.addTrack(audio);
+    return combined;
+  }
+
+  private isFullScreenDisplayCapture(): boolean {
+    const actualDisplaySurface = this.displayStream
+      ?.getVideoTracks()[0]
+      ?.getSettings().displaySurface;
+    return actualDisplaySurface === "monitor";
   }
 
   private cameraBubbleSizeRatio(): number {

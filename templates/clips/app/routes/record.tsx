@@ -60,16 +60,6 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
@@ -679,7 +669,6 @@ export default function RecordRoute() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
@@ -743,10 +732,6 @@ export default function RecordRoute() {
   // Stable ref to doStop so engine callbacks created during startFlow always
   // call the latest version (avoids stale-closure problems with useCallback deps).
   const doStopRef = useRef<() => Promise<void>>(async () => {});
-  // Tracks whether opening the stop-confirm dialog auto-paused a live
-  // recording — so closing the dialog without choosing an action resumes
-  // it, but doesn't unpause a recording the user had paused themselves.
-  const autoPausedForStopConfirmRef = useRef(false);
   const pendingStartOptsRef = useRef<{
     mode: RecordingMode;
     displaySurface: DisplaySurface;
@@ -1640,30 +1625,6 @@ export default function RecordRoute() {
     toast.success("Recording download started");
   }, []);
 
-  const requestStop = useCallback(() => {
-    const engine = engineRef.current;
-    if (engine && engine.getState() === "recording") {
-      engine.pause();
-      setIsPaused(true);
-      autoPausedForStopConfirmRef.current = true;
-    } else {
-      autoPausedForStopConfirmRef.current = false;
-    }
-    setShowStopConfirm(true);
-  }, []);
-
-  const onStopConfirmOpenChange = useCallback((open: boolean) => {
-    setShowStopConfirm(open);
-    if (!open && autoPausedForStopConfirmRef.current) {
-      const engine = engineRef.current;
-      if (engine && engine.getState() === "paused") {
-        engine.resume();
-        setIsPaused(false);
-      }
-      autoPausedForStopConfirmRef.current = false;
-    }
-  }, []);
-
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
@@ -1731,8 +1692,8 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc cancels the pre-record countdown. Once recording is live, it opens
-      // the stop confirmation instead.
+      // Esc cancels the pre-record countdown. Once recording is live, it
+      // finishes the clip just like the stop button.
       if (e.key === "Escape") {
         if (uiState === "countdown") {
           e.preventDefault();
@@ -1740,14 +1701,10 @@ export default function RecordRoute() {
           void doCancel();
           return;
         }
-        if (!showStopConfirm && uiState === "recording") {
+        if (uiState === "recording") {
           e.preventDefault();
-          // Stop propagation so the same Esc keydown doesn't also trigger
-          // the AlertDialog's built-in Esc-to-close handler, which would
-          // immediately dismiss the dialog the moment it opens — leaving
-          // the user trapped in recording state with a flickering dialog.
           e.stopPropagation();
-          requestStop();
+          void doStop();
           return;
         }
       }
@@ -1790,15 +1747,7 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    uiState,
-    showStopConfirm,
-    togglePause,
-    doCancel,
-    restart,
-    fireConfetti,
-    requestStop,
-  ]);
+  }, [uiState, togglePause, doCancel, doStop, restart, fireConfetti]);
 
   // Query params can preselect recorder controls, but browser capture must
   // still start from the user's Start click. Calling getDisplayMedia from an
@@ -2002,9 +1951,9 @@ export default function RecordRoute() {
           elapsedMs={elapsedMs}
           isPaused={isPaused}
           onTogglePause={togglePause}
-          onStop={requestStop}
+          onStop={() => void doStop()}
           onConfetti={fireConfetti}
-          onCancel={requestStop}
+          onCancel={() => void doCancel()}
         />
       )}
 
@@ -2099,54 +2048,6 @@ export default function RecordRoute() {
           )}
         </div>
       )}
-
-      {/* Stop confirmation */}
-      <AlertDialog
-        open={showStopConfirm}
-        onOpenChange={onStopConfirmOpenChange}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Stop recording?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Save this recording to your library, discard it, or keep going.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel>Keep recording</AlertDialogCancel>
-            <Button
-              variant="outline"
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void doCancel();
-              }}
-            >
-              Discard
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void restart();
-              }}
-            >
-              Restart
-            </Button>
-            <AlertDialogAction
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void doStop();
-              }}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Stop and save
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

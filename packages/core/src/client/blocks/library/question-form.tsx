@@ -246,7 +246,7 @@ function QuestionView({
                       // keyboard behaviour clean.
                       // eslint-disable-next-line jsx-a11y/no-static-element-interactions
                       <div
-                        className="ml-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]"
+                        className="ml-8 grid min-w-0 max-w-full gap-4"
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ")

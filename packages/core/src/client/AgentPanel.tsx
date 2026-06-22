@@ -2662,6 +2662,7 @@ export function AgentSidebar({
           emptyStateText={emptyStateText}
           suggestions={suggestions}
           dynamicSuggestions={dynamicSuggestions}
+          missingApiKeySetupLayout="sidebar"
           onCollapse={() => setOpenPersisted(false)}
           isFullscreen={effectiveFullscreen}
           onToggleFullscreen={

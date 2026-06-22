@@ -292,14 +292,27 @@
 .plan-document-flow > .plan-callout,
 .plan-document-flow > .plan-questions-block,
 .plan-document-flow > .an-block-panel,
-.plan-document-flow > .plan-block-node {
+.plan-document-flow > .plan-block-node,
+.plan-document-flow > .plan-document-flow-block {
   margin-top: 1.25rem;
+}
+
+.plan-document-flow > .plan-document-flow-block > .plan-block,
+.plan-document-flow > .plan-document-flow-block > .plan-callout,
+.plan-document-flow > .plan-document-flow-block > .plan-questions-block,
+.plan-document-flow > .plan-document-flow-block > .an-block-panel,
+.plan-document-flow > .plan-document-flow-block > .plan-block-node {
+  margin-top: 0;
 }
 
 /* The header already owns a bottom divider + spacing; the first block sits a
  * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
   margin-top: 1rem;
+}
+
+.plan-document-flow--wide-zone > :first-child {
+  margin-top: 1.75rem;
 }
 
 .plan-document-flow .plan-questions-block > .sticky {
@@ -357,6 +370,45 @@
  * title. */
 .plan-document-body {
   position: relative;
+}
+
+@media (min-width: 1024px) {
+  .plan-content-surface[data-plan-layout="wide"] .plan-document-shell {
+    --plan-wide-component-width: min(1560px, calc(100vw - 5rem));
+  }
+
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-flow-block--wide {
+    width: var(--plan-wide-component-width);
+    max-width: var(--plan-wide-component-width);
+    margin-inline: calc((100% - var(--plan-wide-component-width)) / 2);
+  }
+
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="diff"]
+    ),
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="tabs"] [data-wide-layout-block]
+    ) {
+    width: var(--plan-wide-component-width);
+    max-width: var(--plan-wide-component-width);
+    margin-inline: calc((100% - var(--plan-wide-component-width)) / 2);
+  }
+
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-block-node[data-block-type="wireframe"]
+    .plan-kit-wireframe,
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-block-node[data-block-type="wireframe"]
+    .plan-html-frame {
+    margin-inline: auto;
+  }
 }
 
 @media (min-width: 1400px) {

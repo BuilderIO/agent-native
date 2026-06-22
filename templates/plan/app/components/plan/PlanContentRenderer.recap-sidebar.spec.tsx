@@ -81,6 +81,55 @@ function recapWireframeContent(): PlanContent {
   } as unknown as PlanContent;
 }
 
+function recapWideLayoutContent(): PlanContent {
+  return {
+    version: 2,
+    title: "Visual recap",
+    brief: "brief",
+    blocks: [
+      {
+        id: "tree-1",
+        type: "file-tree",
+        title: "Files changed",
+        data: {
+          title: "Files changed",
+          entries: [{ path: "packages/core/src/a.ts", change: "modified" }],
+        },
+      },
+      {
+        id: "intro",
+        type: "rich-text",
+        data: { markdown: "## Intro\n\nThe narrow reading copy stays here." },
+      },
+      {
+        id: "api-1",
+        type: "api-endpoint",
+        title: "Plan generation action",
+        data: {
+          method: "POST",
+          path: "/_agent-native/actions/create-visual-plan",
+          summary: "API blocks stay in the standard document column.",
+        },
+      },
+      {
+        id: "diff-1",
+        type: "diff",
+        title: "Key diff",
+        data: {
+          filename: "templates/plan/app/pages/PlansPage.tsx",
+          before: "const layout = 'narrow';\n",
+          after: "const layout = 'wide';\n",
+        },
+      },
+      {
+        id: "after-wide",
+        type: "rich-text",
+        data: { markdown: "## After wide\n\nLinks still resolve down here." },
+      },
+    ],
+  } as unknown as PlanContent;
+}
+
 function rtlContent(): PlanContent {
   return {
     version: 2,
@@ -323,6 +372,108 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(toc?.textContent).toContain("Section A");
     expect(toc?.textContent).toContain("Section B");
     expect(toc?.textContent).not.toContain("Files changed");
+  });
+
+  it("defaults to wide layout and moves blocks from the first wide component into a breakout zone", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={recapWideLayoutContent()}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const article = container.querySelector<HTMLElement>(
+      "[data-plan-document]",
+    );
+    expect(article?.dataset.planLayout).toBe("wide");
+
+    const body = container.querySelector<HTMLElement>(".plan-document-body");
+    const wideZone = container.querySelector<HTMLElement>(
+      ".plan-document-flow--wide-zone",
+    );
+    expect(body).not.toBeNull();
+    expect(wideZone).not.toBeNull();
+
+    const mainFlow = container.querySelector<HTMLElement>(
+      ".plan-document-flow:not(.plan-document-flow--wide-zone)",
+    );
+    expect(mainFlow).not.toBeNull();
+    expect(mainFlow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
+    expect(mainFlow?.querySelector('[data-block-id="intro"]')).not.toBeNull();
+    expect(mainFlow?.querySelector('[data-block-id="api-1"]')).not.toBeNull();
+    expect(
+      mainFlow?.querySelector(
+        '.plan-document-flow-block[data-block-type="api-endpoint"][data-wide-layout-block]',
+      ),
+    ).toBeNull();
+    expect(mainFlow?.querySelector('[data-block-id="diff-1"]')).toBeNull();
+    expect(wideZone?.closest(".plan-document-body")).toBe(body);
+    expect(wideZone?.querySelector('[data-block-id="diff-1"]')).not.toBeNull();
+    expect(
+      wideZone?.querySelector(
+        '.plan-document-flow-block[data-block-type="diff"][data-wide-layout-block]',
+      ),
+    ).not.toBeNull();
+    expect(
+      wideZone?.querySelector('[data-block-id="after-wide"]'),
+    ).not.toBeNull();
+
+    const afterWideLink = Array.from(
+      container.querySelectorAll<HTMLAnchorElement>(".plan-document-toc__link"),
+    ).find((link) => link.textContent?.trim() === "After wide");
+    expect(afterWideLink).toBeDefined();
+
+    act(() => {
+      afterWideLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("resolves direct hash links into the wide breakout zone", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    window.location.hash = "#plan-heading-after-wide-0";
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={recapWideLayoutContent()}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    });
+
+    const target = container.querySelector<HTMLElement>(
+      "#plan-heading-after-wide-0",
+    );
+    expect(target?.textContent).toContain("After wide");
+    expect(target?.closest(".plan-document-flow--wide-zone")).not.toBeNull();
+    expect(scrollIntoView).toHaveBeenCalled();
+    window.location.hash = "";
   });
 
   it("syncs the clean/sketchy preference into core-rendered recap wireframes", () => {

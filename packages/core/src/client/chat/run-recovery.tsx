@@ -397,18 +397,23 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 
 // ─── BuilderSetupCard ─────────────────────────────────────────────────────────
 
+export type BuilderSetupCardLayout = "default" | "sidebar";
+
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
   fullWidth,
+  layout = "default",
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
   fullWidth?: boolean;
+  layout?: BuilderSetupCardLayout;
 }) {
   // Progressive disclosure: the card leads with one-click Builder connect while
   // keeping the bring-your-own-key path close by.
   const [keyOpen, setKeyOpen] = useState(false);
+  const sidebarLayout = layout === "sidebar";
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Replay the bounce keyframe each time bouncePulse increments. Toggling the
@@ -426,11 +431,13 @@ export function BuilderSetupCard({
   return (
     <div
       ref={cardRef}
-      className={
+      className={cn(
         fullWidth
           ? "w-full pb-2"
-          : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit"
-      }
+          : sidebarLayout
+            ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
+            : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
+      )}
     >
       <div className="rounded-lg border border-border/80 bg-background/80 p-3 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -442,15 +449,27 @@ export function BuilderSetupCard({
               Use Builder.io (free credits), or add an Anthropic/OpenAI key.
             </p>
           </div>
-          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+          <div
+            className={cn(
+              "flex shrink-0",
+              sidebarLayout
+                ? "flex-col items-start gap-0 sm:items-center"
+                : "flex-nowrap items-center gap-2",
+            )}
+          >
             <BuilderConnectCta variant="compact" onConnected={onConnected} />
             <button
               type="button"
               onClick={() => setKeyOpen((open) => !open)}
-              className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-md border border-border bg-background px-3 text-[11px] font-medium text-foreground hover:bg-accent"
+              className={cn(
+                "inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
+                sidebarLayout
+                  ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
+              )}
               aria-expanded={keyOpen}
             >
-              Use API key
+              {sidebarLayout ? "Or, use API key" : "Use API key"}
             </button>
           </div>
         </div>

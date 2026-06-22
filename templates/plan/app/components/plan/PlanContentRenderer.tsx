@@ -41,6 +41,10 @@ import { usePlanHashScroll } from "./usePlanHashScroll";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { getPlanContentDirection } from "./planTextDirection";
 
+type PlanDocumentLayout = "wide" | "narrow";
+
+const DEFAULT_PLAN_DOCUMENT_LAYOUT: PlanDocumentLayout = "wide";
+
 const loadPlanDocumentEditor = () => import("../editor/PlanDocumentEditor");
 const LazyPlanDocumentEditor = lazy(() =>
   loadPlanDocumentEditor().then((mod) => ({ default: mod.PlanDocumentEditor })),
@@ -440,6 +444,7 @@ export function PlanContentRenderer({
     () => getPlanContentDirection(content, fallbackTitle, fallbackBrief),
     [content, fallbackBrief, fallbackTitle],
   );
+  const documentLayout = DEFAULT_PLAN_DOCUMENT_LAYOUT;
 
   const blockRenderContext = useMemo(
     () =>
@@ -580,6 +585,20 @@ export function PlanContentRenderer({
     () => new Map(content.blocks.map((block) => [block.id, block])),
     [content.blocks],
   );
+  const firstWideLayoutBlockIndex = useMemo(
+    () =>
+      documentLayout === "wide"
+        ? renderedBlocks.findIndex(isWideLayoutBlock)
+        : -1,
+    [documentLayout, renderedBlocks],
+  );
+  const splitWideLayout = firstWideLayoutBlockIndex >= 0 && !documentEditable;
+  const railScopedBlocks = splitWideLayout
+    ? renderedBlocks.slice(0, firstWideLayoutBlockIndex)
+    : renderedBlocks;
+  const breakoutBlocks = splitWideLayout
+    ? renderedBlocks.slice(firstWideLayoutBlockIndex)
+    : [];
 
   /**
    * Map from file path → first block id that references the file. Built from
@@ -642,6 +661,7 @@ export function PlanContentRenderer({
         className="plan-content-surface relative min-h-full bg-plan-document text-plan-text"
         data-plan-document
         data-plan-direction={documentDirection}
+        data-plan-layout={documentLayout}
         data-recap-screenshot-theme={recapScreenshotTheme ?? undefined}
       >
         {autosaveFailed && (
@@ -785,17 +805,19 @@ export function PlanContentRenderer({
                   // blocks are inline `planBlock` NodeViews. Read-only / review /
                   // SSR keeps the per-block render below (no Tiptap server-side).
                   <Suspense
-                    fallback={renderedBlocks.map((block) => (
-                      <PlanBlockView
-                        key={block.id}
-                        block={block}
-                        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                        contentUpdatedAt={contentUpdatedAt}
-                        editingDisabled
-                        planId={planId}
-                        collabUser={collabUser}
-                      />
-                    ))}
+                    fallback={renderedBlocks.map((block) =>
+                      renderFlowBlockFrame(
+                        block,
+                        <PlanBlockView
+                          block={block}
+                          onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                          contentUpdatedAt={contentUpdatedAt}
+                          editingDisabled
+                          planId={planId}
+                          collabUser={collabUser}
+                        />,
+                      ),
+                    )}
                   >
                     <LazyPlanDocumentEditor
                       content={content}
@@ -808,27 +830,100 @@ export function PlanContentRenderer({
                     />
                   </Suspense>
                 ) : (
-                  renderedBlocks.map((block) => (
-                    <PlanBlockView
-                      key={block.id}
-                      block={block}
-                      onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
-                      onRichTextChange={updateRichTextBlock}
-                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                      contentUpdatedAt={contentUpdatedAt}
-                      editingDisabled={editingDisabled}
-                      planId={planId}
-                      collabUser={collabUser}
-                    />
-                  ))
+                  railScopedBlocks.map((block) =>
+                    renderFlowBlockFrame(
+                      block,
+                      <PlanBlockView
+                        block={block}
+                        onChange={(nextBlock) =>
+                          updateBlock(block.id, nextBlock)
+                        }
+                        onRichTextChange={updateRichTextBlock}
+                        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                        contentUpdatedAt={contentUpdatedAt}
+                        editingDisabled={editingDisabled}
+                        planId={planId}
+                        collabUser={collabUser}
+                      />,
+                    ),
+                  )
                 )}
               </div>
+              {!documentEditable && breakoutBlocks.length > 0 && (
+                <div className="plan-document-flow plan-document-flow--wide-zone">
+                  {breakoutBlocks.map((block) =>
+                    renderFlowBlockFrame(
+                      block,
+                      <PlanBlockView
+                        block={block}
+                        onChange={(nextBlock) =>
+                          updateBlock(block.id, nextBlock)
+                        }
+                        onRichTextChange={updateRichTextBlock}
+                        onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                        contentUpdatedAt={contentUpdatedAt}
+                        editingDisabled={editingDisabled}
+                        planId={planId}
+                        collabUser={collabUser}
+                      />,
+                    ),
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
       </article>
     </BlockRegistryProvider>
   );
+}
+
+function renderFlowBlockFrame(block: PlanBlock, node: ReactNode) {
+  const wide = isWideLayoutBlock(block);
+  return (
+    <div
+      key={block.id}
+      className={cn(
+        "plan-document-flow-block",
+        wide && "plan-document-flow-block--wide",
+      )}
+      data-block-type={block.type}
+      data-wide-layout-block={wide ? "" : undefined}
+    >
+      {node}
+    </div>
+  );
+}
+
+function isWideLayoutBlock(block: PlanBlock): boolean {
+  switch (block.type) {
+    case "diff":
+      return true;
+    case "tabs":
+      return (
+        block.data.orientation === "vertical" ||
+        block.data.tabs.some((tab) => blocksContainDiff(tab.blocks))
+      );
+    default:
+      return false;
+  }
+}
+
+function blocksContainDiff(blocks: PlanBlock[]): boolean {
+  return blocks.some(blockContainsDiff);
+}
+
+function blockContainsDiff(block: PlanBlock): boolean {
+  if (block.type === "diff") return true;
+  if (block.type === "tabs") {
+    return block.data.tabs.some((tab) => blocksContainDiff(tab.blocks));
+  }
+  if (block.type === "columns") {
+    return block.data.columns.some((column) =>
+      blocksContainDiff(column.blocks),
+    );
+  }
+  return false;
 }
 
 /**
@@ -880,17 +975,26 @@ function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
 
 function filesSidebarHideCss(blockId: string): string {
   const id = blockId.replace(/["\\]/g, "\\$&");
-  const leadReset = [
+  const leadResetSelectors = [
     ".plan-block",
     ".plan-callout",
     ".plan-questions-block",
     ".an-block-panel",
     ".plan-block-node",
-  ]
-    .map((sel) => `.plan-document-flow > [data-block-id="${id}"] + ${sel}`)
-    .join(",\n");
+    ".plan-document-flow-block",
+  ];
+  const leadReset = [
+    ...leadResetSelectors.map(
+      (sel) => `.plan-document-flow > [data-block-id="${id}"] + ${sel}`,
+    ),
+    ...leadResetSelectors.map(
+      (sel) =>
+        `.plan-document-flow > .plan-document-flow-block:has([data-block-id="${id}"]) + ${sel}`,
+    ),
+  ].join(",\n");
   return `@media (min-width: 1400px){
 .plan-document-flow [data-block-id="${id}"]{display:none}
+.plan-document-flow > .plan-document-flow-block:has([data-block-id="${id}"]){display:none}
 ${leadReset}{margin-top:2.25rem;padding-top:0}
 }`;
 }
