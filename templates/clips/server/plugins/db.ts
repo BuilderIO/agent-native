@@ -667,6 +667,30 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS calendar_account_shares_resource_principal_idx ON calendar_account_shares (resource_id, principal_type, principal_id)`,
       ].join("; "),
     },
+    {
+      version: 42,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_browser_diagnostics (
+          recording_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          workspace_id TEXT NOT NULL,
+          org_id TEXT,
+          session_id TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'browser-recorder',
+          phase TEXT NOT NULL DEFAULT 'recording',
+          page_url TEXT,
+          user_agent TEXT,
+          started_at TEXT NOT NULL,
+          ended_at TEXT NOT NULL,
+          console_logs_json TEXT NOT NULL DEFAULT '[]',
+          network_requests_json TEXT NOT NULL DEFAULT '[]',
+          redaction_version INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_browser_diagnostics_owner_idx ON recording_browser_diagnostics (owner_email, updated_at)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

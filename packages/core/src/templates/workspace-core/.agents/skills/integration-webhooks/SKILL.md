@@ -213,6 +213,17 @@ The adapter is **only** responsible for:
 It does **not** know about the queue, the processor, retries, or the agent
 loop. Those are handled by the shared webhook handler.
 
+### Slack non-message events
+
+Slack's Events API also sends events that are not agent messages, such as
+`link_shared` for app unfurls. Do not map those into `IncomingMessage` unless
+they should actually run the agent. Handle them as short, provider-specific
+webhook work: verify the Slack signature, return `200 OK` quickly, and call the
+provider API needed for the event (`chat.unfurl` for link previews). If a single
+Slack app must handle both agent chat and app unfurls, put a dispatcher in front
+of the one Slack Events Request URL and route message events to the integration
+webhook flow while routing `link_shared` to the app-specific unfurl handler.
+
 ## Long-Running Agent Work
 
 The processor endpoint runs in a fresh function execution with its own full

@@ -180,6 +180,7 @@ describe("AnnotatedCodeBlock annotations", () => {
       ),
     ).toBeNull();
     expect(markers[0]?.className).toContain("cursor-pointer");
+    expect(markers[0]?.hasAttribute("title")).toBe(false);
   });
 
   it("anchors a multi-line annotation popover to the first line in the range", () => {
@@ -579,6 +580,106 @@ describe("AnnotatedCodeBlock annotations", () => {
       );
     });
     expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+  });
+
+  it("dismisses the popover when the viewport layout changes", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+  });
+
+  it("dismisses the popover when the user interacts outside it", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      container.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+        }),
+      );
+    });
+
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
   it("keeps the popover open when the hover card itself scrolls", () => {

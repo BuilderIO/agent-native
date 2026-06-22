@@ -40,6 +40,23 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
+- Slack unfurls use `/api/slack/unfurl` for `link_shared` events and only
+  return playable `chat.unfurl` video blocks for ready public clips with no
+  password, no expiry hit, and no archive/trash marker. Private, org-only,
+  passworded, expired, or unfinished clips should fall back to normal link
+  metadata and require opening Clips.
+- Browser recordings can include redacted browser diagnostics captured during
+  the recording session. `save-browser-diagnostics` is UI/internal and stores
+  bounded console logs plus fetch/XHR method, URL path/query keys, status, and
+  duration; it never captures headers, bodies, cookies, or query values. Use
+  `get-recording-player-data` for full diagnostics when you have editor access;
+  public agent context only exposes a compact issue summary.
+- The Chrome extension lives in `chrome-extension/`. It launches `/record` with
+  `clipsExtensionId` and `clipsCaptureSessionId`, then the recorder sends
+  `CLIPS_CAPTURE_START/STOP/CANCEL` back to the extension. The extension uses
+  the Chrome debugger API only on the tab the user launched from, only while a
+  recording is active, and returns the same redacted diagnostics shape saved by
+  `save-browser-diagnostics`.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
 

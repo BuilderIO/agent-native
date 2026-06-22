@@ -18,6 +18,10 @@ import {
   parseTranscriptSegments,
 } from "../../shared/transcript-segments.js";
 import {
+  parseBrowserDiagnosticsRow,
+  type BrowserDiagnosticsData,
+} from "../../shared/browser-diagnostics.js";
+import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom.js";
@@ -306,6 +310,48 @@ export async function loadAgentCtas(recordingId: string) {
     .orderBy(asc(schema.recordingCtas.createdAt));
 }
 
+export async function loadAgentBrowserDiagnostics(recordingId: string) {
+  const [row] = await getDb()
+    .select()
+    .from(schema.recordingBrowserDiagnostics)
+    .where(eq(schema.recordingBrowserDiagnostics.recordingId, recordingId))
+    .limit(1);
+  return parseBrowserDiagnosticsRow(row);
+}
+
+function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
+  if (!diagnostics) return null;
+  const consoleIssues = diagnostics.consoleLogs
+    .filter((entry) => entry.level === "warn" || entry.level === "error")
+    .slice(-20)
+    .map((entry) => ({
+      timestampMs: entry.elapsedMs,
+      level: entry.level,
+      message: entry.message,
+    }));
+  const failedNetworkRequests = diagnostics.networkRequests
+    .filter(
+      (entry) =>
+        Boolean(entry.error) ||
+        (typeof entry.status === "number" && entry.status >= 400),
+    )
+    .slice(-20)
+    .map((entry) => ({
+      timestampMs: entry.elapsedMs,
+      type: entry.type,
+      method: entry.method,
+      status: entry.status ?? null,
+      error: entry.error ?? null,
+      durationMs: entry.durationMs,
+    }));
+  return {
+    summary: diagnostics.summary,
+    consoleIssues,
+    failedNetworkRequests,
+    note: "Diagnostics are redacted and bounded; public context omits page URLs, request URLs, headers, bodies, cookies, and query values.",
+  };
+}
+
 export function buildPublicAgentContext({
   event,
   access,
@@ -313,6 +359,7 @@ export function buildPublicAgentContext({
   agentSegments,
   chapters,
   ctas,
+  browserDiagnostics,
 }: {
   event: H3Event;
   access: PublicAgentAccess;
@@ -320,6 +367,7 @@ export function buildPublicAgentContext({
   agentSegments: ReturnType<typeof toAgentTranscriptSegments>;
   chapters: ReturnType<typeof parseAgentChapters>;
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
+  browserDiagnostics?: BrowserDiagnosticsData | null;
 }) {
   const recording = access.recording;
   const requestUrl = getRequestURL(event);
@@ -343,6 +391,11 @@ export function buildPublicAgentContext({
       }));
   const instructions = [
     "Use transcript.segments for timestamped spoken context.",
+    ...(browserDiagnostics
+      ? [
+          "Use browserDiagnostics for redacted console warnings/errors and failed network requests captured during the recording.",
+        ]
+      : []),
     ...(isLoomEmbedBacked
       ? [
           "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
@@ -401,6 +454,7 @@ export function buildPublicAgentContext({
     },
     chapters,
     recommendedFrames: suggestedFrames,
+    browserDiagnostics: compactBrowserDiagnostics(browserDiagnostics ?? null),
     ctas: ctas.map((cta) => ({
       label: cta.label,
       url: cta.url,

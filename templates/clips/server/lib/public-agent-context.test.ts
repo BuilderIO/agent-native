@@ -262,4 +262,97 @@ describe("buildPublicAgentContext", () => {
     expect(context.apis).toHaveProperty("frame");
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
   });
+
+  it("exposes compact redacted browser diagnostics in public agent context", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: "https://clips.example.com/record",
+        userAgent: "Test",
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: 2,
+          consoleErrorCount: 1,
+          consoleWarnCount: 1,
+          networkCount: 2,
+          networkFailureCount: 1,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs: [
+          {
+            timestampMs: 1,
+            elapsedMs: 1,
+            level: "log",
+            message: "Started",
+          },
+          {
+            timestampMs: 2,
+            elapsedMs: 2,
+            level: "error",
+            message: "Failed without token=<redacted>",
+          },
+        ],
+        networkRequests: [
+          {
+            timestampMs: 3,
+            elapsedMs: 3,
+            type: "fetch",
+            method: "GET",
+            url: "https://api.example.com/fail?token=<redacted>",
+            status: 500,
+            durationMs: 120,
+          },
+          {
+            timestampMs: 4,
+            elapsedMs: 4,
+            type: "xhr",
+            method: "POST",
+            url: "/ok",
+            status: 200,
+            durationMs: 40,
+          },
+        ],
+      },
+    });
+
+    expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
+    expect(context.browserDiagnostics?.consoleIssues).toEqual([
+      {
+        timestampMs: 2,
+        level: "error",
+        message: "Failed without token=<redacted>",
+      },
+    ]);
+    expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
+      {
+        timestampMs: 3,
+        type: "fetch",
+        method: "GET",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+    ]);
+    expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
+    expect(
+      context.browserDiagnostics?.failedNetworkRequests[0],
+    ).not.toHaveProperty("url");
+  });
 });

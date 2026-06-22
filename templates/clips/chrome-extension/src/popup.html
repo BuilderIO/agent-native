@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Record with Clips</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="popup-page">
+    <main class="popup-shell">
+      <header class="masthead">
+        <div class="brand-mark" aria-hidden="true">C</div>
+        <div>
+          <p class="eyebrow">Clips</p>
+          <h1>Record this bug</h1>
+        </div>
+      </header>
+
+      <div class="target" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div class="target-copy">
+          <div id="target-title" class="target-title">Loading current tab</div>
+          <div id="target-url" class="target-url"></div>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-label">Capture</div>
+        <div class="surface-grid" role="radiogroup" aria-label="Capture source">
+          <button
+            class="surface-option"
+            type="button"
+            role="radio"
+            aria-checked="true"
+            data-surface="browser"
+          >
+            <span class="surface-title">Current tab</span>
+            <span class="surface-subtitle">Best for product bugs</span>
+          </button>
+          <button
+            class="surface-option"
+            type="button"
+            role="radio"
+            aria-checked="false"
+            data-surface="window"
+          >
+            <span class="surface-title">Window</span>
+            <span class="surface-subtitle">One app or browser</span>
+          </button>
+          <button
+            class="surface-option"
+            type="button"
+            role="radio"
+            aria-checked="false"
+            data-surface="monitor"
+          >
+            <span class="surface-title">Screen</span>
+            <span class="surface-subtitle">Everything visible</span>
+          </button>
+          <button
+            class="surface-option"
+            type="button"
+            role="radio"
+            aria-checked="false"
+            data-surface="camera"
+          >
+            <span class="surface-title">Camera only</span>
+            <span class="surface-subtitle">No screen share</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="toggles" aria-label="Recording options">
+        <label class="toggle-row" for="include-camera">
+          <span>
+            <span class="toggle-title">Camera bubble</span>
+            <span class="toggle-subtitle"
+              >Overlay your camera when sharing a screen.</span
+            >
+          </span>
+          <input id="include-camera" type="checkbox" role="switch" />
+        </label>
+
+        <label class="toggle-row" for="include-developer-logs">
+          <span>
+            <span class="toggle-title">Developer logs</span>
+            <span class="toggle-subtitle"
+              >Redacted console and fetch/XHR metadata.</span
+            >
+          </span>
+          <input id="include-developer-logs" type="checkbox" role="switch" />
+        </label>
+      </section>
+
+      <p class="hint">
+        Pick microphone and tab audio inside Clips. Chrome still asks before any
+        recording starts.
+      </p>
+
+      <button id="start" class="primary-action" type="button">
+        Start recording
+      </button>
+
+      <footer class="footer-actions">
+        <button id="open-options" class="text-button" type="button">
+          Settings
+        </button>
+        <span
+          id="status"
+          class="status"
+          role="status"
+          aria-live="polite"
+        ></span>
+      </footer>
+    </main>
+
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

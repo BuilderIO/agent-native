@@ -3,6 +3,7 @@ import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentNativePath } from "../api-path.js";
+import { formatChatErrorText, normalizeChatError } from "../error-format.js";
 import {
   settleInterruptedToolCalls,
   type ContentPart,
@@ -1555,10 +1556,11 @@ function applyRuntimeEventToContent(
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "error") {
+    const normalized = normalizeChatError(typed.error, typed.code);
     settleInterruptedToolCalls(content);
     content.push({
       type: "text",
-      text: `Something went wrong: ${typed.error}`,
+      text: formatChatErrorText(typed.error, undefined, typed.code),
     });
     return {
       content: [...content],
@@ -1566,7 +1568,8 @@ function applyRuntimeEventToContent(
       metadata: {
         custom: {
           runError: {
-            message: typed.error,
+            message: normalized.message,
+            ...(normalized.details ? { details: normalized.details } : {}),
             ...(typed.code ? { errorCode: typed.code } : {}),
             ...(typed.recoverable ? { recoverable: typed.recoverable } : {}),
           },

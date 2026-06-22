@@ -310,6 +310,7 @@ export default function Root() {
     <QueryClientProvider client={queryClient}>
       {mounted ? (
         <AgentSidebar
+          storageKey="docs"
           position="right"
           defaultOpen={false}
           defaultSidebarWidth={400}

@@ -168,7 +168,9 @@ const HIGH_RISK_DATA_CREDENTIAL_KEYS = new Set([
  * Narrow exceptions for deploy-level platform adapters, not data-source reads.
  * Mail uses the Slack bot token only to verify/answer Slack intake events and
  * map the incoming Slack sender to an org member. It must not become a general
- * Slack search/data-source credential.
+ * Slack search/data-source credential. Clips uses its Slack bot token for the
+ * same platform-adapter shape: verifying Slack Events API requests and posting
+ * first-party link unfurls for already-public Clips share URLs.
  */
 const HIGH_RISK_ENV_KEY_ALLOWLIST = new Map([
   ["templates/mail/server/lib/env-config.ts", new Set(["SLACK_BOT_TOKEN"])],
@@ -181,6 +183,10 @@ const HIGH_RISK_ENV_KEY_ALLOWLIST = new Map([
 const HIGH_RISK_PROCESS_ENV_ALLOWLIST = new Map([
   [
     "templates/mail/server/lib/mail-integrations.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+  [
+    "templates/clips/server/routes/api/slack/unfurl.post.ts",
     new Set(["SLACK_BOT_TOKEN"]),
   ],
 ]);

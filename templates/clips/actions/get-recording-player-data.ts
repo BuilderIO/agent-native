@@ -29,6 +29,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 
 function recordingDeepLink(recordingId: string): string {
@@ -99,6 +100,21 @@ export default defineAction({
       .from(schema.recordingCtas)
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
+
+    const [browserDiagnosticsRow] = await db
+      .select()
+      .from(schema.recordingBrowserDiagnostics)
+      .where(
+        eq(schema.recordingBrowserDiagnostics.recordingId, args.recordingId),
+      )
+      .limit(1);
+    const browserDiagnostics = parseBrowserDiagnosticsRow(
+      browserDiagnosticsRow,
+    );
+    const canInspectBrowserDiagnostics =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
 
     // Reverse-lookup: if a meeting captured this recording, surface it so the
     // player can show a "From meeting: <title>" badge linking back to the
@@ -271,6 +287,11 @@ export default defineAction({
         color: c.color,
         placement: c.placement,
       })),
+      browserDiagnostics: browserDiagnostics
+        ? canInspectBrowserDiagnostics
+          ? browserDiagnostics
+          : { summary: browserDiagnostics.summary }
+        : null,
       meeting,
     };
   },

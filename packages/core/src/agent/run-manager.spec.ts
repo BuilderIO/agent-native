@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentChatEvent } from "./types.js";
+import { EngineError } from "./engine/types.js";
 
 vi.mock("./run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
@@ -431,6 +432,32 @@ describe("run manager soft timeout", () => {
         "unknown",
         "boom",
       );
+    });
+  });
+
+  it("maps exhausted provider 429s to a terminal rate-limit error code", async () => {
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-provider-rate-limit",
+      "thread-provider-rate-limit",
+      async () => {
+        throw new EngineError("429 status code (no body)", {
+          statusCode: 429,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() => {
+      expect(events).toContainEqual({
+        type: "error",
+        error: "429 status code (no body)",
+        errorCode: "provider_rate_limited",
+        details: "429 status code (no body)",
+      });
     });
   });
 

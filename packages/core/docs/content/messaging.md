@@ -58,6 +58,30 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
 
 7. Send your bot a DM in Slack. It should reply.
 
+### Optional: app unfurls
+
+Slack app unfurls let an app replace Slack's normal link preview with a richer
+preview. Clips uses this for Loom-style playable video previews.
+
+Add these extra bot scopes when your app needs unfurls:
+
+- `links:read` — lets Slack notify the app when registered domains are posted
+- `links:write` — lets the app replace Slack's default preview
+- `links.embed:write` — lets the app embed approved media/player URLs
+
+Then subscribe to the `link_shared` event and register your public app domains
+under **App Unfurl Domains**. For Clips-only playable previews, set the Slack
+Event Subscriptions Request URL to:
+
+```text
+https://your-clips.example.com/api/slack/unfurl
+```
+
+A Slack app has one Events API Request URL. If the same Slack app should handle
+both agent chat events and Clips unfurls, route Slack events through a small
+dispatcher that sends message events to `/_agent-native/integrations/slack/webhook`
+and `link_shared` events to the Clips unfurl handler.
+
 ### Tips
 
 - **Channel mentions** — the bot only responds in channels when it's @-mentioned, to avoid noise.

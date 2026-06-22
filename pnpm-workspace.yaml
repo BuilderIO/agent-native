@@ -3,6 +3,11 @@ packages:
   - templates/.retired/*
   - templates/*
   - templates/*/desktop
+  - templates/*/chrome-extension
+
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@agent-native/core"
 
 catalog:
   "@tabler/icons-react": ^3.41.1

@@ -752,6 +752,7 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   onMouseEnter,
   onMouseLeave,
   onClose,
+  onInteractOutside,
 }: {
   item: ResolvedAnnotation<A>;
   anchor: AnnotationAnchor;
@@ -763,6 +764,8 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
   onMouseLeave?: () => void;
   /** Called when the card should be dismissed (e.g. on scroll). */
   onClose?: () => void;
+  /** Called when focus or pointer intent moves to the surrounding UI. */
+  onInteractOutside?: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -796,8 +799,9 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
     preferredSide,
   ]);
 
-  // Close the card when the user scrolls so it doesn't float detached. Scrolls
-  // inside a long hover card are local to the card and should not dismiss it.
+  // Close the card when the user scrolls or changes layout so it doesn't float
+  // detached. Scrolls inside a long hover card are local to the card and should
+  // not dismiss it.
   useEffect(() => {
     if (!onClose || typeof window === "undefined") return;
     const handler = (event: Event) => {
@@ -815,9 +819,35 @@ export function AnnotationHoverCard<A extends RailAnnotation>({
       capture: true,
       passive: true,
     });
-    return () =>
+    window.addEventListener("resize", handler, { passive: true });
+    return () => {
       window.removeEventListener("scroll", handler, { capture: true });
+      window.removeEventListener("resize", handler);
+    };
   }, [onClose]);
+
+  useEffect(() => {
+    const closeOutside = onInteractOutside ?? onClose;
+    if (!closeOutside || typeof window === "undefined") return;
+    const handler = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (cardRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest("[data-code-line],[data-annotated-code-marker]")
+      ) {
+        return;
+      }
+      closeOutside();
+    };
+    window.addEventListener("pointerdown", handler, { capture: true });
+    window.addEventListener("focusin", handler, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", handler, { capture: true });
+      window.removeEventListener("focusin", handler, { capture: true });
+    };
+  }, [onClose, onInteractOutside]);
 
   if (typeof document === "undefined") return null;
 
