@@ -309,13 +309,15 @@ describe("PlanContentRenderer recap files sidebar", () => {
     const flow = container.querySelector(".plan-document-flow");
     expect(flow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
 
-    // A breakpoint-scoped rule hides the in-flow copy at wide widths.
+    // A container-query-scoped rule hides the in-flow copy when the rail shows
+    // (keyed off the surface container, not the viewport).
     const styles = Array.from(container.querySelectorAll("style"))
       .map((node) => node.textContent ?? "")
       .join("\n");
     expect(styles).toContain('[data-block-id="tree-1"]');
     expect(styles).toContain("display:none");
-    expect(styles).toContain("min-width: 1400px");
+    expect(styles).toContain("@container plan-doc");
+    expect(styles).toContain("min-width: 58rem");
 
     // The contents rail drops the relocated block but keeps the prose sections.
     const toc = container.querySelector(".plan-document-toc");
@@ -428,6 +430,53 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(sourceLink?.textContent).toBe("BuilderIO/ai-services#5385");
     expect(stats?.textContent).toBe("2 files · +1");
     expect(sourceLink?.parentElement).toBe(stats?.parentElement);
+  });
+
+  it("does not reserve a contents rail when only the files heading + one section remain", () => {
+    // A "Files changed" heading + file-tree both relocate to the left rail, so
+    // the contents nav should count what's LEFT (one real section) — not enough
+    // for a rail. `data-has-toc` must stay absent so the grid reserves no empty
+    // TOC column, and PlanTableOfContents renders neither rail nor accordion.
+    const content = {
+      version: 2,
+      title: "Recap",
+      brief: "brief",
+      blocks: [
+        {
+          id: "files-h",
+          type: "rich-text",
+          data: { markdown: "## Files changed" },
+        },
+        {
+          id: "tree-1",
+          type: "file-tree",
+          title: "Files changed",
+          data: { entries: [{ path: "a.ts", change: "modified" }] },
+        },
+        {
+          id: "rt-only",
+          type: "rich-text",
+          data: { markdown: "## Overview\n\nbody" },
+        },
+      ],
+    } as unknown as PlanContent;
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={content}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const body = container.querySelector<HTMLElement>(".plan-document-body");
+    expect(body?.hasAttribute("data-has-toc")).toBe(false);
+    expect(container.querySelector(".plan-document-toc")).toBeNull();
+    expect(container.querySelector(".plan-document-toc-inline")).toBeNull();
   });
 
   it("leaves non-recap plans unchanged (no files sidebar, no hide style)", () => {
