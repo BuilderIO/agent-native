@@ -641,10 +641,14 @@ desktop frames plus compact \`mobile\`, \`popover\`, or \`panel\` surfaces, do n
 everything in one horizontal strip. Use board-level artboard \`x\`/\`y\` to reserve
 lanes with generous empty space: main flow on one row, compact surfaces in their
 own column or row, and loading/error states in a lower row. Keep at least 96px
-between rendered artboard rectangles plus room for annotation gutters. Connect
-only neighboring steps; never draw a long connector that skips across unrelated
-frames. Before handoff, inspect the top canvas at default zoom and move any
-frame whose label, connector, or annotation crosses another frame.
+between rendered artboard rectangles plus room for annotation gutters; when a
+broad browser/desktop frame sits beside a compact panel/popover, leave at least
+160px so frame borders, labels, and hover controls never touch. Connect only
+neighboring steps; never draw a long connector that skips across unrelated
+frames. Connector labels must sit in open canvas space. If the label would touch
+or cross either artboard, remove the label and explain the transition with a
+nearby annotation instead. Before handoff, inspect the top canvas at default zoom
+and move any frame whose label, connector, or annotation crosses another frame.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
 present, sprinkle Figma-style notes near the frames they explain: a short
@@ -724,10 +728,16 @@ the first artboard a hybrid of app UI and architecture notes; the app screen
 should be inspectable as product UI on its own.
 
 **Legacy kit tree.** Older plans set a \`screen\` array of \`{ el, ...props }\` kit
-nodes instead of \`html\`; the renderer still accepts and displays it, but new
-plans emit \`html\`. Do not author fresh kit-tree screens - write the HTML mockup
-instead. Likewise, old or imported plans may carry coordinate-based regions or
-free-float x/y on notes; those are legacy escape hatches the renderer still
+nodes instead of \`html\`; the renderer still accepts and displays it so saved
+plans round-trip, but new plans emit \`html\`. Do not author fresh kit-tree
+screens, and do not put nested kit components such as \`<FrameScreen>\`, \`<Card>\`,
+\`<Row>\`, \`<Title>\`, or \`<Btn>\` inside a canvas \`<Screen>\`. A new canvas artboard
+with kit-tree children is a defect: replace it with
+\`<Screen surface="..." html={...} />\` using the HTML wireframe rules. The HTML
+path is the one that gets the renderer-owned surface sizing, theme tokens,
+sketch/clean toggle, and safe text layout used by good document-body
+wireframes. Likewise, old or imported plans may carry coordinate-based regions
+or free-float x/y on notes; those are legacy escape hatches the renderer still
 shows but you must never produce. The gutter parks notes by \`targetId\` +
 \`placement\`, and the coordinate rule at the top of this file governs all
 new-plan placement.
@@ -1320,6 +1330,12 @@ in lanes, annotations are plain-text designer notes anchored by
 authoring or editing ANY canvas, artboard, or annotation, READ
 \`references/canvas.md\` in this skill directory — it is the single source of truth
 for canvas/artboard mechanics. Do not author canvas layouts from memory.
+Canvas artboards use the same HTML wireframe path as document-body
+\`WireframeBlock\` screens: author \`<Screen surface="..." html={...} />\` with a
+semantic HTML fragment. Do not author fresh kit-tree children such as
+\`<FrameScreen>\`, \`<Card>\`, \`<Row>\`, or \`<Btn>\` inside canvas \`<Screen>\` tags;
+those are legacy compatibility markup for old plans and produce brittle canvas
+layouts.
 
 ## Document quality — read \`references/document-quality.md\`
 
@@ -1810,6 +1826,19 @@ annotation, toolbar, or wireframe content overlaps another element, fix the MDX
 and re-import before reporting the link. A text-match screenshot is not enough;
 visually inspect the captured image. When no browser is available (for example
 a headless CI agent), state that in the recap handoff instead.
+
+## Top Canvas Recaps — read \`../visual-plans/references/canvas.md\`
+
+When a recap includes a top canvas, storyboard, or flow view, READ
+\`../visual-plans/references/canvas.md\` before authoring \`canvas.mdx\`. Recap
+canvas artboards must use the same HTML wireframe path as good document-body
+wireframes: \`<Screen surface="..." html={...} />\` with a semantic HTML fragment.
+Do not author fresh kit-tree children such as \`<FrameScreen>\`, \`<Card>\`,
+\`<Row>\`, \`<Title>\`, or \`<Btn>\` inside canvas \`<Screen>\` tags. Those components
+are legacy compatibility markup for old plans; in new canvas storyboards they
+can produce cramped or overlapping layouts even when the inline body wireframe
+looks good. If a canvas mockup looks worse than the same screen below the fold,
+assume it used the legacy kit path and replace it with an HTML screen.
 
 ## Open And Report The Recap
 

@@ -19,7 +19,6 @@ import {
   callAction,
   captureClientException,
 } from "@agent-native/core/client";
-import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
@@ -1881,57 +1880,50 @@ export default function RecordRoute() {
         </button>
       )}
 
-      {/* Idle / pre-record panel. `/record` sits outside the `_app`
-          layout, so its own <RequireActiveOrg> gate is needed — otherwise
-          a direct visit (URL bar, bookmark, agent intent) would skip the
-          shell guard and hit a runtime error at create-recording. */}
+      {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
+          it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
-        <RequireActiveOrg
-          title="Create your organization"
-          description="Clips organizes recordings by team. Create an organization to continue — you can invite teammates afterward."
-        >
-          <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
-            <div className="mb-6 flex items-center gap-2 text-primary">
-              <IconVideo className="h-6 w-6" />
-              <span className="text-sm font-medium uppercase tracking-wide">
-                Clips recorder
-              </span>
-            </div>
-            <div className="relative w-full max-w-6xl">
-              <div className="mx-auto w-full max-w-md">
-                {storageConfigured === null ? (
-                  <PreRecordPanelSkeleton />
-                ) : storageConfigured ? (
-                  <PreRecordPanel
-                    onStart={startFlow}
-                    initialMode={
-                      rememberedRecorderOptions?.mode ??
-                      initialRecorderOptions.mode
-                    }
-                    initialDisplaySurface={
-                      rememberedRecorderOptions?.displaySurface ??
-                      initialRecorderOptions.surface
-                    }
-                    onUpload={uploadFile}
-                    onImportLoom={importLoom}
-                    importingLoom={loomImporting}
-                    cameraSize={cameraSize}
-                    onCameraSizeChange={setCameraSize}
-                  />
-                ) : (
-                  <StorageSetupCard
-                    onConfigured={() => markStorageConfigured()}
-                  />
-                )}
-              </div>
-              {!isDesktopApp && (
-                <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
-                  <DesktopRecorderCallout />
-                </div>
+        <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+          <div className="mb-6 flex items-center gap-2 text-primary">
+            <IconVideo className="h-6 w-6" />
+            <span className="text-sm font-medium uppercase tracking-wide">
+              Clips recorder
+            </span>
+          </div>
+          <div className="relative w-full max-w-6xl">
+            <div className="mx-auto w-full max-w-md">
+              {storageConfigured === null ? (
+                <PreRecordPanelSkeleton />
+              ) : storageConfigured ? (
+                <PreRecordPanel
+                  onStart={startFlow}
+                  initialMode={
+                    rememberedRecorderOptions?.mode ??
+                    initialRecorderOptions.mode
+                  }
+                  initialDisplaySurface={
+                    rememberedRecorderOptions?.displaySurface ??
+                    initialRecorderOptions.surface
+                  }
+                  onUpload={uploadFile}
+                  onImportLoom={importLoom}
+                  importingLoom={loomImporting}
+                  cameraSize={cameraSize}
+                  onCameraSizeChange={setCameraSize}
+                />
+              ) : (
+                <StorageSetupCard
+                  onConfigured={() => markStorageConfigured()}
+                />
               )}
             </div>
+            {!isDesktopApp && (
+              <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+                <DesktopRecorderCallout />
+              </div>
+            )}
           </div>
-        </RequireActiveOrg>
+        </div>
       )}
 
       {uiState === "pickingSources" && (

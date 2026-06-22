@@ -201,7 +201,8 @@ describe("getOrgContext", () => {
     expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
-  it("returns null org for a zero-membership user when auto-create is not enabled", async () => {
+  it("returns null org for a zero-membership user when auto-create is disabled", async () => {
+    process.env.AUTO_CREATE_DEFAULT_ORG = "0";
     mockGetSession.mockResolvedValue({ email: "loner@b.com" });
     queueSelect([], []); // memberships, domain auto-join lookup
     const ctx = await getOrgContext(EVENT);
@@ -418,8 +419,7 @@ describe("getOrgContext", () => {
       delete process.env.AUTO_CREATE_DEFAULT_ORG;
     });
 
-    it("provisions a default org for a zero-membership user when enabled", async () => {
-      process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+    it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({
         email: "jane@startup.dev",
         name: "Jane Doe",

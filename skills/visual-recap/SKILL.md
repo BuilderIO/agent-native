@@ -288,6 +288,19 @@ and re-import before reporting the link. A text-match screenshot is not enough;
 visually inspect the captured image. When no browser is available (for example
 a headless CI agent), state that in the recap handoff instead.
 
+## Top Canvas Recaps — read `../visual-plans/references/canvas.md`
+
+When a recap includes a top canvas, storyboard, or flow view, READ
+`../visual-plans/references/canvas.md` before authoring `canvas.mdx`. Recap
+canvas artboards must use the same HTML wireframe path as good document-body
+wireframes: `<Screen surface="..." html={...} />` with a semantic HTML fragment.
+Do not author fresh kit-tree children such as `<FrameScreen>`, `<Card>`,
+`<Row>`, `<Title>`, or `<Btn>` inside canvas `<Screen>` tags. Those components
+are legacy compatibility markup for old plans; in new canvas storyboards they
+can produce cramped or overlapping layouts even when the inline body wireframe
+looks good. If a canvas mockup looks worse than the same screen below the fold,
+assume it used the legacy kit path and replace it with an HTML screen.
+
 ## Open And Report The Recap
 
 In local-files privacy mode, run `plan local check` first, then report the local
