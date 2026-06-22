@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.66.9
+
+### Patch Changes
+
+- 11a28e7: Track first-time Google OAuth signups and flush server-side signup tracking
+  before auth returns so low-volume events are delivered reliably from serverless
+  deployments.
+
 ## 0.66.8
 
 ### Patch Changes
