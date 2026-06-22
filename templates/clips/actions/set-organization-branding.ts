@@ -1,13 +1,14 @@
 /**
- * Update organization branding — brand color, brand logo URL, default
- * visibility — by upserting the Clips-specific `organization_settings`
- * sidecar row. Does NOT change the framework `organizations` row.
+ * Update organization branding — org name, brand color, brand logo URL,
+ * default visibility — by updating the framework `organizations` row for the
+ * name and upserting the Clips-specific `organization_settings` sidecar row.
  *
  * Usage:
  *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png
  */
 
 import { defineAction } from "@agent-native/core";
+import { organizations } from "@agent-native/core/org";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
@@ -24,6 +25,13 @@ export default defineAction({
       .string()
       .optional()
       .describe("Organization id (defaults to the caller's active org)"),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe("Organization display name"),
     brandColor: z
       .string()
       .regex(/^#[0-9a-fA-F]{3,8}$/)
@@ -59,7 +67,16 @@ export default defineAction({
       })
       .onConflictDoNothing();
 
-    // Build the UPDATE dynamically — only patch fields that were passed.
+    let updatedName: string | undefined;
+    if (typeof args.name === "string") {
+      updatedName = args.name.trim();
+      await db
+        .update(organizations)
+        .set({ name: updatedName })
+        .where(eq(organizations.id, organizationId));
+    }
+
+    // Build the settings UPDATE dynamically — only patch fields that were passed.
     const updates: Partial<typeof schema.organizationSettings.$inferInsert> =
       {};
 
@@ -99,6 +116,7 @@ export default defineAction({
 
     return {
       organizationId,
+      name: updatedName,
       brandColor: row?.brandColor ?? "#18181B",
       brandLogoUrl: row?.brandLogoUrl ?? null,
       defaultVisibility: row?.defaultVisibility ?? "private",
