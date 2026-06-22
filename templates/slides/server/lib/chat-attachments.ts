@@ -33,7 +33,7 @@ export async function prepareSlidesChatAttachments(args: {
   ownerEmail: string | null;
   message: string;
   attachments: AgentChatAttachment[];
-}): Promise<{ message?: string } | void> {
+}): Promise<{ message?: string; attachments?: AgentChatAttachment[] } | void> {
   if (!args.ownerEmail || args.attachments.length === 0) return;
 
   const uploaded: Array<{
@@ -44,8 +44,11 @@ export async function prepareSlidesChatAttachments(args: {
     size: number;
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
+  const nextAttachments = [...args.attachments];
 
-  for (const attachment of args.attachments) {
+  for (let index = 0; index < args.attachments.length; index++) {
+    const attachment = args.attachments[index];
+    if (!attachment) continue;
     const dataUrl = attachmentDataUrl(attachment);
     if (!dataUrl) continue;
 
@@ -63,14 +66,14 @@ export async function prepareSlidesChatAttachments(args: {
     }
 
     try {
-      uploaded.push(
-        await saveUploadedReferenceFile({
-          email: args.ownerEmail,
-          originalName: attachment.name,
-          data: decoded.bytes,
-          type: attachment.contentType || decoded.contentType,
-        }),
-      );
+      const saved = await saveUploadedReferenceFile({
+        email: args.ownerEmail,
+        originalName: attachment.name,
+        data: decoded.bytes,
+        type: attachment.contentType || decoded.contentType,
+      });
+      uploaded.push(saved);
+      nextAttachments[index] = stripForwardedAttachmentData(attachment, saved);
     } catch (error) {
       failed.push({
         name: attachment.name,
@@ -119,5 +122,21 @@ export async function prepareSlidesChatAttachments(args: {
     .filter(Boolean)
     .join("\n");
 
-  return { message: `${args.message}\n\n${attachmentContext}` };
+  return {
+    message: `${args.message}\n\n${attachmentContext}`,
+    attachments: nextAttachments,
+  };
+}
+
+function stripForwardedAttachmentData(
+  attachment: AgentChatAttachment,
+  saved: { path: string; url?: string },
+): AgentChatAttachment {
+  const next = { ...attachment };
+  delete next.data;
+  (next as any).slidesUploadPath = saved.path;
+  if (saved.url) {
+    (next as any).url = saved.url;
+  }
+  return next;
 }
