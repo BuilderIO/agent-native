@@ -61,9 +61,20 @@ Organizations are **framework-managed**, not handled by Better Auth's organizati
 
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
-**If your template requires an org to function** (data is scoped by `organization_id`, core features can't run without one), set `AUTO_CREATE_DEFAULT_ORG=1` in your `.env`. The framework will auto-create a default org (named after the user) on first login when no memberships exist. This happens inside `getOrgContext` — no template integration needed.
+If your template requires an org to function because data is scoped by
+`organization_id`, set `AUTO_CREATE_DEFAULT_ORG=1` in that template's runtime
+environment. The framework will auto-create a default org (named after the
+user) on first login when no memberships exist. The auto-create path skips users
+with pending invites or a matching `allowed_domain` org so they can join the
+intended team instead. Leave the flag unset for deployments that intentionally
+support solo `orgId === null` data.
 
-As a safety net, also wrap your app shell in `<RequireActiveOrg>` from `@agent-native/core/client/org`. It blocks the wrapped area with a "Create your organization" pane (and accept-invite CTAs for pending invitations) if auto-create failed or the account predates it. Place it **inside** the agent sidebar so the setup checklist, chat, and CLI stay usable during setup.
+As a safety net, wrap org-scoped app shells or org-scoped routes in
+`<RequireActiveOrg>` from `@agent-native/core/client/org`. It blocks the wrapped
+area with a "Create your organization" pane plus accept-invite/domain-join CTAs
+when no active org exists, preventing org-scoped queries or mutations from
+failing later in the workflow. Place it inside the agent sidebar so the setup
+checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 

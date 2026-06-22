@@ -23,7 +23,12 @@ import {
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
-import { OrgSwitcher, RequireActiveOrg } from "@agent-native/core/client/org";
+import {
+  InvitationBanner,
+  OrgSwitcher,
+  RequireActiveOrg,
+  useOrg,
+} from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,14 +103,21 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
 
-  const { data: organizations } = useOrganizations();
+  const { data: org } = useOrg();
+  const hasActiveOrg = Boolean(org?.orgId);
+  const { data: organizations } = useOrganizations({ enabled: hasActiveOrg });
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
 
-  const { data: spaces } = useSpaces(currentOrganizationId);
-  const { data: libFolders } = useFolders({
-    organizationId: currentOrganizationId,
+  const { data: spaces } = useSpaces(currentOrganizationId, {
+    enabled: hasActiveOrg && Boolean(currentOrganizationId),
   });
+  const { data: libFolders } = useFolders(
+    {
+      organizationId: currentOrganizationId,
+    },
+    { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
+  );
 
   const libFolderList: FolderNode[] = useMemo(
     () =>
@@ -515,6 +527,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   </div>
                 </header>
               )}
+              <InvitationBanner />
               {shouldShowPromo && (
                 <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-2.5 text-sm">
                   <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />

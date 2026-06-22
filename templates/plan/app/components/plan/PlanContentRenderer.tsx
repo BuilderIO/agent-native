@@ -13,7 +13,10 @@ import {
 import { IconBrandGithub } from "@tabler/icons-react";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type { RichMarkdownCollabUser } from "@agent-native/core/client";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import {
+  BlockRegistryProvider,
+  type BlockRenderContext,
+} from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type {
@@ -125,6 +128,22 @@ function blockStructureSignature(blocks: PlanBlock[]): string {
       })
       .join("|");
   return walk(blocks);
+}
+
+export function getPlanCodeAnnotationLayout({
+  isRecap,
+  showCodeAnnotationOverlays,
+}: {
+  isRecap: boolean;
+  showCodeAnnotationOverlays: boolean;
+}): BlockRenderContext["codeAnnotationLayout"] {
+  if (showCodeAnnotationOverlays) return undefined;
+
+  return {
+    hoverSide: isRecap ? "right" : "left",
+    hoverFallbackSide: "right",
+    marginSide: "auto",
+  };
 }
 
 /**
@@ -411,15 +430,10 @@ export function PlanContentRenderer({
   };
   const codeAnnotationLayout = useMemo(
     () =>
-      !showCodeAnnotationOverlays
-        ? ({
-            hoverSide: isRecap ? "right" : "left",
-            hoverFallbackSide: "right",
-            marginSide: "auto",
-            showByDefaultWhenRoom: true,
-            defaultVisibleAnnotations: "first",
-          } as const)
-        : undefined,
+      getPlanCodeAnnotationLayout({
+        isRecap,
+        showCodeAnnotationOverlays,
+      }),
     [isRecap, showCodeAnnotationOverlays],
   );
   const documentDirection = useMemo(

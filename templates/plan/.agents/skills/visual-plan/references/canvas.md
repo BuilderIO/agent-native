@@ -86,6 +86,13 @@ requested UI fidelity, still keep the closest top-surface representation and
 call out or extend the needed renderer capability. A skeleton/loading mockup
 also lives in a canvas artboard — never move a mockup out of the canvas.
 
+**Storyboards are canvas artifacts, not document diagrams.** When the requested
+output is a product flow, onboarding journey, "light storyboard", or canvas
+wireframe, author the flow as multiple top-canvas artboards with real screen
+content and neighboring connectors. Keep document-body `diagram` blocks for
+architecture and mechanics that are not themselves user-visible screens. A
+storyboard made from a single inline HTML diagram is the wrong surface.
+
 For abstract product concepts, use the canvas to create the first "I get it"
 moment: one real app state near the top showing how the concept appears to a
 user, followed by separate annotations or diagrams for mechanics. Do not make

@@ -7,6 +7,7 @@
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+  AUTO_CREATE_DEFAULT_ORG = "1"
   # Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
   # to bundle the matching ffmpeg-static binary into the server bundle so the
   # server-side audio-only transcription fallback (analyzeAudioSignal / audio

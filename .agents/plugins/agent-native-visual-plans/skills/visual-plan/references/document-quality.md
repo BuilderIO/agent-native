@@ -95,7 +95,11 @@ so you never emit a block the editor cannot render or round-trip:
   two-dimensional layouts — paired before/after panels, layered diagrams,
   swimlanes, dependency maps, matrices, or grouped regions; do not default to
   left-to-right chains, and use a line only when the relationship is truly a
-  sequence. For architecture/code
+  sequence. Do not use a body `diagram` as the primary artifact for a requested
+  product canvas, light storyboard, UI flow, screen flow, or wireframe; those
+  belong in the top canvas as artboards with `Screen` wireframes first. Use
+  diagrams below that canvas only for architecture, data flow, or implementation
+  mechanics. For architecture/code
   diagrams, prefer `data.html` / `data.css` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives

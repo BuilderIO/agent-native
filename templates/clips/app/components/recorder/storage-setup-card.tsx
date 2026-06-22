@@ -41,7 +41,7 @@ export function StorageSetupCard({
   onConfigured,
   title = "Set up video storage",
   description = "Connect a storage provider to start recording clips.",
-  connectDescription = "One-click setup — also unlocks LLM and browser automation.",
+  connectDescription = "Free tier includes Builder.io AI credits, AI cleanup, and browser automation.",
   connectedDescription = "You're all set. Starting recorder...",
 }: StorageSetupCardProps) {
   const [connecting, setConnecting] = useState(false);

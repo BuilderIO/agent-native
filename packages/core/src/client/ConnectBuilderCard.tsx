@@ -253,8 +253,8 @@ export function ConnectBuilderCard({
     title = "Connect Builder.io";
     subtitle = (
       <>
-        Connect Builder for managed LLM access, browser automation, and cloud
-        code changes when they are enabled for this workspace.
+        Builder.io's free tier includes AI credits, browser automation, and
+        cloud code when enabled.
       </>
     );
   }

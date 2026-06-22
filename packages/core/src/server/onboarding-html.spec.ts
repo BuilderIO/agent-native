@@ -117,6 +117,20 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
   });
 
+  it("validates email/password auth emails before submitting forms", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain("function __anIsValidAuthEmail(value)");
+    expect(html).toContain("/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/");
+    expect(html).toContain(
+      "Enter a valid email address, like you@example.com.",
+    );
+    expect(html).toContain(
+      "body: JSON.stringify({ email: email, password: pass })",
+    );
+    expect(html).toContain("password: document.getElementById('l-pass').value");
+  });
+
   it("normalizes sign-in return targets before redirect and preserves hashes", () => {
     const html = getOnboardingHtml();
 

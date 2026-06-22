@@ -27,6 +27,12 @@ function isLikelyPersonalWorkspace(
   return membership.orgName.trim() === defaultOrgName(email, session);
 }
 
+function autoCreateDefaultOrgEnabled(): boolean {
+  const raw = process.env.AUTO_CREATE_DEFAULT_ORG;
+  if (raw === undefined || raw.trim() === "") return false;
+  return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+}
+
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -36,12 +42,9 @@ const nanoid = (): string =>
  *
  * - For users in multiple orgs, honors their `active-org-id` user setting.
  * - Falls back to the user's first membership.
- * - When `AUTO_CREATE_DEFAULT_ORG` is set and the authenticated user has
- *   zero memberships, provisions a default org named after the user
- *   ({name}'s workspace, falling back to the email local-part). Opt-in
- *   per deployment so templates that don't use orgs don't accrue phantom
- *   default orgs in their DB. The <RequireActiveOrg> client guard remains
- *   the safety net for pre-existing accounts or provisioning failures.
+ * - When `AUTO_CREATE_DEFAULT_ORG` is set and the authenticated user has zero
+ *   memberships, provisions a default org named after the user ({name}'s
+ *   workspace, falling back to the email local-part).
  *
  * Per-request memoized on `event.context` — mirrors the `getSession`
  * pattern so multiple callers in the same request (e.g. ssr-handler +
@@ -149,11 +152,11 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     };
   }
 
-  if (memberships.length === 0 && process.env.AUTO_CREATE_DEFAULT_ORG) {
+  if (memberships.length === 0 && autoCreateDefaultOrgEnabled()) {
     const created = await tryCreateDefaultOrg(exec, email, session);
     if (created) return created;
-    // Creation failed (race / DB error); fall through and let the
-    // RequireActiveOrg client guard prompt the user.
+    // Creation failed (race / DB error); fall through with an empty org context
+    // so non-blocking invite/domain UI can still surface recovery options.
   }
 
   if (memberships.length === 0) {
@@ -286,8 +289,8 @@ function defaultOrgName(
 /**
  * Check whether the user has a pending invitation. If so, auto-create
  * MUST be skipped — otherwise we'd provision a personal org for them
- * before they ever see the inviter's org in the RequireActiveOrg
- * accept-invite pane, and they'd never join the team that invited them.
+ * before they ever see the inviter's org in the invitation banner, and they'd
+ * never join the team that invited them.
  */
 async function hasPendingInvitation(
   exec: ReturnType<typeof getDbExec>,
@@ -301,7 +304,7 @@ async function hasPendingInvitation(
     return rows.length > 0;
   } catch {
     // If we can't tell, err on the side of NOT auto-creating — the
-    // RequireActiveOrg client guard will surface the situation.
+    // invitation banner or team UI can surface the situation.
     return true;
   }
 }

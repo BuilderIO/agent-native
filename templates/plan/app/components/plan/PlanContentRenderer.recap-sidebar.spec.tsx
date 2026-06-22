@@ -99,6 +99,69 @@ function rtlContent(): PlanContent {
   } as unknown as PlanContent;
 }
 
+function annotatedCodeContent(): PlanContent {
+  return {
+    version: 2,
+    title: "Annotated code",
+    brief: "brief",
+    blocks: [
+      {
+        id: "code-1",
+        type: "annotated-code",
+        title: "Storage gate",
+        data: {
+          filename: "templates/clips/app/routes/record.tsx",
+          language: "tsx",
+          code: [
+            "const status = await fetchVideoStorageStatus();",
+            "if (!status.configured) {",
+            "  throw new Error('No video storage configured.');",
+            "}",
+          ].join("\n"),
+          annotations: [
+            {
+              lines: "1-2",
+              label: "Storage check",
+              note: "This should appear on hover, not as an always-open margin card.",
+            },
+          ],
+        },
+      },
+    ],
+  } as unknown as PlanContent;
+}
+
+function rect({
+  left = 20,
+  top,
+  width = 500,
+  height,
+}: {
+  left?: number;
+  top: number;
+  width?: number;
+  height: number;
+}): DOMRect {
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function stubRect(element: Element, value: DOMRect) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => value,
+  });
+}
+
 class MockResizeObserver {
   observe() {}
   unobserve() {}
@@ -121,6 +184,11 @@ describe("PlanContentRenderer recap files sidebar", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document
+      .querySelectorAll(
+        "[data-annotation-hover-card],[data-annotation-inline-overlay]",
+      )
+      .forEach((node) => node.remove());
     vi.unstubAllGlobals();
   });
 
@@ -145,6 +213,53 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(article?.dataset.planDirection).toBe("rtl");
     expect(shell?.getAttribute("dir")).toBe("rtl");
     expect(prose?.getAttribute("dir")).toBe("rtl");
+  });
+
+  it("keeps annotated-code notes closed until hover in normal plan rendering", () => {
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={annotatedCodeContent()}
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    expect(
+      document.querySelector("[data-annotation-inline-overlay]"),
+    ).toBeNull();
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+
+    const codeSurface = container.querySelector<HTMLElement>(
+      "[data-code-surface]",
+    )?.parentElement;
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(codeSurface).not.toBeNull();
+    expect(firstLine).not.toBeNull();
+
+    stubRect(codeSurface!, rect({ top: 80, height: 110 }));
+    stubRect(firstLine!, rect({ top: 104, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const hoverCard = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(hoverCard).not.toBeNull();
+    expect(hoverCard?.textContent).toContain(
+      "This should appear on hover, not as an always-open margin card.",
+    );
   });
 
   it("mirrors the first file-tree into a left sidebar and omits it from the contents", () => {
