@@ -710,6 +710,13 @@ requested UI fidelity, still keep the closest top-surface representation and
 call out or extend the needed renderer capability. A skeleton/loading mockup
 also lives in a canvas artboard — never move a mockup out of the canvas.
 
+**Storyboards are canvas artifacts, not document diagrams.** When the requested
+output is a product flow, onboarding journey, "light storyboard", or canvas
+wireframe, author the flow as multiple top-canvas artboards with real screen
+content and neighboring connectors. Keep document-body \`diagram\` blocks for
+architecture and mechanics that are not themselves user-visible screens. A
+storyboard made from a single inline HTML diagram is the wrong surface.
+
 For abstract product concepts, use the canvas to create the first "I get it"
 moment: one real app state near the top showing how the concept appears to a
 user, followed by separate annotations or diagrams for mechanics. Do not make
@@ -816,7 +823,11 @@ so you never emit a block the editor cannot render or round-trip:
   two-dimensional layouts — paired before/after panels, layered diagrams,
   swimlanes, dependency maps, matrices, or grouped regions; do not default to
   left-to-right chains, and use a line only when the relationship is truly a
-  sequence. For architecture/code
+  sequence. Do not use a body \`diagram\` as the primary artifact for a requested
+  product canvas, light storyboard, UI flow, screen flow, or wireframe; those
+  belong in the top canvas as artboards with \`Screen\` wireframes first. Use
+  diagrams below that canvas only for architecture, data flow, or implementation
+  mechanics. For architecture/code
   diagrams, prefer \`data.html\` / \`data.css\` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives
@@ -1237,6 +1248,14 @@ overflow menu or popover, a side panel, loading, or error. Put short annotations
 beside frames with \`targetId\` plus \`placement\`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
+
+When the user asks for a flow, storyboard, journey, wireframe, canvas, or "what
+this looks like", treat that as a canvas-first request. Make one artboard per
+user-visible state, connect only adjacent transitions, and use short canvas
+annotations for the product notes. Do not substitute a document-body \`diagram\`
+block for the requested storyboard just because HTML diagrams are faster to
+write; diagrams belong below the canvas for backend mechanics, architecture, or
+data-flow explanation.
 
 Keep product wireframes and explanatory/meta diagrams separate. Start with pure
 screens that look like the app state under discussion, without callout prose or
