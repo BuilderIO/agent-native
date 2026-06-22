@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.66.6
+
+### Patch Changes
+
+- 337bcc5: Fix visual plan layout polish: compact question previews, mark wide-eligible tabs for diff-like content, align drag handles with wide blocks, and theme custom HTML iframes for dark mode.
+- 337bcc5: Move the sidebar Connect AI setup card above the composer and stack its actions.
+- 337bcc5: Keep the wireframe style toggle outside the Rough.js measurement scope so sketch mode no longer draws a ghost outline for the hidden Clean button.
+
 ## 0.66.5
 
 ### Patch Changes
