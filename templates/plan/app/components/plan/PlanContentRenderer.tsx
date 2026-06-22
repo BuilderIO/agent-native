@@ -528,18 +528,19 @@ export function PlanContentRenderer({
     ],
   );
 
-  // In wide layout, the first file-tree block moves to a permanent left sidebar
-  // (mirroring the right-hand contents rail) instead of sitting in the document
-  // body. Keep the block in the document so it stays the editable source of
-  // truth and is never dropped on save; render a read-only mirror in the aside,
-  // and hide the in-flow copy at the same breakpoint the rail appears (see
-  // `filesSidebarHideCss`).
+  // On wide recap screens the "Files changed" tree moves to a permanent left
+  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
+  // document body. Keep the block in the document so it stays the editable
+  // source of truth and is never dropped on save; render a read-only mirror in
+  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
+  // (see `filesSidebarHideCss`). Gated to recaps so editable ordinary plans keep
+  // their real file-tree block visible in the document.
   const filesSidebarBlockIndex = useMemo(
     () =>
-      documentLayout === "wide"
+      isRecap && documentLayout === "wide"
         ? content.blocks.findIndex((block) => block.type === "file-tree")
         : -1,
-    [documentLayout, content.blocks],
+    [isRecap, documentLayout, content.blocks],
   );
   const filesSidebarBlock =
     filesSidebarBlockIndex >= 0

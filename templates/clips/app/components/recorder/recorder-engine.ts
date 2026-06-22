@@ -1334,17 +1334,9 @@ export class RecorderEngine {
       return combined;
     }
 
-    // Full-screen capture records the Clips page itself, including the visible
-    // camera bubble. Baking in another canvas bubble would duplicate the face.
-    if (this.isFullScreenDisplayCapture()) {
-      this.cameraComposite?.cleanup();
-      this.cameraComposite = null;
-      return this.buildDisplayRecordingStream();
-    }
-
-    // Screen + camera: selected-window capture does not include our separate
-    // DOM bubble, so the saved recording must composite the camera feed into
-    // the video stream before MediaRecorder sees it.
+    // Screen + camera: display capture does not reliably include our separate
+    // DOM bubble once the user records another app/window, so the saved
+    // recording must composite the camera feed before MediaRecorder sees it.
     this.cameraComposite?.cleanup();
     this.cameraComposite = createCameraCompositeStream({
       displayStream: this.displayStream!,
@@ -1373,13 +1365,6 @@ export class RecorderEngine {
     ]);
     if (audio) combined.addTrack(audio);
     return combined;
-  }
-
-  private isFullScreenDisplayCapture(): boolean {
-    const actualDisplaySurface = this.displayStream
-      ?.getVideoTracks()[0]
-      ?.getSettings().displaySurface;
-    return actualDisplaySurface === "monitor";
   }
 
   private cameraBubbleSizeRatio(): number {
