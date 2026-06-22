@@ -1623,6 +1623,19 @@ async function startNativeFullscreenRecording(
         }
 
         let uploadResult: NativeFullscreenUploadResult | null = null;
+        const viewUrl = `/r/${id}`;
+        const uploadPromise = invoke<NativeFullscreenUploadResult>(
+          "native_fullscreen_recording_stop_and_upload",
+          {
+            serverUrl: params.serverUrl,
+            recordingId: id,
+            authToken: params.authToken ?? "",
+            cookie: params.cookie ?? "",
+            hasAudio: wantsAudio,
+            hasCamera: wantsCamera,
+          },
+        );
+        uploadPromise.catch(() => {});
         try {
           const capturedTranscript = await transcriptionCapture
             ?.stop()
@@ -1661,19 +1674,8 @@ async function startNativeFullscreenRecording(
             );
           });
 
-          const viewUrl = `/r/${id}`;
           try {
-            uploadResult = await invoke<NativeFullscreenUploadResult>(
-              "native_fullscreen_recording_stop_and_upload",
-              {
-                serverUrl: params.serverUrl,
-                recordingId: id,
-                authToken: params.authToken ?? "",
-                cookie: params.cookie ?? "",
-                hasAudio: wantsAudio,
-                hasCamera: wantsCamera,
-              },
-            );
+            uploadResult = await uploadPromise;
           } catch (err) {
             await abortRecordingUpload(
               params.serverUrl,
