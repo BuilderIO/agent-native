@@ -301,6 +301,12 @@ in lanes, annotations are plain-text designer notes anchored by
 authoring or editing ANY canvas, artboard, or annotation, READ
 `references/canvas.md` in this skill directory — it is the single source of truth
 for canvas/artboard mechanics. Do not author canvas layouts from memory.
+Canvas artboards use the same HTML wireframe path as document-body
+`WireframeBlock` screens: author `<Screen surface="..." html={...} />` with a
+semantic HTML fragment. Do not author fresh kit-tree children such as
+`<FrameScreen>`, `<Card>`, `<Row>`, or `<Btn>` inside canvas `<Screen>` tags;
+those are legacy compatibility markup for old plans and produce brittle canvas
+layouts.
 
 ## Document quality — read `references/document-quality.md`
 

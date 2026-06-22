@@ -106,7 +106,7 @@ export const createVisualQuestionsSchema = z
     content: planContentSchema
       .optional()
       .describe(
-        "Structured editable visual-question content. Prefer this for rich intake questions, visual options, semantic kit-tree wireframe previews, diagrams, and follow-up notes.",
+        "Structured editable visual-question content. Prefer this for rich intake questions, visual options, HTML wireframe previews, diagrams, and follow-up notes.",
       ),
     markdown: z
       .string()

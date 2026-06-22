@@ -29,6 +29,10 @@ review before code changes happen.
   markup, `canvas.mdx` for optional DesignBoard/Section/Artboard/Screen/
   Annotation/Connector markup, optional `assets/`, and optional
   `.plan-state.json`.
+- New canvas wireframes must use `<Screen html={...} />` / `data.html`
+  semantic HTML. Nested kit-tree nodes such as `FrameScreen`, `Card`, `Row`, and
+  `Btn` are legacy compatibility only and should not be authored for new
+  plans/recaps.
 - Surface material assumptions only when they change behavior, data, security,
   tests, deployment, or definition of done.
 - Before edits, read pending feedback with `get-plan-feedback`.

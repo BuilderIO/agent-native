@@ -90,4 +90,34 @@ describe("assertRecapWireframesHaveContent", () => {
       ),
     ).not.toThrow();
   });
+
+  it("rejects kit-tree canvas artboards so recaps use HTML screens on canvas", () => {
+    expect(() =>
+      assertRecapWireframesHaveContent({
+        version: 2,
+        blocks: [],
+        canvas: {
+          title: "Flow",
+          frames: [
+            {
+              id: "canvas-kit",
+              label: "Canvas kit",
+              wireframe: {
+                surface: "browser",
+                screen: [
+                  {
+                    el: "screen",
+                    children: [
+                      { el: "title", text: "Connect storage" },
+                      { el: "btn", label: "Connect Builder.io" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow(/legacy kit-tree Screen children/i);
+  });
 });

@@ -137,6 +137,21 @@ function collectWireframeIssue(
   if (reason) issues.push({ location, reason });
 }
 
+function collectCanvasWireframeIssue(
+  issues: EmptyWireframeIssue[],
+  data: WireframeData,
+  location: string,
+) {
+  if (!data.html?.trim() && (data.screen?.length ?? 0) > 0) {
+    issues.push({
+      location,
+      reason:
+        "canvas artboard uses legacy kit-tree Screen children; use Screen html/data.html so the canvas renders through the same HTML wireframe path as the document body",
+    });
+  }
+  collectWireframeIssue(issues, data, location);
+}
+
 function collectLegacyWireframeIssue(
   issues: EmptyWireframeIssue[],
   data: LegacyWireframeData,
@@ -208,7 +223,7 @@ export function assertRecapWireframesHaveContent(content: PlanContent) {
   for (const frame of content.canvas?.frames ?? []) {
     const location = `canvas artboard "${frame.id}"`;
     if (frame.wireframe) {
-      collectWireframeIssue(issues, frame.wireframe, location);
+      collectCanvasWireframeIssue(issues, frame.wireframe, location);
     }
     if (frame.legacyWireframe) {
       collectLegacyWireframeIssue(issues, frame.legacyWireframe, location);
@@ -226,7 +241,7 @@ export function assertRecapWireframesHaveContent(content: PlanContent) {
       ? `; plus ${issues.length - 8} more empty wireframes`
       : "";
   throw new Error(
-    `Visual recap contains empty wireframes. Recap wireframes must include visible product content before publishing. ` +
-      `Add realistic HTML text/controls or a kit-tree screen with labeled nodes. Empty items: ${details}${overflow}.`,
+    `Visual recap contains empty wireframes or legacy canvas kit trees. Recap wireframes must include visible product content and canvas artboards must use HTML screens before publishing. ` +
+      `Add realistic HTML text/controls; legacy kit-tree screens are only an old-plan compatibility path and must not be used for new canvas artboards. Items: ${details}${overflow}.`,
   );
 }

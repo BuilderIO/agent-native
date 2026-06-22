@@ -302,6 +302,7 @@ function WireframeStyleToggleButton() {
     <button
       type="button"
       data-plan-interactive
+      data-rough="none"
       aria-label={description}
       title={description}
       onClick={(event) => {
