@@ -727,14 +727,21 @@ export function oauthCallbackResponse(
       ? query.state
       : undefined;
 
-  // Mobile: deep link back to native app
+  // Mobile: deep link back to the native app. `isMobile` is UA-only, so this
+  // also fires for a plain mobile web browser with no app to handle the deep
+  // link — there it no-ops, so the fallback must return to the post-login URL,
+  // not the app root (else signed-out visitors land on the homepage).
   if (mobile) {
     const deepLink = buildOAuthCompleteDeepLink(
       opts.sessionToken,
       callbackState,
     );
+    const webFallback = appendSessionToOAuthReturnUrl(
+      opts.returnUrl,
+      opts.sessionToken,
+    );
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href=${JSON.stringify(webFallback)}},1500)</script></body></html>`,
     );
   }
 

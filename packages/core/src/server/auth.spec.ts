@@ -3415,6 +3415,59 @@ describe("server/auth", () => {
       );
       expect(event.res.headers.get("Referrer-Policy")).toBe("no-referrer");
     });
+
+    it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            sessionToken: "token-1",
+            returnUrl: "/recaps/recap-abc",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      // Native app: the deep link still fires so the RN shell can capture the
+      // session and re-open the WebView.
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain("token=token-1");
+      // Mobile web: the deep link no-ops, so the fallback must return to the
+      // original page the visitor opened — never the bare app root.
+      expect(html).toContain('window.location.href="/recaps/recap-abc"');
+      expect(html).not.toContain('window.location.href="/"');
+    });
+
+    it("mobile callback fallback defaults to the app root when there is no return URL", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          { sessionToken: "token-1" },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain('window.location.href="/"');
+    });
   });
 
   describe("getAppUrl", () => {
