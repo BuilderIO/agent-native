@@ -134,6 +134,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^0.28.1
+        version: 0.28.1(zod@4.4.3)
       '@ai-sdk/cohere':
         specifier: '>=3'
         version: 3.0.30(zod@4.4.3)
@@ -4579,6 +4582,11 @@ packages:
 
   7zip-bin@5.2.0:
     resolution: {integrity: sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A==}
+
+  '@agentclientprotocol/sdk@0.28.1':
+    resolution: {integrity: sha512-Z2Frs6YtPhnZZ+XwFXyQkRDXY0fn8FjCalEs0W4yUhQnY4TztmNq0/RnfzWdFN3vqT3h0jTz5klzYbZHGxCDyQ==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@ai-sdk/anthropic@3.0.71':
     resolution: {integrity: sha512-bUWOzrzR0gJKJO/PLGMR4uH2dqEgqGhrsCV+sSpk4KtOEnUQlfjZI/F7BFlqSvVpFbjdgYRRLysAeEZpJ6S1lg==}
@@ -17698,6 +17706,10 @@ packages:
 snapshots:
 
   7zip-bin@5.2.0: {}
+
+  '@agentclientprotocol/sdk@0.28.1(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@ai-sdk/anthropic@3.0.71(zod@4.4.3)':
     dependencies:

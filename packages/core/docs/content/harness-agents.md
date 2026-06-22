@@ -1,7 +1,7 @@
 ---
 title: "Harness Agents"
 description: "Run Claude Code, Codex, Pi, and other full coding harnesses as embedded agents inside Agent-Native, with their own loop, sandbox, native tools, and resumable SQL-backed sessions."
-search: "harness agents AgentHarness ai-sdk HarnessAgent Claude Code Codex Pi Cursor Mastra embedded coding agent resolveAgentHarness startAgentHarnessRun resumable session sandbox host tools"
+search: "harness agents AgentHarness ACP Agent Client Protocol acp:stdio ai-sdk HarnessAgent Claude Code Codex Pi Cursor Mastra embedded coding agent resolveAgentHarness startAgentHarnessRun resumable session sandbox host tools"
 ---
 
 # Harness Agents
@@ -46,21 +46,27 @@ spawn background / sub-agent runs with [Custom Agents & Teams](/docs/agent-teams
 
 ## Built-in harnesses {#built-in}
 
-`registerBuiltinAgentHarnesses()` registers three adapters backed by the AI SDK
-`HarnessAgent`:
+`registerBuiltinAgentHarnesses()` registers four adapters. The primary adapter
+is ACP-based; the three AI SDK adapters are compatibility alternatives for
+Claude Code, Codex, and Pi.
 
-| Name                         | Runtime     | Sandbox | Approvals |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Claude Code | yes     | yes       |
-| `ai-sdk-harness:codex`       | Codex       | yes     | no        |
-| `ai-sdk-harness:pi`          | Pi          | no      | yes       |
+| Name                         | Protocol  | Runtime       | Sandbox | Approvals |
+| ---------------------------- | --------- | ------------- | ------- | --------- |
+| `acp:stdio`                  | ACP stdio | Any ACP agent | yes     | yes       |
+| `ai-sdk-harness:claude-code` | AI SDK    | Claude Code   | yes     | yes       |
+| `ai-sdk-harness:codex`       | AI SDK    | Codex         | yes     | no        |
+| `ai-sdk-harness:pi`          | AI SDK    | Pi            | no      | yes       |
 
-Their runtime packages are **optional peer dependencies** and load lazily, so an
-app that never uses a harness does not pay for it. Each adapter carries an
-`installPackage` hint (for example `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` throws a clear install
-error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
-lets you check first.
+**`acp:stdio`** speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+over stdio. Pass `command` and `args` to point it at any ACP-compatible agent
+binary, or supply a custom `connection` factory for hosted, sandboxed, or
+in-process transports. It is the preferred adapter for new integrations because
+it is protocol-level (not SDK-version-coupled) and works with any ACP agent.
+
+The AI SDK adapters carry an `installPackage` hint (for example
+`@ai-sdk/harness@canary @ai-sdk/harness-codex@canary`); `resolveAgentHarness`
+throws a clear install error if the packages are missing, and
+`isAgentHarnessPackageInstalled(entry)` lets you check first.
 
 ## Codex auth: Code UI vs harness sandboxes {#codex-auth}
 
@@ -104,12 +110,24 @@ import {
 } from "@agent-native/core/agent/harness";
 
 registerBuiltinAgentHarnesses();
-const adapter = resolveAgentHarness("ai-sdk-harness:codex");
+
+// ACP-first: resolve the generic stdio adapter and supply a command
+const adapter = resolveAgentHarness("acp:stdio", {
+  command: "claude", // any ACP agent binary
+  args: ["--acp-stdio"],
+  cwd: "/path/to/project",
+  permissionMode: "allow-reads",
+});
+
+// AI SDK compatibility adapters
+const codexAdapter = resolveAgentHarness("ai-sdk-harness:codex");
 ```
 
 `resolveAgentHarness(name, config?)` returns an `AgentHarnessAdapter`. The
-optional `config` is forwarded to the adapter factory — for the AI SDK adapters
-that maps to `AiSdkHarnessAdapterOptions` (`label`, `description`,
+optional `config` is forwarded to the adapter factory. For `acp:stdio` the
+config maps to `AcpHarnessAdapterOptions` (`command`, `args`, `env`, `cwd`,
+`connection`, `permissionMode`, `clientHandlers`, and so on). For the AI SDK
+adapters it maps to `AiSdkHarnessAdapterOptions` (`label`, `description`,
 `permissionMode`, `harnessOptions`, `agentOptions`, and the Codex-only
 `codexCliAuth`). Use `listAgentHarnesses()` to enumerate what is registered for
 a picker.

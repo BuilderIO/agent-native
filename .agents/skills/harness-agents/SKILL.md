@@ -31,7 +31,16 @@ import {
 } from "@agent-native/core/agent/harness";
 
 registerBuiltinAgentHarnesses();
-const harness = resolveAgentHarness("ai-sdk-harness:codex");
+
+// ACP-first: the generic stdio adapter works with any ACP agent binary.
+const harness = resolveAgentHarness("acp:stdio", {
+  command: "claude",
+  args: ["--acp-stdio"],
+  cwd: "/path/to/project",
+});
+
+// AI SDK compatibility adapters (claude-code, codex, pi) are also registered.
+const codexHarness = resolveAgentHarness("ai-sdk-harness:codex");
 ```
 
 2. Start a turn through the run-manager bridge.

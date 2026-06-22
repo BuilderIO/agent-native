@@ -1598,6 +1598,19 @@ ${
       var signupPassword = document.getElementById('s-pass');
       return pendingSignupPassword || (signupPassword && signupPassword.value) || '';
     }
+    function __anNormalizeAuthEmail(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+    function __anIsValidAuthEmail(value) {
+      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(__anNormalizeAuthEmail(value));
+    }
+    function __anShowEmailValidationError(input, msg) {
+      if (msg) {
+        msg.textContent = 'Enter a valid email address, like you@example.com.';
+        msg.classList.add('show', 'error');
+      }
+      if (input && typeof input.focus === 'function') input.focus();
+    }
     function movePendingSignupToLogin(message) {
       var email = getPendingSignupEmail();
       setActiveTab('login', { persist: true });
@@ -1801,7 +1814,14 @@ ${
     btn.disabled = true;
     btn.textContent = 'Creating account…';
     try {
-      var email = document.getElementById('s-email').value;
+      var emailInput = document.getElementById('s-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1900,7 +1920,14 @@ ${
     btn.disabled = true;
     btn.textContent = 'Sending…';
     try {
-      var email = document.getElementById('f-email').value;
+      var emailInput = document.getElementById('f-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = original;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/ba/request-password-reset'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1936,11 +1963,19 @@ ${
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     try {
+      var emailInput = document.getElementById('l-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: document.getElementById('l-email').value,
+          email: email,
           password: document.getElementById('l-pass').value,
         }),
       });
