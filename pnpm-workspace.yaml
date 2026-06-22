@@ -3,6 +3,7 @@ packages:
   - templates/.retired/*
   - templates/*
   - templates/*/desktop
+  - templates/*/chrome-extension
 
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:

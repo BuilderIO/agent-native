@@ -13,6 +13,9 @@
     "tauri": "cd desktop && pnpm tauri",
     "tauri:dev": "cd desktop && pnpm tauri dev",
     "tauri:build": "cd desktop && pnpm tauri build",
+    "chrome:dev": "cd chrome-extension && pnpm dev",
+    "chrome:build": "cd chrome-extension && pnpm build",
+    "chrome:package": "cd chrome-extension && pnpm package",
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
