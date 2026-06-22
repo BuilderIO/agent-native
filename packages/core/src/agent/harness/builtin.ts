@@ -9,17 +9,13 @@ import {
 } from "./ai-sdk-adapter.js";
 import { registerAgentHarness } from "./registry.js";
 
-/**
- * AI SDK adapters — compatibility harnesses for Claude Code, Codex, and Pi.
- * These load their runtime packages lazily through optional peer deps.
- */
 const AI_SDK_HARNESS_RUNTIMES: AiSdkHarnessRuntime[] = [
   "claude-code",
   "codex",
   "pi",
 ];
 
-function registerAiSdkHarnesses(): void {
+export function registerBuiltinAgentHarnesses(): void {
   for (const runtime of AI_SDK_HARNESS_RUNTIMES) {
     const adapter = createAiSdkHarnessAdapter({ runtime });
     registerAgentHarness({
@@ -51,8 +47,4 @@ function registerAiSdkHarnesses(): void {
   });
 
   registerBuiltinAcpHarnesses();
-}
-
-export function registerBuiltinAgentHarnesses(): void {
-  registerAiSdkHarnesses();
 }
