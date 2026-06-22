@@ -6,7 +6,7 @@ import {
   IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
-import { clampToViewport, type BubblePosition } from "./camera-positioner";
+import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 import {
   Tooltip,
   TooltipContent,
@@ -57,10 +57,10 @@ export function RecordingToolbar({
   useEffect(() => {
     function onResize() {
       setPos((p) => {
-        const clamped = clampToViewport(
+        const clamped = clampRectToViewport(
           p.left,
           p.top,
-          Math.max(TOOLBAR_WIDTH, TOOLBAR_HEIGHT),
+          { width: TOOLBAR_WIDTH, height: TOOLBAR_HEIGHT },
           {
             width: window.innerWidth,
             height: window.innerHeight,
@@ -96,10 +96,10 @@ export function RecordingToolbar({
     const { dx, dy } = dragOffsetRef.current;
     const left = e.clientX - dx;
     const top = e.clientY - dy;
-    const clamped = clampToViewport(
+    const clamped = clampRectToViewport(
       left,
       top,
-      Math.max(TOOLBAR_WIDTH, TOOLBAR_HEIGHT),
+      { width: TOOLBAR_WIDTH, height: TOOLBAR_HEIGHT },
       { width: window.innerWidth, height: window.innerHeight },
     );
     setPos((prev) => ({ ...prev, left: clamped.left, top: clamped.top }));
