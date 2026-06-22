@@ -62,6 +62,11 @@ pub fn init(app: &AppHandle) {
     rotate_if_needed(&path);
     let _ = LOG_PATH.set(path.clone());
 
+    // Write panic output straight to the file before the streams are redirected.
+    // In release (panic = "abort") the process can die before the pump drains
+    // the pipe, so the synchronous write guarantees the crash message survives.
+    install_panic_hook();
+
     // In release, point fd 1 + 2 at the file so every existing println!,
     // eprintln!, dlog!, and panic message is captured with no call-site
     // changes. Done before the banner so the banner lands in the file too.
@@ -82,6 +87,20 @@ pub fn init(app: &AppHandle) {
     append_line(&path, &banner);
 }
 
+/// Persist panic info directly to the log file (bypassing the redirect pipe) so
+/// an aborting release build can't drop the crash message while it's still
+/// buffered in the pipe. Chains the previous hook so terminal/stderr output is
+/// preserved.
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(path) = log_path() {
+            append_line(&path, &format!("[clips-tray] panic: {info}"));
+        }
+        prev(info);
+    }));
+}
+
 fn rotate_if_needed(path: &Path) {
     if let Ok(meta) = fs::metadata(path) {
         if meta.len() > MAX_BYTES {
@@ -92,7 +111,6 @@ fn rotate_if_needed(path: &Path) {
     }
 }
 
-#[allow(dead_code)] // unused in release where stdout/stderr are redirected
 fn append_line(path: &Path, line: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{} {line}", timestamp());
