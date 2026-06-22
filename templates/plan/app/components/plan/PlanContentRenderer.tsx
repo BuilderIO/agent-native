@@ -528,50 +528,45 @@ export function PlanContentRenderer({
     ],
   );
 
-  // On wide recap screens the "Files changed" tree moves to a permanent left
-  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
-  // document body. Keep the block in the document so it stays the editable
-  // source of truth and is never dropped on save; render a read-only mirror in
-  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
-  // (see `filesSidebarHideCss`). Gated to recaps so editable ordinary plans keep
-  // their real file-tree block visible in the document.
-  const filesSidebarBlockIndex = useMemo(
+  // The first recap file tree remains inline in the document. Screenshot/export
+  // paths can still hide it through `hideChangedFiles`, so generated PR recap
+  // screenshots stay focused on the visual recap content.
+  const changedFilesBlockIndex = useMemo(
     () =>
-      isRecap && documentLayout === "wide"
+      isRecap
         ? content.blocks.findIndex((block) => block.type === "file-tree")
         : -1,
-    [isRecap, documentLayout, content.blocks],
+    [isRecap, content.blocks],
   );
-  const filesSidebarBlock =
-    filesSidebarBlockIndex >= 0
-      ? content.blocks[filesSidebarBlockIndex]
+  const changedFilesBlock =
+    changedFilesBlockIndex >= 0
+      ? content.blocks[changedFilesBlockIndex]
       : undefined;
-  const filesSidebarHeadingBlock =
-    filesSidebarBlockIndex > 0
-      ? content.blocks[filesSidebarBlockIndex - 1]
+  const changedFilesHeadingCandidate =
+    changedFilesBlockIndex > 0
+      ? content.blocks[changedFilesBlockIndex - 1]
       : undefined;
   const changedFilesHeadingBlock = isChangedFilesHeadingBlock(
-    filesSidebarHeadingBlock,
+    changedFilesHeadingCandidate,
   )
-    ? filesSidebarHeadingBlock
+    ? changedFilesHeadingCandidate
     : undefined;
-  const filesSidebarLabel = fileTreeSidebarLabel(filesSidebarBlock, isRecap);
-  // Drop the relocated file-tree and its heading from the contents nav (both are
-  // hidden in the rail layout), so no contents link points at a hidden element.
   const tocOmitBlockIds = useMemo(
     () =>
-      [filesSidebarBlock?.id, changedFilesHeadingBlock?.id].filter(
-        (id): id is string => Boolean(id),
-      ),
-    [filesSidebarBlock?.id, changedFilesHeadingBlock?.id],
+      hideChangedFiles
+        ? [changedFilesBlock?.id, changedFilesHeadingBlock?.id].filter(
+            (id): id is string => Boolean(id),
+          )
+        : [],
+    [changedFilesBlock?.id, changedFilesHeadingBlock?.id, hideChangedFiles],
   );
   const hiddenChangedFileBlockIds = useMemo(() => {
     const ids = new Set<string>();
     if (!hideChangedFiles) return ids;
-    if (filesSidebarBlock) ids.add(filesSidebarBlock.id);
+    if (changedFilesBlock) ids.add(changedFilesBlock.id);
     if (changedFilesHeadingBlock) ids.add(changedFilesHeadingBlock.id);
     return ids;
-  }, [changedFilesHeadingBlock, filesSidebarBlock, hideChangedFiles]);
+  }, [changedFilesBlock, changedFilesHeadingBlock, hideChangedFiles]);
   const renderedBlocks = useMemo(() => {
     const visible =
       hiddenChangedFileBlockIds.size > 0
@@ -579,15 +574,15 @@ export function PlanContentRenderer({
             (block) => !hiddenChangedFileBlockIds.has(block.id),
           )
         : content.blocks;
-    if (!hideChangedFiles || !filesSidebarHeadingBlock) return visible;
+    if (!hideChangedFiles || !changedFilesHeadingCandidate) return visible;
     return visible.map((block) =>
-      block.id === filesSidebarHeadingBlock.id
+      block.id === changedFilesHeadingCandidate.id
         ? stripTrailingChangedFilesHeading(block)
         : block,
     );
   }, [
     content.blocks,
-    filesSidebarHeadingBlock,
+    changedFilesHeadingCandidate,
     hiddenChangedFileBlockIds,
     hideChangedFiles,
   ]);
@@ -609,73 +604,27 @@ export function PlanContentRenderer({
   const breakoutBlocks = splitWideLayout
     ? renderedBlocks.slice(firstWideLayoutBlockIndex)
     : [];
+  const tocContent = useMemo(
+    () =>
+      hideChangedFiles
+        ? {
+            ...content,
+            blocks: renderedBlocks,
+          }
+        : content,
+    [content, hideChangedFiles, renderedBlocks],
+  );
 
   // Which rails exist, mirrored onto the body as data attributes so the grid
   // (global.css) reserves a track only for a rail that renders.
-  const hasFilesRail = Boolean(filesSidebarBlock) && !hideChangedFiles;
-  // Mirror PlanTableOfContents' own omission set (file-tree AND its relocated
-  // heading) so data-has-toc is set iff the rail actually renders ≥2 items —
-  // otherwise a recap with one section left would reserve an empty TOC column.
   const hasTocRail = useMemo(
     () =>
       !hideRecapChrome &&
-      collectPlanTocItems(content.blocks).filter(
+      collectPlanTocItems(tocContent.blocks).filter(
         (item) => !tocOmitBlockIds.includes(item.blockId),
       ).length >= 2,
-    [content.blocks, tocOmitBlockIds, hideRecapChrome],
+    [tocContent.blocks, tocOmitBlockIds, hideRecapChrome],
   );
-
-  /**
-   * Map from file path → first block id that references the file. Built from
-   * annotated-code, diff, and code blocks in the document. Used by the recap
-   * files rail to scroll to the matching block when a file row is clicked.
-   */
-  const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
-    if (!isRecap) return new Map();
-    const map = new Map<string, string>();
-    for (const block of content.blocks) {
-      if (
-        (block.type === "annotated-code" ||
-          block.type === "diff" ||
-          block.type === "code") &&
-        block.data.filename
-      ) {
-        if (!map.has(block.data.filename)) {
-          map.set(block.data.filename, block.id);
-        }
-      }
-    }
-    return map;
-  }, [isRecap, content.blocks]);
-
-  /**
-   * Click handler for the recap files rail aside. When a file row (carrying
-   * `data-file-path`) is clicked, scroll to the matching block in the document
-   * if one exists. The file tree's own expansion click still fires; this only
-   * adds the scroll as a side effect (no event.preventDefault so expansion
-   * still works).
-   */
-  const handleFilesRailClick = useMemo(() => {
-    if (!isRecap || fileToBlockIdMap.size === 0) return undefined;
-    return (event: React.MouseEvent<HTMLElement>) => {
-      const filePath = (event.target as HTMLElement)
-        .closest("[data-file-path]")
-        ?.getAttribute("data-file-path");
-      if (!filePath) return;
-      const blockId = fileToBlockIdMap.get(filePath);
-      if (!blockId) return;
-      const el = document.querySelector<HTMLElement>(
-        `[data-block-id="${CSS.escape(blockId)}"]`,
-      );
-      if (!el) return;
-      el.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-        block: "start",
-      });
-    };
-  }, [isRecap, fileToBlockIdMap]);
 
   return (
     <BlockRegistryProvider
@@ -729,7 +678,7 @@ export function PlanContentRenderer({
           // (not canvas) so its containment can't disturb fixed canvas chrome.
           <div className="plan-document-region">
             <div
-              className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
+              className="plan-document-shell relative mx-auto w-full max-w-[1035px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
               data-plan-direction={documentDirection}
               dir={documentDirection}
             >
@@ -737,7 +686,6 @@ export function PlanContentRenderer({
                   see global.css. */}
               <div
                 className="plan-document-body"
-                data-has-files={hasFilesRail ? "" : undefined}
                 data-has-toc={hasTocRail ? "" : undefined}
               >
                 <header className="border-b border-plan-line pb-8">
@@ -777,7 +725,7 @@ export function PlanContentRenderer({
                         fileTreeBlock={
                           hideChangedFiles
                             ? undefined
-                            : (filesSidebarBlock as
+                            : (changedFilesBlock as
                                 | PlanFileTreeBlock
                                 | undefined)
                         }
@@ -788,47 +736,10 @@ export function PlanContentRenderer({
 
                 {!hideRecapChrome && (
                   <PlanTableOfContents
-                    content={content}
+                    content={tocContent}
                     isRecap={isRecap}
                     omitBlockIds={tocOmitBlockIds}
                   />
-                )}
-                {filesSidebarBlock && !hideChangedFiles && (
-                  <>
-                    <style>
-                      {filesSidebarHideCss(
-                        filesSidebarBlock.id,
-                        changedFilesHeadingBlock?.id,
-                      )}
-                    </style>
-                    <aside
-                      className="plan-document-files"
-                      aria-label={filesSidebarLabel}
-                      onClick={handleFilesRailClick}
-                    >
-                      <div className="plan-document-files__nav">
-                        {/* The sidebar owns the heading. Strip BOTH the block-level
-                          `title` (the eyebrow `plan-block-label`) and the
-                          file-tree's own `data.title` (the bold summary-header
-                          heading) from the mirrored block so the file-tree renders
-                          heading-free and the label is never duplicated. The
-                          in-flow source block keeps both titles untouched. */}
-                        <div className="plan-document-files__label">
-                          {filesSidebarLabel}
-                        </div>
-                        <PlanBlockView
-                          block={stripFileTreeTitles({
-                            ...filesSidebarBlock,
-                            id: `${filesSidebarBlock.id}__aside`,
-                          })}
-                          editingDisabled
-                          contentUpdatedAt={contentUpdatedAt}
-                          planId={planId}
-                          collabUser={collabUser}
-                        />
-                      </div>
-                    </aside>
-                  </>
                 )}
 
                 <div className="plan-document-flow-stack">
@@ -962,24 +873,9 @@ function blockContainsDiffLike(block: PlanBlock): boolean {
   return false;
 }
 
-/**
- * Strip both heading sources (`title` eyebrow and `data.title` summary header)
- * from a file-tree block so it renders heading-free in the rail, which supplies
- * its own "Files changed" label. Non-file-tree blocks pass through unchanged.
- */
-function stripFileTreeTitles(block: PlanBlock): PlanBlock {
-  if (block.type !== "file-tree") return block;
-  return {
-    ...block,
-    title: undefined,
-    data: { ...block.data, title: undefined },
-  };
-}
-
 // Matches a standalone heading that titles the files section ("Files changed",
-// "Files added", "Files", …) so it can travel with the relocated file-tree
-// instead of stranding an empty section. Anchored, so headings with body text
-// are never hit.
+// "Files added", "Files", ...). Screenshot mode hides the file-tree and should
+// hide that standalone heading too, without touching body sections.
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
   if (!block || block.type !== "rich-text") return false;
   return /^#{1,6}\s+(?:(?:changed|added|removed|touched|modified)\s+files|files(?:\s+(?:changed|added|removed|touched|modified))?)\s*$/i.test(
@@ -995,69 +891,6 @@ function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
   );
   if (markdown === block.data.markdown) return block;
   return { ...block, data: { ...block.data, markdown: markdown.trimEnd() } };
-}
-
-function fileTreeSidebarLabel(
-  block: PlanBlock | undefined,
-  isRecap: boolean,
-): string {
-  if (!block || block.type !== "file-tree") {
-    return isRecap ? "Files changed" : "Files";
-  }
-  const label = block.title?.trim() || block.data.title?.trim();
-  return stripFileTreeStatsSuffix(
-    label || (isRecap ? "Files changed" : "Files"),
-  );
-}
-
-function stripFileTreeStatsSuffix(label: string): string {
-  return label
-    .replace(/\s*\((?=[^)]*(?:\+|-|−|\d+\s+files?))[^)]*\)\s*$/i, "")
-    .trim();
-}
-
-function filesSidebarHideCss(blockId: string, headingBlockId?: string): string {
-  const id = blockId.replace(/["\\]/g, "\\$&");
-  // Hide the in-flow files block (and its heading) once its rail shows, at the
-  // same thresholds as the grid's files variants (global.css). The next block
-  // reclaims the gap; screenshot capture keeps the inline copy.
-  const hideIds = [id];
-  if (headingBlockId) hideIds.push(headingBlockId.replace(/["\\]/g, "\\$&"));
-  const leadResetSelectors = [
-    ".plan-block",
-    ".plan-callout",
-    ".plan-questions-block",
-    ".an-block-panel",
-    ".plan-block-node",
-    ".plan-document-flow-block",
-  ];
-  const variants = [
-    { min: "48rem", body: "[data-has-files]:not([data-has-toc])" },
-    { min: "58rem", body: "[data-has-files][data-has-toc]" },
-  ];
-  return variants
-    .map(({ min, body }) => {
-      const scope = `.plan-content-surface:not([data-recap-screenshot-theme]) .plan-document-body${body}`;
-      const hide = hideIds.flatMap((hid) => [
-        `${scope} .plan-document-flow [data-block-id="${hid}"]`,
-        `${scope} .plan-document-flow > .plan-document-flow-block:has([data-block-id="${hid}"])`,
-      ]);
-      const leadReset = [
-        ...leadResetSelectors.map(
-          (sel) =>
-            `${scope} .plan-document-flow > [data-block-id="${id}"] + ${sel}`,
-        ),
-        ...leadResetSelectors.map(
-          (sel) =>
-            `${scope} .plan-document-flow > .plan-document-flow-block:has([data-block-id="${id}"]) + ${sel}`,
-        ),
-      ].join(",\n");
-      return `@container plan-doc (min-width: ${min}){
-${hide.join(",\n")}{display:none}
-${leadReset}{margin-top:2.25rem;padding-top:0}
-}`;
-    })
-    .join("\n");
 }
 
 const GITHUB_PR_REFERENCE_RE =

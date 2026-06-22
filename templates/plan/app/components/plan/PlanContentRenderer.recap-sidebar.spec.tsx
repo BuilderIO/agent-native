@@ -11,17 +11,10 @@ import {
 } from "./wireframe/use-wireframe-style";
 
 /**
- * Recap "Files touched" sidebar wiring. On wide recap screens the first
- * `file-tree` block is mirrored into a permanent left sidebar
- * (`.plan-document-files`) while the in-flow copy is hidden via an injected,
- * breakpoint-scoped rule — so the block stays the editable source of truth and is
- * never dropped on save. The mirror carries a distinct `…__aside` id so it never
- * collides with (or gets hidden by) the original, and the relocated block drops
- * out of the contents rail (its in-flow anchor is hidden and unscrollable).
- *
- * Read-mode is rendered here (no persistence handler ⇒ no Tiptap editor), which
- * is the per-block path; the editable path hides the same block via the same
- * descendant rule.
+ * Recap changed-files wiring. The first `file-tree` block stays inline in the
+ * document so it remains the editable source of truth and is never dropped on
+ * save. Screenshot/export mode can still hide the changed-files block and its
+ * standalone heading so generated PR recap screenshots stay focused.
  */
 
 function recapContent(): PlanContent {
@@ -217,7 +210,7 @@ class MockResizeObserver {
   disconnect() {}
 }
 
-describe("PlanContentRenderer recap files sidebar", () => {
+describe("PlanContentRenderer recap changed files", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -311,7 +304,7 @@ describe("PlanContentRenderer recap files sidebar", () => {
     );
   });
 
-  it("mirrors the first file-tree into a left sidebar and omits it from the contents", () => {
+  it("keeps the first file-tree inline and does not render a read-only files rail", () => {
     act(() => {
       root.render(
         <PlanContentRenderer
@@ -324,56 +317,25 @@ describe("PlanContentRenderer recap files sidebar", () => {
       );
     });
 
-    // The left sidebar exists and shows the relocated block.
-    const aside = container.querySelector(".plan-document-files");
-    expect(aside).not.toBeNull();
-
-    // The sidebar shows exactly ONE file-tree heading, and it reads the fixed
-    // "Files changed" label — NOT the authored title and NOT the stats suffix.
-    // The two heading sources are: the eyebrow `.plan-block-label` (from
-    // `block.title`) and the file-tree's bold summary header (from `data.title`).
-    // Both must be stripped from the mirrored block; only the sidebar's own
-    // `.plan-document-files__label` remains.
-    expect(aside?.querySelectorAll(".plan-block-label").length).toBe(0);
-    const sidebarLabels = aside?.querySelectorAll(
-      ".plan-document-files__label",
-    );
-    expect(sidebarLabels?.length).toBe(1);
-    expect(sidebarLabels?.[0]?.textContent?.trim()).toBe("Files changed");
-    // No stats suffix anywhere in the sidebar heading text.
-    expect(aside?.textContent).not.toContain("+1529");
-    expect(aside?.textContent).not.toContain("9 files)");
-    // The authored title string never appears verbatim in the sidebar.
-    expect(aside?.textContent).not.toContain(
-      "Files changed (+1529 / -534, 9 files)",
-    );
-
-    // The mirror uses a distinct id so it never duplicates / collides with the
-    // original's `data-block-id`.
+    expect(container.querySelector(".plan-document-files")).toBeNull();
     expect(
       container.querySelector('[data-block-id="tree-1__aside"]'),
-    ).not.toBeNull();
+    ).toBeNull();
 
     // The original stays in the document flow (editable source of truth).
     const flow = container.querySelector(".plan-document-flow");
     expect(flow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
-
-    // A container-query-scoped rule hides the in-flow copy when the rail shows
-    // (keyed off the surface container, not the viewport).
     const styles = Array.from(container.querySelectorAll("style"))
       .map((node) => node.textContent ?? "")
       .join("\n");
-    expect(styles).toContain('[data-block-id="tree-1"]');
-    expect(styles).toContain("display:none");
-    expect(styles).toContain("@container plan-doc");
-    expect(styles).toContain("min-width: 58rem");
+    expect(styles).not.toContain('[data-block-id="tree-1"]');
 
-    // The contents rail drops the relocated block but keeps the prose sections.
+    // The contents rail keeps the inline file tree and prose sections.
     const toc = container.querySelector(".plan-document-toc");
     expect(toc).not.toBeNull();
+    expect(toc?.textContent).toContain("Files changed");
     expect(toc?.textContent).toContain("Section A");
     expect(toc?.textContent).toContain("Section B");
-    expect(toc?.textContent).not.toContain("Files changed");
   });
 
   it("defaults to wide layout and moves blocks from the first wide component into a breakout zone", () => {
@@ -583,11 +545,11 @@ describe("PlanContentRenderer recap files sidebar", () => {
     expect(sourceLink?.parentElement).toBe(stats?.parentElement);
   });
 
-  it("does not reserve a contents rail when only the files heading + one section remain", () => {
-    // A "Files changed" heading + file-tree both relocate to the left rail, so
-    // the contents nav should count what's LEFT (one real section) — not enough
-    // for a rail. `data-has-toc` must stay absent so the grid reserves no empty
-    // TOC column, and PlanTableOfContents renders neither rail nor accordion.
+  it("does not reserve a contents rail when hidden changed-files content leaves one section", () => {
+    // Screenshot/export mode hides the "Files changed" heading + file-tree. The
+    // contents nav should count what's LEFT (one real section) — not enough for a
+    // rail. `data-has-toc` must stay absent so the grid reserves no empty TOC
+    // column, and PlanTableOfContents renders neither rail nor accordion.
     const content = {
       version: 2,
       title: "Recap",
@@ -618,6 +580,7 @@ describe("PlanContentRenderer recap files sidebar", () => {
           content={content}
           isRecap
           editingDisabled
+          hideChangedFiles
           fallbackTitle="Untitled plan"
           fallbackBrief=""
         />,
