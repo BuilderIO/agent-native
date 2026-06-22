@@ -257,6 +257,10 @@ struct SavedNativeRecording {
     last_attempt_at: Option<String>,
     last_error: Option<String>,
     retry_count: u32,
+    /// True when the SCK finalization callback reported an error, meaning the
+    /// MP4 is missing its moov atom and cannot be recovered by retrying.
+    #[serde(default)]
+    corrupt: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,6 +279,7 @@ pub struct PendingNativeRecording {
     last_attempt_at: Option<String>,
     last_error: Option<String>,
     retry_count: u32,
+    corrupt: bool,
 }
 
 #[derive(Serialize)]
@@ -336,6 +341,7 @@ impl From<&SavedNativeRecording> for PendingNativeRecording {
             last_attempt_at: saved.last_attempt_at.clone(),
             last_error: saved.last_error.clone(),
             retry_count: saved.retry_count,
+            corrupt: saved.corrupt,
         }
     }
 }
@@ -643,6 +649,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
+        if stop_err.contains("finalize failed") {
+            saved.corrupt = true;
+        }
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
     }
@@ -1751,6 +1760,7 @@ fn saved_recording_from_session(
         last_attempt_at: None,
         last_error: None,
         retry_count: 0,
+        corrupt: false,
     })
 }
 
@@ -2087,6 +2097,10 @@ fn stop_native_recording(
             let stop_result = stream
                 .stop_capture()
                 .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            if stop_result.is_ok() {
+                eprintln!("[clips-tray] waiting 200ms for SCK frame buffer to drain before remove_recording_output");
+                std::thread::sleep(Duration::from_millis(200));
+            }
             // remove_recording_output() occasionally fails with
             // StreamError("Failed due to an invalid parameter") when the audio
             // tap or stream state hasn't fully drained yet. Retry once after a
@@ -2573,6 +2587,27 @@ fn prepare_recording_file(
             describe_recording_path(path)
         );
         return Err("Native recording produced an empty file.".into());
+    }
+    // For MP4/QuickTime files, verify the container header is intact. A SCK
+    // finalization error (-5814) leaves the file without a moov atom; bytes
+    // 4-7 of a well-formed MP4/MOV must be the ASCII box type "ftyp". If
+    // that's missing the file is unplayable and uploading it wastes time.
+    if mime_type == "video/mp4" || mime_type == "video/quicktime" {
+        use std::io::Read;
+        let mut header = [0u8; 8];
+        if let Ok(mut f) = std::fs::File::open(path) {
+            let n = f.read(&mut header).unwrap_or(0);
+            if n >= 8 && &header[4..8] != b"ftyp" {
+                eprintln!(
+                    "[clips-tray] native recording corrupt ftyp check failed — skipping upload"
+                );
+                return Err(
+                    "Recorded file is corrupted or incomplete — the video header is missing. \
+                     Please record again."
+                        .into(),
+                );
+            }
+        }
     }
     emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
 

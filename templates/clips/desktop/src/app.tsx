@@ -102,6 +102,7 @@ interface PendingNativeUpload {
   lastAttemptAt?: string | null;
   lastError?: string | null;
   retryCount: number;
+  corrupt?: boolean;
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
@@ -2346,15 +2347,27 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-        <button
-          type="button"
-          className="pending-upload-retry"
-          disabled={actionsDisabled}
-          onClick={() => onRetry(latest)}
-        >
-          <IconRefresh size={14} stroke={2} />
-          {retrying ? "Retrying" : "Retry"}
-        </button>
+{latest.kind === "native" && latest.corrupt ? (
+          <button
+            type="button"
+            className="pending-upload-retry"
+            disabled={actionsDisabled}
+            onClick={() => onDiscard(latest)}
+            title="This clip is corrupted and cannot be recovered. Click to discard it and record again."
+          >
+            Record again
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="pending-upload-retry"
+            disabled={actionsDisabled}
+            onClick={() => onRetry(latest)}
+          >
+            <IconRefresh size={14} stroke={2} />
+            {retrying ? "Retrying" : "Retry"}
+          </button>
+        )}
         <button
           type="button"
           className="pending-upload-discard"
