@@ -12,12 +12,9 @@ import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
-import {
-  getActiveFileUploadProvider,
-  registerFileUploadProvider,
-} from "@agent-native/core/file-upload";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
 const basePlugin = createOnboardingPlugin();
 
@@ -90,18 +87,6 @@ export default async (nitroApp: any): Promise<void> => {
         },
       },
     ],
-    isComplete: async () => {
-      const active = getActiveFileUploadProvider();
-      if (active && active.id !== "builder") return true;
-      try {
-        if (await resolveHasBuilderPrivateKey()) return true;
-      } catch {
-        // Treat credential lookup failures as incomplete so users can connect.
-      }
-      // Do not let the built-in Builder provider's sync env check complete
-      // onboarding for signed-in hosted users. The actual upload path resolves
-      // Builder credentials request-aware, so this step should do the same.
-      return false;
-    },
+    isComplete: hasRequestVideoStorage,
   });
 };

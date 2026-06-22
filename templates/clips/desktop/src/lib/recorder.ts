@@ -72,7 +72,14 @@ import type { LocalRecordingMode } from "../shared/config";
 export type { LocalExportedFile } from "./local-export";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
-export type CaptureSource = "full-screen" | "window";
+export type CaptureSource = "full-screen" | "window" | "region";
+
+export interface RegionCaptureRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
@@ -98,7 +105,7 @@ function isMacPlatform(): boolean {
 export function shouldUseNativeFullscreenRecording(
   source: CaptureSource | undefined,
 ): boolean {
-  if (source !== "full-screen") return false;
+  if (source !== "full-screen" && source !== "region") return false;
   if (typeof localStorage === "undefined") return false;
   const saved = localStorage.getItem(NATIVE_FULLSCREEN_RECORDING_FLAG);
   if (saved !== null) {
@@ -906,7 +913,7 @@ async function captureTitleForRecording(params: {
   return buildCaptureTitle({
     appName: context?.appName,
     windowTitle: context?.windowTitle,
-    displaySurface: params.source === "full-screen" ? "monitor" : "window",
+    displaySurface: params.source === "window" ? "window" : "monitor",
     mode: params.mode,
   });
 }
@@ -1265,12 +1272,126 @@ class CountdownCancelledError extends Error {
   }
 }
 
+class RegionSelectionCancelledError extends Error {
+  constructor() {
+    super("Recording region selection cancelled");
+    this.name = "AbortError";
+  }
+}
+
 function isCountdownCancelledError(err: unknown) {
   return (
     err instanceof Error &&
     err.name === "AbortError" &&
     /countdown/i.test(err.message)
   );
+}
+
+function isRegionSelectionCancelledError(err: unknown) {
+  return (
+    err instanceof Error &&
+    err.name === "AbortError" &&
+    /region selection/i.test(err.message)
+  );
+}
+
+function normalizeRegionCaptureRect(value: unknown): RegionCaptureRect | null {
+  if (!value || typeof value !== "object") return null;
+  const rect = value as Partial<RegionCaptureRect>;
+  const x = Number(rect.x);
+  const y = Number(rect.y);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function waitForRegionSelection(): {
+  promise: Promise<RegionCaptureRect>;
+  cleanup: () => void;
+} {
+  let settled = false;
+  const unlistens: UnlistenFn[] = [];
+
+  const cleanup = () => {
+    settled = true;
+    for (const unlisten of unlistens.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const promise = new Promise<RegionCaptureRect>((resolve, reject) => {
+    const finish = (result: RegionCaptureRect | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (result) resolve(result);
+      else reject(new RegionSelectionCancelledError());
+    };
+
+    const track = (listener: Promise<UnlistenFn>) => {
+      listener
+        .then((unlisten) => {
+          if (settled) {
+            try {
+              unlisten();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          unlistens.push(unlisten);
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        });
+    };
+
+    track(
+      listen<unknown>("clips:region-capture-selected", (event) => {
+        const rect = normalizeRegionCaptureRect(event.payload);
+        if (!rect) {
+          finish(null);
+          return;
+        }
+        finish(rect);
+      }),
+    );
+    track(
+      listen("clips:region-capture-cancelled", () => {
+        finish(null);
+      }),
+    );
+  });
+
+  return { promise, cleanup };
+}
+
+async function selectRegionForRecording(): Promise<RegionCaptureRect> {
+  const selection = waitForRegionSelection();
+  try {
+    await invoke("show_region_capture_selector");
+    return await selection.promise;
+  } catch (err) {
+    selection.cleanup();
+    throw err;
+  }
 }
 
 function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
@@ -1409,6 +1530,7 @@ async function startNativeFullscreenRecording(
   let localCameraStream: MediaStream | null = null;
   let localOwnsCameraStream = false;
   let bubbleCaptureExcluded = false;
+  let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   // Timer baseline for the toolbar/pill elapsed clock. Stamped the instant
   // native capture goes live (right after the start invoke resolves), not after
@@ -1430,6 +1552,10 @@ async function startNativeFullscreenRecording(
   try {
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
+
+    if (params.source === "region") {
+      captureRegion = await selectRegionForRecording();
+    }
 
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =
@@ -1474,7 +1600,7 @@ async function startNativeFullscreenRecording(
     } else {
       const captureTitle = await captureTitleForRecording({
         mode: params.mode,
-        source: "full-screen",
+        source: params.source,
       });
       console.time("[clips-recorder] createServerRecording duration");
       const recordingPromise = createServerRecording(
@@ -1536,6 +1662,7 @@ async function startNativeFullscreenRecording(
       captureSystemAudio: wantsSystemAudio,
       micDeviceId: params.micId || null,
       micDeviceLabel,
+      captureRegion,
     });
     // Capture is now live — stamp the timer baseline before any further awaits
     // so the toolbar clock and toolbar-enable line up with the real start.
