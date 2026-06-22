@@ -4047,10 +4047,7 @@ export function createAgentChatPlugin(
           await import("../extensions/fetch-tool.js");
         const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
           await import("../secrets/substitution.js");
-        const { resolveSecret: resolveFetchSecret } =
-          await import("./credential-provider.js");
         fetchTool = createFetchToolEntry({
-          resolveSecret: resolveFetchSecret,
           resolveKeys: async (text) =>
             resolveKeyReferences(
               text,

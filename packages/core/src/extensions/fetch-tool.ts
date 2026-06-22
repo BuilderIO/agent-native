@@ -80,77 +80,6 @@ export interface FetchToolOptions {
   }>;
   /** Validate URL against per-key allowlists. */
   validateUrl?: (url: string, usedKeys: string[]) => Promise<boolean>;
-  /**
-   * Resolve a request-scoped secret by key (e.g. FIRECRAWL_API_KEY for the
-   * optional `render` path). When not provided, the render path falls back to
-   * an env-var lookup only.
-   */
-  resolveSecret?: (key: string) => Promise<string | null>;
-}
-
-/**
- * Fetch a fully-rendered page through Firecrawl's scrape API and return it as a
- * synthetic HTML `Response`, so the normal post-processing pipeline (readability
- * extraction, markdown/links/matches, saveToFile) handles it unchanged.
- *
- * Firecrawl renders JavaScript and clears anti-bot interstitials (Cloudflare,
- * PerimeterX, Akamai) that a plain header-spoofed fetch cannot, so this is the
- * upgrade path for SPAs and protected pages.
- */
-async function scrapeViaFirecrawl(
-  url: string,
-  apiKey: string,
-  timeoutMs: number,
-): Promise<Response> {
-  const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["html"],
-      onlyMainContent: false,
-    }),
-    // Rendering is slower than a raw fetch; give it at least 30s.
-    signal: AbortSignal.timeout(Math.max(timeoutMs, 30_000)),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `Firecrawl scrape error ${res.status}: ${await res.text()}`,
-    );
-  }
-  const data = (await res.json()) as {
-    success?: boolean;
-    error?: string;
-    data?: {
-      html?: string;
-      rawHtml?: string;
-      metadata?: { statusCode?: number };
-    };
-  };
-  if (data.success === false) {
-    throw new Error(
-      `Firecrawl scrape failed: ${data.error ?? "unknown error"}`,
-    );
-  }
-  const html = data.data?.html ?? data.data?.rawHtml ?? "";
-  // Preserve the upstream status when it is body-safe; otherwise report 200
-  // (we did get rendered content). 204/304 and 1xx cannot carry a body.
-  const upstream = data.data?.metadata?.statusCode;
-  const status =
-    typeof upstream === "number" &&
-    upstream >= 200 &&
-    upstream <= 599 &&
-    upstream !== 204 &&
-    upstream !== 304
-      ? upstream
-      : 200;
-  return new Response(html, {
-    status,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
 }
 
 /**
@@ -162,7 +91,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. For JavaScript-rendered SPAs or pages that return empty/blocked content with the built-in request, set provider:'firecrawl' to fetch a fully-rendered page (GET only; requires FIRECRAWL_API_KEY). Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -189,12 +118,6 @@ export function createFetchToolEntry(
             timeout_ms: {
               type: "number",
               description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: 30000.`,
-            },
-            provider: {
-              type: "string",
-              description:
-                "How the page is fetched. Default: builder (the built-in request + extraction; works for APIs, JSON, RSS, and most pages). Use firecrawl to render JavaScript and bypass anti-bot for SPAs or pages that come back empty/blocked with the built-in fetch (GET only; requires FIRECRAWL_API_KEY).",
-              enum: ["builder", "firecrawl"],
             },
             maxChars: {
               type: "number",
@@ -314,35 +237,6 @@ export function createFetchToolEntry(
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
-        // Fetch provider. Default "builder" = the built-in request + extraction.
-        // "firecrawl" renders JS / bypasses anti-bot via Firecrawl's scrape API;
-        // GET only, since rendering a POST/PUT body through a scrape API is not
-        // meaningful (those stay on the built-in path).
-        const provider = String(args.provider ?? "builder")
-          .trim()
-          .toLowerCase();
-        let firecrawlKey: string | null = null;
-        if (provider === "firecrawl") {
-          if (method !== "GET") {
-            return "provider:'firecrawl' supports GET only. Use the default builder provider for this request.";
-          }
-          if (opts.resolveSecret) {
-            // Respect the request-scoped secret policy: when a resolver is
-            // wired, its decision (including null) is final — do not fall back
-            // to a server-wide env var. Mirrors web-search's resolveSearchKey.
-            try {
-              firecrawlKey = await opts.resolveSecret("FIRECRAWL_API_KEY");
-            } catch {
-              // Secret lookup failures are non-fatal; leave the key unset.
-            }
-          } else {
-            firecrawlKey = process.env.FIRECRAWL_API_KEY || null;
-          }
-          if (!firecrawlKey) {
-            return "provider:'firecrawl' requires FIRECRAWL_API_KEY. Add it in Settings (or set the env var), or use the default builder provider.";
-          }
-        }
-
         // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
@@ -374,33 +268,22 @@ export function createFetchToolEntry(
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-          let response: Response;
-          if (firecrawlKey) {
-            // Firecrawl renders + returns HTML; the synthetic Response flows
-            // through the same post-processing pipeline as a normal fetch.
-            response = await scrapeViaFirecrawl(
-              resolvedUrl,
-              firecrawlKey,
-              timeoutMs,
-            );
-          } else {
-            const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-            const fetchOpts: RequestInit & { dispatcher?: unknown } = {
-              method,
-              headers,
-              signal: controller.signal,
-              redirect: "manual",
-            };
-            if (dispatcher) fetchOpts.dispatcher = dispatcher;
-            if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
-              fetchOpts.body = resolvedBody;
-              if (!headers["content-type"] && !headers["Content-Type"]) {
-                headers["Content-Type"] = "application/json";
-              }
+          const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+          const fetchOpts: RequestInit & { dispatcher?: unknown } = {
+            method,
+            headers,
+            signal: controller.signal,
+            redirect: "manual",
+          };
+          if (dispatcher) fetchOpts.dispatcher = dispatcher;
+          if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
+            fetchOpts.body = resolvedBody;
+            if (!headers["content-type"] && !headers["Content-Type"]) {
+              headers["Content-Type"] = "application/json";
             }
-
-            response = await fetch(resolvedUrl, fetchOpts);
           }
+
+          const response = await fetch(resolvedUrl, fetchOpts);
           const elapsed = Date.now() - startTime;
 
           if (response.status >= 300 && response.status < 400) {
@@ -470,7 +353,7 @@ export function createFetchToolEntry(
 
           // Audit log
           console.log(
-            `[fetch-tool] ${method}${firecrawlKey ? " (firecrawl)" : ""} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
+            `[fetch-tool] ${method} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
 
           // saveToFile: write full body to workspace and return compact summary.
