@@ -253,8 +253,8 @@ export function ConnectBuilderCard({
     title = "Connect Builder.io";
     subtitle = (
       <>
-        Free during beta. Includes Builder.io AI credits, browser automation,
-        and cloud code when enabled.
+        Builder.io's free tier includes AI credits, browser automation, and
+        cloud code when enabled.
       </>
     );
   }

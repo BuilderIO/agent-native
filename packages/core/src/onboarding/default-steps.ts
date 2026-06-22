@@ -87,7 +87,7 @@ const llmStep: OnboardingStep = {
       kind: "builder-cli-auth",
       label: "Connect Builder",
       description:
-        "Free during beta. Includes Builder.io AI credits, web search, browser automation, and file uploads.",
+        "Builder.io's free tier includes AI credits, web search, browser automation, and file uploads.",
       primary: true,
       badge: "free",
       payload: {

@@ -35,14 +35,14 @@ export default async (nitroApp: any): Promise<void> => {
     required: true,
     title: "Video storage",
     description:
-      "Clips needs video storage. Builder.io is free during beta and includes AI credits.",
+      "Clips needs video storage. Builder.io has a free tier with AI credits.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description:
-          "Free during beta. Includes Builder.io AI credits, browser automation, and file uploads.",
+          "Free tier includes Builder.io AI credits, browser automation, and file uploads.",
         primary: true,
         badge: "free",
         payload: { scope: "browser" },

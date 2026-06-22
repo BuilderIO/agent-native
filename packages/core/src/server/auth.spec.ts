@@ -3451,6 +3451,15 @@ describe("server/auth", () => {
 
       expect(getAppProductionUrl()).toBe("https://workspace.example.test");
     });
+
+    it("ignores loopback APP_URL values in hosted production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_URL", "http://localhost:8094");
+      vi.stubEnv("URL", "https://clips.agent-native.com");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://clips.agent-native.com");
+    });
   });
 
   describe("resolveOAuthRedirectUri", () => {

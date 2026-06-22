@@ -29,7 +29,7 @@ function isLikelyPersonalWorkspace(
 
 function autoCreateDefaultOrgEnabled(): boolean {
   const raw = process.env.AUTO_CREATE_DEFAULT_ORG;
-  if (raw === undefined || raw.trim() === "") return true;
+  if (raw === undefined || raw.trim() === "") return false;
   return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
 }
 
@@ -42,9 +42,9 @@ const nanoid = (): string =>
  *
  * - For users in multiple orgs, honors their `active-org-id` user setting.
  * - Falls back to the user's first membership.
- * - When the authenticated user has zero memberships, provisions a default org
- *   named after the user ({name}'s workspace, falling back to the email
- *   local-part). Set `AUTO_CREATE_DEFAULT_ORG=0` to opt out.
+ * - When `AUTO_CREATE_DEFAULT_ORG` is set and the authenticated user has zero
+ *   memberships, provisions a default org named after the user ({name}'s
+ *   workspace, falling back to the email local-part).
  *
  * Per-request memoized on `event.context` — mirrors the `getSession`
  * pattern so multiple callers in the same request (e.g. ssr-handler +

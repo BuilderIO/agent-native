@@ -65,6 +65,18 @@ function firstConfiguredUrl(keys: readonly string[]): string | undefined {
   return undefined;
 }
 
+function firstConfiguredPublicUrl(keys: readonly string[]): string | undefined {
+  const allowLoopback = !isHostedRuntime();
+  for (const key of keys) {
+    const value = process.env[key];
+    if (!value) continue;
+    const url = stripTrailingSlash(value);
+    if (!allowLoopback && isLoopbackUrl(url)) continue;
+    return url;
+  }
+  return undefined;
+}
+
 function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
@@ -75,6 +87,18 @@ function isLoopbackUrl(value: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function isHostedRuntime(): boolean {
+  return Boolean(
+    process.env.NODE_ENV === "production" ||
+    process.env.NETLIFY ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.VERCEL ||
+    process.env.VERCEL_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  );
 }
 
 function workspaceGatewayUrl(options: {
@@ -102,7 +126,7 @@ export function getFirstPartyProdUrl(): string | undefined {
 }
 
 export function getAppProductionUrl(event?: H3Event): string {
-  const envUrl = firstConfiguredUrl([
+  const envUrl = firstConfiguredPublicUrl([
     "APP_URL",
     "WORKSPACE_OAUTH_ORIGIN",
     "VITE_WORKSPACE_OAUTH_ORIGIN",

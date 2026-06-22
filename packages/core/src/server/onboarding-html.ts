@@ -708,7 +708,7 @@ ${
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
-  .msg.success { color: #4ade80; }
+  .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
   .step-progress {
     display: grid;
@@ -754,9 +754,9 @@ ${
   .progress-step.complete,
   .progress-step.current { color: #e5e5e5; }
   .progress-step.complete span {
-    background: #d9f99d;
-    border-color: #d9f99d;
-    color: #111;
+    background: rgba(0,181,255,0.16);
+    border-color: rgba(0,181,255,0.55);
+    color: #dff7ff;
   }
   .progress-step.current span {
     background: #fff;
@@ -773,7 +773,7 @@ ${
   }
   .verification-kicker {
     margin-bottom: 0.5rem;
-    color: #bef264;
+    color: #33C4FF;
     font-size: 0.75rem;
     font-weight: 500;
   }
@@ -2186,7 +2186,7 @@ export function getResetPasswordHtml(): string {
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
-  .msg.success { color: #4ade80; }
+  .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
   .back { display: inline-block; margin-top: 1rem; font-size: 0.75rem; color: #888; text-decoration: none; }
   .back:hover { color: #bbb; }
