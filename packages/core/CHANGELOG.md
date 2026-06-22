@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.66.8
+
+### Patch Changes
+
+- f514c12: Add the Content app-backed skill and a `skills add content --mode local-files`
+  install path that writes Content local-file workspace defaults to
+  `agent-native.json`.
+- f514c12: Pass Codex CLI approval policy before the `exec` subcommand so local Code runs
+  work with current Codex CLI argument parsing.
+- f514c12: Allow `pnpm action <name> '{"arg":"value"}'` to pass a positional JSON object
+  to defineAction and package actions while preserving existing flag arguments.
+- f514c12: Show the onboarding setup prompt in the agent sidebar on normal deployed app surfaces so required Builder/BYOK setup is visible to users.
+- f514c12: Prefer inline Builder connect guidance for chat attachment upload recovery.
+
 ## 0.66.7
 
 ### Patch Changes
