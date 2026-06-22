@@ -8,6 +8,7 @@ import {
   type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { IconBrandGithub } from "@tabler/icons-react";
@@ -590,6 +591,43 @@ export function PlanContentRenderer({
     () => new Map(content.blocks.map((block) => [block.id, block])),
     [content.blocks],
   );
+  const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
+    if (!isRecap) return new Map();
+    const map = new Map<string, string>();
+    for (const block of content.blocks) {
+      if (
+        (block.type === "annotated-code" ||
+          block.type === "diff" ||
+          block.type === "code") &&
+        block.data.filename &&
+        !map.has(block.data.filename)
+      ) {
+        map.set(block.data.filename, block.id);
+      }
+    }
+    return map;
+  }, [content.blocks, isRecap]);
+  const handleRecapFileTreeClick = useMemo(() => {
+    if (!isRecap || fileToBlockIdMap.size === 0) return undefined;
+    return (event: MouseEvent<HTMLElement>) => {
+      const filePath = (event.target as HTMLElement)
+        .closest("[data-file-path]")
+        ?.getAttribute("data-file-path");
+      if (!filePath) return;
+      const blockId = fileToBlockIdMap.get(filePath);
+      if (!blockId) return;
+      const el = document.querySelector<HTMLElement>(
+        `[data-block-id="${CSS.escape(blockId)}"]`,
+      );
+      if (!el) return;
+      el.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
+    };
+  }, [fileToBlockIdMap, isRecap]);
   const firstWideLayoutBlockIndex = useMemo(
     () =>
       documentLayout === "wide"
@@ -742,7 +780,10 @@ export function PlanContentRenderer({
                   />
                 )}
 
-                <div className="plan-document-flow-stack">
+                <div
+                  className="plan-document-flow-stack"
+                  onClick={handleRecapFileTreeClick}
+                >
                   <div className="plan-document-flow">
                     {documentEditable ? (
                       // The whole body is ONE editable rich-markdown document; custom

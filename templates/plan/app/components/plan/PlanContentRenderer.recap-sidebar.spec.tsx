@@ -86,7 +86,14 @@ function recapWideLayoutContent(): PlanContent {
         title: "Files changed",
         data: {
           title: "Files changed",
-          entries: [{ path: "packages/core/src/a.ts", change: "modified" }],
+          entries: [
+            { path: "packages/core/src/a.ts", change: "modified" },
+            {
+              path: "templates/plan/app/pages/PlansPage.tsx",
+              change: "modified",
+              note: "Updated the document layout.",
+            },
+          ],
         },
       },
       {
@@ -405,6 +412,56 @@ describe("PlanContentRenderer recap changed files", () => {
     });
 
     expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("scrolls inline recap file rows to matching wide diff blocks", () => {
+    const scrolledElements: HTMLElement[] = [];
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value(this: HTMLElement) {
+        scrolledElements.push(this);
+      },
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: false,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    act(() => {
+      root.render(
+        <PlanContentRenderer
+          content={recapWideLayoutContent()}
+          isRecap
+          editingDisabled
+          fallbackTitle="Untitled plan"
+          fallbackBrief=""
+        />,
+      );
+    });
+
+    const fileRow = container.querySelector<HTMLButtonElement>(
+      'button[data-file-path="templates/plan/app/pages/PlansPage.tsx"]',
+    );
+    expect(fileRow).not.toBeNull();
+    expect(fileRow?.disabled).toBe(false);
+
+    act(() => {
+      fileRow?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    const target = scrolledElements[scrolledElements.length - 1];
+    expect(target?.getAttribute("data-block-id")).toBe("diff-1");
+    expect(target?.closest(".plan-document-flow--wide-zone")).not.toBeNull();
   });
 
   it("resolves direct hash links into the wide breakout zone", async () => {
