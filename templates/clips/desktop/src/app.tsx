@@ -1637,7 +1637,11 @@ export function App() {
         source,
         cameraId,
         micId: selectedMicId || undefined,
-        micLabel: selectedMicLabel || undefined,
+        // Live label is empty when the stored hashed deviceId no longer
+        // resolves in the current device list; fall back to the persisted label
+        // so the native recorder always has a name to match. recorder.ts also
+        // probes the live track.label at start as the authoritative source.
+        micLabel: selectedMicLabel || micLabel || undefined,
         authToken: loadDesktopAuthToken(serverUrl),
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
         cameraOn,
