@@ -38,6 +38,7 @@ import { EditorLayout } from "@/components/editor/editor-layout";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
+import { TimestampedCommentButton } from "@/components/player/timestamped-comment-button";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
@@ -803,15 +804,22 @@ export default function RecordingPage() {
                       </span>
                     </NavLink>
                   ) : null}
-                  <EditableRecordingTitle
+                  <TimestampedCommentButton
                     recordingId={recording.id}
-                    title={recording.title}
-                    canEdit={canEdit}
-                    displayTitle={visibleTitle}
-                    showPendingSkeleton={showTitleSkeleton}
-                    className="text-base font-semibold"
-                    inputClassName="h-8 text-base font-semibold"
-                    skeletonClassName="h-5 w-72 max-w-full"
+                    enableComments={recording.enableComments}
+                    getCurrentMs={() => {
+                      const liveCt = playerRef.current?.video?.currentTime;
+                      return typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                        ? Math.floor(liveCt * 1000)
+                        : currentMs;
+                    }}
+                    onAdded={() => {
+                      setPanel("comments");
+                      playerDataQ.refetch();
+                    }}
                   />
                   {recording.description ? (
                     <p className="text-sm text-muted-foreground line-clamp-2">
