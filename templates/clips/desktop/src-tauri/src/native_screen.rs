@@ -2605,7 +2605,11 @@ fn upload_url(
 /// Returns true when an upload error string indicates the file is permanently
 /// corrupt (missing moov atom) and cannot be recovered by retrying.
 fn is_moov_corrupt_error(err: &str) -> bool {
+    // Matches both the native prepare_recording_file error and the server-side
+    // finalize-recording.ts error so the corrupt flag is set regardless of
+    // which layer first detected the missing moov atom.
     err.contains("video is missing required metadata")
+        || err.contains("corrupted or incomplete")
 }
 
 /// Walk the top-level ISO BMFF boxes of a file and return `Some(true)` when a
@@ -2651,6 +2655,10 @@ fn mp4_has_moov(path: &Path) -> Option<bool> {
                 // full includes the 8-byte header + 8-byte ext field (16 total).
                 full.saturating_sub(16)
             }
+            // Sizes 2-7 are below the minimum valid box size (8 bytes).
+            // saturating_sub would produce 0, causing skip=0 and an infinite
+            // loop since the file position would never advance.
+            n if n < 8 => return Some(false),
             n => (n as u64).saturating_sub(8),
         };
         if skip > 0 {
