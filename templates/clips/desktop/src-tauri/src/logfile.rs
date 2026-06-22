@@ -195,14 +195,20 @@ fn redirect_std_streams(_path: &Path) {}
 /// frontend console tee (see `src/main.tsx`).
 #[tauri::command]
 pub fn frontend_log(level: String, message: String) {
-    // In release this println! is redirected into the log file; in dev it
-    // simply echoes to the terminal.
-    println!("[webview][{level}] {message}");
-    // In dev there is no fd redirect, so also append directly to keep the file
-    // useful when a developer opens it.
+    let line = format!("[webview][{level}] {message}");
+    // In release this println! is redirected into the pipe, where the pump
+    // prepends the timestamp as it drains each line — emit it bare to avoid
+    // stamping it twice.
+    #[cfg(not(debug_assertions))]
+    println!("{line}");
+    // In dev there is no fd redirect, so stamp the terminal echo and append the
+    // same line to the file (append_line stamps it) to keep the file useful.
     #[cfg(debug_assertions)]
-    if let Some(path) = log_path() {
-        append_line(&path, &format!("[webview][{level}] {message}"));
+    {
+        println!("{} {line}", timestamp());
+        if let Some(path) = log_path() {
+            append_line(&path, &line);
+        }
     }
 }
 
