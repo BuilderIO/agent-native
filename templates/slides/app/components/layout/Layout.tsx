@@ -35,7 +35,7 @@ export function Layout({ children }: LayoutProps) {
   const { getDeck } = useDecks();
 
   // Scope new chats to the deck the user is currently editing. The route
-  // is `/deck/:id`; everywhere else (list, settings, presentation) leaves
+  // is `/deck/:id`; everywhere else (list, presentation) leaves
   // scope null so chats stay in the general pool. Falling back to the
   // raw deck id keeps the chat bound even before the deck object has
   // streamed in — once the title arrives the badge updates in place.

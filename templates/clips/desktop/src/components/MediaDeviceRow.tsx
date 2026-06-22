@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
 import { useRowMenu } from "./useRowMenu";
+import { useMicMeter } from "../hooks/useMicMeter";
 
 function Toggle({
   on,
@@ -25,13 +26,26 @@ function Toggle({
   );
 }
 
-function MicWave() {
+// Live mic level meter — a single wave line driven by real audio. The hook
+// owns the analyser and writes the path's `d`; the line oscillates around the
+// center and flattens when silent.
+function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
+  const pathRef = useMicMeter({ deviceId, active });
+
   return (
     <span className="mic-wave" aria-hidden>
-      <span className="bar b1" />
-      <span className="bar b2" />
-      <span className="bar b3" />
-      <span className="bar b4" />
+      <svg
+        className="mic-wave-svg"
+        viewBox="0 0 100 24"
+        preserveAspectRatio="none"
+      >
+        <path
+          ref={pathRef}
+          className="mic-wave-path"
+          d="M 0 12 L 100 12"
+          fill="none"
+        />
+      </svg>
     </span>
   );
 }
@@ -47,6 +61,7 @@ export function MediaDeviceRow({
   onToggle,
   systemAudio,
   onSystemAudioToggle,
+  meterActive = true,
 }: {
   kind: "camera" | "mic";
   devices: MediaDeviceInfo[];
@@ -58,6 +73,7 @@ export function MediaDeviceRow({
   onToggle: (v: boolean) => void;
   systemAudio?: boolean;
   onSystemAudioToggle?: (v: boolean) => void;
+  meterActive?: boolean;
 }) {
   const current = useMemo(
     () =>
@@ -108,16 +124,23 @@ export function MediaDeviceRow({
         title={label}
       >
         <span className="row-label">{label}</span>
+        {kind === "mic" && on ? (
+          <MicWave deviceId={selectedId} active={on && meterActive} />
+        ) : (
+          <span className="row-flex" aria-hidden />
+        )}
         <span className="row-chev" aria-hidden>
           <ChevronDown />
         </span>
       </button>
       <Toggle
         on={on}
-        onChange={onToggle}
+        onChange={(v) => {
+          if (!v) setOpen(false);
+          onToggle(v);
+        }}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
-      {kind === "mic" && on ? <MicWave /> : null}
       {open ? (
         <div className="row-menu" role="menu">
           <button

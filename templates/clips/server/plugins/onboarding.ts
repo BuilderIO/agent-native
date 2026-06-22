@@ -12,12 +12,9 @@ import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
-import {
-  getActiveFileUploadProvider,
-  registerFileUploadProvider,
-} from "@agent-native/core/file-upload";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
 const basePlugin = createOnboardingPlugin();
 
@@ -33,16 +30,16 @@ export default async (nitroApp: any): Promise<void> => {
     id: "file-storage",
     order: 15,
     required: true,
-    title: "Video storage",
+    title: "Connect storage",
     description:
-      "Clips needs a file storage provider for recorded videos. Builder.io is free and one click.",
+      "Store recorded videos with Builder.io or S3-compatible storage.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description:
-          "One-click setup — also unlocks LLM + browser automation. Free during beta.",
+          "Builder.io's free tier includes video storage and AI credits.",
         primary: true,
         badge: "free",
         payload: { scope: "browser" },
@@ -90,15 +87,6 @@ export default async (nitroApp: any): Promise<void> => {
         },
       },
     ],
-    isComplete: async () => {
-      const active = getActiveFileUploadProvider();
-      if (active && active.id !== "builder") return true;
-      try {
-        if (await resolveHasBuilderPrivateKey()) return true;
-      } catch {
-        // Fall back to sync provider status below.
-      }
-      return !!active;
-    },
+    isComplete: hasRequestVideoStorage,
   });
 };

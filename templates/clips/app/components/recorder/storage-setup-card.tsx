@@ -39,9 +39,9 @@ export interface StorageSetupCardProps {
 
 export function StorageSetupCard({
   onConfigured,
-  title = "Set up video storage",
-  description = "Connect a storage provider to start recording clips.",
-  connectDescription = "One-click setup — also unlocks LLM and browser automation.",
+  title = "Connect storage",
+  description = "Store recorded videos with Builder.io or S3-compatible storage.",
+  connectDescription = "Builder.io's free tier includes video storage and AI credits.",
   connectedDescription = "You're all set. Starting recorder...",
 }: StorageSetupCardProps) {
   const [connecting, setConnecting] = useState(false);

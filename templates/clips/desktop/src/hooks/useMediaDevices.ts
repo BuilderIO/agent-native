@@ -32,15 +32,6 @@ function concreteMediaDeviceId(value: string | null | undefined): string {
   return id && !isPseudoMediaDeviceId(id) ? id : "";
 }
 
-// Prefer this page's own enumeration; fall back to the bubble-relayed list
-// when the popover can't see labels itself (local-camera path).
-function preferEnumerated(
-  own: MediaDeviceInfo[],
-  relayed: MediaDeviceInfo[],
-): MediaDeviceInfo[] {
-  return own.length > 0 ? own : relayed;
-}
-
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
   return !!concreteMediaDeviceId(device.deviceId);
 }
@@ -77,10 +68,6 @@ export interface MediaDevicesState {
   selectedMicLabel: string;
   cameraDevices: MediaDeviceInfo[];
   micDevices: MediaDeviceInfo[];
-  // Device lists relayed from the bubble page when it owns the camera grant;
-  // the popover effect feeds these in from `clips:camera-devices` / mic events.
-  setBubbleCameras: (devices: MediaDeviceInfo[]) => void;
-  setBubbleMics: (devices: MediaDeviceInfo[]) => void;
   loadDevices: () => Promise<void>;
   requestDeviceAccess: (kind: "camera" | "mic") => Promise<void>;
 }
@@ -97,8 +84,6 @@ export function useMediaDevices({
   // (full-screen / local-camera path). The popover page can't enumerate device
   // labels itself there without muting the live bubble, so we use these lists
   // when our own enumeration comes back empty.
-  const [bubbleCameras, setBubbleCameras] = useState<MediaDeviceInfo[]>([]);
-  const [bubbleMics, setBubbleMics] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>(() =>
     loadString(CAM_KEY, ""),
   );
@@ -114,14 +99,8 @@ export function useMediaDevices({
   );
 
   const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
-  const cameraDevices = useMemo(
-    () => preferEnumerated(cameras, bubbleCameras),
-    [cameras, bubbleCameras],
-  );
-  const micDevices = useMemo(
-    () => preferEnumerated(mics, bubbleMics),
-    [mics, bubbleMics],
-  );
+  const cameraDevices = cameras;
+  const micDevices = mics;
   const selectedMicLabel = useMemo(
     () =>
       selectedMicId
@@ -175,10 +154,7 @@ export function useMediaDevices({
     // popover. If the user has picked a concrete mic, use that exact device;
     // otherwise leave labels locked until a real user action needs access.
     try {
-      // While the bubble owns the camera, even this audio-only probe trips
-      // WebKit's single-page capture-exclusion and blacks the bubble. Don't
-      // probe — leave mic labels locked until the bubble is gone.
-      if (bubbleActiveRef.current || !selectedMicId) {
+      if (!selectedMicId) {
         await loadDevices();
         return;
       }
@@ -191,33 +167,13 @@ export function useMediaDevices({
       // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
-  }, [bubbleActiveRef, loadDevices, selectedMicId]);
+  }, [loadDevices, selectedMicId]);
 
   const requestDeviceAccess = useCallback(
     async (kind: "camera" | "mic") => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("Device selection is not available in this WebView.");
-        }
-        // When the camera bubble is live, ANY getUserMedia in this page —
-        // camera OR mic — hits WebKit's single-page capture-exclusion (one
-        // process, one webview): the bubble page's camera stream gets muted
-        // and goes black with no reliable unmute. The exclusion is not
-        // per-kind, so an audio-only probe blacks the bubble just the same.
-        // So we never probe here while the bubble owns the camera. Instead the
-        // bubble page — the only page that can capture without muting its own
-        // camera — does the probe and relays the device list back to us.
-        if (bubbleActiveRef.current) {
-          if (kind === "mic") {
-            // Ask the bubble to probe + relay the mic list (it has no mic
-            // grant of its own, so it must open a transient mic stream).
-            emit("clips:refresh-mics", {
-              micId: selectedMicId || null,
-            }).catch(() => {});
-          }
-          // Cameras are already relayed when the bubble's local camera starts.
-          await loadDevices();
-          return;
         }
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
@@ -299,8 +255,6 @@ export function useMediaDevices({
     selectedMicLabel,
     cameraDevices,
     micDevices,
-    setBubbleCameras,
-    setBubbleMics,
     loadDevices,
     requestDeviceAccess,
   };

@@ -190,8 +190,8 @@ export function ConnectBuilderCard({
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
   const connectedCapabilityText = builderEnabled
-    ? "LLM access, browser automation, and cloud code changes are ready to use."
-    : "LLM access and browser automation are ready to use. Builder Cloud Agents for code changes are not available for this workspace yet.";
+    ? "AI credits and cloud code changes are ready to use."
+    : "AI credits are ready to use. Builder Cloud Agents for code changes are not available for this workspace yet.";
   let title: string;
   let subtitle: React.ReactNode;
   if (runResult) {
@@ -251,12 +251,7 @@ export function ConnectBuilderCard({
     );
   } else {
     title = "Connect Builder.io";
-    subtitle = (
-      <>
-        Connect Builder for managed LLM access, browser automation, and cloud
-        code changes when they are enabled for this workspace.
-      </>
-    );
+    subtitle = <>Builder.io's free tier includes AI credits.</>;
   }
 
   return (

@@ -797,12 +797,44 @@ function authLoginResponse(
  */
 const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /invalid\s+(email|password|credentials)/i,
+  /\[?body\.email\]?\s+invalid input/i,
   /password.*incorrect/i,
   /user\s+(not\s+found|already\s+exists)/i,
   /email\s+already/i,
   /already\s+(exists|registered|in\s+use)/i,
   /not\s+verified/i,
 ];
+
+const VALID_AUTH_EMAIL_MESSAGE =
+  "Enter a valid email address, like you@example.com.";
+const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeAuthEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  return AUTH_EMAIL_PATTERN.test(email) ? email : null;
+}
+
+function publicAuthError(
+  error: unknown,
+  fallback: string,
+): { message: string; statusCode?: number } {
+  const message = (error as { message?: unknown })?.message;
+  if (typeof message === "string") {
+    if (isAuthEmailValidationMessage(message)) {
+      return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
+    }
+    if (message.trim()) return { message };
+  }
+  return { message: fallback };
+}
+
+function isAuthEmailValidationMessage(message: string): boolean {
+  return (
+    /\bemail\b/i.test(message) &&
+    /(invalid|input|required|format)/i.test(message)
+  );
+}
 
 export function isExpectedAuthFailure(error: unknown): boolean {
   const msg = (error as { message?: unknown })?.message;
@@ -2990,12 +3022,17 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
 
       // Email/password login via Better Auth
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || !password) {
+      if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
         return { error: "Email and password are required" };
+      }
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
       try {
@@ -3026,8 +3063,9 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        setResponseStatus(event, 401);
-        return { error: e?.message || "Invalid email or password" };
+        const authError = publicAuthError(e, "Invalid email or password");
+        setResponseStatus(event, authError.statusCode ?? 401);
+        return { error: authError.message };
       }
     }),
   );
@@ -3042,16 +3080,17 @@ async function mountBetterAuthRoutes(
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
 
-      if (!email || typeof email !== "string" || !email.includes("@")) {
+      if (!email) {
         setResponseStatus(event, 400);
-        return { error: "Valid email is required" };
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
@@ -3067,8 +3106,9 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        setResponseStatus(event, 409);
-        return { error: e?.message || "Registration failed" };
+        const authError = publicAuthError(e, "Registration failed");
+        setResponseStatus(event, authError.statusCode ?? 409);
+        return { error: authError.message };
       }
     }),
   );
@@ -3223,12 +3263,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || !password) {
+      if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
         return { error: "Email and password are required" };
+      }
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
       try {
@@ -3257,8 +3302,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        setResponseStatus(event, 401);
-        return { error: e?.message || "Invalid email or password" };
+        const authError = publicAuthError(e, "Invalid email or password");
+        setResponseStatus(event, authError.statusCode ?? 401);
+        return { error: authError.message };
       }
     }),
   );
@@ -3272,12 +3318,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || typeof email !== "string" || !email.includes("@")) {
+      if (!email) {
         setResponseStatus(event, 400);
-        return { error: "Valid email is required" };
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
@@ -3294,8 +3341,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        setResponseStatus(event, 409);
-        return { error: e?.message || "Registration failed" };
+        const authError = publicAuthError(e, "Registration failed");
+        setResponseStatus(event, authError.statusCode ?? 409);
+        return { error: authError.message };
       }
     }),
   );

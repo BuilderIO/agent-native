@@ -53,8 +53,6 @@ export function useNavigationState() {
           state.slideIndex = oneBased - 1;
         }
       }
-    } else if (path.startsWith("/settings")) {
-      state.view = "settings";
     } else if (path.startsWith("/share/")) {
       state.view = "share";
     } else {
@@ -170,8 +168,6 @@ export function useNavigationState() {
           path += `?slide=${internalSlideIndex + 1}`;
         }
       }
-    } else if (cmd.view === "settings") {
-      path = "/settings";
     }
 
     navigate(path);

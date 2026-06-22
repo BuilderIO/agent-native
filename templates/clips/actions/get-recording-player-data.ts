@@ -29,6 +29,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 
 function recordingDeepLink(recordingId: string): string {
@@ -100,6 +101,21 @@ export default defineAction({
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
 
+    const [browserDiagnosticsRow] = await db
+      .select()
+      .from(schema.recordingBrowserDiagnostics)
+      .where(
+        eq(schema.recordingBrowserDiagnostics.recordingId, args.recordingId),
+      )
+      .limit(1);
+    const browserDiagnostics = parseBrowserDiagnosticsRow(
+      browserDiagnosticsRow,
+    );
+    const canInspectBrowserDiagnostics =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
+
     // Reverse-lookup: if a meeting captured this recording, surface it so the
     // player can show a "From meeting: <title>" badge linking back to the
     // meeting detail page. We don't need an FK on recordings — the meetings
@@ -150,7 +166,10 @@ export default defineAction({
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
     //      rows keep playing after the route move.
-    //   2. For password-protected recordings, mint a short-lived HMAC token
+    //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
+    //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
+    //      Loom rows proxy their stored provider URL from the server.
+    //   3. For password-protected recordings, mint a short-lived HMAC token
     //      bound to this recording id and pass it via `?t=<token>` instead of
     //      the plaintext password. Sticking the password in the URL leaks it
     //      into browser history, CDN logs, the Referer header on outbound
@@ -161,7 +180,7 @@ export default defineAction({
     //      `?password=<pw>` (legacy fallback) so old share pages keep
     //      working during rollout. (audit 11 F-07)
     //      Owners are skipped — the blob route bypasses the password gate
-    //      for them, so they don't need the token. Real provider URLs
+    //      for them, so they don't need the token. Non-Loom provider URLs
     //      (R2/S3/Builder) are left untouched; those are already signed.
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
@@ -268,6 +287,11 @@ export default defineAction({
         color: c.color,
         placement: c.placement,
       })),
+      browserDiagnostics: browserDiagnostics
+        ? canInspectBrowserDiagnostics
+          ? browserDiagnostics
+          : { summary: browserDiagnostics.summary }
+        : null,
       meeting,
     };
   },

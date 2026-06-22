@@ -10,7 +10,7 @@ import { AccessPasswordPrompt } from "@/components/player/access-password-prompt
 import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
-import { isLoomRecordingSource } from "../../shared/loom";
+import { isLoomEmbedBackedRecording } from "../../shared/loom";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -96,7 +96,7 @@ export default function EmbedRoute() {
   const chapters = dataQ.data?.data?.chapters ?? [];
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
-  const isLoomRecording = isLoomRecordingSource(recording);
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
 
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
@@ -106,7 +106,7 @@ export default function EmbedRoute() {
       },
     } as any,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomRecording,
+    trackOpenWithoutVideo: isLoomEmbedBacked,
   });
 
   const needsPassword =
@@ -162,7 +162,7 @@ export default function EmbedRoute() {
         ref={playerRef}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
-        embedProvider={isLoomRecording ? "loom" : null}
+        embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}
         editsJson={recording.editsJson}
         thumbnailUrl={recording.thumbnailUrl}

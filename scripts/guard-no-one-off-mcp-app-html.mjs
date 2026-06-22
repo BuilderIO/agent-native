@@ -18,14 +18,31 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 const TEMPLATES_DIR = path.join(REPO_ROOT, "templates");
+const SKIP_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".cache",
+  ".generated",
+  ".netlify",
+  ".react-router",
+  "coverage",
+]);
 
 const failures = [];
 
 async function walk(dir, files = []) {
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err?.code === "ENOENT") return files;
+    throw err;
+  }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
       await walk(full, files);
     } else if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name)) {
       files.push(full);
@@ -103,7 +120,13 @@ const files = await walk(TEMPLATES_DIR);
 
 for (const file of files) {
   const rel = relative(file);
-  const source = readFileSync(file, "utf8");
+  let source;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") continue;
+    throw err;
+  }
 
   if (/\/actions\/_mcp-apps\.ts$/.test(rel)) {
     failures.push({

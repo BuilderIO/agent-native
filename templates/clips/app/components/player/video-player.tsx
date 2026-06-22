@@ -46,7 +46,11 @@ import {
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("/") && !url.startsWith("//")) {
-    return `${appBasePath()}${url}`;
+    const basePath = appBasePath();
+    if (basePath && (url === basePath || url.startsWith(`${basePath}/`))) {
+      return url;
+    }
+    return `${basePath}${url}`;
   }
   return url;
 }

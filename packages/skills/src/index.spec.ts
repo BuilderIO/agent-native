@@ -294,6 +294,7 @@ describe("@agent-native/skills", () => {
       catalogMode: "all",
       hiddenBuiltInSkillTargets: [
         "assets",
+        "content",
         "design-exploration",
         "context-xray",
       ],
@@ -654,6 +655,58 @@ describe("@agent-native/skills", () => {
       expect.objectContaining({
         baseDir: project,
         catalogMode: "all",
+        isInteractive: expect.any(Function),
+        publicSkillEntries: [],
+        publicSkillSource: "BuilderIO/skills",
+      }),
+    );
+  });
+
+  it("delegates content local-files installs to agent-native core", async () => {
+    const project = tmpDir();
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "content",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          "--mode",
+          "local-files",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      [
+        "add",
+        "content",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--yes",
+        "--json",
+        "--mode",
+        "local-files",
+      ],
+      expect.objectContaining({
+        baseDir: project,
+        catalogMode: "all",
+        hiddenBuiltInSkillTargets: expect.arrayContaining(["content"]),
         isInteractive: expect.any(Function),
         publicSkillEntries: [],
         publicSkillSource: "BuilderIO/skills",

@@ -1,0 +1,27 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
+
+const root = dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig({
+  root,
+  publicDir: "public",
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    sourcemap: true,
+    rollupOptions: {
+      input: {
+        background: resolve(root, "src/background.ts"),
+        popup: resolve(root, "src/popup.html"),
+        options: resolve(root, "src/options.html"),
+      },
+      output: {
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
+  },
+});

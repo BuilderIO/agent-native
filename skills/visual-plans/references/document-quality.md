@@ -95,7 +95,11 @@ so you never emit a block the editor cannot render or round-trip:
   two-dimensional layouts — paired before/after panels, layered diagrams,
   swimlanes, dependency maps, matrices, or grouped regions; do not default to
   left-to-right chains, and use a line only when the relationship is truly a
-  sequence. For architecture/code
+  sequence. Do not use a body `diagram` as the primary artifact for a requested
+  product canvas, light storyboard, UI flow, screen flow, or wireframe; those
+  belong in the top canvas as artboards with `Screen` wireframes first. Use
+  diagrams below that canvas only for architecture, data flow, or implementation
+  mechanics. For architecture/code
   diagrams, prefer `data.html` / `data.css` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives
@@ -161,6 +165,11 @@ blocks for normal plans. For architecture/code reviews, use `diagram`
 requested mockup, UI state, or visual comparison. If UI fidelity requires
 HTML/CSS, image capture, or real React/CSS, the product fix is canvas support
 for that artifact type, not moving the mockup into the document.
+When `custom-html` is genuinely needed, author it against the sandbox-provided
+theme tokens (`--wf-paper`, `--wf-card`, `--wf-ink`, `--wf-muted`,
+`--wf-line`, `--wf-radius`, and the matching `--plan-*` aliases). Do not hardcode
+hex/rgb/hsl light palettes such as white cards with dark ink; the same fragment
+must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and

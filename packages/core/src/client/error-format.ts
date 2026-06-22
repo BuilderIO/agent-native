@@ -33,7 +33,7 @@ export function formatChatErrorText(
   upgradeUrl?: string,
   errorCode?: string,
 ): string {
-  const normalized = normalizeChatError(errorMessage);
+  const normalized = normalizeChatError(errorMessage, errorCode);
   if (
     errorCode === "gateway_not_enabled" ||
     /space has not enabled the LLM gateway/i.test(normalized.message)
@@ -60,10 +60,42 @@ export interface NormalizedChatError {
   details?: string;
 }
 
-export function normalizeChatError(errorMessage: string): NormalizedChatError {
+function normalizeErrorCode(errorCode?: string): string {
+  return String(errorCode ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function isProviderRateLimit(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_rate_limited" ||
+    code === "http_429" ||
+    code === "rate_limited" ||
+    code === "rate_limit_exceeded" ||
+    /^429 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /\b(?:http\s*)?429\b.*\b(?:status|too many requests|rate[-_\s]?limit|no body)\b/i.test(
+      text,
+    ) ||
+    /\b(?:too many requests|rate[-_\s]?limit(?:ed| exceeded)?)\b/i.test(text)
+  );
+}
+
+export function normalizeChatError(
+  errorMessage: string,
+  errorCode?: string,
+): NormalizedChatError {
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
+
+  if (isProviderRateLimit(text, errorCode)) {
+    return {
+      message:
+        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+      details: text,
+    };
+  }
 
   if (/^Gateway error \(no detail; raw event:/i.test(text)) {
     // The previous copy promised auto-recovery and suggested switching models,

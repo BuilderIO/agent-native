@@ -4,7 +4,7 @@ Install dependencies, then run the hello action:
 
 ```bash
 pnpm install
-pnpm action hello --name Builder
+pnpm action hello '{"name":"Builder"}'
 ```
 
 `actions/run.ts` is only the shared CLI dispatcher that powers

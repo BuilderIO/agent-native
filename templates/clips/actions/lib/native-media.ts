@@ -1,4 +1,4 @@
-import { isLoomRecordingSource } from "../../shared/loom.js";
+import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
 
 type RecordingMediaLike = {
   sourceAppName?: string | null;
@@ -6,10 +6,10 @@ type RecordingMediaLike = {
 };
 
 const LOOM_NATIVE_MEDIA_MESSAGE =
-  "This action requires a native Clips video. Loom imports are embed-backed; upload the original video file to use native editing, frame extraction, stitching, or upload-based transcription.";
+  "This action requires a Clips-hosted video. This Loom import is embed-backed; reimport it so Clips can store the video file before using native editing, frame extraction, stitching, or upload-based transcription.";
 
 export function isLoomRecording(recording: RecordingMediaLike): boolean {
-  return isLoomRecordingSource(recording);
+  return isLoomEmbedBackedRecording(recording);
 }
 
 export function assertNativeRecordingMedia(

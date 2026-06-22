@@ -1,12 +1,13 @@
 ---
 title: "Getting Started"
-description: "Create an agent app — with a chat UI or headless — add an action, and watch the agent call it."
+description: "Create an agent app, understand instructions, skills, and actions, then watch the agent call its first action."
 ---
 
 # Getting Started
 
 Agent-Native apps give an AI agent and your UI the same actions, data, and
-state. The smallest useful app is a single action.
+state. A basic agent is made from instructions that guide it, skills that teach
+repeatable behavior, and actions that let it do real work.
 
 **Want a complete app to start from?** Clone one of our rich templates —
 [Chat](/docs/template-chat), [Mail](/docs/template-mail),
@@ -15,14 +16,22 @@ state. The smallest useful app is a single action.
 each a full-featured app you customize.
 
 Building from scratch? The only choice up front is whether you want a UI —
-everything after (defining actions, running the agent) is the same either way.
+everything after (writing instructions, adding skills, defining actions, running
+the agent) is the same either way.
 
-```an-diagram title="The three-step on-ramp" summary="Create an app, add one action, run it. The action is then reachable from every surface."
+```an-file-tree title="A basic Agent-Native agent"
 {
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Create</strong><small class=\"diagram-muted\">chat template or headless</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Add an action</strong><small class=\"diagram-muted\">one defineAction file</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Run it</strong><small class=\"diagram-muted\">CLI, agent, or browser</small></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+  "entries": [
+    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
+    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+  ]
 }
 ```
+
+This is true whether you start with a chat UI, a headless agent, or a full app.
+The UI changes the surface; instructions, skills, and actions give the agent its
+guidance and behavior.
 
 ## 1. Create your app
 
@@ -51,10 +60,10 @@ loop, no UI shell:
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-Then install:
+Then install from the folder you created:
 
 ```bash
-cd my-app
+cd my-agent # or my-app if you chose the Chat template
 pnpm install
 ```
 
@@ -80,8 +89,13 @@ ship with this example:
 }
 ```
 
-Replace `hello` with the smallest real operation in your domain. You define it
-once; every surface picks it up.
+Replace `hello` with the first real operation in your domain. You define it once;
+every surface picks it up.
+
+Use `AGENTS.md` for guidance that should apply every turn. Use a skill when the
+agent needs a reusable workflow or domain procedure. Use an action when the
+agent needs a typed, testable way to read data, write data, call an API, or
+perform an approval.
 
 ## 3. Run it
 
@@ -160,21 +174,6 @@ leaves out. The cleanest move is to start (or re-scaffold) from the Chat
 template; your `actions/`, agent, and SQL state carry over unchanged. See
 [Agent Surfaces](/docs/agent-surfaces) for every surface in between.
 
-## Compose mini-apps
-
-A big workspace is usually easier to reason about as a few focused apps than one
-giant one. A `hubspot-pipeline` app can own CRM access, a `gong-evidence` app can
-own transcripts, and a `deal-brief` app can call both over A2A:
-
-```bash
-pnpm agent-native agents list
-pnpm agent-native invoke gong-evidence "Find transcript evidence for deal_123."
-```
-
-Each app keeps its own actions, agent, and state, and can discover its siblings.
-See [Multi-App Workspaces](/docs/multi-app-workspace) and
-[A2A Protocol](/docs/a2a-protocol).
-
 ## Project structure
 
 ```text
@@ -182,7 +181,8 @@ my-app/
   actions/         # Agent-callable actions
   app/             # React frontend (UI templates only; omitted when headless)
   server/          # Nitro API server (routes, plugins)
-  .agents/         # Agent instructions and skills
+  AGENTS.md        # Always-on agent instructions
+  .agents/         # Skills the agent can pull in when relevant
   data/app.db      # Local SQLite state when DATABASE_URL is unset
 ```
 

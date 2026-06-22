@@ -2,6 +2,7 @@ const LOOM_HOST_RE = /(^|\.)loom\.com$/i;
 const LOOM_VIDEO_ID_RE = /^[A-Za-z0-9_-]{8,120}$/;
 const LOOM_VIDEO_PATHS = new Set(["share", "embed"]);
 export const LOOM_START_MS_QUERY_PARAM = "loomStartMs";
+export const LOOM_NATIVE_MEDIA_QUERY_PARAM = "loomMedia";
 
 function parsePublicUrl(value: string): URL | null {
   try {
@@ -81,6 +82,24 @@ export function isLoomEmbedUrl(value: string | null | undefined): boolean {
   return typeof value === "string" && Boolean(sanitizeLoomEmbedUrl(value));
 }
 
+function isLocalVideoRoute(value: string): boolean {
+  try {
+    const parsed = new URL(value, "http://local.test");
+    return /(?:^|\/)api\/video\/[^/]+$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isMarkedLoomNativeMedia(value: string): boolean {
+  try {
+    const parsed = new URL(value, "http://local.test");
+    return parsed.searchParams.get(LOOM_NATIVE_MEDIA_QUERY_PARAM) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function isLoomSourceName(value: string | null | undefined): boolean {
   return value?.trim().toLowerCase() === "loom";
 }
@@ -99,6 +118,19 @@ export function isLoomRecordingSource(
     isLoomSourceName(recording.sourceAppName) ||
     isLoomEmbedUrl(recording.videoUrl)
   );
+}
+
+export function isLoomEmbedBackedRecording(
+  recording: LoomRecordingLike | null | undefined,
+): boolean {
+  if (!recording) return false;
+  if (isLoomEmbedUrl(recording.videoUrl)) return true;
+  if (!isLoomSourceName(recording.sourceAppName)) return false;
+
+  const videoUrl = recording.videoUrl?.trim() ?? "";
+  if (!videoUrl) return true;
+  if (isMarkedLoomNativeMedia(videoUrl)) return false;
+  return isLocalVideoRoute(videoUrl);
 }
 
 export function loomEmbedUrlForId(id: string): string {

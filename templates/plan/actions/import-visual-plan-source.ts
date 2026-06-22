@@ -71,7 +71,7 @@ export default defineAction({
         "Stable recap retry key. Only used when kind='recap' so create-visual-recap can reserve the key during initial insert.",
       ),
     mdx: planMdxFileSchema.describe(
-      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
+      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. New canvas Screen components must use html/data.html semantic HTML wireframes; nested kit-tree children like FrameScreen/Card/Row/Btn are legacy compatibility only. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
     ),
   }),
   publicAgent: {

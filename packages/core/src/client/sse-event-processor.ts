@@ -222,6 +222,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||
+    code === "provider_rate_limited" ||
     // `builder_gateway_error` is the no-detail fallback the Builder engine
     // emits when the gateway returns `{type:"stop",reason:"error"}` with no
     // explanation — almost always the upstream provider giving up (model
@@ -566,7 +567,7 @@ export function processEvent(
     const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
     const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
     const runError = {
-      message: normalizeChatError(errMsg).message,
+      message: normalizeChatError(errMsg, errorCode).message,
       errorCode,
     };
     if (typeof window !== "undefined") {
@@ -658,7 +659,7 @@ export function processEvent(
         },
       };
     }
-    const normalized = normalizeChatError(errMsg);
+    const normalized = normalizeChatError(errMsg, ev.errorCode);
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));

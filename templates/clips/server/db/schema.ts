@@ -227,6 +227,32 @@ export const recordingTranscripts = table("recording_transcripts", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const recordingBrowserDiagnostics = table(
+  "recording_browser_diagnostics",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    organizationId: text("workspace_id").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    source: text("source", {
+      enum: ["browser-recorder", "desktop", "extension"],
+    })
+      .notNull()
+      .default("browser-recorder"),
+    phase: text("phase").notNull().default("recording"),
+    pageUrl: text("page_url"),
+    userAgent: text("user_agent"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    consoleLogsJson: text("console_logs_json").notNull().default("[]"),
+    networkRequestsJson: text("network_requests_json").notNull().default("[]"),
+    redactionVersion: integer("redaction_version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
 export const recordingCtas = table("recording_ctas", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
