@@ -44,8 +44,7 @@ const nanoid = (): string =>
  * - Falls back to the user's first membership.
  * - When the authenticated user has zero memberships, provisions a default org
  *   named after the user ({name}'s workspace, falling back to the email
- *   local-part). Set `AUTO_CREATE_DEFAULT_ORG=0` to opt out for deployments
- *   that intentionally require manual org creation.
+ *   local-part). Set `AUTO_CREATE_DEFAULT_ORG=0` to opt out.
  *
  * Per-request memoized on `event.context` — mirrors the `getSession`
  * pattern so multiple callers in the same request (e.g. ssr-handler +

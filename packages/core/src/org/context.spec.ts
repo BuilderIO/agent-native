@@ -419,8 +419,7 @@ describe("getOrgContext", () => {
       delete process.env.AUTO_CREATE_DEFAULT_ORG;
     });
 
-    it("provisions a default org for a zero-membership user when enabled", async () => {
-      process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+    it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({
         email: "jane@startup.dev",
         name: "Jane Doe",
@@ -575,21 +574,6 @@ describe("getOrgContext", () => {
       const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
       expect(sqls.some((s) => s.includes("INSERT INTO organizations"))).toBe(
         false,
-      );
-    });
-
-    it("auto-creates by default when the flag is unset for a zero-membership user", async () => {
-      mockGetSession.mockResolvedValue({ email: "loner@startup.dev" });
-      queueSelect([], [], [], [], [], [], []);
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx.email).toBe("loner@startup.dev");
-      expect(ctx.orgId).toBeTruthy();
-      expect(ctx.role).toBe("owner");
-      expect(ctx.orgName).toBe("Loner's workspace");
-      expect(mockPutUserSetting).toHaveBeenCalledWith(
-        "loner@startup.dev",
-        "active-org-id",
-        { orgId: ctx.orgId },
       );
     });
 

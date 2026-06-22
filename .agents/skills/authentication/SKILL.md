@@ -72,7 +72,9 @@ org creation.
 Do not wrap normal app shells in `<RequireActiveOrg>` just to force setup. Use
 non-blocking org UI such as `InvitationBanner`, `OrgSwitcher`, and a `/team`
 route so users can accept invites, join domain-matched teams, or switch orgs
-without blocking the primary product experience.
+without blocking the primary product experience. Place org UI inside the agent
+sidebar so the setup
+checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 
