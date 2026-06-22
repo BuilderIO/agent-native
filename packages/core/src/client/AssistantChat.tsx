@@ -49,7 +49,6 @@ import type {
   ChatThreadScope,
   ChatThreadSnapshot,
 } from "./use-chat-threads.js";
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
   getActiveRun,
