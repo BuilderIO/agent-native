@@ -1468,13 +1468,43 @@ async function startNativeFullscreenRecording(
         : "[clips-recorder] invoking show_countdown + createServerRecording",
     );
     const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
+    // Resolve the mic's REAL device name for the native recorder. WebKit's
+    // deviceId is a salted hash that never equals ScreenCaptureKit's CoreAudio
+    // device UID, so the Rust side can only pin the input by NAME. The stored
+    // label can be stale or empty (device list locked when picked, or a rotated
+    // deviceId salt after an app update) — that's what makes "only Default
+    // works": the hash matches nothing and there's no name to fall back to.
+    // A one-shot getUserMedia gives the exact current device name, the same
+    // string ScreenCaptureKit exposes, so name resolution succeeds. Done before
+    // warming so both phases pin the same input.
+    let micDeviceLabel = params.micLabel || null;
+    if (wantsAudio && params.micId) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: params.micId } },
+          video: false,
+        });
+        const liveLabel = probe.getAudioTracks()[0]?.label?.trim();
+        probe.getTracks().forEach((track) => track.stop());
+        if (liveLabel) micDeviceLabel = liveLabel;
+        console.log(
+          `[clips-recorder] mic resolve: id=${params.micId} storedLabel=${JSON.stringify(params.micLabel ?? null)} liveLabel=${JSON.stringify(liveLabel ?? null)} -> using=${JSON.stringify(micDeviceLabel)}`,
+        );
+      } catch (probeErr) {
+        // Probe failed (rotated/stale deviceId, device unplugged, or denied) —
+        // fall back to the stored label, which the Rust side name-matches.
+        console.warn(
+          `[clips-recorder] mic probe failed: id=${params.micId} storedLabel=${JSON.stringify(params.micLabel ?? null)} err=${probeErr instanceof Error ? probeErr.name : String(probeErr)} -> falling back to stored label`,
+        );
+      }
+    }
     // Audio config shared by the warm + begin phases — built once so the two
     // phases can't drift.
     const captureAudioParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
       micDeviceId: params.micId || null,
-      micDeviceLabel: params.micLabel || null,
+      micDeviceLabel,
     };
     // Warm the mic DURING the countdown. ScreenCaptureKit delivers its first
     // mic sample ~1s after capture starts; warming now lets `begin` attach the
@@ -1510,12 +1540,7 @@ async function startNativeFullscreenRecording(
       // the mic as soon as it does so the warm-up overlaps the 3-2-1.
       const warmAndId = (async () => {
         const createRes = await recordingPromise;
-        await invoke("native_fullscreen_recording_warm", {
-          recordingId: createRes.id,
-          ...captureAudioParams,
-        }).catch((err) => {
-          console.warn("[clips-recorder] mic warm failed:", err);
-        });
+        await warmMic(createRes.id);
         return createRes.id;
       })();
       try {
