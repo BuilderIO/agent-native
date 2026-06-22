@@ -136,8 +136,17 @@ fn spawn_log_pump(read_fd: libc::c_int, path: PathBuf) {
                     buf.len() as _,
                 )
             };
-            if n <= 0 {
+            if n < 0 {
+                // A signal can interrupt a blocking read (EINTR); retry rather
+                // than treating it as EOF, which would permanently stop draining
+                // the pipe and eventually block writers once it fills.
+                if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
                 break;
+            }
+            if n == 0 {
+                break; // all writers closed → real EOF
             }
             for &byte in &buf[..n as usize] {
                 match byte {
@@ -214,11 +223,17 @@ fn redirect_std_streams(_path: &Path) {}
 #[tauri::command]
 pub fn frontend_log(level: String, message: String) {
     let line = format!("[webview][{level}] {message}");
-    // In release this println! is redirected into the pipe, where the pump
-    // prepends the timestamp as it drains each line — emit it bare to avoid
-    // stamping it twice.
-    #[cfg(not(debug_assertions))]
+    // Release on non-Windows: this println! is redirected into the pipe, where
+    // the pump prepends the timestamp as it drains each line — emit it bare to
+    // avoid stamping it twice.
+    #[cfg(all(not(debug_assertions), not(windows)))]
     println!("{line}");
+    // Release on Windows: windows_subsystem = "windows" means Rust stdio isn't
+    // routed through the redirect pipe, so write straight to the file instead.
+    #[cfg(all(not(debug_assertions), windows))]
+    if let Some(path) = log_path() {
+        append_line(&path, &line);
+    }
     // In dev there is no fd redirect, so stamp the terminal echo and append the
     // same line to the file (append_line stamps it) to keep the file useful.
     #[cfg(debug_assertions)]
