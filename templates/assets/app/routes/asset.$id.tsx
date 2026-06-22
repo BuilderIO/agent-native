@@ -414,7 +414,7 @@ function formatDimensions(width?: number | null, height?: number | null) {
   return (
     <span className="flex items-center gap-2">
       {dimensions}
-      <span className="h-4 w-px bg-border" />
+      <span className="h-4 w-px bg-[rgb(56,56,61)]" />
       {`${width / divisor}:${height / divisor}`}
     </span>
   );
