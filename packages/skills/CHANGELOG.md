@@ -1,5 +1,19 @@
 # @agent-native/skills
 
+## 0.2.50
+
+### Patch Changes
+
+- f514c12: Add the Content app-backed skill and a `skills add content --mode local-files`
+  install path that writes Content local-file workspace defaults to
+  `agent-native.json`.
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+  - @agent-native/core@0.66.8
+
 ## 0.2.49
 
 ### Patch Changes
