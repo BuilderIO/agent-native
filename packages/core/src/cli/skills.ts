@@ -1139,10 +1139,15 @@ ownership, privacy, sharing, and branding needs.
 
 By default, create the plan via the Plan MCP connector. NEVER hand the plan over
 as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
-wireframe. If the connector's tools are missing, do NOT fall back to inline
-output: the usual cause is a connector that did not finish connecting this
-session (it registers zero tools), not auth. Stop and give the user the exact
-restore step for their current client: in Codex/Codex Desktop run
+wireframe. Some clients lazy-load connector tools through a deferred tool
+registry instead of showing the \`plan\` namespace upfront; before declaring the
+connector missing, search/load tools with the host's discovery surface
+(\`tool_search\` when available) for \`create_visual_plan\`, \`create_ui_plan\`, or
+\`get_plan_blocks\`, then use the Plan MCP tools it exposes. If the connector's
+tools are still missing after discovery, do NOT fall back to inline output: the
+usual cause is a connector that did not finish connecting this session (it
+registers zero tools), not auth. Stop and give the user the exact restore step
+for their current client: in Codex/Codex Desktop run
 \`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
 and start a new Codex session; in Claude Code run \`/mcp\` and choose
 Authenticate/Reconnect (or run the same reconnect command with
@@ -1611,13 +1616,20 @@ A recap's entire value is the hosted, interactive, annotatable plan; an inline
 summary is not a recap, it is the thing a recap replaces. The only supported
 output is to publish the plan and return its absolute URL.
 
+Some clients lazy-load connector tools through a deferred tool registry instead
+of showing the \`plan\` namespace upfront. Before declaring the Plan connector
+missing, search/load tools with the host's discovery surface (\`tool_search\` when
+available) for \`create_visual_recap\`, \`create_visual_plan\`, or
+\`get_plan_blocks\`, then use the Plan MCP tools it exposes.
+
 Except for the explicit local-files privacy mode above, if neither the \`plan\`
-nor legacy \`agent-native-plans\` Plan MCP tools are available, do NOT improvise an
-inline recap as a fallback. Do not report the connector as disconnected just
-because it is named \`agent-native-plans\` instead of \`plan\`. The usual cause is a
-connector that did not finish connecting this session (it registers zero tools),
-NOT necessarily an auth problem — so do not assume the user must authenticate.
-Stop and tell the user how to restore it for their current client: in
+nor legacy \`agent-native-plans\` Plan MCP tools are available after deferred tool
+discovery, do NOT improvise an inline recap as a fallback. Do not report the
+connector as disconnected just because it is named \`agent-native-plans\` instead
+of \`plan\`, or because the tools were not visible before discovery. The usual
+cause is a connector that did not finish connecting this session (it registers
+zero tools), NOT necessarily an auth problem — so do not assume the user must
+authenticate. Stop and tell the user how to restore it for their current client: in
 Codex/Codex Desktop, run
 \`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
 and start a new Codex session; in Claude Code, run \`/mcp\` and choose
@@ -1957,8 +1969,10 @@ instead of \`Endpoint\`, \`JsonExplorer\` instead of \`Json\`, \`Tabs\` instead 
 
 **Before writing any structured plan content, fetch/read the block catalog.** In
 hosted or self-hosted mode, call \`get-plan-blocks\` on the Plan MCP connector
-(\`plan\` or legacy \`agent-native-plans\`). In local-files mode, or when the skill
-was installed as plain text and no MCP tools are registered, run
+(\`plan\` or legacy \`agent-native-plans\`). If no Plan tools are visible yet in a
+lazy-loading client, search/load them through the host's tool discovery surface
+first (\`tool_search\` when available). In local-files mode, or when the skill was
+installed as plain text and no MCP tools are registered after discovery, run
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
 file first. The CLI command calls the public no-auth \`get-plan-blocks\` route and
 sends no plan/recap content. If network access is unavailable, use the bundled

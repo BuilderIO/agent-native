@@ -120,10 +120,15 @@ ownership, privacy, sharing, and branding needs.
 
 By default, create the plan via the Plan MCP connector. NEVER hand the plan over
 as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
-wireframe. If the connector's tools are missing, do NOT fall back to inline
-output: the usual cause is a connector that did not finish connecting this
-session (it registers zero tools), not auth. Stop and give the user the exact
-restore step for their current client: in Codex/Codex Desktop run
+wireframe. Some clients lazy-load connector tools through a deferred tool
+registry instead of showing the `plan` namespace upfront; before declaring the
+connector missing, search/load tools with the host's discovery surface
+(`tool_search` when available) for `create_visual_plan`, `create_ui_plan`, or
+`get_plan_blocks`, then use the Plan MCP tools it exposes. If the connector's
+tools are still missing after discovery, do NOT fall back to inline output: the
+usual cause is a connector that did not finish connecting this session (it
+registers zero tools), not auth. Stop and give the user the exact restore step
+for their current client: in Codex/Codex Desktop run
 `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
 and start a new Codex session; in Claude Code run `/mcp` and choose
 Authenticate/Reconnect (or run the same reconnect command with
