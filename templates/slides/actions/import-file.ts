@@ -183,7 +183,7 @@ export default defineAction({
         title,
         sectionCount: doc.sections.length,
         text: truncateText(doc.text, sourceLimit).text,
-        sections: truncateSections(doc.sections, sourceLimit),
+        sections: summarizeSections(doc.sections),
         textLength: doc.text.length,
         truncated: doc.text.length > sourceLimit,
         note:
@@ -233,6 +233,10 @@ export default defineAction({
           imported: true,
         };
       }
+      const totalTextLength = textPages.reduce(
+        (sum, p) => sum + p.text.length,
+        0,
+      );
 
       return {
         format: "pdf",
@@ -240,11 +244,10 @@ export default defineAction({
         pageCount: pages.length,
         textPageCount: textPages.length,
         pages: truncatePages(textPages, sourceLimit),
-        totalTextLength: textPages.reduce((sum, p) => sum + p.text.length, 0),
-        truncated:
-          textPages.reduce((sum, p) => sum + p.text.length, 0) > sourceLimit,
+        totalTextLength,
+        truncated: totalTextLength > sourceLimit,
         note:
-          textPages.reduce((sum, p) => sum + p.text.length, 0) > sourceLimit
+          totalTextLength > sourceLimit
             ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
             : undefined,
         deckId,
@@ -323,24 +326,15 @@ function truncatePages(pages: { num: number; text: string }[], limit: number) {
     .filter((p) => p.text || p.textLength === 0);
 }
 
-function truncateSections(
-  sections: { heading: string; content: string }[],
-  limit: number,
-) {
-  const budget = { remaining: limit };
-  return sections
-    .map((s) => {
-      const plain = stripTags(s.content);
-      const truncated = takeFromBudget(plain, budget);
-      return {
-        heading: s.heading,
-        text: truncated.text,
-        contentPreview: plain.slice(0, 500),
-        textLength: plain.length,
-        truncated: truncated.truncated,
-      };
-    })
-    .filter((s) => s.text || s.textLength === 0);
+function summarizeSections(sections: { heading: string; content: string }[]) {
+  return sections.map((s) => {
+    const plain = stripTags(s.content);
+    return {
+      heading: s.heading,
+      textPreview: plain.slice(0, 500),
+      textLength: plain.length,
+    };
+  });
 }
 
 async function replaceDeckSlides(
