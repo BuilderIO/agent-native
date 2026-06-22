@@ -548,11 +548,20 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .row-label {
-  flex: 1;
-  min-width: 0;
+  /* Never shrink the label — the wave line gives up space first so the device
+     name always stays fully visible. Cap + ellipsis only for pathological
+     long names. */
+  flex: 0 0 auto;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Flexible filler between the label and the chevron when there's no meter
+   (camera rows / mic off) — keeps the chevron pinned to the right. */
+.row-flex {
+  flex: 1 1 auto;
 }
 
 .row-chev {
@@ -719,53 +728,48 @@ body[data-clips-route="recording-pill"] #root {
   transform: translateX(14px);
 }
 
-/* Mic level indicator — animated bars under the mic row. */
+/* Live mic level meter — a single wave line driven by real audio, sitting
+   inline between the device label and the chevron. The ends are masked so the
+   line fades in/out instead of butting against the label or chevron. */
 .mic-wave {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 4px;
-  height: 3px;
-  display: flex;
-  gap: 2px;
-  align-items: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  margin: 0 4px;
   pointer-events: none;
-  opacity: 0.55;
+  /* Soft fade at both ends so the line reads as ambient, not boxed-in. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
 }
 
-.mic-wave .bar {
-  flex: 1;
-  background: var(--brand);
-  border-radius: 1px;
-  animation: mic-pulse 1.2s ease-in-out infinite;
-  height: 60%;
+.mic-wave-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-.mic-wave .b1 {
-  animation-delay: 0s;
-  height: 40%;
-}
-.mic-wave .b2 {
-  animation-delay: 0.15s;
-  height: 80%;
-}
-.mic-wave .b3 {
-  animation-delay: 0.3s;
-  height: 55%;
-}
-.mic-wave .b4 {
-  animation-delay: 0.45s;
-  height: 70%;
-}
-
-@keyframes mic-pulse {
-  0%,
-  100% {
-    transform: scaleY(1);
-  }
-  50% {
-    transform: scaleY(0.4);
-  }
+.mic-wave-path {
+  fill: none;
+  /* Matches the recording pill's mic waveform accent. */
+  stroke: rgba(74, 222, 128, 0.95);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Keep the line crisp regardless of the non-uniform x-stretch. */
+  vector-effect: non-scaling-stroke;
 }
 
 /* ------------------------------------------------------------------------- */

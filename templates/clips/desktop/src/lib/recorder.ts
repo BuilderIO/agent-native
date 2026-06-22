@@ -1501,12 +1501,41 @@ async function startNativeFullscreenRecording(
 
     await audioCue.playBeforeCapture();
     const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
+    // Resolve the mic's REAL device name for the native recorder. WebKit's
+    // deviceId is a salted hash that never equals ScreenCaptureKit's CoreAudio
+    // device UID, so the Rust side can only pin the input by NAME. The stored
+    // label can be stale or empty (device list locked when picked, or a rotated
+    // deviceId salt after an app update) — that's what makes "only Default
+    // works": the hash matches nothing and there's no name to fall back to.
+    // A one-shot getUserMedia gives the exact current device name, the same
+    // string ScreenCaptureKit exposes, so name resolution succeeds.
+    let micDeviceLabel = params.micLabel || null;
+    if (wantsAudio && params.micId) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: params.micId } },
+          video: false,
+        });
+        const liveLabel = probe.getAudioTracks()[0]?.label?.trim();
+        probe.getTracks().forEach((track) => track.stop());
+        if (liveLabel) micDeviceLabel = liveLabel;
+        console.log(
+          `[clips-recorder] mic resolve: id=${params.micId} storedLabel=${JSON.stringify(params.micLabel ?? null)} liveLabel=${JSON.stringify(liveLabel ?? null)} -> using=${JSON.stringify(micDeviceLabel)}`,
+        );
+      } catch (probeErr) {
+        // Probe failed (rotated/stale deviceId, device unplugged, or denied) —
+        // fall back to the stored label, which the Rust side name-matches.
+        console.warn(
+          `[clips-recorder] mic probe failed: id=${params.micId} storedLabel=${JSON.stringify(params.micLabel ?? null)} err=${probeErr instanceof Error ? probeErr.name : String(probeErr)} -> falling back to stored label`,
+        );
+      }
+    }
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
       micDeviceId: params.micId || null,
-      micDeviceLabel: params.micLabel || null,
+      micDeviceLabel,
     });
     // Capture is now live — stamp the timer baseline before any further awaits
     // so the toolbar clock and toolbar-enable line up with the real start.
@@ -2216,11 +2245,13 @@ async function startRecordingInner(
   streamCleanups.push(recordingAudio.cleanup);
   recordingAudio.tracks.forEach((t) => combined.addTrack(t));
 
-  // The popover owns the camera stream when we're reusing a pre-acquired
-  // one — its session effect decides when to close the stream + hide the
-  // bubble + stop the pump. The recorder must NOT stop those tracks on
-  // stop/cancel. For camera-only mode (rare path where popover didn't
-  // hand us a stream) we own it ourselves.
+  // The popover owns the camera stream whenever we reused its pre-acquired
+  // preview stream — its session effect decides when to close the stream +
+  // hide the bubble + stop the pump, so the recorder must NOT stop those
+  // tracks on stop/cancel. The rare exception is the fresh-acquire fallback
+  // (preview stream wasn't ready at record start, so we opened the camera
+  // ourselves above) — there we own the tracks and must stop them, or the
+  // camera + macOS recording indicator leak after the recording ends.
   const popoverOwnsCamera = bubbleCameraStream === reusedCameraStream;
 
   if (localRecordingMode !== "off") {
@@ -2338,11 +2369,8 @@ async function startRecordingInner(
     };
 
     const hideChrome = async () => {
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch((err) =>
-        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      await invoke("hide_recording_chrome").catch((err) =>
+        console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
     };
 
@@ -2811,11 +2839,8 @@ async function startRecordingInner(
       // down the bubble. Closing it here would cause a flicker on the
       // cancel path where the popover re-appears with camera still on.
       console.log("[clips-recorder] hiding recording chrome");
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch((err) =>
-        console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+      await invoke("hide_recording_chrome").catch((err) =>
+        console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
 
       // Wait for any in-flight chunk uploads to settle before sending the
@@ -2946,12 +2971,7 @@ async function startRecordingInner(
       // Blobs via this Set. Combined with the `ondataavailable = null`
       // above, this guarantees no new Blobs latch on during the stop.
       inflight.clear();
-      // Same split as stop(): leave the bubble alone when popover owns
-      // the camera — the popover's session effect handles bubble teardown.
-      const chromeCmd = popoverOwnsCamera
-        ? "hide_recording_chrome"
-        : "hide_overlays";
-      await invoke(chromeCmd).catch(() => {});
+      await invoke("hide_recording_chrome").catch(() => {});
       // Tell the server to abort the partial recording (drops chunks from
       // application_state, flips the recording row to 'failed'). Fire and
       // forget with a short-circuit on failure — we don't want to keep the
