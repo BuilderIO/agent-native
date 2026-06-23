@@ -182,4 +182,105 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       calls.some((c) => c.documentId === "doc-new"),
     ).toBe(false);
   });
+
+  it("same-field collapse→reopen→edit within the in-flight window: older flush never wins", async () => {
+    vi.useFakeTimers();
+
+    // The save target this whole test churns on — the SAME documentId:propertyId
+    // remounting (collapse then re-expand), which is the cross-instance hole the
+    // per-key lane closes. We control resolve order by hand so the OLD instance's
+    // flush is still in flight when the NEW instance issues its newer save.
+    const order: Array<{ value: string }> = [];
+    const resolvers: Array<() => void> = [];
+    const save = (req: SaveCall) => {
+      order.push({ value: req.value });
+      return new Promise<void>((resolve) => {
+        resolvers.push(() => resolve());
+      });
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Mount instance #1 for the field, type, and let the debounce fire so a save
+    // for "old content" goes in flight (not yet resolved).
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "",
+          save,
+          onReady: ready,
+        }),
+      );
+    });
+    act(() => {
+      onChange("old content");
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+    });
+    expect(order).toEqual([{ value: "old content" }]);
+
+    // COLLAPSE: unmount instance #1. Its cleanup fires `void controller.flush()`.
+    // The "old content" save is still in flight, so the flush has nothing newer
+    // to send here — but its lane position is registered ahead of anything the
+    // remount issues.
+    act(() => {
+      root!.render(createElement("div", null));
+    });
+
+    // RE-EXPAND: a FRESH instance #1' mounts under the SAME key with a fresh
+    // controller. The user edits before the old save settled.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "",
+          save,
+          onReady: ready,
+        }),
+      );
+    });
+    act(() => {
+      onChange("new content");
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+    });
+
+    // The new save must NOT have started yet: the lane serializes it behind the
+    // still-in-flight old save for the same key.
+    expect(order).toEqual([{ value: "old content" }]);
+
+    // Settle the OLD save → only now may the NEW save start (issue order).
+    await act(async () => {
+      resolvers[0]!();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(order).toEqual([{ value: "old content" }, { value: "new content" }]);
+
+    // Settle the NEW save. The DB write order was old-before-new: the older
+    // in-flight save could never overwrite the newer one.
+    await act(async () => {
+      resolvers[1]!();
+      await Promise.resolve();
+    });
+    expect(order.map((c) => c.value)).toEqual(["old content", "new content"]);
+    // Newest content is the final write.
+    expect(order[order.length - 1]!.value).toBe("new content");
+  });
 });

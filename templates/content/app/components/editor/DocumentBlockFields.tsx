@@ -14,6 +14,7 @@ import {
 import type { DocumentProperty } from "@shared/api";
 import { VisualEditor } from "./VisualEditor";
 import { createBlockFieldSaveController } from "./blockFieldSaveController";
+import { enqueueFieldSave } from "./blockFieldSaveLane";
 
 interface DocumentBlockFieldsProps {
   documentId: string;
@@ -381,12 +382,23 @@ export function useBlockFieldEditor({
   if (!controllerRef.current) {
     controllerRef.current = createBlockFieldSaveController({
       initialContent,
-      save: (value) =>
-        saveImplRef.current({
-          documentId: targetRef.current.documentId,
-          propertyId: targetRef.current.propertyId,
-          value,
-        }),
+      // Route the actual server write through a per-field-key serialization lane
+      // shared across ALL controller instances for this field. The controller's
+      // own single-flight only orders saves WITHIN this instance; the lane orders
+      // them ACROSS instances (collapse→unmount-flush vs. a fresh remount's
+      // save), so an older in-flight flush can never commit after a newer edit
+      // for the same field. The key is read through `targetRef` so it matches
+      // the field this save is actually routed to.
+      save: (value) => {
+        const { documentId: docId, propertyId: propId } = targetRef.current;
+        return enqueueFieldSave(`${docId}:${propId}`, () =>
+          saveImplRef.current({
+            documentId: docId,
+            propertyId: propId,
+            value,
+          }),
+        );
+      },
       onError: (error) =>
         console.error("Failed to save Blocks field content", {
           documentId: targetRef.current.documentId,
