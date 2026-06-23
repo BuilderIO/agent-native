@@ -12,6 +12,7 @@ import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
+  getBrowserTabId,
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
@@ -593,12 +594,17 @@ function DatabaseTable({
       selectedItems,
       previewItem,
     });
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state),
+      },
+    ).catch(() => {});
   }, [
     activeView,
     activeFilters.length,

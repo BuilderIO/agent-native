@@ -20,6 +20,7 @@ import {
   useSession,
   AgentPanel,
   agentNativePath,
+  getBrowserTabId,
   readClientAppState,
   useChangeVersions,
 } from "@agent-native/core/client";
@@ -160,7 +161,6 @@ export default function RecordingPage() {
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const search = searchParams.toString();
   const startMs = parseTimeParam(searchParams.get("t"));
   const panelParam = searchParams.get("panel");
   const { session } = useSession();
@@ -443,23 +443,6 @@ export default function RecordingPage() {
     const handle = setTimeout(() => setProcessingTimeout(true), 30_000);
     return () => clearTimeout(handle);
   }, [recording?.status, recording?.videoUrl, recordingId]);
-
-  // Sync navigation state
-  useEffect(() => {
-    if (!recordingId) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "recording",
-        recordingId,
-        path: `/r/${recordingId}${search ? `?${search}` : ""}`,
-        panel,
-        ...(startMs > 0 ? { searchHitMs: startMs } : {}),
-      }),
-    }).catch(() => {});
-  }, [panel, recordingId, search, startMs]);
 
   usePlayerShortcuts({ playerRef, chapters });
 
@@ -973,6 +956,7 @@ export default function RecordingPage() {
               className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
             >
               <AgentPanel
+                browserTabId={getBrowserTabId()}
                 emptyStateText="Ask about this clip…"
                 dynamicSuggestions={false}
                 chatNotice={

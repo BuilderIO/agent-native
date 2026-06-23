@@ -914,6 +914,20 @@ export async function addSession(token: string, email?: string): Promise<void> {
   );
 }
 
+export async function hasLegacySessionForEmail(
+  email: string,
+): Promise<boolean> {
+  await ensureSessionTable();
+  const client = getDbExec();
+  const result = await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: `SELECT 1 FROM sessions WHERE email = ? LIMIT 1`,
+      args: [email],
+    }),
+  );
+  return result.rows.length > 0;
+}
+
 /** Remove a session from the legacy sessions table. */
 export async function removeSession(token: string): Promise<void> {
   await ensureSessionTable();
@@ -2682,6 +2696,11 @@ async function mountBetterAuthRoutes(
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              authUserId: typeof user.id === "string" ? user.id : undefined,
+              name: typeof user.name === "string" ? user.name : undefined,
+            },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
