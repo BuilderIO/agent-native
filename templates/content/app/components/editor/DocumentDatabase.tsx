@@ -2104,15 +2104,23 @@ function DatabaseItemPreview({
     const nextTitle = document?.title ?? item.document.title;
     const nextContent = document?.content ?? item.document.content;
     const nextIcon = document?.icon ?? item.document.icon;
-    setLocalTitle(nextTitle);
-    setLocalContent(nextContent);
+    // Icon isn't tracked by the title/content save controller, so it can always
+    // follow the server.
     setLocalIcon(nextIcon);
     const controller = peekPreviewDocumentSaveController(documentId);
-    // Only adopt as baseline when the user hasn't typed something newer (don't
-    // clobber a dirty in-progress edit on this row).
-    if (controller && controller.pending.title === controller.lastSaved.title &&
-        controller.pending.content === controller.lastSaved.content) {
-      controller.mark({ title: nextTitle, content: nextContent });
+    const dirty =
+      !!controller &&
+      (controller.pending.title !== controller.lastSaved.title ||
+        controller.pending.content !== controller.lastSaved.content);
+    // Only adopt the server's title/content — into BOTH the displayed editor
+    // state and the controller baseline — when the user hasn't typed something
+    // newer on this row. If a dirty in-progress edit exists, preserve it: don't
+    // clobber the visible text (the controller already holds the unsaved edit,
+    // so nothing is lost, but the editor must keep showing what the user typed).
+    if (!dirty) {
+      setLocalTitle(nextTitle);
+      setLocalContent(nextContent);
+      controller?.mark({ title: nextTitle, content: nextContent });
     }
   }, [
     documentId,
