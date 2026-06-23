@@ -8,6 +8,16 @@
       "port": 8080
     },
     {
+      "name": "clips-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=clips AGENT_USER_EMAIL=dev@local.test CLIPS_DATABASE_URL=file:/tmp/clips-playbtn.db pnpm --filter clips exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "forms",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "forms", "exec", "agent-native", "dev"],

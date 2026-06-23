@@ -944,7 +944,10 @@ export default function ShareRoute() {
                 browserTabId={getBrowserTabId()}
               />
             ) : (
-              <PublicAgentEmptyState />
+              <PublicAgentEmptyState
+                signupHref={signupHref}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
           </TabsContent>
           <TabsContent
@@ -997,6 +1000,7 @@ export default function ShareRoute() {
           if (!open) setSignInIntent(null);
         }}
         intent={signInIntent ?? "comment"}
+        onSignIn={() => fireShareCtaClick("signin")}
       />
     </div>
   );
@@ -1012,7 +1016,13 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function PublicAgentEmptyState() {
+function PublicAgentEmptyState({
+  signupHref,
+  onCtaClick,
+}: {
+  signupHref: string;
+  onCtaClick: (cta: "signup" | "download" | "try_clips" | "signin") => void;
+}) {
   const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
 
   useEffect(() => {
@@ -1070,12 +1080,18 @@ function PublicAgentEmptyState() {
         Loom alternative
       </p>
       <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-        <CaptureInstallButton className="w-full gap-2" align="center">
+        <CaptureInstallButton
+          className="w-full gap-2"
+          align="center"
+          onClick={() => onCtaClick("download")}
+        >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}
         </CaptureInstallButton>
         <Button asChild variant="outline" className="w-full">
-          <a href={appPath("/signup")}>Sign up</a>
+          <a href={signupHref} onClick={() => onCtaClick("signup")}>
+            Sign up
+          </a>
         </Button>
       </div>
     </div>

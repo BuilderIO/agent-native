@@ -882,7 +882,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       <div
         ref={containerRef}
         className={cn(
-          "relative bg-black overflow-hidden select-none group",
+          // `@container` lets the center play button scale with the player
+          // width (see CenterPlaybackOverlay) so it isn't oversized inside
+          // small embeds like the Slack unfurl iframe.
+          "relative @container bg-black overflow-hidden select-none group",
           theaterMode ? "fixed inset-0 z-40" : "rounded-xl",
           className,
         )}
@@ -1193,9 +1196,9 @@ function CenterPlaybackOverlay({
                 e.stopPropagation();
                 onPlay();
               }}
-              className="pointer-events-auto flex h-24 w-24 items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-1 h-12 w-12 fill-current" />
+              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div
