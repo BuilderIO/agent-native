@@ -390,25 +390,11 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(document: DocumentRow) {
   const database = await resolvePropertyDatabaseForDocument(document);
   if (!database) return [];
-  await ensurePrimaryBlocksField(database);
+  // Read path: PURE read. Seeding the primary Blocks field happens at create
+  // time and via the one-time startup repair (repairUnseededBlocksFields) —
+  // never here. A viewer opening a shared/legacy row must not trigger writes on
+  // another owner's database.
   return listPropertiesForDatabase(database.id, document);
-}
-
-// Migration / safety net: guarantee every database has its primary "Content"
-// Blocks field. Databases created before the Blocks type existed had none — the
-// existing `documents.content` body still works and is exposed for free once
-// the primary field is seeded. Idempotent and cheap (one indexed read).
-export async function ensurePrimaryBlocksField(database: {
-  id: string;
-  ownerEmail: string;
-  orgId: string | null;
-}): Promise<void> {
-  await seedDefaultBlocksField({
-    databaseId: database.id,
-    ownerEmail: database.ownerEmail,
-    orgId: database.orgId ?? null,
-    now: new Date().toISOString(),
-  });
 }
 
 export async function listPropertiesForDatabase(
@@ -693,6 +679,10 @@ export async function readBlockFieldContent(
 }
 
 // Upsert the content for an additional (non-primary) Blocks field.
+//
+// Atomic insert-or-update on the UNIQUE (document_id, property_id) index — no
+// read-then-write window. Two concurrent first-saves can no longer race into a
+// duplicate-key throw: the loser falls through to the conflict UPDATE branch.
 export async function writeBlockFieldContent(args: {
   documentId: string;
   propertyId: string;
@@ -701,22 +691,9 @@ export async function writeBlockFieldContent(args: {
   now: string;
 }): Promise<void> {
   const db = getDb();
-  const [existing] = await db
-    .select({ id: schema.documentBlockFieldContents.id })
-    .from(schema.documentBlockFieldContents)
-    .where(
-      and(
-        eq(schema.documentBlockFieldContents.documentId, args.documentId),
-        eq(schema.documentBlockFieldContents.propertyId, args.propertyId),
-      ),
-    );
-  if (existing) {
-    await db
-      .update(schema.documentBlockFieldContents)
-      .set({ content: args.content, updatedAt: args.now })
-      .where(eq(schema.documentBlockFieldContents.id, existing.id));
-  } else {
-    await db.insert(schema.documentBlockFieldContents).values({
+  await db
+    .insert(schema.documentBlockFieldContents)
+    .values({
       id: nanoid(),
       ownerEmail: args.ownerEmail,
       documentId: args.documentId,
@@ -724,8 +701,14 @@ export async function writeBlockFieldContent(args: {
       content: args.content,
       createdAt: args.now,
       updatedAt: args.now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schema.documentBlockFieldContents.documentId,
+        schema.documentBlockFieldContents.propertyId,
+      ],
+      set: { content: args.content, updatedAt: args.now },
     });
-  }
 }
 
 // Write the primary Blocks field's content — i.e. the document body.
@@ -777,37 +760,120 @@ export async function countBlocksFieldsForDatabase(
   ).length;
 }
 
-// Seed the default primary "Content" Blocks field for a database, unless one
-// already exists. Idempotent. Returns the property id (existing or new).
-export async function seedDefaultBlocksField(args: {
-  databaseId: string;
-  ownerEmail: string;
-  orgId: string | null;
-  now: string;
-}): Promise<string> {
+// The id of a database's existing primary Blocks definition, if any. Used to
+// adopt a legacy primary created by the old read-path seeder rather than
+// creating a duplicate.
+async function findExistingPrimaryBlocksDefinition(
+  databaseId: string,
+): Promise<string | null> {
   const db = getDb();
-  const existing = await db
+  const definitions = await db
     .select({
       id: schema.documentPropertyDefinitions.id,
       type: schema.documentPropertyDefinitions.type,
       optionsJson: schema.documentPropertyDefinitions.optionsJson,
     })
     .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
-
-  const existingPrimary = existing.find(
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  const primary = definitions.find(
     (definition) =>
       isBlocksPropertyType(definition.type as DocumentPropertyType) &&
       isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson)),
   );
-  if (existingPrimary) return existingPrimary.id;
+  return primary?.id ?? null;
+}
+
+// Seed the primary "Content" Blocks field for a database exactly ONCE.
+//
+// `content_databases.primary_blocks_property_id` is the single source of truth
+// and the concurrency guard. Seeding is gated by an atomic conditional UPDATE
+// that claims the slot (sets primary_blocks_property_id + blocks_seeded=1) only
+// while it is still NULL/unseeded; the row insert happens only for the caller
+// that won the claim. Two concurrent calls therefore produce at most ONE primary
+// definition — the loser's UPDATE matches zero rows and it returns the existing
+// id. This removes the read-time select-then-insert aliasing race entirely.
+//
+// Returns the primary property id (existing or newly created). Never reseeds a
+// database whose primary was intentionally deleted (blocks_seeded=1, id NULL):
+// callers must pass { reseedIfDeleted: false } (the default) for that to hold.
+export async function seedDefaultBlocksField(args: {
+  databaseId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  now: string;
+}): Promise<string | null> {
+  const db = getDb();
+
+  // Deterministic id keyed to the database so concurrent claimants converge on
+  // the same value; the UNIQUE primary-key on definitions also rejects a
+  // duplicate insert if two callers somehow both attempt it.
+  const id = `blocks_primary_${args.databaseId}`;
+
+  // Legacy adoption: a database seeded by the OLD read-path safety net already
+  // has a primary "Content" definition but a NULL column (if the v52 backfill
+  // somehow didn't run for it). Adopt that existing definition instead of
+  // creating a second primary — guarantees the invariant even off the migration
+  // path. The atomic UPDATE (column still NULL) makes this race-safe.
+  const existingPrimary = await findExistingPrimaryBlocksDefinition(
+    args.databaseId,
+  );
+  if (existingPrimary) {
+    await db
+      .update(schema.contentDatabases)
+      .set({
+        primaryBlocksPropertyId: existingPrimary,
+        blocksSeeded: 1,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabases.id, args.databaseId),
+          sql`primary_blocks_property_id IS NULL`,
+        ),
+      );
+    return existingPrimary;
+  }
+
+  // Atomically claim the primary slot: only succeeds while it is still empty
+  // AND the database has never been seeded. If the primary was intentionally
+  // deleted (blocks_seeded=1, primary_blocks_property_id NULL) this matches
+  // nothing, so we do NOT recreate it.
+  const claim = await db
+    .update(schema.contentDatabases)
+    .set({
+      primaryBlocksPropertyId: id,
+      blocksSeeded: 1,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(schema.contentDatabases.id, args.databaseId),
+        sql`primary_blocks_property_id IS NULL`,
+        sql`blocks_seeded = 0`,
+      ),
+    )
+    .returning({ id: schema.contentDatabases.primaryBlocksPropertyId });
+
+  const claimedId = claim[0]?.id ?? null;
+
+  // We did not win the claim — either another caller already seeded, or the
+  // primary was intentionally deleted. Return exactly what the column points at:
+  // an id when one already exists, or NULL when the primary was intentionally
+  // removed (blocks_seeded = 1, id NULL). Callers treat null as "no primary" and
+  // must NOT recreate it.
+  if (claimedId !== id) {
+    const [database] = await db
+      .select({ primaryId: schema.contentDatabases.primaryBlocksPropertyId })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, args.databaseId));
+    return database?.primaryId ?? null;
+  }
 
   const [maxPos] = await db
     .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
 
-  const id = nanoid();
   await db.insert(schema.documentPropertyDefinitions).values({
     id,
     ownerEmail: args.ownerEmail,
@@ -822,4 +888,39 @@ export async function seedDefaultBlocksField(args: {
     updatedAt: args.now,
   });
   return id;
+}
+
+// One-time startup repair for LEGACY databases that have never been seeded —
+// i.e. databases created before the Blocks type existed and which have NO
+// primary Blocks field yet (blocks_seeded = 0). Their `documents.content` body
+// still works; seeding the primary field exposes it as a first-class property.
+//
+// Runs at boot from the migration plugin, NOT from any read path, so opening a
+// shared/legacy row never triggers a write. Uses each database's own owner/org
+// (no request context). Idempotent: the atomic claim in seedDefaultBlocksField
+// makes re-runs no-ops, and databases whose primary was intentionally deleted
+// (blocks_seeded = 1) are skipped.
+export async function repairUnseededBlocksFields(): Promise<number> {
+  const db = getDb();
+  const databases = await db
+    .select({
+      id: schema.contentDatabases.id,
+      ownerEmail: schema.contentDatabases.ownerEmail,
+      orgId: schema.contentDatabases.orgId,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.blocksSeeded, 0));
+
+  const now = new Date().toISOString();
+  let seeded = 0;
+  for (const database of databases) {
+    await seedDefaultBlocksField({
+      databaseId: database.id,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId ?? null,
+      now,
+    });
+    seeded += 1;
+  }
+  return seeded;
 }

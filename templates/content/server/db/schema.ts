@@ -102,6 +102,17 @@ export const contentDatabases = table("content_databases", {
   documentId: text("document_id").notNull(),
   title: text("title").notNull().default("Untitled database"),
   viewConfigJson: text("view_config_json").notNull().default("{}"),
+  // Single source of truth for the primary "Content" Blocks field — the one
+  // backed by `documents.content`. A DB-enforced single-primary invariant: at
+  // most one property id lives here, so two concurrent seeds can never produce
+  // two aliasing primaries. NULL means there is currently no primary Blocks
+  // field (never seeded, or the primary was intentionally deleted).
+  primaryBlocksPropertyId: text("primary_blocks_property_id"),
+  // 1 once a database has been seeded with its primary Blocks field at least
+  // once. Distinguishes "never seeded" (legacy database needing backfill) from
+  // "primary intentionally deleted" (seeded once, then removed — must NOT be
+  // reseeded). See delete-document-property.
+  blocksSeeded: integer("blocks_seeded").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

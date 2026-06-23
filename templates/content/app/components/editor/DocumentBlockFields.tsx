@@ -11,6 +11,7 @@ import {
 } from "@shared/properties";
 import type { DocumentProperty } from "@shared/api";
 import { VisualEditor } from "./VisualEditor";
+import { createBlockFieldSaveController } from "./blockFieldSaveController";
 
 interface DocumentBlockFieldsProps {
   documentId: string;
@@ -221,45 +222,64 @@ function AdditionalBlockEditor({
   canEdit: boolean;
 }) {
   const setProperty = useSetDocumentProperty(documentId);
+  const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
   const [content, setContent] = useState(initialContent);
-  const lastSavedRef = useRef(initialContent);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Adopt fresh server content when it diverges from the last value we saved
-  // (e.g. an agent edit) and the user hasn't typed something newer.
+  // All save/flush/dirty bookkeeping lives in the controller so a failed save is
+  // never marked clean (finding 6) and an unmount/collapse flushes the latest
+  // dirty content (finding 3). The save closure reads `setProperty` via a ref so
+  // the controller is created once and never tears down its pending flush.
+  const saveImplRef = useRef(setProperty.mutateAsync);
+  saveImplRef.current = setProperty.mutateAsync;
+  const controllerRef = useRef<ReturnType<
+    typeof createBlockFieldSaveController
+  > | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = createBlockFieldSaveController({
+      initialContent,
+      save: (value) =>
+        saveImplRef.current({ documentId, propertyId, value }),
+      onError: (error) =>
+        console.error("Failed to save Blocks field content", {
+          documentId,
+          propertyId,
+          error,
+        }),
+    });
+  }
+  const controller = controllerRef.current;
+
+  // Adopt fresh server content when it diverges from the last value we CONFIRMED
+  // saved (e.g. an agent edit) and the user hasn't typed something newer.
   useEffect(() => {
-    if (initialContent !== lastSavedRef.current && content === lastSavedRef.current) {
+    if (
+      initialContent !== controller.lastSaved &&
+      controller.pending === controller.lastSaved
+    ) {
       setContent(initialContent);
-      lastSavedRef.current = initialContent;
+      controller.mark(initialContent);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
+  // On unmount (navigating away, switching solo/multi) or collapse (the shell
+  // unmounts children), flush the latest dirty content so a debounce that hadn't
+  // fired yet is not dropped.
   useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
+    return () => controller.flush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleChange(markdown: string) {
     setContent(markdown);
-    if (markdown === lastSavedRef.current) return;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      lastSavedRef.current = markdown;
-      void setProperty.mutateAsync({
-        documentId,
-        propertyId: property.definition.id,
-        value: markdown,
-      });
-    }, 500);
+    controller.change(markdown);
   }
 
   return (
     <VisualEditor
-      key={property.definition.id}
+      key={propertyId}
       documentId={documentId}
       content={content}
       onChange={handleChange}

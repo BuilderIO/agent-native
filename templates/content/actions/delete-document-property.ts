@@ -66,6 +66,19 @@ export default defineAction({
       // Deleting the primary "Content" field removes the body (documents.content)
       // for every object of this type, per the delete warning shown in the UI.
       if (isPrimaryBlocks) {
+        // Record that the primary was intentionally removed: clear the single
+        // source of truth but LEAVE blocks_seeded = 1, so neither the read path
+        // nor the startup repair ever recreates it. Deleting the only Blocks
+        // field is an allowed product action that leaves the row metadata-only
+        // with ZERO Blocks fields.
+        await db
+          .update(schema.contentDatabases)
+          .set({
+            primaryBlocksPropertyId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentDatabases.id, database.id));
+
         const items = await db
           .select({ documentId: schema.contentDatabaseItems.documentId })
           .from(schema.contentDatabaseItems)
