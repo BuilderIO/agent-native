@@ -217,6 +217,15 @@ export class ThrowawayRegistry {
     this.allowModels = allowModels;
   }
 
+  // KNOWN RESIDUAL (documented, accepted): `id` is caller-supplied and cannot
+  // be cryptographically proven to belong to an entry THIS run created — in
+  // pure in-process code the id is just a string. This is contained by the
+  // model gate: a minted target inherits `target.model` (frozen), which only
+  // passes for a test model or an explicitly --allow-model'd one. For test
+  // models a foreign id is harmless (test namespace); it only matters under a
+  // deliberate production allowlist, and the shipped run-contract.ts only ever
+  // registers the id `createEntry` just returned. If you ever pass --allow-model
+  // with a production model, audit the register() call site by hand.
   register(target: MutableModel, id: string, name: string): MutableTarget {
     // The MutableModel token proves the model already passed the live gate.
     // Re-assert here as defense in depth (rejects a forged/plain object too).

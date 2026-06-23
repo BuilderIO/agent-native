@@ -255,3 +255,27 @@ the autosave PATCH flipped `meta.hasAutosaves`→`true` while `published` and th
 delivered marker stayed unchanged — this becomes an unconditional **GO** to
 treat `autoSaveOnly` as the canonical safe write mode. If any invariant is
 violated the run exits nonzero with a `failed` finding and remains **NO-GO**.
+
+## Security review & hardening (independent GPT-5.5 pass)
+
+The safety guard was hardened over an adversarial review. Closed vectors:
+
+- **Public token minting** — removed `__mint`; token construction is gated by
+  unexported module-private key symbols (`MODEL_MINT_KEY` / `TARGET_MINT_KEY`).
+- **Prototype / brand forging** — `.is()` now uses a true ECMAScript `#private`
+  field (`#authentic in value`), not a copyable TS-`private` symbol, so
+  `Object.create(prototype)` + brand-copy forgeries fail.
+- **Raw-helper bypass** — `capture()` / `writeHeaders()` are `#private`; the only
+  externally-callable write surface is the token-gated `createEntry`/`patchEntry`.
+- **Token tampering** — minted tokens are `Object.freeze`d, so a vetted test
+  token cannot be repointed at a production model/entry at runtime.
+- **Guard monkey-patching** — token classes + prototypes are frozen, so `.is`
+  cannot be reassigned to wave a forgery through.
+
+**Known residual (accepted):** `ThrowawayRegistry.register()` trusts a
+caller-supplied `id` (in-process code cannot prove an id belongs to an entry
+this run created). Contained by the model gate: it only matters under an
+explicit `--allow-model <production>`, and the shipped run flow only registers
+the id `createEntry` just returned. Out of scope: code that replaces global
+`fetch` or mutates `Object.prototype` could call Builder directly regardless of
+this guard.
