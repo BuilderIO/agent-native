@@ -46,6 +46,22 @@ const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
+// ScreenCaptureKit can lay mic + system audio out as the left/right channels of
+// a single stereo track. Force the input to stereo (mono sources duplicate),
+// then sum both channels into each output so audio is centered instead of
+// stuck on one speaker. Runs before loudnorm so level is normalized on the
+// corrected signal.
+const AUDIO_DOWNMIX_FILTER: &str =
+    "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
+// loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
+// explicit output rate the AAC track ends up at 192 kHz and plays back slow.
+const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
+
+// Centered-stereo downmix followed by loudness normalization. Pair with
+// `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is resampled back.
+fn audio_filter_chain() -> String {
+    format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_LOUDNESS_FILTER}")
+}
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -2988,9 +3004,11 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(AUDIO_LOUDNESS_FILTER)
+        .arg(audio_filter_chain())
         .arg("-ac")
         .arg("2")
+        .arg("-ar")
+        .arg(AUDIO_OUTPUT_SAMPLE_RATE.to_string())
         .arg("-movflags")
         .arg("+faststart")
         .arg("-f")
@@ -3072,7 +3090,7 @@ fn transcode_with_ffmpeg(
     }
 
     if normalize_audio {
-        command.arg("-af").arg(AUDIO_LOUDNESS_FILTER);
+        command.arg("-af").arg(audio_filter_chain());
     }
 
     let duration_rate_limit =
@@ -3111,6 +3129,8 @@ fn transcode_with_ffmpeg(
         .arg(audio_bitrate)
         .arg("-ac")
         .arg("2")
+        .arg("-ar")
+        .arg(AUDIO_OUTPUT_SAMPLE_RATE.to_string())
         .arg("-movflags")
         .arg("+faststart")
         .arg("-f")
