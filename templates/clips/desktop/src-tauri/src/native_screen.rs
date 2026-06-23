@@ -26,7 +26,6 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
@@ -62,6 +61,16 @@ const THUMBNAIL_MIME_TYPE: &str = "image/jpeg";
 const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const THUMBNAIL_WIDTH: &str = "1280";
 const SIPS_PATH: &str = "/usr/bin/sips";
+// Minimum free space required to start recording; below this we hard-block.
+const DISK_SPACE_BLOCK_BYTES: u64 = 500 * 1024 * 1024;
+// Free space below this at start time is logged as a warning but not blocked.
+const DISK_SPACE_WARN_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+// Mid-recording warning threshold (emits clips:disk-space-warning).
+const DISK_MONITOR_WARN_BYTES: u64 = 1024 * 1024 * 1024;
+// Mid-recording critical threshold (emits clips:disk-space-critical).
+const DISK_MONITOR_CRITICAL_BYTES: u64 = 250 * 1024 * 1024;
+// How often the background monitor checks free space.
+const DISK_MONITOR_INTERVAL_SECS: u64 = 30;
 
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
@@ -108,6 +117,9 @@ struct NativeFullscreenSession {
     /// warming up) but the recording output hasn't been attached yet, so
     /// nothing is written to disk. `begin` attaches it and flips this false.
     pending_recording_output: bool,
+    /// Stop flag for the background disk-space monitor thread. Set to true
+    /// when the session is finalized or discarded so the thread exits cleanly.
+    disk_monitor_stop: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -220,6 +232,67 @@ struct PreparedRecordingFile {
 
 fn format_mb(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+}
+
+/// Returns free bytes on the volume containing `path`, or `None` on error.
+#[cfg(target_os = "macos")]
+fn free_disk_bytes(path: &Path) -> Option<u64> {
+    use std::ffi::CString;
+    let c_path = CString::new(path.to_str()?).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
+        Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+    } else {
+        None
+    }
+}
+
+/// Spawns a background thread that checks free disk space every
+/// [`DISK_MONITOR_INTERVAL_SECS`] seconds and emits warning/critical events
+/// to the frontend. Returns a stop flag the caller sets to shut the thread down.
+#[cfg(target_os = "macos")]
+fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    std::thread::spawn(move || {
+        let tick_ms = 500u64;
+        let ticks_per_check = (DISK_MONITOR_INTERVAL_SECS * 1000) / tick_ms;
+        let mut ticks = 0u64;
+        loop {
+            std::thread::sleep(Duration::from_millis(tick_ms));
+            if stop_clone.load(Ordering::Relaxed) {
+                return;
+            }
+            ticks += 1;
+            if ticks < ticks_per_check {
+                continue;
+            }
+            ticks = 0;
+            if let Some(free) = free_disk_bytes(&recording_path) {
+                let free_mb = free / (1024 * 1024);
+                if free < DISK_MONITOR_CRITICAL_BYTES {
+                    eprintln!(
+                        "[clips-tray] disk space critical during recording: {} free",
+                        format_mb(free)
+                    );
+                    let _ = app.emit(
+                        "clips:disk-space-critical",
+                        serde_json::json!({ "freeMb": free_mb }),
+                    );
+                } else if free < DISK_MONITOR_WARN_BYTES {
+                    eprintln!(
+                        "[clips-tray] disk space low during recording: {} free",
+                        format_mb(free)
+                    );
+                    let _ = app.emit(
+                        "clips:disk-space-warning",
+                        serde_json::json!({ "freeMb": free_mb }),
+                    );
+                }
+            }
+        }
+    });
+    stop
 }
 
 fn emit_native_upload_progress(
@@ -652,14 +725,18 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         // Gate the corrupt flag on both the error string AND actual file
         // validation — a transient finalize error that still produces a valid
         // MP4 should remain retryable rather than forcing a re-record.
-        if stop_err.contains("finalize failed")
-            && mp4_has_moov(&saved.file_path) == Some(false)
-        {
+        if mp4_has_moov(&saved.file_path) == Some(false) {
             saved.corrupt = true;
             eprintln!(
                 "[clips-tray] recording marked corrupt: finalize error + missing moov atom"
             );
         }
+    } else if mp4_has_moov(&saved.file_path) == Some(false) {
+        // stop_outcome was Ok but the finalize callback may have timed out,
+        // leaving the file without a moov atom. Mark corrupt so the UI
+        // surfaces this immediately rather than queuing retries.
+        saved.corrupt = true;
+        eprintln!("[clips-tray] recording marked corrupt: missing moov atom despite Ok stop outcome (likely finalize timeout)");
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
     }
@@ -744,19 +821,13 @@ pub async fn native_fullscreen_recording_stop_and_save(
     // If the finalization callback reported an error AND the file is missing
     // a moov atom, the exported MP4 would be unplayable. Fail now rather than
     // handing the user a broken local file with no server-side backstop.
-    if stop_outcome
-        .as_ref()
-        .err()
-        .map(|e| e.contains("finalize failed"))
-        .unwrap_or(false)
-        && mp4_has_moov(&session.path) == Some(false)
-    {
+    // Check for a missing moov atom regardless of the stop_outcome string:
+    // finalize can also time out and return Ok(()), leaving the file corrupt.
+    if mp4_has_moov(&session.path) == Some(false) {
         eprintln!(
-            "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
+            "[clips-tray] native local recording corrupt (missing moov atom) — not exporting; stop_outcome_ok={}",
+            stop_outcome.is_ok()
         );
-        // Remove the temporary file so it doesn't accumulate on disk
-        // (save_native_recording_to_local_export, which would normally
-        // move it, is never reached from this early-return path).
         let _ = std::fs::remove_file(&session.path);
         return Err(
             "Recorded file is corrupted — the video is incomplete and cannot be saved. \
@@ -911,6 +982,10 @@ fn take_and_finalize_active_session(
     }
     .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
 
+    // Signal the disk monitor to stop before tearing down the backend.
+    if let Some(stop) = &session.disk_monitor_stop {
+        stop.store(true, Ordering::Relaxed);
+    }
     // Try to finalize capture, but don't early-return on failure: the
     // underlying MP4 file is already on disk after stop_capture(), and
     // ScreenCaptureKit's StreamError("invalid parameter") on
@@ -967,6 +1042,9 @@ fn finalize_active_backend(
 /// session displaced by a new start). Finalizes any active backend and
 /// deletes every on-disk artifact — segment files and the final path.
 fn discard_session(session: &mut NativeFullscreenSession) {
+    if let Some(stop) = &session.disk_monitor_stop {
+        stop.store(true, Ordering::Relaxed);
+    }
     let _ = finalize_active_backend(session, false);
     for segment in &session.segments {
         let _ = std::fs::remove_file(segment);
@@ -1933,6 +2011,21 @@ fn start_screencapturekit_recording(
         "[clips-tray] starting ScreenCaptureKit recording -> {}",
         path.display()
     );
+    let check_path = path.parent().unwrap_or(&path);
+    if let Some(free) = free_disk_bytes(check_path) {
+        if free < DISK_SPACE_BLOCK_BYTES {
+            return Err(format!(
+                "Not enough disk space to record. Free up at least {} and try again (currently {} free).",
+                format_mb(DISK_SPACE_BLOCK_BYTES),
+                format_mb(free)
+            ));
+        } else if free < DISK_SPACE_WARN_BYTES {
+            eprintln!(
+                "[clips-tray] low disk space at recording start: {} free — recording may fail if space runs out",
+                format_mb(free)
+            );
+        }
+    }
     let (backend, width, height) = start_screencapturekit_backend_at(
         &path,
         include_audio,
@@ -1962,6 +2055,7 @@ fn start_screencapturekit_recording(
         },
     );
     session.pending_recording_output = defer_recording_output;
+    session.disk_monitor_stop = Some(spawn_disk_monitor(app.clone(), session.path.clone()));
     Ok(session)
 }
 
@@ -2032,6 +2126,7 @@ fn new_fullscreen_session(
         paused_at: None,
         restart,
         pending_recording_output: false,
+        disk_monitor_stop: None,
     }
 }
 
@@ -2184,7 +2279,14 @@ fn stop_native_recording(
             }
 
             if let Some(Err(err)) = &finalize_outcome {
+                eprintln!("[clips-tray] SCK finalize failed: {err}");
                 return Err(format!("ScreenCaptureKit recording finalize failed: {err}"));
+            }
+            if waited_for_finalize && finalize_outcome.is_none() {
+                eprintln!(
+                    "[clips-tray] SCK finalize timed out after {}s — moov atom may be missing",
+                    SCK_FINALIZE_TIMEOUT.as_secs()
+                );
             }
 
             match remove_result {

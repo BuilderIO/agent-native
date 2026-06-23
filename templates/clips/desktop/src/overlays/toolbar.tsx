@@ -4,6 +4,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  IconAlertTriangle,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -54,6 +55,9 @@ export function Toolbar() {
   // Stop / Pause are disabled until the recorder actually begins, at which
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
+  const [diskSpaceLevel, setDiskSpaceLevel] = useState<
+    "ok" | "warning" | "critical"
+  >("ok");
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandedRef = useRef(false);
 
@@ -91,6 +95,21 @@ export function Toolbar() {
     trackListen(
       listen<boolean>("clips:toolbar-enabled", (ev) => {
         setEnabled(!!ev.payload);
+        if (!ev.payload) {
+          setDiskSpaceLevel("ok");
+        }
+      }),
+    );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-warning", () => {
+        setDiskSpaceLevel((prev) =>
+          prev === "critical" ? "critical" : "warning",
+        );
+      }),
+    );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-critical", () => {
+        setDiskSpaceLevel("critical");
       }),
     );
     return () => {
@@ -218,7 +237,7 @@ export function Toolbar() {
 
   return (
     <div
-      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
+      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"} ${diskSpaceLevel !== "ok" ? `toolbar-v-disk-${diskSpaceLevel}` : ""}`}
       onMouseDown={handleToolbarMouseDown}
       onMouseEnter={() => resizeToolbarWindow(true)}
       onMouseLeave={() => resizeToolbarWindow(false)}
@@ -248,6 +267,19 @@ export function Toolbar() {
         )}
       </button>
       <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+      {diskSpaceLevel !== "ok" && (
+        <div
+          className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}
+          title={
+            diskSpaceLevel === "critical"
+              ? "Disk almost full — stop recording now to avoid losing your clip"
+              : "Low disk space — save your recording soon"
+          }
+          data-no-drag
+        >
+          <IconAlertTriangle size={12} />
+        </div>
+      )}
       <button
         className="toolbar-v-pause"
         onClick={togglePause}
