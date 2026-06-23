@@ -1597,9 +1597,17 @@ const AssistantChatInner = forwardRef<
           } catch {
             // Best effort — the important part is unwinding the UI.
           }
-          settleInterruptedToolCalls(latestContent);
-          setReconnectContent([...latestContent]);
-          setReconnectFrozen(latestContent.length > 0);
+          if (afterSeq > 0) {
+            // Tail-resume only replays new events; never freeze that slice as a
+            // complete assistant turn — the server thread is authoritative.
+            await refreshThreadFromServer();
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+          } else {
+            settleInterruptedToolCalls(latestContent);
+            setReconnectContent([...latestContent]);
+            setReconnectFrozen(latestContent.length > 0);
+          }
           setRunErrorInfo({
             message:
               "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
