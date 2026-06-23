@@ -285,9 +285,12 @@ function BlockFieldShell({
   return (
     <section
       className={cn(
-        "rounded-md border border-border/60",
+        // Borderless, Capacities-style: fields are separated by the header +
+        // spacing, not a box. Drag-over shows a ring (no layout shift, no
+        // persistent border that the grips would sit inside/outside of).
+        "group/blockfield rounded-md",
         isDragging && "opacity-50",
-        dragOver && "border-primary",
+        dragOver && "ring-1 ring-primary/50",
       )}
       data-block-field-id={property.definition.id}
       onDragOver={(event) => {
@@ -303,17 +306,18 @@ function BlockFieldShell({
         onDropBefore(event.dataTransfer.getData("text/block-field-id") || null);
       }}
     >
-      {/* Header + content share a common left edge (pl-2). The grip sits in the
-          left gutter — flush at the section edge — so it lines up with the
-          per-block drag handles that float left of the editor content, instead
-          of being pushed further right than them (Capacities-style alignment). */}
-      <div className="flex items-center gap-0.5 py-1.5 pr-2 pl-1">
+      {/* ONE grip rail: the header grip sits in a fixed 24px left gutter, and
+          the content below is indented by the same 24px (pl-6). The editor's
+          per-block drag handle is 24px wide and positioned just left of the
+          block content, so it lands in that same gutter — header grip and block
+          grips align on a single vertical rail (Capacities-style). */}
+      <div className="flex items-center py-1 pr-2">
         {canEdit ? (
           <span
             role="button"
             aria-label={`Reorder ${property.definition.name}`}
             draggable
-            className="shrink-0 cursor-grab text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+            className="flex w-6 shrink-0 justify-center cursor-grab text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
             onDragStart={(event) => {
               event.dataTransfer.setData(
                 "text/block-field-id",
@@ -326,12 +330,16 @@ function BlockFieldShell({
           >
             <IconGripVertical className="size-4" />
           </span>
-        ) : null}
+        ) : (
+          // Keep the 24px gutter so the header label stays aligned with the
+          // content indent even when reordering is disabled.
+          <span className="w-6 shrink-0" />
+        )}
         <button
           type="button"
           aria-expanded={open}
           aria-label={`Toggle ${property.definition.name}`}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-0.5 pr-1 text-left text-sm font-medium text-foreground hover:bg-muted/50"
+          className="flex min-w-0 flex-1 items-center gap-1 rounded py-0.5 text-left text-sm font-medium text-foreground hover:bg-muted/50"
           onClick={() => setOpen((value) => !value)}
         >
           <IconChevronRight
@@ -343,7 +351,7 @@ function BlockFieldShell({
           <span className="truncate">{property.definition.name}</span>
         </button>
       </div>
-      {open ? <div className="pb-3 pl-2 pr-2">{children}</div> : null}
+      {open ? <div className="pb-3 pl-6 pr-2">{children}</div> : null}
     </section>
   );
 }
