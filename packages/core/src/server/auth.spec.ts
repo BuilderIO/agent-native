@@ -3525,10 +3525,40 @@ describe("server/auth", () => {
           returnUrl: "/dashboard",
         }),
       );
-      // Web flow returns a string body (h3 sets Location via setResponseHeader).
-      expect(typeof response === "string" || response === "").toBe(true);
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe("/dashboard");
       expect(event.res.status).toBe(302);
       expect(event.res.headers.get("Location")).toBe("/dashboard");
+    });
+
+    it("returns a native web redirect that drops callback query parameters", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/callback",
+        query: {
+          code: "oauth-code",
+          state: "signed-state",
+          scope: "email profile openid",
+          authuser: "1",
+        },
+      });
+
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          returnUrl: "/",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe("/");
+      expect((response as Response).headers.get("Location")).not.toContain(
+        "code=",
+      );
+      expect((response as Response).headers.get("Referrer-Policy")).toBe(
+        "no-referrer",
+      );
     });
 
     it("bridges hosted OAuth completion back to the local workspace gateway", async () => {
@@ -3542,12 +3572,18 @@ describe("server/auth", () => {
         }),
       );
 
-      expect(typeof response === "string" || response === "").toBe(true);
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe(
+        "http://127.0.0.1:8080/dispatch?_session=token-1",
+      );
       expect(event.res.status).toBe(302);
       expect(event.res.headers.get("Location")).toBe(
         "http://127.0.0.1:8080/dispatch?_session=token-1",
       );
-      expect(event.res.headers.get("Referrer-Policy")).toBe("no-referrer");
+      expect((response as Response).headers.get("Referrer-Policy")).toBe(
+        "no-referrer",
+      );
     });
 
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {

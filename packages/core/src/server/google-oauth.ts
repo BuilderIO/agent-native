@@ -841,14 +841,20 @@ export function oauthCallbackResponse(
   // same-origin; Builder desktop workspace returns may point back to the
   // local loopback gateway and carry the short-lived `_session` bridge so
   // the local app can promote the newly created hosted OAuth session.
-  setResponseStatus(event, 302);
-  setResponseHeader(
-    event,
-    "Location",
-    appendSessionToOAuthReturnUrl(opts.returnUrl, opts.sessionToken),
+  const location = appendSessionToOAuthReturnUrl(
+    opts.returnUrl,
+    opts.sessionToken,
   );
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Location", location);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return "";
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: location,
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

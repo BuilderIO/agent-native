@@ -16,7 +16,9 @@ import {
   appApiPath,
   openBuilderConnectPopup,
   useActionQuery,
+  ChangelogSettingsCard,
 } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -388,6 +390,8 @@ export default function SettingsIndexRoute() {
         <p className="text-sm text-muted-foreground">
           Preferences and connected services for this Clips workspace.
         </p>
+
+        <ChangelogSettingsCard markdown={changelog} />
 
         <Card id="video-storage" className="scroll-mt-16">
           <CardHeader>

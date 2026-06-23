@@ -714,6 +714,15 @@ export {
   type CommandShortcutProps,
 } from "./CommandMenu.js";
 export {
+  ChangelogDialog,
+  ChangelogSettingsCard,
+  useChangelogSeen,
+  parseChangelog,
+  type ChangelogDialogProps,
+  type ChangelogSettingsCardProps,
+  type ChangelogEntry,
+} from "./changelog/Changelog.js";
+export {
   DevOverlay,
   useDevOverlayShortcut,
   registerDevPanel,
