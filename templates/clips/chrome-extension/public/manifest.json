@@ -3,7 +3,7 @@
   "name": "Agent-Native Clips",
   "short_name": "Clips",
   "version": "0.1.0",
-  "description": "Record bug reports with Clips and include redacted console and network diagnostics from the active tab.",
+  "description": "Start Clips recordings from Chrome with optional redacted console and network diagnostics.",
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "Record with Clips",

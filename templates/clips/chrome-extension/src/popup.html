@@ -7,103 +7,272 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body class="popup-page">
-    <main class="popup-shell">
-      <header class="masthead">
-        <div class="brand-mark" aria-hidden="true">C</div>
-        <div>
-          <p class="eyebrow">Clips</p>
-          <h1>Record this bug</h1>
+    <main class="recorder-card">
+      <header class="popup-header">
+        <div class="popup-title">
+          <span class="title-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M15 10.5L20 7.5V16.5L15 13.5V10.5Z"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <rect
+                x="4"
+                y="6.5"
+                width="11"
+                height="11"
+                rx="2.4"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+            </svg>
+          </span>
+          <span>Clips recorder</span>
         </div>
+        <button id="open-options" class="ghost-link" type="button">
+          Settings
+        </button>
       </header>
 
-      <div class="target" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <div class="target-copy">
-          <div id="target-title" class="target-title">Loading current tab</div>
-          <div id="target-url" class="target-url"></div>
-        </div>
-      </div>
-
-      <section class="section">
-        <div class="section-label">Capture</div>
-        <div class="surface-grid" role="radiogroup" aria-label="Capture source">
-          <button
-            class="surface-option"
-            type="button"
-            role="radio"
-            aria-checked="true"
-            data-surface="browser"
-          >
-            <span class="surface-title">Current tab</span>
-            <span class="surface-subtitle">Best for product bugs</span>
-          </button>
-          <button
-            class="surface-option"
-            type="button"
-            role="radio"
-            aria-checked="false"
-            data-surface="window"
-          >
-            <span class="surface-title">Window</span>
-            <span class="surface-subtitle">One app or browser</span>
-          </button>
-          <button
-            class="surface-option"
-            type="button"
-            role="radio"
-            aria-checked="false"
-            data-surface="monitor"
-          >
-            <span class="surface-title">Screen</span>
-            <span class="surface-subtitle">Everything visible</span>
-          </button>
-          <button
-            class="surface-option"
-            type="button"
-            role="radio"
-            aria-checked="false"
-            data-surface="camera"
-          >
-            <span class="surface-title">Camera only</span>
-            <span class="surface-subtitle">No screen share</span>
-          </button>
-        </div>
+      <section class="mode-grid" role="radiogroup" aria-label="Recording mode">
+        <button
+          class="mode-option"
+          type="button"
+          role="radio"
+          aria-checked="true"
+          data-mode="screen-camera"
+        >
+          <span class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect
+                x="4"
+                y="5"
+                width="16"
+                height="11"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M9 20H15M12 16V20"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <span class="mode-title">Screen + cam</span>
+        </button>
+        <button
+          class="mode-option"
+          type="button"
+          role="radio"
+          aria-checked="false"
+          data-mode="screen"
+        >
+          <span class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect
+                x="3.75"
+                y="5"
+                width="16.5"
+                height="12"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M8 20H16"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <span class="mode-title">Screen only</span>
+        </button>
+        <button
+          class="mode-option"
+          type="button"
+          role="radio"
+          aria-checked="false"
+          data-mode="camera"
+        >
+          <span class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M15 10.5L20 7.5V16.5L15 13.5V10.5Z"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <rect
+                x="4"
+                y="6.5"
+                width="11"
+                height="11"
+                rx="2.4"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+            </svg>
+          </span>
+          <span class="mode-title">Camera only</span>
+        </button>
       </section>
 
-      <section class="toggles" aria-label="Recording options">
-        <label class="toggle-row" for="include-camera">
-          <span>
-            <span class="toggle-title">Camera bubble</span>
-            <span class="toggle-subtitle"
-              >Overlay your camera when sharing a screen.</span
-            >
+      <section class="settings-stack" aria-label="Recorder setup">
+        <div class="setup-row target-row" aria-live="polite">
+          <span class="row-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M10 6.5H7.25A2.25 2.25 0 0 0 5 8.75V16.75A2.25 2.25 0 0 0 7.25 19H15.25A2.25 2.25 0 0 0 17.5 16.75V14"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+              <path
+                d="M13.5 5H19V10.5"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M19 5L11 13"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
           </span>
-          <input id="include-camera" type="checkbox" role="switch" />
-        </label>
+          <div class="row-copy">
+            <div class="row-title" id="target-title">Current tab</div>
+            <div class="row-subtitle" id="target-url">Loading tab</div>
+          </div>
+        </div>
 
-        <label class="toggle-row" for="include-developer-logs">
-          <span>
-            <span class="toggle-title">Developer logs</span>
-            <span class="toggle-subtitle"
-              >Redacted console and fetch/XHR metadata.</span
+        <div id="source-section" class="setup-panel">
+          <div class="panel-heading">
+            <span class="row-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="4"
+                  y="5"
+                  width="16"
+                  height="11"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M9 20H15M12 16V20"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <div class="row-copy">
+              <div class="row-title">Capture source</div>
+              <div id="source-summary" class="row-subtitle">
+                Browser tab selected
+              </div>
+            </div>
+          </div>
+          <div
+            class="source-grid"
+            role="radiogroup"
+            aria-label="Capture source"
+          >
+            <button
+              class="source-option"
+              type="button"
+              role="radio"
+              aria-checked="true"
+              data-surface="browser"
+            >
+              <span>Browser tab</span>
+              <small>Choose an open tab</small>
+            </button>
+            <button
+              class="source-option"
+              type="button"
+              role="radio"
+              aria-checked="false"
+              data-surface="window"
+            >
+              <span>Window</span>
+              <small>One app or browser</small>
+            </button>
+            <button
+              class="source-option"
+              type="button"
+              role="radio"
+              aria-checked="false"
+              data-surface="monitor"
+            >
+              <span>Screen</span>
+              <small>Capture everything</small>
+            </button>
+          </div>
+        </div>
+
+        <label class="setup-row toggle-row" for="include-developer-logs">
+          <span class="row-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M8 9L5 12L8 15"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M16 9L19 12L16 15"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M13.5 7L10.5 17"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <span class="row-copy">
+            <span class="row-title">Developer logs</span>
+            <span class="row-subtitle"
+              >Console and network diagnostics. Redacted before saving.</span
             >
           </span>
           <input id="include-developer-logs" type="checkbox" role="switch" />
         </label>
       </section>
 
-      <p class="hint">
-        Pick microphone and tab audio inside Clips. Chrome still asks before any
-        recording starts.
-      </p>
-
-      <button id="start" class="primary-action" type="button">
-        Start recording
-      </button>
-
-      <footer class="footer-actions">
-        <button id="open-options" class="text-button" type="button">
-          Settings
+      <footer class="action-area">
+        <p class="hint">
+          Choose microphone and tab audio inside Clips before recording starts.
+        </p>
+        <button id="start" class="primary-action" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle
+              cx="12"
+              cy="12"
+              r="6"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <circle cx="12" cy="12" r="3" fill="currentColor" />
+          </svg>
+          Start recording
         </button>
         <span
           id="status"

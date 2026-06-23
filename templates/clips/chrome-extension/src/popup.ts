@@ -1,4 +1,5 @@
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
+type RecordingModeChoice = "screen-camera" | "screen" | "camera";
 
 type ExtensionSettings = {
   clipsBaseUrl: string;
@@ -19,6 +20,18 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeDeveloperLogs: true,
 };
 
+const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
+  browser: "Browser tab",
+  window: "Window",
+  monitor: "Screen",
+};
+
+function screenSurface(
+  value: CaptureSurface,
+): Exclude<CaptureSurface, "camera"> {
+  return value === "camera" ? "browser" : value;
+}
+
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing #${id}`);
@@ -32,6 +45,26 @@ function normalizeSurface(value: unknown): CaptureSurface {
     value === "browser"
     ? value
     : DEFAULT_SETTINGS.captureSurface;
+}
+
+function recordingMode(settings: ExtensionSettings): RecordingModeChoice {
+  if (settings.captureSurface === "camera") return "camera";
+  return settings.includeCamera ? "screen-camera" : "screen";
+}
+
+function applyMode(
+  settings: ExtensionSettings,
+  mode: RecordingModeChoice,
+): void {
+  if (mode === "camera") {
+    settings.captureSurface = "camera";
+    settings.includeCamera = true;
+    return;
+  }
+  if (settings.captureSurface === "camera") {
+    settings.captureSurface = DEFAULT_SETTINGS.captureSurface;
+  }
+  settings.includeCamera = mode === "screen-camera";
 }
 
 function readSettings(): Promise<ExtensionSettings> {
@@ -102,50 +135,77 @@ function setStatus(message: string, kind: "info" | "error" = "info"): void {
   status.dataset.kind = kind;
 }
 
-function renderSurface(settings: ExtensionSettings): void {
+function renderMode(settings: ExtensionSettings): void {
+  const mode = recordingMode(settings);
   for (const button of document.querySelectorAll<HTMLButtonElement>(
-    ".surface-option",
+    ".mode-option",
   )) {
-    const selected = button.dataset.surface === settings.captureSurface;
+    const selected = button.dataset.mode === mode;
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-checked", selected ? "true" : "false");
   }
-  const camera = byId<HTMLInputElement>("include-camera");
-  camera.disabled = settings.captureSurface === "camera";
-  camera.closest(".toggle-row")?.classList.toggle("disabled", camera.disabled);
+}
+
+function renderSource(settings: ExtensionSettings): void {
+  const sourceSection = byId<HTMLDivElement>("source-section");
+  const sourceSummary = byId<HTMLDivElement>("source-summary");
+  const cameraOnly = settings.captureSurface === "camera";
+  const selectedSurface = screenSurface(settings.captureSurface);
+  sourceSection.classList.toggle("disabled", cameraOnly);
+  sourceSummary.textContent = cameraOnly
+    ? "Screen capture off"
+    : `${SOURCE_LABELS[selectedSurface]} selected`;
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    ".source-option",
+  )) {
+    const surface = normalizeSurface(button.dataset.surface);
+    const selected = !cameraOnly && surface === selectedSurface;
+    button.disabled = cameraOnly;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-checked", selected ? "true" : "false");
+  }
+}
+
+function render(settings: ExtensionSettings): void {
+  renderMode(settings);
+  renderSource(settings);
 }
 
 async function init(): Promise<void> {
   const settings = await readSettings();
   const targetTitle = byId<HTMLDivElement>("target-title");
   const targetUrl = byId<HTMLDivElement>("target-url");
-  const includeCamera = byId<HTMLInputElement>("include-camera");
   const includeDeveloperLogs = byId<HTMLInputElement>("include-developer-logs");
   const start = byId<HTMLButtonElement>("start");
   const openOptions = byId<HTMLButtonElement>("open-options");
 
   const tab = await queryActiveTab();
   targetTitle.textContent = tab?.title || "Current tab";
-  targetUrl.textContent = hostnameLabel(tab?.url);
+  targetUrl.textContent = hostnameLabel(tab?.url) || "Ready to record";
 
-  includeCamera.checked = settings.includeCamera;
   includeDeveloperLogs.checked = settings.includeDeveloperLogs;
-  renderSurface(settings);
+  render(settings);
 
   for (const button of document.querySelectorAll<HTMLButtonElement>(
-    ".surface-option",
+    ".mode-option",
   )) {
     button.addEventListener("click", () => {
-      settings.captureSurface = normalizeSurface(button.dataset.surface);
-      renderSurface(settings);
+      applyMode(settings, button.dataset.mode as RecordingModeChoice);
+      render(settings);
       void saveSettings(settings);
     });
   }
 
-  includeCamera.addEventListener("change", () => {
-    settings.includeCamera = includeCamera.checked;
-    void saveSettings(settings);
-  });
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    ".source-option",
+  )) {
+    button.addEventListener("click", () => {
+      settings.captureSurface = normalizeSurface(button.dataset.surface);
+      render(settings);
+      void saveSettings(settings);
+    });
+  }
 
   includeDeveloperLogs.addEventListener("change", () => {
     settings.includeDeveloperLogs = includeDeveloperLogs.checked;
@@ -159,7 +219,6 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     setStatus("Opening Clips...");
-    settings.includeCamera = includeCamera.checked;
     settings.includeDeveloperLogs = includeDeveloperLogs.checked;
     await saveSettings(settings);
     const response = await sendStartMessage(settings);

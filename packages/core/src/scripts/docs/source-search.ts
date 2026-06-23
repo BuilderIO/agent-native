@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseSkillFrontmatter } from "../../server/agents-bundle.js";
 import { isValidPath, parseArgs } from "../utils.js";
 
 interface SourceFile {
@@ -72,13 +73,66 @@ function isProbablyTextFile(filePath: string): boolean {
   );
 }
 
-function listFiles(dir: string, base = dir): SourceFile[] {
+function toCorpusRelativePath(
+  corpusRoot: string,
+  absolutePath: string,
+): string {
+  return path.relative(corpusRoot, absolutePath).split(path.sep).join("/");
+}
+
+function getSkillRootRelativePath(relativePath: string): string | null {
+  const segments = relativePath.split("/").filter(Boolean);
+  for (let index = 0; index < segments.length - 2; index += 1) {
+    if (
+      (segments[index] === ".agents" || segments[index] === ".agent") &&
+      segments[index + 1] === "skills"
+    ) {
+      return segments.slice(0, index + 3).join("/");
+    }
+  }
+  return null;
+}
+
+function getSkillEntryRelativePath(skillRootRelativePath: string): string {
+  return skillRootRelativePath.toLowerCase().endsWith(".md")
+    ? skillRootRelativePath
+    : `${skillRootRelativePath}/SKILL.md`;
+}
+
+function isRuntimeVisibleCorpusPath(
+  corpusRoot: string,
+  absolutePath: string,
+): boolean {
+  const relativePath = toCorpusRelativePath(corpusRoot, absolutePath);
+  const skillRootRelativePath = getSkillRootRelativePath(relativePath);
+  if (!skillRootRelativePath) return true;
+
+  const skillEntryPath = path.join(
+    corpusRoot,
+    ...getSkillEntryRelativePath(skillRootRelativePath).split("/"),
+  );
+  if (!fs.existsSync(skillEntryPath)) return true;
+
+  try {
+    const raw = fs.readFileSync(skillEntryPath, "utf-8");
+    return parseSkillFrontmatter(raw).scope !== "dev";
+  } catch {
+    return true;
+  }
+}
+
+function listFiles(
+  dir: string,
+  base = dir,
+  corpusRoot = getCorpusRoot(),
+): SourceFile[] {
   if (!fs.existsSync(dir)) return [];
   const files: SourceFile[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const abs = path.join(dir, entry.name);
+    if (!isRuntimeVisibleCorpusPath(corpusRoot, abs)) continue;
     if (entry.isDirectory()) {
-      files.push(...listFiles(abs, base));
+      files.push(...listFiles(abs, base, corpusRoot));
     } else if (entry.isFile() && isProbablyTextFile(abs)) {
       const stat = fs.statSync(abs);
       if (stat.size <= MAX_FILE_BYTES) {
@@ -168,11 +222,17 @@ function readCorpusPath(relative: string): string {
   if (!fs.existsSync(target)) {
     return `Corpus path not found: ${relative}`;
   }
+  if (!isRuntimeVisibleCorpusPath(corpusRoot, target)) {
+    return `Corpus path is not available to runtime source-search: ${relative}`;
+  }
 
   const stat = fs.statSync(target);
   if (stat.isDirectory()) {
     const entries = fs
       .readdirSync(target, { withFileTypes: true })
+      .filter((entry) =>
+        isRuntimeVisibleCorpusPath(corpusRoot, path.join(target, entry.name)),
+      )
       .map((entry) => `${entry.isDirectory() ? "dir " : "file"} ${entry.name}`)
       .sort();
     const shown = entries.slice(0, 200);

@@ -148,6 +148,27 @@ describe("project code packs", () => {
       { name: "shared", scope: "both" },
     ]);
   });
+
+  it("honors CRLF skill frontmatter when filtering runtime-only skills", () => {
+    const root = createTempProject();
+    writeFile(
+      root,
+      ".agents/skills/dev-only/SKILL.md",
+      "---\r\nname: dev-only\r\nscope: dev\r\n---\r\nDev guidance.",
+    );
+    writeFile(
+      root,
+      ".agents/skills/runtime-only/SKILL.md",
+      "---\r\nname: runtime-only\r\nscope: runtime\r\n---\r\nRuntime guidance.",
+    );
+
+    expect(listProjectSkills(root).map((skill) => skill.name)).toEqual([
+      "dev-only",
+    ]);
+    expect(readProjectCodePack(root).skills).toMatchObject([
+      { name: "dev-only", scope: "dev" },
+    ]);
+  });
 });
 
 function createTempProject(): string {

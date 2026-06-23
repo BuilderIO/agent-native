@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, afterEach } from "vitest";
 import sourceSearch from "./source-search.js";
 import { materializeSourceCorpus } from "../../../scripts/materialize-source-corpus.mjs";
 import { captureCliOutput } from "../../server/cli-capture.js";
@@ -9,6 +9,7 @@ import { captureCliOutput } from "../../server/cli-capture.js";
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(currentDir, "../../..");
 const corpusRoot = path.join(packageRoot, "corpus");
+const scopeFixtureRoot = path.join(corpusRoot, "templates", "scope-fixture");
 
 function listCorpusFiles(dir = corpusRoot, base = corpusRoot): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -31,6 +32,10 @@ async function runSourceSearch(args: string[]): Promise<string> {
 describe("source-search", { timeout: 60000 }, () => {
   beforeAll(() => {
     materializeSourceCorpus();
+  });
+
+  afterEach(() => {
+    fs.rmSync(scopeFixtureRoot, { recursive: true, force: true });
   });
 
   it("materializes version-matched core and template source without runtime artifacts", () => {
@@ -64,4 +69,74 @@ describe("source-search", { timeout: 60000 }, () => {
     expect(output).toContain("Found");
     expect(output).toContain("core/src/action.ts");
   });
+
+  it("hides dev-scoped skill files from runtime query, path, and directory results", async () => {
+    writeCorpusFixture(
+      ".agents/skills/dev-only/SKILL.md",
+      [
+        "---",
+        "name: dev-only",
+        "description: Dev-only source-search fixture",
+        "scope: dev",
+        "---",
+        "DEV_ONLY_SOURCE_SEARCH_TOKEN",
+      ].join("\r\n"),
+    );
+    writeCorpusFixture(
+      ".agents/skills/dev-only/notes.md",
+      "DEV_ONLY_EXTRA_SOURCE_SEARCH_TOKEN",
+    );
+    writeCorpusFixture(
+      ".agents/skills/runtime-only/SKILL.md",
+      [
+        "---",
+        "name: runtime-only",
+        "description: Runtime source-search fixture",
+        "scope: runtime",
+        "---",
+        "RUNTIME_SOURCE_SEARCH_TOKEN",
+      ].join("\n"),
+    );
+
+    await expect(
+      runSourceSearch([
+        "--path",
+        "templates/scope-fixture/.agents/skills/dev-only/SKILL.md",
+      ]),
+    ).resolves.toContain("not available to runtime source-search");
+    await expect(
+      runSourceSearch([
+        "--path",
+        "templates/scope-fixture/.agents/skills/dev-only/notes.md",
+      ]),
+    ).resolves.toContain("not available to runtime source-search");
+
+    const directoryOutput = await runSourceSearch([
+      "--path",
+      "templates/scope-fixture/.agents/skills",
+    ]);
+    expect(directoryOutput).not.toContain("dev-only");
+    expect(directoryOutput).toContain("runtime-only");
+
+    const devQueryOutput = await runSourceSearch([
+      "--query",
+      "DEV_ONLY_SOURCE_SEARCH_TOKEN",
+    ]);
+    expect(devQueryOutput).toContain("No source files found");
+    expect(devQueryOutput).not.toContain("dev-only");
+
+    const runtimeQueryOutput = await runSourceSearch([
+      "--query",
+      "RUNTIME_SOURCE_SEARCH_TOKEN",
+    ]);
+    expect(runtimeQueryOutput).toContain(
+      "templates/scope-fixture/.agents/skills/runtime-only/SKILL.md",
+    );
+  });
 });
+
+function writeCorpusFixture(relativePath: string, contents: string): void {
+  const filePath = path.join(scopeFixtureRoot, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents);
+}
