@@ -151,6 +151,10 @@ import {
   isA2AProductionRuntime,
 } from "../a2a/auth-policy.js";
 import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+} from "../agent/durable-background.js";
+import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
@@ -7695,6 +7699,156 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // Shared per-request invocation: resolve auth/org/timezone context, then
+      // pick the dev/prod/anonymous handler and run it inside the request
+      // context. Used by the main chat POST and by the durable-background
+      // `_process-run` processor route (which re-enters the same handler set as
+      // the background worker), so both go through identical context + handler
+      // selection.
+      const invokeAgentChatHandler = async (event: any) => {
+        // Resolve per-request auth context
+        const ownerContext = await resolveOwnerContext(event);
+        const owner = ownerContext.owner;
+
+        // Resolve org ID: explicit callback > session.orgId from Better Auth
+        // > implicit org membership. Better Auth leaves session.orgId null
+        // until the user explicitly switches orgs, so a fresh signup with
+        // implicit membership (e.g. domain-matched org) would otherwise see
+        // no org-scoped credentials. getOrgContext() does the same DB lookup
+        // the /builder/status endpoint uses to decide "Connected".
+        let resolvedOrgId: string | undefined;
+        if (options?.resolveOrgId) {
+          resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
+        } else {
+          try {
+            const session = await getSession(event);
+            resolvedOrgId = session?.orgId ?? undefined;
+          } catch {
+            // Session not available
+          }
+          if (!resolvedOrgId) {
+            try {
+              const { getOrgContext } = await import("../org/context.js");
+              const ctx = await getOrgContext(event);
+              resolvedOrgId = ctx.orgId ?? undefined;
+            } catch {
+              // org_members table may not exist yet on first boot
+            }
+          }
+        }
+
+        // Propagate the caller's IANA timezone from `x-user-timezone` so that
+        // tool calls made by the agent (e.g. log-meal with no explicit date)
+        // resolve "today" in the user's local timezone instead of server UTC.
+        const tzRaw = getHeader(event, "x-user-timezone");
+        const timezone =
+          typeof tzRaw === "string" &&
+          tzRaw.trim().length > 0 &&
+          tzRaw.trim().length < 64
+            ? tzRaw.trim()
+            : undefined;
+
+        return runWithRequestContext(
+          {
+            userEmail: owner,
+            userName: ownerContext.name,
+            orgId: resolvedOrgId,
+            timezone,
+          },
+          () => {
+            // App-rendered chat can't host direct code edits — HMR/full
+            // reloads would kill the same chat surface mid-run. Force the
+            // prod handler (no shell / no fs); the prompt block injected by
+            // `prodHandler.systemPrompt` then steers source changes to a
+            // separate agent surface such as Builder or the dev frame.
+            const blockInProductCodeEditing =
+              shouldBlockInProductCodeEditing(event);
+            const handler =
+              ownerContext.anonymous && anonymousHandler
+                ? anonymousHandler
+                : !blockInProductCodeEditing && currentDevMode && devHandler
+                  ? devHandler
+                  : prodHandler;
+            return handler(event);
+          },
+        );
+      };
+
+      // ─── Durable background agent-chat run processor ──────────────────────
+      // Self-fire target for a long chat turn. The foreground POST claims the
+      // run slot, inserts the run row, and `fireInternalDispatch`es here; this
+      // route runs INSIDE the Netlify background function (15-min budget). It
+      // HMAC-verifies the dispatch (same internal-token scheme as the agent-
+      // teams / A2A / webhook processors), injects the background-run marker,
+      // and re-enters the SAME agent-chat handler as the background worker,
+      // which runs the full multi-step turn inline with the ~13min soft
+      // timeout. With AGENT_CHAT_DURABLE_BACKGROUND off, the foreground never
+      // dispatches here, so this route is never exercised.
+      getH3App(nitroApp).use(
+        AGENT_CHAT_PROCESS_RUN_PATH,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          // Consume the body ONCE (h3 v2's web Request stream is single-use).
+          let processBody: any;
+          try {
+            processBody = await readBody(event);
+          } catch {
+            setResponseStatus(event, 400);
+            return { error: "Invalid request body" };
+          }
+          const marker = processBody?.[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+          const runId =
+            marker && typeof marker.runId === "string"
+              ? marker.runId
+              : typeof processBody?.taskId === "string"
+                ? processBody.taskId
+                : "";
+          if (!runId) {
+            setResponseStatus(event, 400);
+            return { error: "runId required" };
+          }
+
+          // HMAC auth — identical policy to the agent-teams processor: require a
+          // valid token when A2A_SECRET is set; reject on production runtimes
+          // without a secret; allow unsigned only in local dev (where the SQL
+          // atomic claim still prevents double-processing).
+          if (hasConfiguredA2ASecret()) {
+            const tok = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(runId, tok ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          // Ensure the marker is present so the re-entered handler runs as the
+          // background worker (reuses runId/turnId, no re-claim, no re-dispatch).
+          if (!marker || typeof marker.runId !== "string") {
+            processBody[AGENT_CHAT_BACKGROUND_RUN_FIELD] = { runId };
+          }
+          // Stash the verified+augmented body for the handler — the body stream
+          // is already consumed, so the handler reads this instead.
+          (event as any).context = (event as any).context ?? {};
+          (event as any).context.__agentChatBackgroundBody = processBody;
+
+          try {
+            return await invokeAgentChatHandler(event);
+          } catch (err: any) {
+            console.error("[agent-chat] _process-run failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-run failed" };
+          }
+        }),
+      );
+
       // Mount the main chat handler — delegates to dev or prod handler based on current mode.
       // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
       // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
@@ -7713,72 +7867,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Not found" };
           }
 
-          // Resolve per-request auth context
-          const ownerContext = await resolveOwnerContext(event);
-          const owner = ownerContext.owner;
-
-          // Resolve org ID: explicit callback > session.orgId from Better Auth
-          // > implicit org membership. Better Auth leaves session.orgId null
-          // until the user explicitly switches orgs, so a fresh signup with
-          // implicit membership (e.g. domain-matched org) would otherwise see
-          // no org-scoped credentials. getOrgContext() does the same DB lookup
-          // the /builder/status endpoint uses to decide "Connected".
-          let resolvedOrgId: string | undefined;
-          if (options?.resolveOrgId) {
-            resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
-          } else {
-            try {
-              const session = await getSession(event);
-              resolvedOrgId = session?.orgId ?? undefined;
-            } catch {
-              // Session not available
-            }
-            if (!resolvedOrgId) {
-              try {
-                const { getOrgContext } = await import("../org/context.js");
-                const ctx = await getOrgContext(event);
-                resolvedOrgId = ctx.orgId ?? undefined;
-              } catch {
-                // org_members table may not exist yet on first boot
-              }
-            }
-          }
-
-          // Propagate the caller's IANA timezone from `x-user-timezone` so that
-          // tool calls made by the agent (e.g. log-meal with no explicit date)
-          // resolve "today" in the user's local timezone instead of server UTC.
-          const tzRaw = getHeader(event, "x-user-timezone");
-          const timezone =
-            typeof tzRaw === "string" &&
-            tzRaw.trim().length > 0 &&
-            tzRaw.trim().length < 64
-              ? tzRaw.trim()
-              : undefined;
-
-          return runWithRequestContext(
-            {
-              userEmail: owner,
-              userName: ownerContext.name,
-              orgId: resolvedOrgId,
-              timezone,
-            },
-            () => {
-              // App-rendered chat can't host direct code edits — HMR/full
-              // reloads would kill the same chat surface mid-run. Force the
-              // prod handler (no shell / no fs); the prompt block injected by
-              // `prodHandler.systemPrompt` then steers source changes to a
-              // separate agent surface such as Builder or the dev frame.
-              const blockInProductCodeEditing =
-                shouldBlockInProductCodeEditing(event);
-              const handler =
-                ownerContext.anonymous && anonymousHandler
-                  ? anonymousHandler
-                  : !blockInProductCodeEditing && currentDevMode && devHandler
-                    ? devHandler
-                    : prodHandler;
-              return handler(event);
-            },
-          );
+          return invokeAgentChatHandler(event);
         }),
       );
 
