@@ -1796,6 +1796,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    // Liveness probe: always public so uptime monitors and the keep-warm cron
+    // can reach the DB-warmup route without a session. It exposes no per-user
+    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
+    // the gate below 401s anonymous /_agent-native/* requests before any DB
+    // query, so the database would never get warmed.
+    if (p === "/_agent-native/health") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
