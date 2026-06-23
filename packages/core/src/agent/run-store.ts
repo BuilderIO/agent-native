@@ -280,13 +280,45 @@ export async function insertRun(
 
 /**
  * SQL fragment that resolves the per-row stale cutoff. Background-dispatched
- * runs (`dispatch_mode = 'background'`) tolerate a much longer gap without a
- * heartbeat (slow Netlify background-function cold-start) before being reaped;
- * every other run keeps the tight 15s window. `nowMs` is bound twice so the
- * comparison is `COALESCE(heartbeat_at, started_at) < (now - window)`.
+ * runs (`dispatch_mode` starting with `background`) tolerate a much longer gap
+ * without a heartbeat (slow Netlify background-function cold-start) before being
+ * reaped; every other run keeps the tight 15s window. The bound `now` is
+ * subtracted by the resolved window so the comparison is
+ * `COALESCE(heartbeat_at, started_at) < (now - window)`.
+ *
+ * `dispatch_mode` is one of NULL/"foreground" (normal sync path), "background"
+ * (foreground inserted the row for a background dispatch), or
+ * "background-processing" (the background worker claimed it). Both background
+ * states get the wider window via a LIKE-prefix match.
  */
 function backgroundAwareStaleCutoffSql(): string {
-  return `(? - CASE WHEN dispatch_mode = 'background' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  return `(? - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+/**
+ * Atomically claim a background-dispatched run for processing. The foreground
+ * POST inserts the run row with `dispatch_mode = 'background'`; the FIRST
+ * delivery of the background dispatch flips it to `background-processing` and
+ * wins the claim. A duplicate Netlify delivery (background functions can be
+ * retried) sees `background-processing` and loses, so it no-ops — mirroring
+ * `claimAgentTeamRun` returning null. Returns true when this caller won.
+ *
+ * Idempotent and conditional: the WHERE clause only matches the unclaimed
+ * `background` state AND a still-running row, so a reaped/terminal row can't be
+ * re-claimed.
+ */
+export async function claimBackgroundRun(runId: string): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET dispatch_mode = 'background-processing'
+          WHERE id = ?
+            AND status = 'running'
+            AND dispatch_mode = 'background'`,
+    args: [runId],
+  });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**

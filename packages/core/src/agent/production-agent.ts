@@ -64,6 +64,12 @@ import {
   tryClaimRunSlot,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
+import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  isAgentChatDurableBackgroundEnabled,
+} from "./durable-background.js";
+import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
@@ -98,6 +104,10 @@ import {
   readLedgerEntry,
   clearLedgerForThread,
   getCurrentTurnEventsForThread,
+  insertRun,
+  updateRunHeartbeat,
+  updateRunStatusIfRunning,
+  claimBackgroundRun,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -3622,11 +3632,21 @@ export function createProductionAgentHandler(
     }
 
     let body: AgentChatRequest;
-    try {
-      body = await readBody(event);
-    } catch {
-      setResponseStatus(event, 400);
-      return { error: "Invalid request body" };
+    // The durable-background `_process-run` route already consumed and verified
+    // the request body (h3 v2's web Request body stream is single-use, so a
+    // second readBody would fail). It stashes the verified+augmented body here
+    // so this re-entered handler reads it instead of the spent stream.
+    const preInjectedBody = (event as any)?.context
+      ?.__agentChatBackgroundBody as AgentChatRequest | undefined;
+    if (preInjectedBody && typeof preInjectedBody === "object") {
+      body = preInjectedBody;
+    } else {
+      try {
+        body = await readBody(event);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid request body" };
+      }
     }
 
     const {
@@ -3646,6 +3666,23 @@ export function createProductionAgentHandler(
       scope,
       trackInRunsTray,
     } = body;
+
+    // Durable-background marker. Present ONLY when this handler was re-entered
+    // as the Netlify background worker via the `_process-run` self-dispatch
+    // (the route HMAC-verifies the dispatch before invoking us). When set, we
+    // run the loop inline with the background soft-timeout, reusing the
+    // pre-claimed runId/turnId — we must NOT re-claim the slot or re-dispatch.
+    const backgroundRunMarker =
+      body[AGENT_CHAT_BACKGROUND_RUN_FIELD] &&
+      typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD] === "object" &&
+      typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!.runId === "string"
+        ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
+        : null;
+    const isBackgroundWorker = backgroundRunMarker !== null;
+    // The foreground POST decides whether to dispatch into a background
+    // function. The background worker itself never re-dispatches.
+    const dispatchToBackground =
+      !isBackgroundWorker && isAgentChatDurableBackgroundEnabled();
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
@@ -4169,7 +4206,11 @@ export function createProductionAgentHandler(
     // different serverless isolates both see the correct state — a plain
     // read-then-act check races on multi-isolate deployments because both
     // reads see no running row before either insert commits.
-    if (threadId) {
+    //
+    // The background worker SKIPS this: the foreground POST already claimed the
+    // slot and inserted the run row before dispatching, so re-claiming here
+    // would falsely 409 against the row the foreground holds.
+    if (threadId && !isBackgroundWorker) {
       const slot = await tryClaimRunSlot(threadId);
       if (!slot.claimed) {
         setResponseStatus(event, 409);
@@ -4180,25 +4221,107 @@ export function createProductionAgentHandler(
       }
     }
 
-    // Start agent loop in background via run-manager
-    const runId = generateRunId();
+    // Start agent loop in background via run-manager. The background worker
+    // reuses the runId the foreground generated (carried in the marker) so the
+    // event stream the client is already subscribed to is the one we write to.
+    const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
-      typeof requestTurnId === "string" && requestTurnId.trim()
-        ? requestTurnId.trim()
-        : runId;
+      typeof backgroundRunMarker?.turnId === "string" &&
+      backgroundRunMarker.turnId.trim()
+        ? backgroundRunMarker.turnId.trim()
+        : typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : runId;
     const messageToPersist =
       typeof requestDisplayMessage === "string" &&
       requestDisplayMessage.trim().length > 0
         ? requestDisplayMessage
         : requestMessage;
-    if (options.onRunPrepared && !internalContinuation) {
+    // Persist the user's turn exactly once. The foreground POST does this
+    // before dispatching; the background worker must NOT repeat it (it re-enters
+    // with the same body, which would double-persist the user message).
+    if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
       await options.onRunPrepared({
         runId,
         threadId,
         message: messageToPersist,
         attachments: requestAttachments,
       });
+    }
+
+    // ─── Durable-background dispatch decision ──────────────────────────────
+    // Flag active (hosted + A2A_SECRET + AGENT_CHAT_DURABLE_BACKGROUND) and we
+    // are the FOREGROUND POST: insert the run row (marked background), fire an
+    // HMAC-signed self-dispatch into the Netlify background function (15-min
+    // budget), and return the SSE subscription immediately. The client streams
+    // the same events via the cross-isolate SQL-poll path with no client
+    // change. With the flag OFF this whole branch is skipped and the inline
+    // `startRun` path below runs exactly as before (byte-for-byte).
+    if (dispatchToBackground) {
+      try {
+        // Insert the run row up front so /runs/active sees it immediately and
+        // the slot stays held while the background function cold-starts. Mark
+        // it background-dispatched so the stale reaper uses the wider window.
+        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+          dispatchMode: "background",
+        });
+      } catch (err) {
+        // A duplicate-PK collision means the row already exists (ret­ried POST);
+        // any other failure means we can't safely hand off — fall back to the
+        // inline path rather than dropping the turn.
+        console.error(
+          "[agent-chat] background insertRun failed; falling back to inline:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      let dispatched = false;
+      try {
+        await fireInternalDispatch({
+          event,
+          path: AGENT_CHAT_PROCESS_RUN_PATH,
+          taskId: runId,
+          body: {
+            ...body,
+            // Carry the pre-claimed identity so the worker reuses this run.
+            [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+              runId,
+              turnId: effectiveTurnId,
+            },
+          },
+        });
+        dispatched = true;
+      } catch (err) {
+        console.error(
+          "[agent-chat] background dispatch failed; falling back to inline:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      if (dispatched) {
+        const stream = subscribeToRun(runId, 0);
+        if (stream) {
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", runId);
+          return stream;
+        }
+        // Subscription failed even though dispatch landed — surface an error
+        // rather than silently running inline (the background worker is already
+        // processing this runId, so an inline second run would double-execute).
+        setResponseStatus(event, 500);
+        return { error: "Failed to subscribe to background run" };
+      }
+      // Dispatch failed before any worker could claim the run. Fail loud: flip
+      // the row terminal so the held slot is released (and any reconnect sees a
+      // terminal status instead of spinning), then 500 so the client can retry.
+      // We do NOT silently fall through to inline here — that risks a later,
+      // delayed background delivery double-executing the same runId.
+      await updateRunStatusIfRunning(runId, "errored").catch(() => {});
+      setResponseStatus(event, 500);
+      return { error: "Failed to dispatch background run" };
     }
 
     const trackedProgressOwner =
@@ -4276,7 +4399,19 @@ export function createProductionAgentHandler(
       }).catch(() => {});
     }
 
-    const handleRunComplete =
+    // The background worker must AWAIT the run to completion before returning,
+    // or Netlify freezes/kills the function the instant the handler returns and
+    // the detached run dies mid-turn (mirrors the agent-teams processor, which
+    // wraps startRun in `await new Promise(resolve => startRun(..., onComplete:
+    // () => resolve()))`). We resolve this when the run's onComplete fires.
+    let resolveBackgroundRunDone: (() => void) | null = null;
+    const backgroundRunDone = isBackgroundWorker
+      ? new Promise<void>((resolve) => {
+          resolveBackgroundRunDone = resolve;
+        })
+      : null;
+
+    const baseHandleRunComplete =
       options.onRunComplete || trackedProgressRunId
         ? async (run: ActiveRun) => {
             try {
@@ -4288,6 +4423,34 @@ export function createProductionAgentHandler(
             await completeTrackedProgressRun(run);
           }
         : undefined;
+
+    // Wrap so the background worker is unblocked even when there is no app
+    // onRunComplete / tracked-progress callback configured.
+    const handleRunComplete =
+      isBackgroundWorker || baseHandleRunComplete
+        ? async (run: ActiveRun) => {
+            try {
+              await baseHandleRunComplete?.(run);
+            } finally {
+              resolveBackgroundRunDone?.();
+            }
+          }
+        : undefined;
+
+    // Background worker: claim the pre-inserted run idempotently before
+    // executing. A duplicate Netlify delivery loses the claim and no-ops here,
+    // so the run can never be double-executed. Bump the heartbeat immediately
+    // on entry so a slow cold-start doesn't leave the row looking stale to the
+    // reaper before startRun's 1.5s heartbeat timer takes over.
+    if (isBackgroundWorker) {
+      const won = await claimBackgroundRun(runId);
+      if (!won) {
+        // Already claimed by an earlier delivery — return a benign ack so
+        // Netlify doesn't retry a successful handoff.
+        return { ok: true, skipped: "already-claimed" };
+      }
+      await updateRunHeartbeat(runId).catch(() => {});
+    }
 
     startRun(
       runId,
@@ -4677,12 +4840,25 @@ export function createProductionAgentHandler(
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
+        // Inside the Netlify background function there is no ~60s wall, so lift
+        // the soft-timeout clamp to ~13min for THIS run only. Foreground runs
+        // never set this, so their 40s clamp is unchanged.
+        backgroundFunction: isBackgroundWorker,
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
       },
     );
+
+    // Background worker: await the run to completion so Netlify keeps the
+    // background function alive for the whole turn (the client is streaming the
+    // same events via the foreground POST's cross-isolate SQL subscription).
+    // The onComplete wrapper above resolves `backgroundRunDone`.
+    if (isBackgroundWorker) {
+      if (backgroundRunDone) await backgroundRunDone;
+      return { ok: true, runId };
+    }
 
     // Subscribe to the run and stream events to the client
     const stream = subscribeToRun(runId, 0);
