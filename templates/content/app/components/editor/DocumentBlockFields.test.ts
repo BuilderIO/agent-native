@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   blockFieldsFromProperties,
   blockFieldsRenderState,
+  isLoadedForDocument,
 } from "./DocumentBlockFields";
 import type { DocumentProperty } from "@shared/api";
 
@@ -59,6 +60,64 @@ describe("blockFieldsFromProperties", () => {
       property({ id: "status", type: "status", position: 1 }),
     ];
     expect(blockFieldsFromProperties(properties)).toEqual([]);
+  });
+});
+
+describe("isLoadedForDocument (stale placeholder-data gate)", () => {
+  it("is NOT loaded while no data has arrived", () => {
+    expect(isLoadedForDocument("doc-new", undefined)).toBe(false);
+  });
+
+  it("is NOT loaded while data still belongs to the PREVIOUS document", () => {
+    // useDocumentProperties keeps the old doc's data as placeholder for a tick
+    // after documentId changes. Trusting it would route the new row's edits to
+    // the old doc's field layout (body-clobber window). Must read as loading.
+    expect(isLoadedForDocument("doc-new", { documentId: "doc-old" })).toBe(
+      false,
+    );
+  });
+
+  it("is loaded once the data's documentId matches the current row", () => {
+    expect(isLoadedForDocument("doc-new", { documentId: "doc-new" })).toBe(
+      true,
+    );
+  });
+
+  it("stale previous-doc data renders 'loading', never a writable body editor", () => {
+    // Compose the gate with the render-state machine the way the component does:
+    // even though the (previous doc's) field list would be a solo PRIMARY field,
+    // an identity mismatch forces `loaded:false` → loading, not a body editor.
+    const previousDocPrimary = [
+      property({
+        id: "content",
+        type: "blocks",
+        position: 0,
+        options: { blocks: { primary: true } },
+      }),
+    ];
+    const loaded = isLoadedForDocument("doc-new", { documentId: "doc-old" });
+    const state = blockFieldsRenderState({
+      loaded,
+      blockFields: previousDocPrimary,
+    });
+    expect(state.kind).toBe("loading");
+  });
+
+  it("a solo non-primary field for the NEW doc never routes to the body once identity matches", () => {
+    const newDocSoloNonPrimary = [
+      property({
+        id: "outline",
+        type: "blocks",
+        position: 0,
+        options: { blocks: { primary: false } },
+      }),
+    ];
+    const loaded = isLoadedForDocument("doc-new", { documentId: "doc-new" });
+    const state = blockFieldsRenderState({
+      loaded,
+      blockFields: newDocSoloNonPrimary,
+    });
+    expect(state).toMatchObject({ kind: "solo", target: "block_field_store" });
   });
 });
 

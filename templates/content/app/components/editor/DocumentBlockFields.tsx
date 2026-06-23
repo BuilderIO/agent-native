@@ -57,6 +57,19 @@ export type BlockFieldsRenderState =
   | { kind: "solo"; field: DocumentProperty; target: BlocksStorageTarget }
   | { kind: "multi"; fields: DocumentProperty[] };
 
+// Whether the query data we are holding actually belongs to the CURRENT row.
+// `useDocumentProperties` keeps the previous document's data as placeholder
+// across a documentId change, so identity must be confirmed before the field
+// layout is trusted — otherwise the old doc's solo-primary layout could route
+// the new doc's edits to the body. The response carries its own `documentId`
+// (shared/api.ts → DocumentPropertiesResponse).
+export function isLoadedForDocument(
+  documentId: string,
+  data: { documentId: string } | undefined,
+): boolean {
+  return data?.documentId === documentId;
+}
+
 export function blockFieldsRenderState(args: {
   loaded: boolean;
   blockFields: DocumentProperty[];
@@ -102,12 +115,16 @@ export function DocumentBlockFields({
     [properties],
   );
 
-  // Loaded the moment the query has ever produced data for this row. Until then
-  // `blockFields` is `[]` purely because nothing has arrived — which is NOT the
-  // same as a row that genuinely has zero Blocks fields. Distinguishing the two
-  // is what keeps a non-primary solo field (or a still-loading row) from writing
-  // the document body via the fallback path.
-  const loaded = query.data !== undefined;
+  // Loaded ONLY when the query data we hold actually belongs to the CURRENT
+  // documentId. `useDocumentProperties` uses `placeholderData: (prev) => prev`,
+  // so right after the viewed row changes, `query.data` still holds the PREVIOUS
+  // document's field layout for a tick. Trusting it would let the old doc's
+  // solo-primary layout route the NEW doc's edits to the body (clobbering a
+  // non-primary field). The response carries its own `documentId`
+  // (shared/api.ts → DocumentPropertiesResponse), so we gate on an identity
+  // match: until the data is for THIS document, treat the row as still loading
+  // (a non-editable placeholder), never a writable body editor.
+  const loaded = isLoadedForDocument(documentId, query.data);
   const state = blockFieldsRenderState({ loaded, blockFields });
 
   switch (state.kind) {
@@ -149,6 +166,11 @@ export function DocumentBlockFields({
         return (
           <div className="grid gap-1" data-block-fields-state="solo">
             <AdditionalBlockEditor
+              // Identity key: a documentId/propertyId change unmounts the old
+              // instance (flushing its pending save) and mounts a fresh one with
+              // a fresh save controller — so the controller can never DISPLAY one
+              // field while SAVING to another across an identity change.
+              key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
               property={state.field}
               canEdit={canEdit}
@@ -215,6 +237,10 @@ function MultiBlockFields({
               primaryEditor
             ) : (
               <AdditionalBlockEditor
+                // Identity key (see solo case): remount on a documentId/
+                // propertyId change so a reused instance never saves the new
+                // doc's edits to the old field's closure.
+                key={`${documentId}:${property.definition.id}`}
                 documentId={documentId}
                 property={property}
                 canEdit={canEdit}
@@ -310,31 +336,45 @@ function BlockFieldShell({
 }
 
 /**
- * Editor for an ADDITIONAL (non-primary) Blocks field. Uses the rich-text
- * VisualEditor without collab (no Yjs) — independently editable, debounced
- * save through set-document-property which persists to the field's own store.
+ * Owns the save-controller wiring for one ADDITIONAL (non-primary) Blocks field:
+ * the debounced single-flight controller, content state, server-adopt effect,
+ * and unmount-flush. Extracted from the editor component so this behavior is
+ * testable WITHOUT rendering TipTap (the controller, its save target, and the
+ * remount/flush semantics are the parts the review flagged).
+ *
+ * Identity safety: callers mount this under an identity `key`
+ * (`${documentId}:${propertyId}`) so a row/field change unmounts the old
+ * instance (flushing its pending save to the OLD field) and mounts a fresh one
+ * with a fresh controller. The save target is ALSO read through a ref, so the
+ * controller never captures a documentId/propertyId that could go stale — the
+ * editor can never DISPLAY one field while SAVING to another (CORE alias hole).
  */
-function AdditionalBlockEditor({
+export function useBlockFieldEditor({
   documentId,
-  property,
-  canEdit,
+  propertyId,
+  initialContent,
+  save,
 }: {
   documentId: string;
-  property: DocumentProperty;
-  canEdit: boolean;
-}) {
-  const setProperty = useSetDocumentProperty(documentId);
-  const propertyId = property.definition.id;
-  const initialContent =
-    typeof property.value === "string" ? property.value : "";
+  propertyId: string;
+  initialContent: string;
+  save: (request: {
+    documentId: string;
+    propertyId: string;
+    value: string;
+  }) => Promise<unknown>;
+}): { content: string; onChange: (markdown: string) => void } {
   const [content, setContent] = useState(initialContent);
 
-  // All save/flush/dirty bookkeeping lives in the controller so a failed save is
-  // never marked clean (finding 6) and an unmount/collapse flushes the latest
-  // dirty content (finding 3). The save closure reads `setProperty` via a ref so
-  // the controller is created once and never tears down its pending flush.
-  const saveImplRef = useRef(setProperty.mutateAsync);
-  saveImplRef.current = setProperty.mutateAsync;
+  // The save closure reads the implementation via a ref so the controller is
+  // created once and never tears down its pending flush.
+  const saveImplRef = useRef(save);
+  saveImplRef.current = save;
+  // The save TARGET is read through a ref too, so the controller never captures
+  // a documentId/propertyId that could go stale within a single mount.
+  const targetRef = useRef({ documentId, propertyId });
+  targetRef.current = { documentId, propertyId };
+
   const controllerRef = useRef<ReturnType<
     typeof createBlockFieldSaveController
   > | null>(null);
@@ -342,11 +382,15 @@ function AdditionalBlockEditor({
     controllerRef.current = createBlockFieldSaveController({
       initialContent,
       save: (value) =>
-        saveImplRef.current({ documentId, propertyId, value }),
+        saveImplRef.current({
+          documentId: targetRef.current.documentId,
+          propertyId: targetRef.current.propertyId,
+          value,
+        }),
       onError: (error) =>
         console.error("Failed to save Blocks field content", {
-          documentId,
-          propertyId,
+          documentId: targetRef.current.documentId,
+          propertyId: targetRef.current.propertyId,
           error,
         }),
     });
@@ -366,9 +410,10 @@ function AdditionalBlockEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
-  // On unmount (navigating away, switching solo/multi) or collapse (the shell
-  // unmounts children), flush the latest dirty content so a debounce that hadn't
-  // fired yet is not dropped.
+  // On unmount (navigating away, switching solo/multi, or a fresh mount forced
+  // by the identity key) or collapse (the shell unmounts children), flush the
+  // latest dirty content so a debounce that hadn't fired yet is not dropped —
+  // and so it persists to THIS (the old) field before teardown.
   useEffect(() => {
     return () => {
       // Fire-and-forget: flush() is async (it awaits any in-flight save before
@@ -378,17 +423,45 @@ function AdditionalBlockEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleChange(markdown: string) {
+  function onChange(markdown: string) {
     setContent(markdown);
     controller.change(markdown);
   }
+
+  return { content, onChange };
+}
+
+/**
+ * Editor for an ADDITIONAL (non-primary) Blocks field. Uses the rich-text
+ * VisualEditor without collab (no Yjs) — independently editable, debounced
+ * save through set-document-property which persists to the field's own store.
+ */
+function AdditionalBlockEditor({
+  documentId,
+  property,
+  canEdit,
+}: {
+  documentId: string;
+  property: DocumentProperty;
+  canEdit: boolean;
+}) {
+  const setProperty = useSetDocumentProperty(documentId);
+  const propertyId = property.definition.id;
+  const initialContent =
+    typeof property.value === "string" ? property.value : "";
+  const { content, onChange } = useBlockFieldEditor({
+    documentId,
+    propertyId,
+    initialContent,
+    save: setProperty.mutateAsync,
+  });
 
   return (
     <VisualEditor
       key={propertyId}
       documentId={documentId}
       content={content}
-      onChange={handleChange}
+      onChange={onChange}
       editable={canEdit}
       localFileMode
     />
