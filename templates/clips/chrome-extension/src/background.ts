@@ -963,6 +963,7 @@ async function armRecording(args: {
   // and reports "recording" back when the recorder actually starts — that status
   // flip (markRecordingStarted) advances our phase, so recording begins even on
   // pages where no overlay can be injected (chrome://, the New Tab page, etc.).
+  const authToken = (await readAuthSession(settings))?.token;
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -971,6 +972,7 @@ async function armRecording(args: {
       uploadUrl,
       hasCamera: mode === "camera" || settings.includeCamera,
       startDelayMs: COUNTDOWN_SECONDS * 1000,
+      authToken,
     });
   } catch (err) {
     await cancelRecording();
@@ -1079,6 +1081,15 @@ async function handleOverlayRestart() {
   overlayBaseEpochMs = nowMs();
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
   recording.status = "recording";
+  const restartAuthToken = (
+    await readAuthSession({
+      clipsBaseUrl: recording.clipsBaseUrl,
+      captureSurface: recording.captureSurface,
+      includeCamera: recording.includeCamera,
+      includeMicrophone: recording.includeMicrophone,
+      includeDeveloperLogs: recording.includeDeveloperLogs,
+    })
+  )?.token;
   // Re-arm the recorder on the same (re-homed) source streams with a fresh
   // pre-roll. The offscreen reports "recording" when it restarts.
   await sendOffscreenMessage({
@@ -1088,6 +1099,7 @@ async function handleOverlayRestart() {
     uploadUrl: recording.uploadUrl,
     hasCamera: recording.captureSurface === "camera" || recording.includeCamera,
     startDelayMs: COUNTDOWN_SECONDS * 1000,
+    authToken: restartAuthToken,
   }).catch(() => undefined);
   await saveActiveNativeRecording();
   await broadcastMount();
@@ -1698,8 +1710,15 @@ async function handleExternalMessage(
   return { ok: false, error: "Unknown message." };
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   void readSettings().then((settings) => storageSet(settings));
+  // Ask for camera/mic once on install so the grant is ready before the first
+  // recording (the record-time gate in the popup is the fallback).
+  if (details.reason === "install") {
+    void createTab(chrome.runtime.getURL("src/permission.html")).catch(
+      () => undefined,
+    );
+  }
 });
 
 // Restore recording/overlay state whenever the service worker (re)starts so an

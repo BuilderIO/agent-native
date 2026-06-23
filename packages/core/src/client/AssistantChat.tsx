@@ -86,6 +86,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   TiptapComposer,
   type ComposerSubmitIntent,
+  type ComposerImageModelMenu,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
