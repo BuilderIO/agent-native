@@ -27,6 +27,7 @@ import {
   type QuestionMode,
   type VisualQuestionsData,
 } from "./question-form.config.js";
+import { writeClipboardText } from "../../clipboard.js";
 
 /**
  * Shared `question-form` and `visual-questions` blocks. A respondent-facing
@@ -321,9 +322,10 @@ function SubmitMenu({
 }) {
   const [open, setOpen] = useState(false);
   const handleCopy = () => {
-    void navigator.clipboard.writeText(buildSummary());
-    onHandoff("copy");
-    setOpen(false);
+    void writeClipboardText(buildSummary()).then((copied) => {
+      if (copied) onHandoff("copy");
+      setOpen(false);
+    });
   };
   const handleSubmit = () => {
     onSubmit?.(buildSummary());
