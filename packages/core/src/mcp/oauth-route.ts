@@ -280,6 +280,30 @@ export function handleMcpOAuthAuthorizationServerMetadata(
   });
 }
 
+// Schemes that must never be accepted as a redirect target: they can execute
+// script or read local resources if a redirect is ever rendered in a browser
+// or webview context.
+const DISALLOWED_REDIRECT_SCHEMES = new Set([
+  "javascript:",
+  "data:",
+  "vbscript:",
+  "file:",
+  "blob:",
+  "about:",
+]);
+
+// Native/desktop IDE clients (Cursor, VS Code, …) register a private-use URI
+// scheme callback such as `cursor://` or `vscode://` (RFC 8252 §7.1) instead of
+// an https/loopback URL. The authorization code is bound by PKCE (S256), so
+// delivering it through a client-registered app scheme is safe.
+function isPrivateUseRedirectScheme(protocol: string): boolean {
+  if (DISALLOWED_REDIRECT_SCHEMES.has(protocol)) return false;
+  // RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), with a
+  // trailing ":" from URL.protocol. Require a non-http(s) custom scheme here;
+  // http/https are handled explicitly above.
+  return /^[a-z][a-z0-9+.-]*:$/.test(protocol);
+}
+
 function isAllowedRedirectUri(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   try {
@@ -287,13 +311,15 @@ function isAllowedRedirectUri(value: unknown): value is string {
     if (url.hash) return false;
     if (url.username || url.password) return false;
     if (url.protocol === "https:") return true;
-    if (url.protocol !== "http:") return false;
-    return (
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1" ||
-      url.hostname === "[::1]"
-    );
+    if (url.protocol === "http:") {
+      return (
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        url.hostname === "::1" ||
+        url.hostname === "[::1]"
+      );
+    }
+    return isPrivateUseRedirectScheme(url.protocol);
   } catch {
     return false;
   }
