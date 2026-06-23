@@ -1261,9 +1261,34 @@ function handleLoadingFailed(session: CaptureSession, params: unknown): void {
   if (requestId) finalizeNetworkRequest(session, requestId, event, errorText);
 }
 
-async function handleExternalMessage(message: ExternalMessage) {
+async function handleExternalMessage(
+  message: ExternalMessage,
+  sender?: chrome.runtime.MessageSender,
+) {
   if (!message || typeof message !== "object") {
     return { ok: false, error: "Invalid message." };
+  }
+
+  if (message.type === "CLIPS_AUTH_SESSION") {
+    const settings = await readSettings();
+    const clipsBaseUrl = normalizeBaseUrl(
+      message.clipsBaseUrl ?? settings.clipsBaseUrl,
+    );
+    const senderOrigin = originOf(sender?.url);
+    if (!senderOrigin || senderOrigin !== originOf(clipsBaseUrl)) {
+      return { ok: false, error: "Auth message came from the wrong origin." };
+    }
+    if (typeof message.token !== "string" || !message.token.trim()) {
+      return { ok: false, error: "Missing auth token." };
+    }
+    await storageSet({ ...settings, clipsBaseUrl });
+    await saveAuthSession({
+      token: message.token,
+      email: typeof message.email === "string" ? message.email : undefined,
+      clipsBaseUrl,
+      savedAt: nowIso(),
+    });
+    return { ok: true };
   }
 
   if (message.type === "CLIPS_CAPTURE_START") {
@@ -1356,8 +1381,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal.addListener(
-  (message, _sender, sendResponse) => {
-    void handleExternalMessage(message as ExternalMessage)
+  (message, sender, sendResponse) => {
+    void handleExternalMessage(message as ExternalMessage, sender)
       .then(sendResponse)
       .catch((err) => {
         sendResponse({

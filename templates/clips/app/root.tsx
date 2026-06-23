@@ -6,7 +6,7 @@ import {
   ScrollRestoration,
   useLocation,
 } from "react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useQueryClient } from "@tanstack/react-query";
 import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
@@ -108,6 +108,73 @@ function ThemeToggleItem() {
   );
 }
 
+type ExternalChromeRuntime = {
+  lastError?: { message?: string };
+  sendMessage: (
+    extensionId: string,
+    message: Record<string, unknown>,
+    callback?: (response?: { ok?: boolean; error?: string }) => void,
+  ) => void;
+};
+
+function ClipsExtensionAuthBridge() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("clipsExtensionAuth") !== "1") return;
+    const extensionId = params.get("clipsExtensionId")?.trim();
+    if (!extensionId) return;
+
+    let cancelled = false;
+
+    async function sendSessionToExtension() {
+      const runtime = (
+        window as Window & {
+          chrome?: { runtime?: ExternalChromeRuntime };
+        }
+      ).chrome?.runtime;
+      if (!runtime?.sendMessage) return;
+
+      const response = await fetch(appPath("/_agent-native/auth/session"), {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const session = (await response.json().catch(() => null)) as {
+        email?: string;
+        token?: string;
+      } | null;
+      if (cancelled || !response.ok || !session?.email || !session.token) {
+        return;
+      }
+
+      runtime.sendMessage(
+        extensionId,
+        {
+          type: "CLIPS_AUTH_SESSION",
+          token: session.token,
+          email: session.email,
+          clipsBaseUrl: window.location.origin,
+        },
+        (extensionResponse) => {
+          if (cancelled || runtime.lastError || !extensionResponse?.ok) return;
+          const cleaned = new URL(window.location.href);
+          cleaned.searchParams.delete("clipsExtensionAuth");
+          cleaned.searchParams.delete("clipsExtensionId");
+          window.history.replaceState(window.history.state, "", cleaned);
+        },
+      );
+    }
+
+    void sendSessionToExtension();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search]);
+
+  return null;
+}
+
 /**
  * Paths that are fully public-facing and must SSR real content rather than
  * routing through the authenticated app shell. Kept in one place so both the
@@ -137,6 +204,7 @@ function AppContent() {
   return (
     <>
       {standalonePublic ? null : <DbSyncSetup />}
+      {standalonePublic ? null : <ClipsExtensionAuthBridge />}
       {standalonePublic ? null : (
         <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
           <CommandMenu.Group heading="Actions">

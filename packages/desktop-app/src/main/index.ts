@@ -1170,6 +1170,62 @@ function emitDesktopShortcutActivation(
   return true;
 }
 
+async function getRendererActiveAppId(
+  win: BrowserWindow | null,
+): Promise<string | null> {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return null;
+  try {
+    const result = await win.webContents.executeJavaScript(
+      `window.__agentNativeDesktopShortcutBridge?.getActiveAppId?.() ?? ""`,
+      true,
+    );
+    return typeof result === "string" && result.trim()
+      ? result.trim()
+      : null;
+  } catch (err) {
+    debugDesktopShortcut("active app query failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+async function invokeRendererDesktopShortcutActivation(
+  win: BrowserWindow,
+  request: DesktopShortcutActivationRequest,
+): Promise<boolean> {
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
+  if (win.webContents.isLoading()) return false;
+  try {
+    const result = await win.webContents.executeJavaScript(
+      `window.__agentNativeDesktopShortcutBridge?.activate?.(${JSON.stringify(request)}) ?? { handled: false }`,
+      true,
+    );
+    if (!result || typeof result !== "object") return false;
+    const handled = (result as { handled?: unknown }).handled === true;
+    const appId =
+      typeof (result as { appId?: unknown }).appId === "string"
+        ? ((result as { appId: string }).appId)
+        : "";
+    if (handled && appId) activeAppId = appId;
+    debugDesktopShortcut("activation bridge result", {
+      requestId: request.requestId,
+      app: request.app,
+      handled,
+      appId: appId || undefined,
+      activeAppId,
+    });
+    return handled;
+  } catch (err) {
+    debugDesktopShortcut("activation bridge failed", {
+      requestId: request.requestId,
+      app: request.app,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 function scheduleDesktopShortcutActivationRetry(requestId: string) {
   const pending = pendingDesktopShortcutActivations.get(requestId);
   if (!pending) return;
@@ -1193,14 +1249,22 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
       return;
     }
     current.attempts += 1;
-    if (win && emitDesktopShortcutActivation(win, current.request)) {
-      debugDesktopShortcut("activation retry sent", {
-        requestId,
-        app: current.request.app,
-        attempt: current.attempts,
-      });
-    }
-    scheduleDesktopShortcutActivationRetry(requestId);
+    void invokeRendererDesktopShortcutActivation(win, current.request).then(
+      (handled) => {
+        if (handled) {
+          clearDesktopShortcutActivation(requestId);
+          return;
+        }
+        if (emitDesktopShortcutActivation(win, current.request)) {
+          debugDesktopShortcut("activation retry sent", {
+            requestId,
+            app: current.request.app,
+            attempt: current.attempts,
+          });
+        }
+        scheduleDesktopShortcutActivationRetry(requestId);
+      },
+    );
   }, delay);
 }
 
@@ -1326,7 +1390,7 @@ function hideMainWindowForShortcut() {
   }
 }
 
-function sendDesktopShortcutActivation(request: DesktopOpenRequest) {
+async function sendDesktopShortcutActivation(request: DesktopOpenRequest) {
   const activationRequest: DesktopShortcutActivationRequest = {
     ...request,
     requestId: randomUUID(),
@@ -1337,6 +1401,13 @@ function sendDesktopShortcutActivation(request: DesktopOpenRequest) {
   });
 
   const win = focusMainWindow({ stealFocus: true });
+  if (
+    win &&
+    (await invokeRendererDesktopShortcutActivation(win, activationRequest))
+  ) {
+    clearDesktopShortcutActivation(activationRequest.requestId);
+    return;
+  }
   if (win && emitDesktopShortcutActivation(win, activationRequest)) {
     debugDesktopShortcut("activation sent", {
       requestId: activationRequest.requestId,
@@ -1346,7 +1417,7 @@ function sendDesktopShortcutActivation(request: DesktopOpenRequest) {
   scheduleDesktopShortcutActivationRetry(activationRequest.requestId);
 }
 
-function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
+async function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
   const win =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
@@ -1354,13 +1425,19 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
   const isWindowFrontmost = Boolean(
     win && !win.isDestroyed() && win.isVisible() && win.isFocused(),
   );
-  const isTargetActive = activeAppId === binding.app;
+  const rendererActiveAppId = isWindowFrontmost
+    ? await getRendererActiveAppId(win)
+    : null;
+  const effectiveActiveAppId = rendererActiveAppId ?? activeAppId;
+  const isTargetActive = effectiveActiveAppId === binding.app;
   debugDesktopShortcut("triggered", {
     id: binding.id,
     accelerator: binding.accelerator,
     app: binding.app,
     behavior: binding.behavior,
     activeAppId,
+    rendererActiveAppId: rendererActiveAppId || undefined,
+    effectiveActiveAppId,
     isWindowFrontmost,
   });
 
@@ -1370,7 +1447,7 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
   }
 
   const targetView = binding.view?.trim();
-  sendDesktopShortcutActivation({
+  await sendDesktopShortcutActivation({
     app: binding.app,
     ...(targetView
       ? { path: shortcutOpenPathForBinding(binding), softOpen: true }
@@ -1420,9 +1497,9 @@ function registerDesktopShortcutBindings() {
     }
 
     try {
-      const registered = globalShortcut.register(binding.accelerator, () =>
-        handleDesktopShortcutBinding(binding),
-      );
+      const registered = globalShortcut.register(binding.accelerator, () => {
+        void handleDesktopShortcutBinding(binding);
+      });
       if (registered) {
         claimedAccelerators.add(binding.accelerator);
         registeredDesktopShortcutAccelerators.add(binding.accelerator);

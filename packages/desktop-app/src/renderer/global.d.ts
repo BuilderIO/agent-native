@@ -490,6 +490,21 @@ type DesktopShortcutActivationRequest = DesktopOpenRequest & {
   requestId: string;
 };
 
+type DesktopShortcutActivationResult = {
+  handled: boolean;
+  appId?: string;
+  activeAppId?: string;
+};
+
+interface Window {
+  __agentNativeDesktopShortcutBridge?: {
+    getActiveAppId(): string;
+    activate(
+      request: DesktopShortcutActivationRequest,
+    ): DesktopShortcutActivationResult;
+  };
+}
+
 type DesktopShortcutBehavior = "toggle" | "show";
 
 type DesktopShortcutBinding = {

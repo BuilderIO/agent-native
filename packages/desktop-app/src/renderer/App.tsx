@@ -368,6 +368,32 @@ export default function App() {
   );
 
   useEffect(() => {
+    const bridge = {
+      getActiveAppId: () => activeSidebarAppId,
+      activate: (
+        request: DesktopShortcutActivationRequest,
+      ): DesktopShortcutActivationResult => {
+        const handled = handleDesktopOpenRequest(request);
+        const appId = handled ? request.app : undefined;
+        if (appId) {
+          window.electronAPI?.setActiveApp?.(appId);
+        }
+        return {
+          handled,
+          appId,
+          activeAppId: appId ?? activeSidebarAppId,
+        };
+      },
+    };
+    window.__agentNativeDesktopShortcutBridge = bridge;
+    return () => {
+      if (window.__agentNativeDesktopShortcutBridge === bridge) {
+        delete window.__agentNativeDesktopShortcutBridge;
+      }
+    };
+  }, [activeSidebarAppId, handleDesktopOpenRequest]);
+
+  useEffect(() => {
     if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
       return;
     }
