@@ -2,6 +2,7 @@
 name: babysit-pr
 description: Monitor a PR, fix feedback and CI failures until fully green for 30 min. Run with /babysit-pr <number>
 user-invocable: true
+scope: dev
 metadata:
   internal: true
 ---

@@ -166,10 +166,14 @@
   "files": [
     "bin",
     "blueprints",
+    "corpus",
     "dist",
     "docs",
     "tsconfig.base.json",
-    "src/templates"
+    "src/templates/default",
+    "src/templates/headless",
+    "src/templates/workspace-core",
+    "src/templates/workspace-root"
   ],
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs",

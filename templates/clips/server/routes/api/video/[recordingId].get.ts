@@ -141,6 +141,22 @@ function providerResponse(upstream: Response): Response {
   });
 }
 
+function statusCodeForProviderFetchError(err: unknown): number {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) return 403;
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) return 504;
+  return 502;
+}
+
+function messageForProviderFetchError(err: unknown): string {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) {
+    return "Recording media URL is blocked by server safety policy.";
+  }
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) {
+    return "Recording media fetch timed out.";
+  }
+  return "Recording media could not be fetched.";
+}
+
 function escapeHtmlAttribute(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
     switch (char) {
@@ -300,7 +316,13 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Blob not found" };
         }
 
-        const upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+        let upstream: Response | { error: string; status: number };
+        try {
+          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+        } catch (err) {
+          setResponseStatus(event, statusCodeForProviderFetchError(err));
+          return { error: messageForProviderFetchError(err) };
+        }
         if (!(upstream instanceof Response)) {
           setResponseStatus(event, upstream.status);
           return { error: upstream.error };

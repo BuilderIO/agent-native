@@ -687,6 +687,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
+      if (meta.scope === "dev") continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -1416,45 +1417,81 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
 }
 
 /**
- * Creates the docs-search tool so agents can look up framework documentation.
- * Docs are bundled in @agent-native/core and read via fs at runtime.
+ * Creates read-only package lookup tools so agents can inspect version-matched
+ * framework docs and source bundled in @agent-native/core at runtime.
  */
 async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
+  const entries: Record<string, ActionEntry> = {};
+
   try {
     const mod = await import("../scripts/docs/search.js");
-    return {
-      "docs-search": wrapCliScript(
-        {
-          description:
-            "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
-          parameters: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description:
-                  "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
-              },
-              slug: {
-                type: "string",
-                description:
-                  "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
-              },
-              list: {
-                type: "string",
-                description: 'Set to "true" to list all available doc pages',
-                enum: ["true"],
-              },
+    entries["docs-search"] = wrapCliScript(
+      {
+        description:
+          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
+            },
+            slug: {
+              type: "string",
+              description:
+                "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list all available doc pages',
+              enum: ["true"],
             },
           },
         },
-        mod.default,
-        { readOnly: true },
-      ),
-    };
+      },
+      mod.default,
+      { readOnly: true },
+    );
   } catch {
-    return {};
+    // Keep source-search available if docs-search fails during a partial build.
   }
+
+  try {
+    const mod = await import("../scripts/docs/source-search.js");
+    entries["source-search"] = wrapCliScript(
+      {
+        description:
+          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant core or template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
+            },
+            path: {
+              type: "string",
+              description:
+                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'core/src/action.ts').",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list corpus sections',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      mod.default,
+      { readOnly: true },
+    );
+  } catch {
+    // Older package installs may not have the corpus/search script yet.
+  }
+
+  return entries;
 }
 
 /**
@@ -3518,17 +3555,37 @@ function parseSkillFrontmatter(content: string): {
   name?: string;
   description?: string;
   userInvocable?: boolean;
+  scope?: "runtime" | "dev" | "both";
 } {
   const frontmatter = parseFrontmatter(content);
   const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
+  const scope = normalizeSkillFrontmatterScope(
+    getFrontmatterValue(frontmatter, "scope"),
+  );
   return {
     name: getFrontmatterValue(frontmatter, "name"),
     description: getFrontmatterValue(frontmatter, "description"),
+    scope,
     userInvocable:
       userInvocable === undefined
         ? undefined
         : userInvocable.toLowerCase() === "true",
   };
+}
+
+function normalizeSkillFrontmatterScope(
+  value: string | undefined,
+): "runtime" | "dev" | "both" | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "runtime" ||
+    normalized === "dev" ||
+    normalized === "both"
+  ) {
+    return normalized;
+  }
+  return "both";
 }
 
 function isLocalhost(event: any): boolean {
@@ -6362,6 +6419,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const content = _fs.readFileSync(skillFilePath, "utf-8");
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
+                    if (fm.scope === "dev") continue;
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -6445,6 +6503,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
+                  if (fm.scope === "dev") continue;
                   if (fm.name) skillName = fm.name;
                   description = fm.description;
                   userInvocable = fm.userInvocable;

@@ -4,6 +4,7 @@ description: >-
   How to create new skills for an agent-native app. Use when adding a new
   skill, documenting a pattern the agent should follow, or creating reusable
   guidance for the agent.
+scope: dev
 metadata:
   internal: true
 ---
@@ -154,12 +155,18 @@ description: >-
 
 An optional `scope` frontmatter field controls which agent loads the skill:
 
-- `both` (default when omitted) — loaded by the in-app runtime agent. Use for
-  any skill the runtime agent should follow.
+- `both` (default when omitted) — loaded by connected repo agents and the
+  in-app runtime agent. Use for any skill both audiences should follow.
 - `runtime` — loaded only by the in-app runtime agent.
 - `dev` — meant for the human's coding agent (e.g. Claude Code) only. **Excluded
   from the runtime agent everywhere**: not in the system-prompt skills block and
   not in `docs-search` results.
+
+Use `scope: dev` for internal-only skills that should guide connected repo
+agents such as Codex or Claude Code, but should not affect the deployed
+production agent. Do not use `metadata.internal` for runtime visibility; that
+field is catalog/package metadata and is intentionally not treated as
+production exclusion.
 
 ```markdown
 ---

@@ -2018,18 +2018,22 @@ const AssistantChatInner = forwardRef<
     // is about to hit "Refresh chat" — that's the "Reload UI required"
     // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
-      captureError(new Error("agent-chat:auth_error_card_stuck"), {
-        tags: {
-          context: "agent-native-chat",
-          errorCode: "auth_error_card",
-          sessionAvailable: String(authSessionAvailable),
-          sessionExpired: String(!!authError.sessionExpired),
-        },
-        extra: {
-          threadId: threadId ?? null,
-          tabId: tabId ?? null,
-        },
-      });
+      void (async () => {
+        const hasSession = await checkAuthSession();
+        if (hasSession) return;
+        captureError(new Error("agent-chat:auth_error_card_stuck"), {
+          tags: {
+            context: "agent-native-chat",
+            errorCode: "auth_error_card",
+            sessionAvailable: String(authSessionAvailable),
+            sessionExpired: String(!!authError.sessionExpired),
+          },
+          extra: {
+            threadId: threadId ?? null,
+            tabId: tabId ?? null,
+          },
+        });
+      })();
     }, 3000);
     const handler = () => void checkAuthSession();
     const timer = window.setTimeout(handler, 250);

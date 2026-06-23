@@ -155,11 +155,14 @@ export default defineEventHandler(async (event) => {
   //      requests. The downstream `/api/video/:id` route accepts either
   //      `?t=<token>` (preferred) or `?password=<pw>` (legacy fallback) so
   //      old share pages keep working during rollout. (audit 11 F-07)
-  //      Non-Loom provider URLs (R2/S3/Builder) are left untouched; those are
-  //      already signed.
+  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      proxy on public pages so CORS, Range support, and fragile signed URLs
+  //      fail in one server-controlled place instead of as opaque <video>
+  //      errors in the browser.
   const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
     addPasswordToken: true,
     appPath,
+    proxyRemoteMedia: true,
   });
 
   const canExposeAgentContext =

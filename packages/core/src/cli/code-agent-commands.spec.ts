@@ -115,8 +115,37 @@ describe("project code packs", () => {
       {
         name: "review-diff",
         description: undefined,
+        scope: "both",
         body: "Review diffs.",
       },
+    ]);
+  });
+
+  it("lists dev and shared skills for coding agents but skips runtime-only skills", () => {
+    const root = createTempProject();
+    writeFile(
+      root,
+      ".agents/skills/dev-only/SKILL.md",
+      "---\nname: dev-only\nscope: dev\n---\nDev guidance.",
+    );
+    writeFile(
+      root,
+      ".agents/skills/shared/SKILL.md",
+      "---\nname: shared\n---\nShared guidance.",
+    );
+    writeFile(
+      root,
+      ".agents/skills/runtime-only/SKILL.md",
+      "---\nname: runtime-only\nscope: runtime\n---\nRuntime guidance.",
+    );
+
+    expect(listProjectSkills(root).map((skill) => skill.name)).toEqual([
+      "dev-only",
+      "shared",
+    ]);
+    expect(readProjectCodePack(root).skills).toMatchObject([
+      { name: "dev-only", scope: "dev" },
+      { name: "shared", scope: "both" },
     ]);
   });
 });

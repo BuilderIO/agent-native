@@ -5,6 +5,7 @@ description: >-
   granular server-side merge. Use when adding real-time collaborative editing to
   a template, debugging sync issues, or understanding how the agent and humans
   edit documents simultaneously.
+scope: dev
 metadata:
   internal: true
 ---

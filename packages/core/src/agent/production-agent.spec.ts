@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { attachToolSearch } from "./tool-search.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -9,6 +12,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   resolveAgentOwnerEmail,
+  resolveSkillReferenceContent,
   runAgentLoop,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
@@ -21,6 +25,7 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
@@ -57,6 +62,53 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("resolveSkillReferenceContent", () => {
+  it("does not resolve scope: dev codebase skills for runtime agent references", async () => {
+    const previousCwd = process.cwd();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-skill-ref-"));
+    try {
+      fs.mkdirSync(path.join(root, ".agents", "skills", "runtime-skill"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(root, ".agents", "skills", "runtime-skill", "SKILL.md"),
+        "---\nname: runtime-skill\n---\nRuntime content.",
+      );
+      fs.mkdirSync(path.join(root, ".agents", "skills", "dev-skill"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(root, ".agents", "skills", "dev-skill", "SKILL.md"),
+        "---\nname: dev-skill\nscope: dev\n---\nDev content.",
+      );
+
+      process.chdir(root);
+      __resetAgentsBundleCache();
+
+      await expect(
+        resolveSkillReferenceContent({
+          type: "skill",
+          name: "runtime-skill",
+          path: ".agents/skills/runtime-skill/SKILL.md",
+          source: "codebase",
+        }),
+      ).resolves.toContain("Runtime content.");
+      await expect(
+        resolveSkillReferenceContent({
+          type: "skill",
+          name: "dev-skill",
+          path: ".agents/skills/dev-skill/SKILL.md",
+          source: "codebase",
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      process.chdir(previousCwd);
+      __resetAgentsBundleCache();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("buildUserContentWithAttachments", () => {
   it("preserves the prompt text when there are no attachments", () => {

@@ -1,5 +1,9 @@
 import fs from "fs";
 import path from "path";
+import {
+  normalizeSkillScope,
+  type SkillScope,
+} from "../server/agents-bundle.js";
 
 export interface CodeAgentProjectCommand {
   kind: "command";
@@ -18,6 +22,7 @@ export interface CodeAgentProjectSkill {
   path: string;
   relativePath: string;
   description?: string;
+  scope: SkillScope;
   body: string;
 }
 
@@ -215,12 +220,15 @@ function readProjectSkill(
     const fallbackName = skillDir === "." ? path.basename(root) : skillDir;
     const name = parsed.data.name || normalizeSkillName(fallbackName);
     if (!name) return null;
+    const scope = normalizeSkillScope(parsed.data.scope);
+    if (scope === "runtime") return null;
     return {
       kind: "skill",
       name,
       path: filePath,
       relativePath: relative,
       description: parsed.data.description,
+      scope,
       body: parsed.body,
     };
   } catch {

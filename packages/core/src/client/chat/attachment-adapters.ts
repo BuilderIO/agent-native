@@ -53,6 +53,12 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
   });
 }
 
+function formatOversizedDocumentError(name: string, size: number): string {
+  const mb = (size / 1024 / 1024).toFixed(1);
+  const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+  return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -204,6 +210,11 @@ export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
+    if (state.file.size > MAX_PDF_BYTES) {
+      throw new Error(
+        formatOversizedDocumentError(state.file.name, state.file.size),
+      );
+    }
     return {
       id: state.file.name,
       type: "document",
@@ -218,10 +229,8 @@ export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
     attachment: PendingAttachment,
   ): Promise<CompleteAttachment> {
     if (attachment.file && attachment.file.size > MAX_PDF_BYTES) {
-      const mb = (attachment.file.size / 1024 / 1024).toFixed(1);
-      const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
       throw new Error(
-        `"${attachment.name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`,
+        formatOversizedDocumentError(attachment.name, attachment.file.size),
       );
     }
     return {
