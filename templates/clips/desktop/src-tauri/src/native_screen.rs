@@ -2354,15 +2354,19 @@ fn stop_native_recording(
                 None
             };
 
-            if let Err(err) = stop_result {
-                return Err(err);
-            }
-
+            // Check the delegate outcome BEFORE returning on stop_result. When
+            // stop_capture() fails AND recording_did_fail fires, callers must see
+            // the "finalization callback failed" prefix to correctly identify
+            // permanent corruption — the stop_capture error string would mask it.
             if let Some(Err(err)) = &finalize_outcome {
                 eprintln!("[clips-tray] SCK finalize failed: {err}");
                 // Use a unique prefix so callers can distinguish the SCK delegate
                 // reporting failure (recording_did_fail) from teardown API errors.
                 return Err(format!("ScreenCaptureKit finalization callback failed: {err}"));
+            }
+
+            if let Err(err) = stop_result {
+                return Err(err);
             }
             if waited_for_finalize && finalize_outcome.is_none() {
                 eprintln!(
