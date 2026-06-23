@@ -60,6 +60,7 @@ import {
   buildPublicAgentContext,
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
+  RecordingMediaFetchError,
 } from "./public-agent-context";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
@@ -179,6 +180,33 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("wraps remote media fetch exceptions as fetch failures", async () => {
+    mockSsrfSafeFetch.mockRejectedValue(new Error("fetch failed"));
+
+    await expect(
+      loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      statusCode: 502,
+      message: "Recording media could not be fetched.",
+    });
+  });
+
+  it("wraps non-ok remote media responses with the upstream status", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response("", { status: 403, statusText: "Forbidden" }),
+    );
+
+    const promise = loadRecordingMediaBytes(
+      makeRecording({ videoFormat: "mp4" }) as any,
+    );
+    await expect(promise).rejects.toBeInstanceOf(RecordingMediaFetchError);
+    await expect(promise).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Recording media fetch failed: HTTP 403 Forbidden",
+    });
   });
 
   it("does not fetch bytes for legacy Loom embed imports", async () => {

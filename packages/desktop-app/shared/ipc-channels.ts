@@ -99,6 +99,8 @@ export const IPC = {
   DEEP_LINK_OPEN: "deep-link:open",
 
   /** Local desktop app-launch shortcuts (renderer ↔ main) */
+  SHORTCUTS_ACTIVATE: "shortcuts:activate",
+  SHORTCUTS_ACTIVATE_ACK: "shortcuts:activate-ack",
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
@@ -723,6 +725,10 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+}
+
+export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
+  requestId: string;
 }
 
 export type {

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
 import {
   resolveBuilderOwnerContextForRequest,
+  resolveBuilderWaitlistFormTargetForRequest,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
+  runDbHealthProbe,
   AVATAR_RASTER_MIME,
 } from "./core-routes-plugin.js";
 import {
@@ -215,6 +217,50 @@ describe("resolveBuilderOwnerContextForRequest", () => {
   });
 });
 
+describe("resolveBuilderWaitlistFormTargetForRequest", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("uses the Builder-org waitlist form on hosted Agent Native domains", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "DYTHuM0jlV",
+      formsOrigin: "https://forms.agent-native.com",
+    });
+  });
+
+  it("does not submit local waitlist clicks to the hosted form by default", () => {
+    const event = createMockEvent(
+      "http://localhost:8080/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toBeNull();
+  });
+
+  it("allows self-hosted deployments to opt into a form target explicitly", () => {
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORM_ID = "custom-form";
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORMS_ORIGIN =
+      "https://forms.example.com/path";
+    const event = createMockEvent(
+      "https://app.example.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "custom-form",
+      formsOrigin: "https://forms.example.com",
+    });
+  });
+});
+
 describe("AVATAR_RASTER_MIME", () => {
   // Accepted raster types
   it("accepts data:image/png", () => {
@@ -276,5 +322,31 @@ describe("AVATAR_RASTER_MIME", () => {
 
   it("rejects a plain data:image/ prefix with no subtype", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
+  });
+});
+
+describe("runDbHealthProbe", () => {
+  it("reports db:true when SELECT 1 succeeds", async () => {
+    let ran: string | undefined;
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran = sql;
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toBe("SELECT 1");
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(true);
+    expect(result.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("stays live with db:false when the query throws (no DB / unreachable)", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(false);
   });
 });

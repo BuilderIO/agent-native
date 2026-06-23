@@ -16,6 +16,7 @@ import {
   IconLayoutDashboard,
   IconSun,
   IconMoon,
+  IconHistory,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
@@ -25,8 +26,10 @@ import {
   appApiPath,
   callAction,
   useChangeVersions,
+  ChangelogDialog,
 } from "@agent-native/core/client";
 import { extensionPath } from "@agent-native/core/client/extensions";
+import changelog from "../../../CHANGELOG.md?raw";
 import { commandPaletteKeywords } from "./command-palette-search";
 
 interface SavedConfig {
@@ -47,11 +50,11 @@ interface ExtensionSearchItem {
 }
 
 const defaultTools = [
-  { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
+  { id: "explorer", name: "Explorer", href: "/dashboards/explorer" },
   {
     id: "customer-health",
     name: "Customer Health",
-    href: "/adhoc/customer-health",
+    href: "/dashboards/customer-health",
   },
 ];
 
@@ -181,6 +184,7 @@ function persistThemePreference(theme: "light" | "dark") {
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
@@ -263,168 +267,200 @@ export function CommandPalette() {
     : sqlDashboards.filter((dashboard) => !dashboard.hiddenAt);
 
   return (
-    <CommandDialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setSearchQuery("");
-      }}
-    >
-      <CommandInput
-        placeholder="Search dashboards, extensions, charts..."
-        value={searchQuery}
-        onValueChange={setSearchQuery}
-      />
-      <CommandList>
-        {!asyncGroupsLoading && <CommandEmpty>No results found.</CommandEmpty>}
+    <>
+      <CommandDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setSearchQuery("");
+        }}
+      >
+        <CommandInput
+          placeholder="Search dashboards, extensions, charts..."
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+        />
+        <CommandList>
+          {!asyncGroupsLoading && (
+            <CommandEmpty>No results found.</CommandEmpty>
+          )}
 
-        {explorerDashboardsFetching && explorerDashboards.length === 0 && (
-          <CommandLoadingGroup heading="Explorer Dashboards" rows={2} />
-        )}
+          {explorerDashboardsFetching && explorerDashboards.length === 0 && (
+            <CommandLoadingGroup heading="Explorer Dashboards" rows={2} />
+          )}
 
-        {visibleExplorerDashboards.length > 0 && (
-          <CommandGroup heading="Explorer Dashboards">
-            {visibleExplorerDashboards.map((d) => (
+          {visibleExplorerDashboards.length > 0 && (
+            <CommandGroup heading="Explorer Dashboards">
+              {visibleExplorerDashboards.map((d) => (
+                <CommandItem
+                  key={`ed-${d.id}`}
+                  onSelect={() =>
+                    go(`/dashboards/explorer-dashboard?id=${d.id}`)
+                  }
+                  keywords={commandPaletteKeywords(
+                    d.name,
+                    "explorer dashboard",
+                    "dashboard",
+                  )}
+                >
+                  <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{d.name}</span>
+                  {d.hiddenAt ? (
+                    <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      Hidden
+                    </span>
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          {sqlDashboardsFetching && sqlDashboards.length === 0 && (
+            <CommandLoadingGroup heading="SQL Dashboards" rows={3} />
+          )}
+
+          {visibleSqlDashboards.length > 0 && (
+            <CommandGroup heading="SQL Dashboards">
+              {visibleSqlDashboards.map((d) => (
+                <CommandItem
+                  key={`sql-${d.id}`}
+                  onSelect={() => go(`/dashboards/${d.id}`)}
+                  keywords={commandPaletteKeywords(
+                    d.name,
+                    "sql dashboard",
+                    "dashboard",
+                  )}
+                >
+                  <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{d.name}</span>
+                  {d.hiddenAt ? (
+                    <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      Hidden
+                    </span>
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          {extensionsFetching && extensions.length === 0 && (
+            <CommandLoadingGroup heading="Extensions" rows={3} />
+          )}
+
+          {extensions.length > 0 && (
+            <CommandGroup heading="Extensions">
+              {extensions.map((extension) => (
+                <CommandItem
+                  key={`extension-${extension.id}`}
+                  onSelect={() =>
+                    go(extensionPath(extension.id, extension.name))
+                  }
+                  keywords={commandPaletteKeywords(
+                    extension.name,
+                    extension.description,
+                    "extension",
+                    "tool",
+                  )}
+                >
+                  <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
+                  {extension.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          <CommandGroup heading="Dashboards">
+            {dashboards.map((d) => (
               <CommandItem
-                key={`ed-${d.id}`}
-                onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
-                keywords={commandPaletteKeywords(
-                  d.name,
-                  "explorer dashboard",
-                  "dashboard",
-                )}
+                key={`dash-${d.id}`}
+                onSelect={() => go(`/dashboards/${d.id}`)}
+                keywords={commandPaletteKeywords(d.name, "dashboard")}
               >
-                <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span className="truncate">{d.name}</span>
-                {d.hiddenAt ? (
-                  <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    Hidden
-                  </span>
-                ) : null}
+                <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
+                {d.name}
               </CommandItem>
             ))}
           </CommandGroup>
-        )}
 
-        {sqlDashboardsFetching && sqlDashboards.length === 0 && (
-          <CommandLoadingGroup heading="SQL Dashboards" rows={3} />
-        )}
-
-        {visibleSqlDashboards.length > 0 && (
-          <CommandGroup heading="SQL Dashboards">
-            {visibleSqlDashboards.map((d) => (
+          <CommandGroup heading="Tools">
+            {defaultTools.map((t) => (
               <CommandItem
-                key={`sql-${d.id}`}
-                onSelect={() => go(`/adhoc/${d.id}`)}
-                keywords={commandPaletteKeywords(
-                  d.name,
-                  "sql dashboard",
-                  "dashboard",
-                )}
-              >
-                <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span className="truncate">{d.name}</span>
-                {d.hiddenAt ? (
-                  <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    Hidden
-                  </span>
-                ) : null}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-
-        {extensionsFetching && extensions.length === 0 && (
-          <CommandLoadingGroup heading="Extensions" rows={3} />
-        )}
-
-        {extensions.length > 0 && (
-          <CommandGroup heading="Extensions">
-            {extensions.map((extension) => (
-              <CommandItem
-                key={`extension-${extension.id}`}
-                onSelect={() => go(extensionPath(extension.id, extension.name))}
-                keywords={commandPaletteKeywords(
-                  extension.name,
-                  extension.description,
-                  "extension",
-                  "tool",
-                )}
+                key={`tool-${t.id}`}
+                onSelect={() => go(t.href)}
+                keywords={commandPaletteKeywords(t.name, "tool")}
               >
                 <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
-                {extension.name}
+                {t.name}
               </CommandItem>
             ))}
           </CommandGroup>
-        )}
 
-        <CommandGroup heading="Dashboards">
-          {dashboards.map((d) => (
+          <CommandGroup heading="Appearance">
             <CommandItem
-              key={`dash-${d.id}`}
-              onSelect={() => go(`/adhoc/${d.id}`)}
-              keywords={commandPaletteKeywords(d.name, "dashboard")}
+              onSelect={() => {
+                const nextTheme = isDark ? "light" : "dark";
+                setTheme(nextTheme);
+                persistThemePreference(nextTheme);
+              }}
+              keywords={["theme", "dark", "light", "mode"]}
             >
-              <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
-              {d.name}
+              {isDark ? (
+                <IconSun className="mr-2 h-4 w-4 text-muted-foreground" />
+              ) : (
+                <IconMoon className="mr-2 h-4 w-4 text-muted-foreground" />
+              )}
+              Toggle {isDark ? "light" : "dark"} mode
             </CommandItem>
-          ))}
-        </CommandGroup>
-
-        <CommandGroup heading="Tools">
-          {defaultTools.map((t) => (
-            <CommandItem
-              key={`tool-${t.id}`}
-              onSelect={() => go(t.href)}
-              keywords={commandPaletteKeywords(t.name, "tool")}
-            >
-              <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
-              {t.name}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-
-        <CommandGroup heading="Appearance">
-          <CommandItem
-            onSelect={() => {
-              const nextTheme = isDark ? "light" : "dark";
-              setTheme(nextTheme);
-              persistThemePreference(nextTheme);
-            }}
-            keywords={["theme", "dark", "light", "mode"]}
-          >
-            {isDark ? (
-              <IconSun className="mr-2 h-4 w-4 text-muted-foreground" />
-            ) : (
-              <IconMoon className="mr-2 h-4 w-4 text-muted-foreground" />
-            )}
-            Toggle {isDark ? "light" : "dark"} mode
-          </CommandItem>
-        </CommandGroup>
-
-        {savedChartsFetching && savedCharts.length === 0 && (
-          <CommandLoadingGroup heading="Saved Charts" rows={2} />
-        )}
-
-        {savedCharts.length > 0 && (
-          <CommandGroup heading="Saved Charts">
-            {savedCharts.map((c) => (
-              <CommandItem
-                key={`chart-${c.id}`}
-                onSelect={() => go(`/adhoc/explorer?config=${c.id}`)}
-                keywords={commandPaletteKeywords(
-                  c.name,
-                  "saved chart",
-                  "chart",
-                )}
-              >
-                <IconChartBar className="mr-2 h-4 w-4 text-muted-foreground" />
-                {c.name}
-              </CommandItem>
-            ))}
           </CommandGroup>
-        )}
-      </CommandList>
-    </CommandDialog>
+
+          <CommandGroup heading="Help">
+            <CommandItem
+              onSelect={() => {
+                setOpen(false);
+                setChangelogOpen(true);
+              }}
+              keywords={commandPaletteKeywords(
+                "What's new",
+                "changelog",
+                "updates",
+                "release notes",
+                "changes",
+              )}
+            >
+              <IconHistory className="mr-2 h-4 w-4 text-muted-foreground" />
+              What's new
+            </CommandItem>
+          </CommandGroup>
+
+          {savedChartsFetching && savedCharts.length === 0 && (
+            <CommandLoadingGroup heading="Saved Charts" rows={2} />
+          )}
+
+          {savedCharts.length > 0 && (
+            <CommandGroup heading="Saved Charts">
+              {savedCharts.map((c) => (
+                <CommandItem
+                  key={`chart-${c.id}`}
+                  onSelect={() => go(`/dashboards/explorer?config=${c.id}`)}
+                  keywords={commandPaletteKeywords(
+                    c.name,
+                    "saved chart",
+                    "chart",
+                  )}
+                >
+                  <IconChartBar className="mr-2 h-4 w-4 text-muted-foreground" />
+                  {c.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+        </CommandList>
+      </CommandDialog>
+      <ChangelogDialog
+        open={changelogOpen}
+        onOpenChange={setChangelogOpen}
+        markdown={changelog}
+      />
+    </>
   );
 }

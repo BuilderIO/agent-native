@@ -36,8 +36,9 @@ In local-files mode:
   `npx @agent-native/core@latest plan blocks --out plan-blocks.md` when the Plan
   MCP connector is not registered; it calls the public no-auth
   `get-plan-blocks` route and sends no recap content. If network access is
-  unavailable, use the bundled references and validate with
-  `plan local check` / `plan local serve`. For `checklist` and `question-form`,
+  unavailable, use the bundled references and validate the MDX with
+  `plan local check`; do not run `plan local serve` unless the hosted Plan UI is
+  reachable or a local Plan app is already running. For `checklist` and `question-form`,
   copy the catalog examples verbatim: checklist items need `id` and `label`;
   question-form questions need `id`, `title`, and `mode`; and each option needs
   `id` and `label`. `plan local check` validates these required fields against
@@ -47,21 +48,24 @@ In local-files mode:
   folder such as `.agent-native/plans/<slug>/` or `/tmp/agent-native-plans/<slug>/`
   when it should not be checked in. The folder contains `plan.mdx`, optional
   `canvas.mdx`, optional `prototype.mdx`, and optional `.plan-state.json`. Set
-  `kind: "recap"` and `localOnly: true` in frontmatter/state when authoring
-  the source.
-- Run `npx @agent-native/core@latest plan local check --dir plans/<slug>`
-  before serving, then run
-  `npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open`.
-  Report the returned local bridge URL from stdout or `plans/<slug>/.plan-url`.
+  `kind: "recap"` and `localOnly: true` in frontmatter/state when authoring the
+  source. Use that exact chosen folder as `<plan-dir>` in every local CLI command
+  below.
+- Run `npx @agent-native/core@latest plan local check --dir <plan-dir>` before
+  any preview. When the hosted Plan UI is reachable, run
+  `npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind recap --open`.
+  Report the returned local bridge URL from stdout or `<plan-dir>/.plan-url`.
   Treat `.plan-url` as a local token file and do not commit it. The URL opens
   the hosted Plan UI but reads from the localhost bridge on this machine, so it
   is not shareable across machines. On macOS, `--open` prefers Chromium browsers;
   if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
   HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
   running locally with the same `PLAN_LOCAL_DIR`, the `/local-plans/<slug>` route
-  is also valid.
+  is also valid. In a truly offline environment, hand off the local `<plan-dir>`
+  path after `plan local check` and note that interactive preview requires either
+  network access to the hosted Plan UI or a running local Plan app.
 - For headless verification, run
-  `npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind recap`.
+  `npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind recap`.
   It starts the bridge, checks the private-network preflight and JSON payload,
   prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
   the `bridgeUrl` from the verify/serve JSON to read the concrete validation
@@ -72,7 +76,9 @@ In local-files mode:
   `set-resource-visibility`, or any hosted Plan tool for that recap except the
   schema-only block catalog lookup above.
 - Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun the local bridge command, and summarize the new local bridge URL.
+  rerun `plan local check`, and rerun `serve` or `verify` only when that preview
+  path is available. Summarize the new local URL when one exists; otherwise
+  summarize the checked local folder path.
   Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
   publishing are unavailable until the user explicitly opts into publishing.
 
@@ -288,10 +294,10 @@ and re-import before reporting the link. A text-match screenshot is not enough;
 visually inspect the captured image. When no browser is available (for example
 a headless CI agent), state that in the recap handoff instead.
 
-## Top Canvas Recaps — read `../visual-plans/references/canvas.md`
+## Top Canvas Recaps — read `../visual-plan/references/canvas.md`
 
 When a recap includes a top canvas, storyboard, or flow view, READ
-`../visual-plans/references/canvas.md` before authoring `canvas.mdx`. Recap
+`../visual-plan/references/canvas.md` before authoring `canvas.mdx`. Recap
 canvas artboards must use the same HTML wireframe path as good document-body
 wireframes: `<Screen surface="..." html={...} />` with a semantic HTML fragment.
 Do not author fresh kit-tree children such as `<FrameScreen>`, `<Card>`,
@@ -305,8 +311,8 @@ assume it used the legacy kit path and replace it with an HTML screen.
 
 In local-files privacy mode, run `plan local check` first, then report the local
 bridge URL from
-`npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind recap --open`
-or from `plans/<slug>/.plan-url`. It opens the hosted Plan UI but reads from the
+`npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind recap --open`
+or from `<plan-dir>/.plan-url`. It opens the hosted Plan UI but reads from the
 localhost bridge on this machine, so it is not shareable across machines. If the
 Plan app itself is running locally with the same `PLAN_LOCAL_DIR`, the
 `/local-plans/<slug>` route is also valid. Do not invent a hosted database URL
@@ -471,7 +477,8 @@ installed as plain text and no MCP tools are registered after discovery, run
 `npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
 file first. The CLI command calls the public no-auth `get-plan-blocks` route and
 sends no plan/recap content. If network access is unavailable, use the bundled
-references and validate with `plan local check` / `plan local serve`.
+references and validate with `plan local check`; run `plan local serve` only
+when the hosted Plan UI is reachable or a local Plan app is already running.
 
 The catalog returns the authoritative, always-current block vocabulary generated
 live from the app's own block registry — the same config the renderer and MDX
@@ -579,14 +586,17 @@ inferred (not extracted) as inferred in prose.
 
 ## Bidirectional Loop
 
-Because a recap is a real, editable plan, the same review loop as forward plans
-applies: a reviewer can annotate any block, and the coding agent reads
-`get-plan-feedback` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. After a reviewer annotates
-a block, call `get-plan-feedback` to read the structured feedback, then either
-update the recap with `create-visual-recap` (passing the existing `planId` to
-replace it in place) or apply targeted changes with `update-visual-plan`. The
-loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+In hosted mode, because a recap is a real, editable plan, the same review loop
+as forward plans applies: a reviewer can annotate any block, and the coding
+agent reads `get-plan-feedback` to drive fixes back into the code — annotation →
+agent → diff, the same close-the-loop flow forward plans use. After a reviewer
+annotates a block, call `get-plan-feedback` to read the structured feedback,
+then either update the recap with `create-visual-recap` (passing the existing
+`planId` to replace it in place) or apply targeted changes with
+`update-visual-plan`. The loop is live and wired. In local-files privacy mode,
+do not call those hosted tools; read review notes from chat or local files, edit
+`<plan-dir>/*.mdx` directly, and rerun `plan local check`, `serve`, or `verify`
+for `<plan-dir>`. The one thing not yet automatic is PR-comment-triggered
 re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
 re-run automatically when new review feedback is posted in GitHub — that
 auto-re-run is the remaining fast-follow.

@@ -395,6 +395,7 @@ export function EventDetailPopover({
     "meet" | "zoom" | null
   >(null);
   const isOverlay = !!event.overlayEmail;
+  const ownerLabel = event.ownerName || event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
   const masterEventId =
@@ -1110,9 +1111,8 @@ Write a short, useful meeting description. If I ask you to apply it, update this
         <TooltipProvider>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-            <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>{isDraft ? "Draft event" : "Event"}</span>
-              <IconChevronRight className="h-3 w-3" />
             </div>
             <div className="flex items-center gap-0.5">
               {!isDraft && (
@@ -2087,9 +2087,13 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-center gap-3 px-4 py-1.5">
-                  <IconUser className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span
+                    aria-hidden="true"
+                    className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                    style={{ backgroundColor: event.ownerColor }}
+                  />
                   <span className="text-sm text-muted-foreground">
-                    {event.overlayEmail}
+                    Viewing {ownerLabel}'s calendar
                   </span>
                 </div>
               </>

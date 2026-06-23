@@ -76,10 +76,8 @@ const MultiTabAssistantChatLazy = lazy(() =>
   })),
 );
 import type { MultiTabAssistantChatHeaderProps } from "./MultiTabAssistantChat.js";
-import {
-  assistantUiRecoverableRenderErrorKind,
-  type AssistantChatProps,
-} from "./AssistantChat.js";
+import type { AssistantChatProps } from "./AssistantChat.js";
+import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -254,8 +252,16 @@ type ChatHeaderRenderer = (
 
 function ChatLoadingSkeleton({
   renderHeader,
+  centerComposerWhenEmpty = false,
+  composerSlot,
+  composerAreaClassName,
+  composerLayoutVariant = "default",
 }: {
   renderHeader?: ChatHeaderRenderer;
+  centerComposerWhenEmpty?: boolean;
+  composerSlot?: React.ReactNode;
+  composerAreaClassName?: string;
+  composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
   // Provide empty no-op implementations so renderHeader can render the real
   // tab/mode buttons without needing actual chat state.
@@ -275,6 +281,49 @@ function ChatLoadingSkeleton({
     tabCount: 0,
     toggleHistory: noop,
   };
+  if (centerComposerWhenEmpty) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0">
+        {renderHeader ? renderHeader(stubProps) : null}
+        <div
+          data-agent-empty-state="centered"
+          className="relative flex flex-1 flex-col h-full min-h-0 text-foreground"
+        >
+          <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <div className="agent-empty-state sr-only" aria-busy="true">
+              Loading chat...
+            </div>
+          </div>
+          {composerSlot}
+          <div
+            className={cn(
+              "agent-composer-area shrink-0 px-3 py-2",
+              composerLayoutVariant !== "default" &&
+                `agent-composer-area--${composerLayoutVariant}`,
+              composerAreaClassName,
+            )}
+          >
+            <div
+              className={cn(
+                "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                composerLayoutVariant !== "default" &&
+                  `agent-composer-root--${composerLayoutVariant}`,
+              )}
+            >
+              <div className="px-3 pt-3">
+                <div className="h-5 w-3/5 rounded bg-muted animate-pulse" />
+              </div>
+              <div className="mt-auto flex items-center gap-2 px-3 py-2">
+                <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse" />
+                <div className="h-7 w-7 rounded-md bg-muted animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {renderHeader ? renderHeader(stubProps) : null}
@@ -1507,6 +1556,12 @@ function AgentPanelInner({
             fallback={
               <ChatLoadingSkeleton
                 renderHeader={showHeader ? renderChatHeader : undefined}
+                centerComposerWhenEmpty={
+                  assistantChatProps.centerComposerWhenEmpty
+                }
+                composerSlot={assistantChatProps.composerSlot}
+                composerAreaClassName={assistantChatProps.composerAreaClassName}
+                composerLayoutVariant={assistantChatProps.composerLayoutVariant}
               />
             }
           >

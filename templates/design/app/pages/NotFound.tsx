@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center">
+    <div className="flex min-h-full w-full flex-col items-center justify-center bg-background px-4 py-12">
       <h1 className="text-6xl font-bold text-muted-foreground/60 mb-4">404</h1>
       <p className="text-sm text-muted-foreground mb-6">
         The page you are looking for does not exist.

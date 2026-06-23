@@ -20,13 +20,22 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { IconSearch, IconMessage } from "@tabler/icons-react";
+import {
+  IconBook2,
+  IconExternalLink,
+  IconSearch,
+  IconMessage,
+  IconHistory,
+} from "@tabler/icons-react";
 import { sendToAgentChat } from "./agent-chat.js";
 import { cn } from "./utils.js";
+import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import { parseChangelog } from "../changelog/parse.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -96,6 +105,7 @@ interface CommandItemProps {
   children: ReactNode;
   keywords?: string[];
   className?: string;
+  deferSelect?: boolean;
 }
 
 function CommandItem({
@@ -103,12 +113,19 @@ function CommandItem({
   children,
   keywords: _keywords,
   className,
+  deferSelect = true,
 }: CommandItemProps) {
   const { onOpenChange, containerRef, setSelectedIndex } =
     useCommandMenuContext();
   const itemRef = useRef<HTMLDivElement>(null);
 
   const handleSelect = () => {
+    if (!deferSelect) {
+      onSelect();
+      onOpenChange(false);
+      return;
+    }
+
     onOpenChange(false);
     // Small delay to let dialog close animation start
     setTimeout(onSelect, 50);
@@ -159,6 +176,68 @@ function CommandSeparator({ className }: { className?: string }) {
   return <div className={cn("-mx-1 my-1 h-px bg-border", className)} />;
 }
 
+export interface CommandMenuDoc {
+  title: string;
+  href: string;
+  description?: string;
+  keywords?: string[];
+}
+
+interface CommandDocsGroupProps {
+  docs: CommandMenuDoc[];
+  heading?: string;
+}
+
+function commandDocSearchText(doc: CommandMenuDoc): string {
+  return [doc.title, doc.description, ...(doc.keywords ?? [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterCommandDocs(docs: CommandMenuDoc[], search: string) {
+  const searchLower = search.trim().toLowerCase();
+  if (!searchLower) return docs;
+  return docs.filter((doc) => commandDocSearchText(doc).includes(searchLower));
+}
+
+function openDocsHref(href: string) {
+  if (/^https?:\/\//i.test(href)) {
+    window.open(href, "_blank", "noopener,noreferrer");
+    return;
+  }
+  window.location.assign(href);
+}
+
+function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
+  if (docs.length === 0) return null;
+
+  return (
+    <CommandGroup heading={heading}>
+      {docs.map((doc) => (
+        <CommandItem
+          key={doc.href}
+          onSelect={() => openDocsHref(doc.href)}
+          keywords={[doc.title, doc.description ?? "", ...(doc.keywords ?? [])]}
+          deferSelect={false}
+          className="items-start py-2"
+        >
+          <IconBook2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{doc.title}</span>
+            {doc.description ? (
+              <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                {doc.description}
+              </span>
+            ) : null}
+          </span>
+          <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface CommandMenuProps {
@@ -173,6 +252,22 @@ export interface CommandMenuProps {
   showAgentFallback?: boolean;
   /** Custom class for the dialog content */
   className?: string;
+  /**
+   * Raw CHANGELOG.md contents. When provided, the menu shows a built-in
+   * "What's new" entry that opens an in-app changelog dialog (with an unseen
+   * dot for new releases). Pass your app's own file:
+   *   import changelog from "../CHANGELOG.md?raw";
+   *   <CommandMenu ... changelog={changelog} />
+   */
+  changelog?: string;
+  /** Label for the built-in changelog entry. Default: "What's new". */
+  changelogLabel?: string;
+  /**
+   * Stable key used to remember which release a user has already seen (for the
+   * unseen dot). Defaults to the document title's host app; set explicitly when
+   * multiple apps share an origin.
+   */
+  changelogKey?: string;
 }
 
 export function CommandMenu({
@@ -183,11 +278,35 @@ export function CommandMenu({
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
   className,
+  changelog,
+  changelogLabel = "What's new",
+  changelogKey,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Built-in "What's new" changelog surface (only active when `changelog` is
+  // passed). The dialog is rendered alongside the menu so it survives the menu
+  // closing; the unseen dot persists per browser via localStorage.
+  const [changelogOpen, setChangelogOpen] = useState(false);
+  const hasChangelog =
+    typeof changelog === "string" && changelog.trim().length > 0;
+  const changelogEntries = useMemo(
+    () => (hasChangelog ? parseChangelog(changelog as string) : []),
+    [hasChangelog, changelog],
+  );
+  const latestChangelogId = changelogEntries[0]?.id;
+  const { unseen: changelogUnseen, markSeen: markChangelogSeen } =
+    useChangelogSeen(changelogKey ?? "app", latestChangelogId);
+
+  const openChangelog = useCallback(() => {
+    onOpenChange(false);
+    markChangelogSeen();
+    // Let the menu close before the dialog opens (avoids overlay flicker).
+    setTimeout(() => setChangelogOpen(true), 50);
+  }, [onOpenChange, markChangelogSeen]);
 
   // Focus input when opening
   useEffect(() => {
@@ -286,7 +405,22 @@ export function CommandMenu({
     }
   };
 
-  if (!open) return null;
+  // The built-in "What's new" row matches changelog-ish search terms.
+  const changelogRowMatches =
+    !search ||
+    [
+      changelogLabel,
+      "changelog",
+      "what's new",
+      "whats new",
+      "updates",
+      "release notes",
+      "changes",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const showChangelogRow = hasChangelog && changelogRowMatches;
 
   // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
@@ -302,6 +436,18 @@ export function CommandMenu({
         return React.cloneElement(child, {
           ...props,
           children: groupChildren,
+        } as Record<string, unknown>);
+      }
+
+      if (child.type === CommandDocsGroup) {
+        const docs = Array.isArray(props.docs)
+          ? (props.docs as CommandMenuDoc[])
+          : [];
+        const filteredDocs = filterCommandDocs(docs, search);
+        if (filteredDocs.length === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          docs: filteredDocs,
         } as Record<string, unknown>);
       }
 
@@ -330,86 +476,137 @@ export function CommandMenu({
 
   const filteredChildren = filterChildren(children);
   const hasResults = React.Children.toArray(filteredChildren).some(
-    (child) => React.isValidElement(child) && child.type === CommandGroup,
+    (child) =>
+      React.isValidElement(child) &&
+      (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50">
-      <div
-        ref={containerRef}
-        className={cn(
-          "fixed left-1/2 top-[15vh] -translate-x-1/2 w-full max-w-lg",
-          "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
-          className,
-        )}
-      >
-        <CommandMenuContext.Provider
-          value={{ search, onOpenChange, containerRef, setSelectedIndex }}
-        >
-          {/* Search input */}
-          <div className="flex items-center border-b px-3">
-            <IconSearch className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-            <input
-              ref={inputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-
-          {/* Command list */}
-          <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
-            {hasResults && filteredChildren}
-
-            {/* Ask AI — always visible at the bottom */}
-            {showAgentFallback && (
-              <>
-                {hasResults && <CommandSeparator />}
-                <div className="p-1">
-                  <div
-                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
-                    onClick={handleSubmitToAgent}
-                    onMouseEnter={(e) => {
-                      const items =
-                        containerRef.current?.querySelectorAll(
-                          '[role="option"]',
-                        );
-                      if (!items) return;
-                      const index = Array.from(items).indexOf(e.currentTarget);
-                      if (index >= 0) setSelectedIndex(index);
-                    }}
-                    role="option"
-                  >
-                    <IconMessage className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      {search.trim() ? (
-                        <>
-                          Ask AI:{" "}
-                          <span className="text-muted-foreground">
-                            "{search}"
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Ask AI anything...
-                        </span>
-                      )}
-                    </span>
-                    {search.trim() && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        ↵
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </>
+    <>
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/50">
+          <div
+            ref={containerRef}
+            className={cn(
+              "fixed left-1/2 top-[15vh] -translate-x-1/2 w-full max-w-lg",
+              "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
+              className,
             )}
+          >
+            <CommandMenuContext.Provider
+              value={{ search, onOpenChange, containerRef, setSelectedIndex }}
+            >
+              {/* Search input */}
+              <div className="flex items-center border-b px-3">
+                <IconSearch className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                <input
+                  ref={inputRef}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={placeholder}
+                  className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+
+              {/* Command list */}
+              <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
+                {hasResults && filteredChildren}
+
+                {/* What's new — built-in changelog entry */}
+                {showChangelogRow && (
+                  <>
+                    {hasResults && <CommandSeparator />}
+                    <div className="p-1">
+                      <div
+                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
+                        onClick={openChangelog}
+                        onMouseEnter={(e) => {
+                          const items =
+                            containerRef.current?.querySelectorAll(
+                              '[role="option"]',
+                            );
+                          if (!items) return;
+                          const index = Array.from(items).indexOf(
+                            e.currentTarget,
+                          );
+                          if (index >= 0) setSelectedIndex(index);
+                        }}
+                        role="option"
+                      >
+                        <IconHistory className="h-4 w-4 text-muted-foreground" />
+                        <span>{changelogLabel}</span>
+                        {changelogUnseen && (
+                          <span
+                            className="ml-auto h-2 w-2 rounded-full bg-primary"
+                            aria-label="New updates available"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Ask AI — always visible at the bottom */}
+                {showAgentFallback && (
+                  <>
+                    {(hasResults || showChangelogRow) && <CommandSeparator />}
+                    <div className="p-1">
+                      <div
+                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
+                        onClick={handleSubmitToAgent}
+                        onMouseEnter={(e) => {
+                          const items =
+                            containerRef.current?.querySelectorAll(
+                              '[role="option"]',
+                            );
+                          if (!items) return;
+                          const index = Array.from(items).indexOf(
+                            e.currentTarget,
+                          );
+                          if (index >= 0) setSelectedIndex(index);
+                        }}
+                        role="option"
+                      >
+                        <IconMessage className="h-4 w-4 text-muted-foreground" />
+                        <span>
+                          {search.trim() ? (
+                            <>
+                              Ask AI:{" "}
+                              <span className="text-muted-foreground">
+                                "{search}"
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              Ask AI anything...
+                            </span>
+                          )}
+                        </span>
+                        {search.trim() && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            ↵
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CommandMenuContext.Provider>
           </div>
-        </CommandMenuContext.Provider>
-      </div>
-    </div>
+        </div>
+      )}
+
+      {hasChangelog && (
+        <ChangelogDialog
+          open={changelogOpen}
+          onOpenChange={setChangelogOpen}
+          markdown={changelog as string}
+          title={changelogLabel}
+        />
+      )}
+    </>
   );
 }
 
@@ -435,6 +632,7 @@ function getTextContent(children: ReactNode): string {
 // Attach sub-components
 CommandMenu.Group = CommandGroup;
 CommandMenu.Item = CommandItem;
+CommandMenu.DocsGroup = CommandDocsGroup;
 CommandMenu.Shortcut = CommandShortcut;
 CommandMenu.Separator = CommandSeparator;
 
@@ -465,4 +663,9 @@ export function useCommandMenuShortcut(onOpen: () => void) {
   }, [onOpen]);
 }
 
-export type { CommandGroupProps, CommandItemProps, CommandShortcutProps };
+export type {
+  CommandDocsGroupProps,
+  CommandGroupProps,
+  CommandItemProps,
+  CommandShortcutProps,
+};

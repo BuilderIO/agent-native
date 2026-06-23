@@ -7,6 +7,7 @@ import {
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
+  getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
 } from "./TiptapComposer.js";
@@ -70,6 +71,33 @@ describe("createTiptapComposerExtensions", () => {
         attachmentCount: 1,
       }),
     ).toBe("Create an extension: Use the attached context.");
+  });
+
+  it("detects oversized PDF attachments before submit", () => {
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf", {
+      type: "application/pdf",
+    });
+
+    expect(
+      getOversizedDocumentAttachmentError([
+        {
+          type: "document",
+          name: "large.pdf",
+          contentType: "application/pdf",
+          file,
+        },
+      ]),
+    ).toContain('"large.pdf" is 4.0 MB — PDFs are capped at 4 MB');
+    expect(
+      getOversizedDocumentAttachmentError([
+        {
+          type: "image",
+          name: "large.png",
+          contentType: "image/png",
+          file,
+        },
+      ]),
+    ).toBeNull();
   });
 
   it("maps Enter keybindings to immediate and queued submit intents", () => {

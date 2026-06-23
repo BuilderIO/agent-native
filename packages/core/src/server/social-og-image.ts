@@ -330,7 +330,12 @@ export function renderAgentNativeOgImageSvg(
 export async function renderAgentNativeOgImagePng(
   input: AgentNativeOgImageInput = {},
 ): Promise<Uint8Array> {
-  const { Resvg } = await import(/* @vite-ignore */ "@resvg/resvg-js");
+  const overridePackage =
+    typeof process !== "undefined"
+      ? process.env.AGENT_NATIVE_RESVG_PACKAGE
+      : undefined;
+  const resvgPackage = overridePackage || "@resvg/resvg-js";
+  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
   // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
   // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
   // nor Inter, so without a bundled font every `<text>` rendered blank.

@@ -880,6 +880,7 @@ export async function summarizePlans(
       approvedAt: plan.approvedAt,
       deletedAt: plan.deletedAt,
       deletedBy: plan.deletedBy,
+      ownerEmail: plan.ownerEmail ?? null,
       canDelete: Boolean(
         options.deleteOwnerEmail &&
         plan.ownerEmail === options.deleteOwnerEmail,

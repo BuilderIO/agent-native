@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { scrubberPositionFromClientX } from "./scrubber-position";
 
 export interface ScrubberProps {
   currentMs: number;
@@ -22,6 +23,7 @@ export function Scrubber(props: ScrubberProps) {
     excludedRanges,
   } = props;
   const barRef = useRef<HTMLDivElement | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
   const [dragging, setDragging] = useState(false);
@@ -38,40 +40,63 @@ export function Scrubber(props: ScrubberProps) {
     [reactions],
   );
 
-  function msFromEvent(e: { clientX: number }): number {
+  function positionFromClientX(clientX: number): { ms: number; x: number } {
     const el = barRef.current;
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const ratio = rect.width > 0 ? x / rect.width : 0;
-    return Math.floor(ratio * durationMs);
+    if (!el) return { ms: 0, x: 0 };
+    return scrubberPositionFromClientX(
+      clientX,
+      el.getBoundingClientRect(),
+      durationMs,
+    );
   }
 
-  function onMouseDown(e: React.MouseEvent) {
+  function seekFromClientX(clientX: number): void {
+    const next = positionFromClientX(clientX);
+    setHoverX(next.x);
+    setHoverMs(next.ms);
+    onSeek(next.ms);
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
+    e.stopPropagation();
+    activePointerIdRef.current = e.pointerId;
     setDragging(true);
-    const ms = msFromEvent(e);
-    onSeek(ms);
-
-    const onMove = (ev: MouseEvent) => {
-      onSeek(msFromEvent(ev));
-    };
-    const onUp = () => {
-      setDragging(false);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Older test/browser environments may not implement pointer capture.
+    }
+    seekFromClientX(e.clientX);
   }
 
-  function onHover(e: React.MouseEvent) {
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    setHoverX(x);
-    setHoverMs(msFromEvent(e));
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (activePointerIdRef.current === e.pointerId) {
+      e.preventDefault();
+      seekFromClientX(e.clientX);
+      return;
+    }
+
+    if (e.pointerType === "mouse") {
+      const next = positionFromClientX(e.clientX);
+      setHoverX(next.x);
+      setHoverMs(next.ms);
+    }
+  }
+
+  function endPointerDrag(e: React.PointerEvent<HTMLDivElement>) {
+    if (activePointerIdRef.current !== e.pointerId) return;
+    activePointerIdRef.current = null;
+    setDragging(false);
+    if (e.pointerType !== "mouse") setHoverMs(null);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Older test/browser environments may not implement pointer capture.
+    }
   }
 
   const commentsByMs = useMemo(() => {
@@ -87,7 +112,22 @@ export function Scrubber(props: ScrubberProps) {
   }, [comments]);
 
   return (
-    <div className="relative h-10 flex items-center" data-player-ui>
+    <div
+      className="relative h-10 flex items-center touch-none cursor-pointer"
+      data-player-ui
+      data-player-scrubber
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointerDrag}
+      onPointerCancel={endPointerDrag}
+      onLostPointerCapture={() => {
+        activePointerIdRef.current = null;
+        setDragging(false);
+      }}
+      onPointerLeave={() => {
+        if (activePointerIdRef.current === null) setHoverMs(null);
+      }}
+    >
       {/* Hover bubble */}
       {hoverMs !== null && !tooltip ? (
         <div
@@ -110,10 +150,8 @@ export function Scrubber(props: ScrubberProps) {
 
       <div
         ref={barRef}
+        data-player-scrubber-bar
         className="relative w-full h-1.5 bg-white/20 rounded-full cursor-pointer group/bar"
-        onMouseDown={onMouseDown}
-        onMouseMove={onHover}
-        onMouseLeave={() => setHoverMs(null)}
       >
         {/* Filled portion */}
         <div

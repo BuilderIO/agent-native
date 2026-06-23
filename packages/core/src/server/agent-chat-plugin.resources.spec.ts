@@ -114,6 +114,17 @@ const resourcesById = new Map([
     },
   ],
   [
+    "skills_dev_only",
+    {
+      id: "skills_dev_only",
+      path: "skills/dev-only/SKILL.md",
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: dev-only\ndescription: Development-only workflow.\nscope: dev\n---\n\n# Dev Only",
+    },
+  ],
+  [
     "shared_skills_company_voice",
     {
       id: "shared_skills_company_voice",
@@ -180,7 +191,7 @@ beforeEach(() => {
         return [meta("instructions_guardrails")];
       }
       if (prefix === "skills/") {
-        return [meta("skills_company_voice")];
+        return [meta("skills_company_voice"), meta("skills_dev_only")];
       }
       return [
         {
@@ -191,6 +202,7 @@ beforeEach(() => {
         },
         meta("instructions_guardrails"),
         meta("skills_company_voice"),
+        meta("skills_dev_only"),
         meta("context_brand"),
         meta("context_messaging"),
       ];
@@ -223,6 +235,7 @@ beforeEach(() => {
   });
   mocks.resourceListAccessible.mockResolvedValue([
     meta("skills_company_voice"),
+    meta("skills_dev_only"),
     meta("shared_skills_company_voice"),
     meta("personal_skills_company_voice"),
   ]);
@@ -393,5 +406,13 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("`runtime-skill`");
     expect(prompt).not.toContain("dev-only-skill");
+  });
+
+  it("excludes scope: dev resource skills from the runtime prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test");
+
+    expect(prompt).toContain("`company-voice` at resource");
+    expect(prompt).not.toContain("dev-only");
+    expect(prompt).not.toContain("Development-only workflow.");
   });
 });

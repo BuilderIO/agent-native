@@ -105,6 +105,26 @@ describe("shared coding tools", () => {
     expect(registry["db-exec"]).toBeUndefined();
     expect(registry["db-patch"]).toBeUndefined();
     expect(registry["db-schema"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-query --sql "SELECT 1"',
+      }),
+    ).resolves.toContain("raw database tools are disabled");
+  });
+
+  it("can expose read-only database tools without raw SQL write tools", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: "read" });
+
+    expect(registry["db-schema"]).toBeDefined();
+    expect(registry["db-query"]).toBeDefined();
+    expect(registry["db-check-scoping"]).toBeDefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-exec --sql "UPDATE forms SET status = 1"',
+      }),
+    ).resolves.toContain("raw database write tools are disabled");
   });
 
   it("can expose legacy aliases explicitly for compatibility callers", async () => {

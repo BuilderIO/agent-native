@@ -7,6 +7,7 @@ import {
 import {
   agentNativePath,
   appPath,
+  getBrowserTabId,
   getEmbedAuthToken,
   isEmbedAuthActive,
   sendMcpAppHostMessage,
@@ -971,21 +972,26 @@ export default function AssetPicker() {
   }, []);
 
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        "x-request-source": "assets-picker-ui",
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-request-source": "assets-picker-ui",
+        },
+        body: JSON.stringify({
+          view: "picker",
+          mediaType,
+          libraryId: selectedLibraryId || null,
+          query,
+          prompt,
+          aspectRatio,
+        }),
       },
-      body: JSON.stringify({
-        view: "picker",
-        mediaType,
-        libraryId: selectedLibraryId || null,
-        query,
-        prompt,
-        aspectRatio,
-      }),
-    }).catch(() => {});
+    ).catch(() => {});
   }, [aspectRatio, mediaType, prompt, query, selectedLibraryId]);
 
   const canGenerate =

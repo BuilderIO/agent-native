@@ -5,6 +5,7 @@ description: >-
   AGENTS.md, skills, and tool/action descriptions. Use when authoring or
   reviewing AGENTS.md, writing a SKILL.md, wording action descriptions, or
   deciding what belongs in instructions vs skills vs memory.
+scope: dev
 metadata:
   internal: true
 ---
@@ -124,11 +125,17 @@ description: >-
 
 An optional `scope` field decides which agent loads the skill:
 
-- `both` (default when omitted) and `runtime` — loaded by the in-app runtime
-  agent.
+- `both` (default when omitted) — loaded by connected repo agents and the
+  in-app runtime agent.
+- `runtime` — loaded only by the in-app runtime agent.
 - `dev` — for the human's coding agent (e.g. Claude Code) only. A `scope: dev`
   skill is invisible to the runtime agent everywhere (system-prompt skills block
   and `docs-search`).
+
+Use `scope: dev` for internal-only guidance that should help connected repo
+agents such as Codex or Claude Code, but should not influence the deployed
+production agent. Do not use `metadata.internal` for this: it is catalog/package
+metadata and does not control runtime visibility.
 
 ```markdown
 ---

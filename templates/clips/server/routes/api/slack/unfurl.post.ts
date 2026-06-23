@@ -12,6 +12,7 @@ import {
   verifySlackSignature,
   type SlackLinkSharedPayload,
 } from "../../../lib/slack-unfurls.js";
+import { readSlackBotTokenForPayload } from "../../../lib/slack-oauth.js";
 
 export default defineEventHandler(async (event) => {
   const rawBody = (await readRawBody(event)) ?? "";
@@ -40,25 +41,25 @@ export default defineEventHandler(async (event) => {
   const challenge = slackUrlVerificationChallenge(payload);
   if (challenge) return challenge;
 
-  const allowlist = validateSlackEventAllowlist(
-    payload as SlackLinkSharedPayload,
-  );
-  if (!allowlist.ok) {
-    setResponseStatus(event, allowlist.status);
-    return { ok: false, error: allowlist.error };
-  }
+  const slackPayload = payload as SlackLinkSharedPayload;
+  let token = await readSlackBotTokenForPayload(slackPayload);
 
-  const token = process.env.SLACK_BOT_TOKEN; // guard:allow-env-credential - deploy-level Slack Events API app token for signed unfurl webhooks
   if (!token) {
-    console.warn("[clips-slack] SLACK_BOT_TOKEN is not configured");
-    return { ok: true };
+    const allowlist = validateSlackEventAllowlist(slackPayload);
+    if (!allowlist.ok) {
+      setResponseStatus(event, allowlist.status);
+      return { ok: false, error: allowlist.error };
+    }
+
+    token = process.env.SLACK_BOT_TOKEN ?? null; // guard:allow-env-credential - legacy single-workspace Slack app token; OAuth-installed teams resolve encrypted app_secrets first
+    if (!token) {
+      console.warn("[clips-slack] No Slack bot token found for event");
+      return { ok: true };
+    }
   }
 
   try {
-    await handleSlackLinkSharedPayload(
-      payload as SlackLinkSharedPayload,
-      token,
-    );
+    await handleSlackLinkSharedPayload(slackPayload, token);
   } catch (err) {
     console.error("[clips-slack] Failed to unfurl Clips link:", err);
   }

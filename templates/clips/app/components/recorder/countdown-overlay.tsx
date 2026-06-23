@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 export interface CountdownOverlayProps {
   /** Total seconds to count down from. Default 3. */
   seconds?: number;
+  /** Called when the countdown reaches 1. */
+  onOneSecond?: () => void;
   /** Called when the countdown reaches 0. */
   onComplete: () => void;
   /** Called when the user cancels before recording begins. */
@@ -13,6 +15,7 @@ export interface CountdownOverlayProps {
 
 export function CountdownOverlay({
   seconds = 3,
+  onOneSecond,
   onComplete,
   onCancel,
 }: CountdownOverlayProps) {
@@ -22,6 +25,13 @@ export function CountdownOverlay({
   // even if its identity changes while `remaining` is already 0 (which would
   // otherwise re-run this effect and call it again).
   const hasCompletedRef = useRef(false);
+  const hasPlayedOneSecondCueRef = useRef(false);
+
+  useEffect(() => {
+    if (remaining !== 1 || hasPlayedOneSecondCueRef.current) return;
+    hasPlayedOneSecondCueRef.current = true;
+    onOneSecond?.();
+  }, [remaining, onOneSecond]);
 
   useEffect(() => {
     if (remaining <= 0) {

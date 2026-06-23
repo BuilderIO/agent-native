@@ -68,6 +68,7 @@ import {
   useAgentEngineConfigured,
   useActionQuery,
   useSession,
+  track,
   emailToColor,
   emailToName,
   type AgentSidebarStateChangeDetail,
@@ -219,6 +220,11 @@ import {
   type PlanVersionDetail,
   type PlanVersionSummary,
 } from "@shared/types";
+import {
+  PLAN_SHARE_SURFACE,
+  readPlanShareAttribution,
+  withPlanShareAttribution,
+} from "@shared/share-attribution";
 import {
   diffPlanVersions,
   formatVersionDiffSummary,
@@ -3783,13 +3789,92 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
-    return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
+    const url = `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
+    // Viral attribution: tag the shared/public plan link so signups arriving
+    // from it can be attributed even when `document.referrer` is empty. `via`
+    // is a non-PII owner id and is only set when the current viewer is the
+    // owner (the only person whose session userId is the plan owner's id).
+    const ownerViaId =
+      effectivePlanAccessRole === "owner" ? (session?.userId ?? null) : null;
+    return withPlanShareAttribution(url, ownerViaId);
   }, [
     bundle?.plan.kind,
+    effectivePlanAccessRole,
     localPlanMode,
     localPlanRepoPath,
     localPlanSlug,
     selectedId,
+    session?.userId,
+  ]);
+
+  // Viral attribution: read the `ref`/`via` the visitor arrived on (from a
+  // tagged share link) so funnel events carry the same attribution the
+  // framework first-touch cookie captured. Read once from the URL on mount.
+  const shareAttribution = useMemo(
+    () =>
+      readPlanShareAttribution(
+        typeof window === "undefined" ? "" : window.location.search,
+      ),
+    [],
+  );
+
+  // A logged-out visitor looking at a public plan/recap is the share funnel
+  // audience. Their CTAs (comment, sign in) route through `openSignIn`.
+  const isLoggedOutPublicPlanView =
+    !sessionLoading &&
+    !session &&
+    !localPlanMode &&
+    Boolean(selectedId) &&
+    effectivePlanVisibility === "public";
+
+  // share_cta_click — fire alongside (never instead of) the real navigation.
+  // `track` is non-throwing, but guard anyway so analytics can never break a
+  // CTA. Only fires for the logged-out public-plan funnel audience.
+  const fireShareCtaClick = useCallback(
+    (cta: string) => {
+      if (!isLoggedOutPublicPlanView) return;
+      try {
+        void track("share_cta_click", {
+          surface: PLAN_SHARE_SURFACE,
+          plan_id: selectedId ?? "",
+          cta,
+          ref: shareAttribution.ref,
+          via: shareAttribution.via,
+        });
+      } catch {
+        // Never let analytics break a CTA.
+      }
+    },
+    [
+      isLoggedOutPublicPlanView,
+      selectedId,
+      shareAttribution.ref,
+      shareAttribution.via,
+    ],
+  );
+
+  // share_view — fire once when a logged-out visitor views a public plan. The
+  // ref guard prevents double-fire across re-renders / StrictMode double-invoke.
+  const shareViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (!isLoggedOutPublicPlanView) return;
+    if (shareViewFiredRef.current) return;
+    shareViewFiredRef.current = true;
+    try {
+      void track("share_view", {
+        surface: PLAN_SHARE_SURFACE,
+        plan_id: selectedId ?? "",
+        ref: shareAttribution.ref,
+        via: shareAttribution.via,
+      });
+    } catch {
+      // Never let analytics break the page render.
+    }
+  }, [
+    isLoggedOutPublicPlanView,
+    selectedId,
+    shareAttribution.ref,
+    shareAttribution.via,
   ]);
 
   useEffect(() => {
@@ -5474,6 +5559,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
+              viewerEmail={session?.email ?? null}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
@@ -6226,11 +6312,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   {!session ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
-                      onSignIn={() =>
+                      onSignIn={() => {
+                        // share funnel: logged-out viewer of a public plan
+                        // clicking the "create account to comment" CTA.
+                        fireShareCtaClick("comment_signin");
                         openSignIn(
                           window.location.pathname + window.location.search,
-                        )
-                      }
+                        );
+                      }}
                       onCancel={closeInlineComment}
                     />
                   ) : (
@@ -6668,9 +6757,12 @@ function PlanShareControl({
     effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
       ? effectiveHostedPlanId
       : planId;
+  // Viral attribution: the owner is the one publishing/managing the share here,
+  // so `via` is their non-PII session userId. `localShareUrl` is already tagged
+  // upstream; tag the hosted/public URL too so both paths self-attribute.
   const managedShareUrl =
     effectivePublishedUrl && hostedPlanOnCurrentOrigin
-      ? effectivePublishedUrl
+      ? withPlanShareAttribution(effectivePublishedUrl, session?.userId ?? null)
       : localShareUrl;
 
   useEffect(() => {
@@ -6712,11 +6804,20 @@ function PlanShareControl({
             hostedPlanId: result.hostedPlanId,
           });
           setAuthPrompt(null);
-          copyPublishedUrl(result.hostedPlanUrl ?? result.url);
+          // Tag the freshly-minted public link so signups from it are
+          // attributed. The publisher is the owner, so `via` is their userId.
+          copyPublishedUrl(
+            withPlanShareAttribution(
+              result.hostedPlanUrl ?? result.url,
+              session?.userId ?? null,
+            ) ??
+              result.hostedPlanUrl ??
+              result.url,
+          );
         },
       },
     );
-  }, [copyPublishedUrl, planId, publishPlan]);
+  }, [copyPublishedUrl, planId, publishPlan, session?.userId]);
 
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
@@ -7838,6 +7939,7 @@ type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 function PlansOverview({
   plans,
   isLoading,
+  viewerEmail,
   onCreate,
   canCreate,
   onArchive,
@@ -7847,6 +7949,7 @@ function PlansOverview({
 }: {
   plans: PlanSummary[];
   isLoading: boolean;
+  viewerEmail?: string | null;
   onCreate: () => void;
   canCreate: boolean;
   onArchive: (planId: string, archived: boolean) => void;
@@ -7856,6 +7959,7 @@ function PlansOverview({
 }) {
   const [filter, setFilter] = useState<OverviewFilter>("all");
   const [search, setSearch] = useState("");
+  const [author, setAuthor] = useState<string>("all");
 
   if (isLoading) {
     return <PlansOverviewSkeleton />;
@@ -7866,13 +7970,41 @@ function PlansOverview({
 
   const activePlans = plans.filter((p) => !p.deletedAt);
   const deletedPlans = plans.filter((p) => p.deletedAt);
+  const ownedEmail = plans.find((p) => p.canDelete)?.ownerEmail?.trim() || null;
+  const normalizedViewerEmail =
+    (ownedEmail ?? viewerEmail)?.trim().toLowerCase() || null;
+  const authorEmails = Array.from(
+    new Set(
+      plans
+        .map((p) => p.ownerEmail?.trim())
+        .filter((email): email is string => Boolean(email)),
+    ),
+  ).sort((a, b) => emailToName(a).localeCompare(emailToName(b)));
+  const hasMine =
+    normalizedViewerEmail !== null &&
+    authorEmails.some((email) => email.toLowerCase() === normalizedViewerEmail);
   const visibleBeforeSearch = plans.filter((p) => {
-    if (filter === "deleted") return Boolean(p.deletedAt);
-    if (p.deletedAt) return false;
-    if (filter === "archived") return p.status === "archived";
-    if (p.status === "archived") return false;
-    if (filter === "plans") return p.kind === "plan";
-    if (filter === "recaps") return p.kind === "recap";
+    if (filter === "deleted") {
+      if (!p.deletedAt) return false;
+    } else {
+      if (p.deletedAt) return false;
+      if (filter === "archived") {
+        if (p.status !== "archived") return false;
+      } else {
+        if (p.status === "archived") return false;
+        if (filter === "plans" && p.kind !== "plan") return false;
+        if (filter === "recaps" && p.kind !== "recap") return false;
+      }
+    }
+    if (author === "me") {
+      return Boolean(
+        normalizedViewerEmail &&
+        p.ownerEmail?.trim().toLowerCase() === normalizedViewerEmail,
+      );
+    }
+    if (author !== "all") {
+      return p.ownerEmail?.trim() === author;
+    }
     return true;
   });
 
@@ -7930,6 +8062,31 @@ function PlansOverview({
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+
+            {authorEmails.length > 1 && (
+              <Select value={author} onValueChange={setAuthor}>
+                <SelectTrigger className="h-9 w-[170px] text-sm">
+                  <SelectValue placeholder="Created by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All authors</SelectItem>
+                  {hasMine && <SelectItem value="me">Me</SelectItem>}
+                  {authorEmails
+                    .filter(
+                      (email) =>
+                        !(
+                          hasMine &&
+                          email.toLowerCase() === normalizedViewerEmail
+                        ),
+                    )
+                    .map((email) => (
+                      <SelectItem key={email} value={email}>
+                        {emailToName(email)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <div className="relative min-w-0 flex-1">
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -8002,6 +8159,33 @@ function PlansOverview({
                         </>
                       ) : null}
                       {!isDeleted && <span>{shortDate(plan.updatedAt)}</span>}
+                      {plan.ownerEmail && (
+                        <>
+                          <span>·</span>
+                          <span
+                            className="flex min-w-0 items-center gap-1.5"
+                            title={plan.ownerEmail}
+                          >
+                            <Avatar className="size-5">
+                              <AvatarFallback
+                                className="text-[9px] font-semibold text-white"
+                                style={{
+                                  backgroundColor: emailToColor(
+                                    plan.ownerEmail,
+                                  ),
+                                }}
+                              >
+                                {commentAuthorInitials(
+                                  emailToName(plan.ownerEmail),
+                                )}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="truncate">
+                              {emailToName(plan.ownerEmail)}
+                            </span>
+                          </span>
+                        </>
+                      )}
                     </div>
                   </>
                 );

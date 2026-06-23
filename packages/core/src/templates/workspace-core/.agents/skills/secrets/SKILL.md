@@ -5,6 +5,7 @@ description: >-
   they appear in the agent sidebar settings UI and the onboarding checklist.
   Use for any third-party API key (OpenAI, Stripe, Twilio, etc.) and for
   surfacing OAuth connections in the unified settings UI.
+scope: dev
 metadata:
   internal: true
 ---

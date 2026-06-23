@@ -62,6 +62,12 @@ export function ResponsesPage() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("_submitted");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const hasSubmitterEmail = useMemo(
+    () => responses.some((r: any) => valueAsString(r.submitterEmail).trim()),
+    [responses],
+  );
+  const responseTableMinWidth =
+    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -77,6 +83,9 @@ export function ResponsesPage() {
     let rows = responses;
     if (q) {
       rows = rows.filter((r: any) => {
+        if (valueAsString(r.submitterEmail).toLowerCase().includes(q)) {
+          return true;
+        }
         for (const f of fields) {
           if (valueAsString(r.data[f.id]).toLowerCase().includes(q))
             return true;
@@ -89,6 +98,8 @@ export function ResponsesPage() {
       if (sortKey === "_submitted") {
         cmp =
           new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime();
+      } else if (sortKey === "_email") {
+        cmp = compareValues(a.submitterEmail, b.submitterEmail);
       } else {
         cmp = compareValues(a.data[sortKey], b.data[sortKey]);
       }
@@ -99,9 +110,14 @@ export function ResponsesPage() {
 
   function exportCsv() {
     if (!fields.length || !filteredSorted.length) return;
-    const headers = ["Submitted At", ...fields.map((f) => f.label)];
+    const headers = [
+      "Submitted At",
+      ...(hasSubmitterEmail ? ["Submitter Email"] : []),
+      ...fields.map((f) => f.label),
+    ];
     const rows = filteredSorted.map((r) => [
       r.submittedAt,
+      ...(hasSubmitterEmail ? [valueAsString(r.submitterEmail)] : []),
       ...fields.map((f) => valueAsString(r.data[f.id])),
     ]);
 
@@ -257,8 +273,19 @@ export function ResponsesPage() {
         </div>
       ) : (
         <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
-          <div className="w-max min-w-full">
-            <table className="min-w-full text-sm whitespace-nowrap">
+          <div className="min-w-full">
+            <table
+              className="min-w-full table-fixed text-sm"
+              style={{ minWidth: responseTableMinWidth }}
+            >
+              <colgroup>
+                <col className="w-16" />
+                <col className="w-40" />
+                {hasSubmitterEmail ? <col className="w-56" /> : null}
+                {fields.map((f) => (
+                  <col key={f.id} className="w-80" />
+                ))}
+              </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th
@@ -273,6 +300,14 @@ export function ResponsesPage() {
                     dir={sortDir}
                     onClick={() => toggleSort("_submitted")}
                   />
+                  {hasSubmitterEmail ? (
+                    <SortableHeader
+                      label="Email"
+                      active={sortKey === "_email"}
+                      dir={sortDir}
+                      onClick={() => toggleSort("_email")}
+                    />
+                  ) : null}
                   {fields.map((f) => (
                     <SortableHeader
                       key={f.id}
@@ -296,6 +331,11 @@ export function ResponsesPage() {
                     <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                       {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                     </td>
+                    {hasSubmitterEmail ? (
+                      <td className="w-56 px-4 py-3 align-top text-xs text-muted-foreground whitespace-normal break-words">
+                        {valueAsString(response.submitterEmail) || "-"}
+                      </td>
+                    ) : null}
                     {fields.map((f) => {
                       const val = response.data[f.id];
                       const display =
@@ -305,7 +345,7 @@ export function ResponsesPage() {
                       return (
                         <td
                           key={f.id}
-                          className="min-w-40 max-w-[220px] truncate px-4 py-2.5 text-xs"
+                          className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                           title={display}
                         >
                           {display}

@@ -10,6 +10,7 @@ import {
   getAppUrl,
   oauthCallbackResponse,
   oauthErrorPage,
+  resolveGoogleSignInCredentials,
   resolveOAuthOwner,
   setDesktopExchange,
   type OAuthStatePayload,
@@ -51,11 +52,10 @@ async function handleGoogleSignInCallback(
       return { error: "Missing authorization code" };
     }
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
+    const credentials = resolveGoogleSignInCredentials();
+    if (!credentials) {
       return oauthErrorPage(
-        "Google OAuth is not configured (missing client id/secret).",
+        "Google sign-in is not configured (missing client id/secret).",
       );
     }
 
@@ -66,8 +66,8 @@ async function handleGoogleSignInCallback(
       },
       body: new URLSearchParams({
         code,
-        client_id: clientId,
-        client_secret: clientSecret,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
         redirect_uri: state.redirectUri,
         grant_type: "authorization_code",
       }),
@@ -98,6 +98,11 @@ async function handleGoogleSignInCallback(
     const { sessionToken } = await createOAuthSession(event, email, {
       hasProductionSession,
       desktop,
+      trackSignup: {
+        authProvider: "google",
+        authUserId: typeof user.id === "string" ? user.id : undefined,
+        name: typeof user.name === "string" ? user.name : undefined,
+      },
     });
 
     if (flowId && sessionToken) {

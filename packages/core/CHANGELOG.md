@@ -1,5 +1,132 @@
 # @agent-native/core
 
+## 0.70.0
+
+### Minor Changes
+
+- b35c8cb: Add an in-app changelog ("What's new") surface. Every app can now ship a
+  user-facing `CHANGELOG.md` that renders in the command menu (Cmd+K) and in
+  settings. Core provides `<ChangelogDialog>`, `<ChangelogSettingsCard>`, a
+  `changelog` prop on `CommandMenu` (with an unseen-release dot), and an
+  `agent-native changelog add|release|list` CLI that authors changeset-style
+  pending entry files and rolls them up into the dated `CHANGELOG.md`.
+
+### Patch Changes
+
+- b35c8cb: Fix MCP app embeds for OpenAI's default web-sandbox origin and keep an Open in new tab fallback available when inline app loading fails.
+- b35c8cb: Return native redirect responses from web OAuth callbacks so successful sign-ins
+  land on the clean return URL instead of retaining provider callback query
+  parameters.
+- b35c8cb: Add a public `GET /_agent-native/health` route that runs a trivial `SELECT 1`
+  to report database liveness and, as a side effect, keep a scale-to-zero
+  serverless database (e.g. Neon) warm. A scheduled ping against this endpoint
+  prevents the multi-second cold-start that otherwise stalls the first request
+  to an idle app. The probe always responds (apps with no database report
+  `db: false` rather than failing) and is never cached. Disable it with the
+  `disableHealth` core-routes option.
+- b35c8cb: Fix MCP app embeds rendering only a flashing/permanent loading state in Codex
+  and Cursor. These standards-track hosts render the `ui://` resource in a strict
+  opaque-origin sandbox (`sandbox="allow-scripts"`) and talk to it over the
+  postMessage `ui/*` bridge. The shell's handshake was already correct, but for
+  these hosts it fell through to self-navigating the sandboxed iframe to the real
+  app origin, which tears down the host bridge and loses the opaque-origin auth
+  context. Any host connected through the native MCP Apps bridge (Codex, Cursor,
+  the SDK App fallback, our own renderer) now transplants the app document into
+  the shell — the same robust path Claude already uses — keeping the bridge alive
+  and loading via embed-token auth. Also handle the spec `host-context-changed`
+  notification and bump the cached resource shell version so hosts refetch.
+- b35c8cb: Fix the missing inline screenshot on PR Visual Recap comments. The `recap shot`
+  command runs `page.evaluate`/`addInitScript` payloads that contain named inner
+  functions; when the CLI is run through `tsx`/esbuild (CI's trusted-workspace
+  path), esbuild's `keepNames` wraps those functions in `__name(...)`, which
+  Playwright then serializes into the browser where `__name` is undefined —
+  throwing `ReferenceError: __name is not defined`, dropping the screenshot, and
+  falling back to a link-only comment. `runShot` now injects an identity `__name`
+  shim as the first browser init script, so every main-world payload is safe
+  regardless of how the CLI was transpiled (the tsc-built published package, which
+  never emits `__name`, is unaffected).
+- b35c8cb: When a long agent run is cut off mid-stream while assembling one large tool input (a generation that exceeds the ~40s soft-timeout window), the auto-continue nudge now points the resumed model at the incremental-edit path for that specific action instead of only handling `create-extension`. Designs (`generate-design` → `edit-design`), plans (`create-visual-plan`/`create-ui-plan` → `update-visual-plan`/`patch-visual-plan-source`), and dashboards (`update-dashboard` incremental `ops`) get tailored "ship a compact first version, then refine" guidance, with a generic compact-first fallback for any other large-payload action. This breaks the re-stream-the-same-oversized-payload thrash loop that could otherwise burn the whole continuation budget without making progress.
+- b35c8cb: Capture first-touch referral attribution and enrich the signup event (`referral_source`, `referrer_user`, UTM, `first_touch_path`) to measure app virality. The browser records an anonymous visitor's first-touch context (`ref`/`via`/`utm_*` params, landing path, and referring host) into an `an_attribution` localStorage key and a first-party `an_ft` cookie, and the server-side `signup` event is enriched from that cookie so every template can see where new users came from.
+
+## 0.69.0
+
+### Minor Changes
+
+- 530de18: Add Firecrawl as a BYOK backend for the web-search agent tool. When `FIRECRAWL_API_KEY` is configured (via app secrets or environment) the tool routes searches through Firecrawl's `/v2/search` API. It slots into the existing first-configured-wins chain after Brave, Tavily, and Exa, and before Builder-managed search, and is registered as an optional framework secret so it surfaces in every template's settings UI.
+
+## 0.68.3
+
+### Patch Changes
+
+- 9db3c12: Fix Cloudflare Pages worker bundling for content-heavy templates and add the published Clips Chrome extension URL defaults.
+
+## 0.68.2
+
+### Patch Changes
+
+- feaf633: Add a reusable CommandMenu docs group so apps can surface relevant Agent Native documentation from Cmd+K.
+- feaf633: Fix PR visual recap head fetching in private fork workflows without persisting checkout credentials.
+- feaf633: Submit Builder branch waitlist requests to the configured Forms endpoint on hosted Agent Native deployments.
+- feaf633: Try legacy Google OAuth client credentials during refresh after rotating product OAuth clients.
+- feaf633: Allow deployments to configure identity-only Google sign-in credentials separately from product Google OAuth credentials.
+
+## 0.68.1
+
+### Patch Changes
+
+- 48356d7: Forward Builder gateway heartbeat JSONL frames through the engine and agent SSE stream so long upstream silences (adaptive thinking, TTFT) do not trip the client no-progress timeout.
+- 48356d7: Fix guided question selection UX: preserve answers across poll refreshes, pause polling while a form is open, show clearer selected-state affordances (including `aria-pressed` on option buttons), and stop duplicate Explore/Decide injection in Design question flows.
+- 48356d7: Resume page-load chat reconnect from the last seen run event seq instead of replaying the full SSE history, preventing duplicated assistant turns after refresh.
+
+## 0.68.0
+
+### Minor Changes
+
+- a623ab6: Ship a generated source corpus with the core package and expose source-search so agents can inspect version-matched core and template patterns from installed apps.
+
+### Patch Changes
+
+- a623ab6: Add configurable agent tool controls for database and extension surfaces. `databaseTools` now accepts `"write"` (default), `"read"`, and `"off"` in addition to booleans, and `extensionTools: false` removes framework extension-management tools and prompt guidance.
+- a623ab6: Surface extension runtime errors that occur before the iframe error toast mounts.
+- a623ab6: Collapse question-form and visual-questions inputs after copying or sending answers to the agent, with an edit affordance to reopen them.
+- a623ab6: Reduce Sentry noise from expected agent-chat quota/rate-limit failures, auth-card recovery, and oversized document attachment validation.
+- a623ab6: Hide development-only skill files from runtime source-search results and direct corpus reads.
+- a623ab6: Improve PR Visual Recap coverage for agent-native PRs: trusted fork authors run through the fork-safe workflow automatically, trusted public same-repo instruction edits no longer false-skip, PR heads are fetched before diffing, and unhealthy Plan routes stop before the agent runs.
+
+## 0.67.1
+
+### Patch Changes
+
+- 7ceb907: Allow native/desktop IDE clients (Cursor, VS Code) to complete the remote MCP
+  OAuth flow. The Dynamic Client Registration endpoint previously rejected any
+  `redirect_uris` that were not `https://` or `http://localhost`, so IDEs that
+  register a private-use URI scheme callback (e.g. `cursor://…`, `vscode://…`,
+  permitted by RFC 8252 §7.1) failed at registration with
+  `invalid_client_metadata` and never obtained a token. Registration now also
+  accepts private-use schemes while still requiring PKCE and rejecting
+  script/file-capable schemes (`javascript:`, `data:`, `file:`, `blob:`,
+  `vbscript:`, `about:`), fragments, and embedded credentials.
+
+## 0.67.0
+
+### Minor Changes
+
+- 1b61a90: Add tab-scoped application-state helpers so multi-tab agents read the screen of the tab they were sent from.
+  - Server: `readAppStateForCurrentTab`, `writeAppStateForCurrentTab`, `appStateKeyForBrowserTab`, and `getCurrentRequestBrowserTabId` (from `@agent-native/core/application-state`). These resolve the requesting tab via `getRequestRunContext().browserTabId`, read the `key:<tabId>` value first, and fall back to the global key for CLI/external agents.
+  - Client: `getBrowserTabId` (from `@agent-native/core/client`), a stable per-tab id backed by sessionStorage.
+
+  The default app scaffold (`view-screen` action and `tab-id` helper) now uses these so newly generated apps are tab-correct by default.
+
+  Without tab scoping, `navigation` (and similar ambient UI state) was a single global key shared across browser tabs, so a chat in one tab could act on whatever clip/record another tab navigated to last.
+
+## 0.66.9
+
+### Patch Changes
+
+- 11a28e7: Track first-time Google OAuth signups and flush server-side signup tracking
+  before auth returns so low-volume events are delivered reliably from serverless
+  deployments.
+
 ## 0.66.8
 
 ### Patch Changes

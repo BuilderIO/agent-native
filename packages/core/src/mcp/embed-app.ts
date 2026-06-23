@@ -455,6 +455,49 @@ export function embedApp(
       };
     }
 
+    function externalOpenUrlForAppUrl(appUrl) {
+      if (openUrl) return openUrl;
+      try {
+        const url = new URL(appUrl.href);
+        url.searchParams.delete("embedded");
+        url.searchParams.delete("__an_embed_token");
+        url.searchParams.delete(chatBridgeParam);
+        return url.toString();
+      } catch (_err) {
+        return "";
+      }
+    }
+
+    function installExternalOpenControl(appUrl) {
+      const href = externalOpenUrlForAppUrl(appUrl);
+      if (!href || !document.body || document.getElementById("agent-native-external-open-control")) {
+        return;
+      }
+      const host = document.createElement("div");
+      host.id = "agent-native-external-open-control";
+      host.style.position = "fixed";
+      host.style.top = "10px";
+      host.style.right = "10px";
+      host.style.zIndex = "2147483647";
+      host.style.pointerEvents = "auto";
+      const root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+      root.innerHTML =
+        '<style>' +
+          ':host{all:initial;}' +
+          'button{box-sizing:border-box;min-height:30px;border:1px solid color-mix(in srgb, CanvasText 18%, Canvas);border-radius:7px;background:Canvas;color:CanvasText;box-shadow:0 6px 22px color-mix(in srgb, CanvasText 14%, transparent);cursor:pointer;font:700 12px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:0 10px;white-space:nowrap;}' +
+          'button:hover{background:color-mix(in srgb, CanvasText 6%, Canvas);}' +
+        '</style>' +
+        '<button type="button">Open in new tab</button>';
+      const button = root.querySelector("button");
+      if (button) {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          void openHostLink({ url: href });
+        });
+      }
+      document.body.appendChild(host);
+    }
+
     function installReactRefreshPreambleFallback() {
       window.__vite_plugin_react_preamble_installed__ = true;
       if (typeof window.$RefreshReg$ !== "function") {
@@ -795,6 +838,7 @@ export function embedApp(
       base.href = config.baseHref;
       document.head.prepend(base);
       importChildren(parsed.body, document.body);
+      installExternalOpenControl(appUrl);
       for (const script of scripts) {
         if (isRunnableClassicScript(script)) runClassicScript(script);
       }
@@ -987,6 +1031,42 @@ export function embedApp(
       }
     }
 
+    function renderAppLaunchError(message) {
+      clearFrameReadyTimer();
+      clearFrameLoadTimer();
+      appFrame = null;
+      const fallbackCopy = openUrl
+        ? "The inline MCP app could not load in this chat host. You can open the same app route in a new tab or retry the inline load."
+        : "The inline MCP app could not load in this chat host.";
+      const copyHtml = message
+        ? '<div>' + esc(message) + '</div><div>' + esc(fallbackCopy) + '</div>'
+        : esc(fallbackCopy);
+      stage.innerHTML =
+        '<div class="fallback">' +
+          '<div class="fallback-title">App did not load</div>' +
+          '<div class="fallback-copy">' + copyHtml + '</div>' +
+          '<div class="fallback-actions">' +
+            '<button type="button" data-fallback-open>Open in new tab</button>' +
+            '<button type="button" data-fallback-retry>Retry</button>' +
+          '</div>' +
+          (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
+        '</div>';
+      const fallbackOpen = stage.querySelector("[data-fallback-open]");
+      const fallbackRetry = stage.querySelector("[data-fallback-retry]");
+      if (fallbackOpen) {
+        fallbackOpen.disabled = !openUrl;
+        fallbackOpen.onclick = () => {
+          if (openUrl) void openHostLink({ url: openUrl });
+        };
+      }
+      if (fallbackRetry) {
+        fallbackRetry.onclick = () => {
+          startedFor = "";
+          void launchEmbed();
+        };
+      }
+    }
+
     async function openFallbackExternal() {
       if (!openUrl) return;
       let url = withChatBridgeParam(openUrl);
@@ -1051,12 +1131,29 @@ export function embedApp(
       return true;
     }
 
+    // We have connected to a standards-track MCP Apps host (Codex, Cursor,
+    // Claude over the SDK, our own renderer, …) through the postMessage
+    // \`ui/*\` bridge rather than ChatGPT's \`window.openai\` global. These hosts
+    // render the resource in a strict sandboxed iframe (typically
+    // \`sandbox="allow-scripts"\`, opaque origin). Self-navigating that iframe to
+    // the real app origin tears down the host bridge and loses the opaque-origin
+    // auth context, which shows up as a permanent / flashing loading state.
+    // Transplanting the app document into the shell keeps the bridge alive and
+    // works under the opaque origin via embed-token auth, exactly like Claude.
+    function isNativeMcpAppsBridgeHost() {
+      return !!app && !openAiBridge;
+    }
+
     function shouldTransplantAppDocument() {
       const render = renderModeSource();
       const mode = render.mode;
+      if (mode === "iframe" || mode === "nested" || render.frame === "iframe" || render.nested) {
+        return false;
+      }
       return (
         isClaudeMcpContentHost() ||
         isChatGptSandboxHost() ||
+        isNativeMcpAppsBridgeHost() ||
         mode === "transplant" ||
         render.frame === "transplant"
       );
@@ -1074,7 +1171,7 @@ export function embedApp(
       try {
         const host = window.location.hostname || "";
         const appParam = new URL(window.location.href).searchParams.get("app");
-        return /^[^.]+\\.web-sandbox\\.oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
+        return /^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
       } catch {
         return false;
       }
@@ -1297,7 +1394,7 @@ export function embedApp(
     async function launchEmbed() {
       const launchUrl = openStartUrl || openUrl;
       if (!launchUrl) {
-        setMessage("Open link was not available.");
+        renderAppLaunchError("Open link was not available.");
         return;
       }
       if (!wantsEmbed()) {
@@ -1328,7 +1425,7 @@ export function embedApp(
         const data = parseToolResult(result);
         if (typeof data.startUrl !== "string" || !data.startUrl) {
           startedFor = "";
-          setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
+          renderAppLaunchError(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
         const startUrl = withChatBridgeParam(data.startUrl);
@@ -1345,7 +1442,7 @@ export function embedApp(
         }
       } catch (err) {
         startedFor = "";
-        setMessage(err && err.message ? err.message : "Could not launch embedded app.");
+        renderAppLaunchError(err && err.message ? err.message : "Could not launch embedded app.");
       }
     }
 
@@ -1394,6 +1491,9 @@ export function embedApp(
     function isChatGptHostHint() {
       try {
         if (new URLSearchParams(window.location.search).get("app") === "chatgpt") return true;
+      } catch (_err) {}
+      try {
+        if (/^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(window.location.hostname || "")) return true;
       } catch (_err) {}
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
@@ -1578,8 +1678,13 @@ export function embedApp(
         async openLink(params) {
           const url = typeof (params && params.url) === "string" ? params.url : "";
           if (!url) return { isError: true };
-          window.open(url, "_blank", "noopener,noreferrer");
-          return { ok: true };
+          try {
+            return await rpcRequest("ui/open-link", { url }, wrapperRequestTimeoutMs);
+          } catch (err) {
+            console.warn("[agent-native] MCP host open-link request failed", err);
+          }
+          const opened = window.open(url, "_blank", "noopener,noreferrer");
+          return opened ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
           return await rpcRequest("ui/request-display-mode", objectValue(params));
@@ -1615,6 +1720,7 @@ export function embedApp(
           return;
         }
         if (
+          message.method === "ui/notifications/host-context-changed" ||
           message.method === "ui/notifications/host-context" ||
           message.method === "ui/notifications/context"
         ) {

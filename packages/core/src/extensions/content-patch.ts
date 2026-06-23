@@ -116,13 +116,23 @@ export async function applyExtensionContentUpdate(
 export async function formatExtensionHtml(content: string): Promise<string> {
   try {
     const prettier = await import("prettier");
-    return await prettier.format(content, {
+    const formatted = await prettier.format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
     });
+    return typeof formatted === "string" ? formatted : content;
   } catch (err: any) {
+    const message = String(err?.message ?? err);
+    if (
+      message.includes("Cannot find package 'prettier'") ||
+      message.includes('Cannot find package "prettier"') ||
+      message.includes("Cannot find module 'prettier'") ||
+      message.includes('Cannot find module "prettier"')
+    ) {
+      return content;
+    }
     throw new Error(
-      `Unable to format extension HTML with Prettier: ${err?.message ?? err}`,
+      `Unable to format extension HTML with Prettier: ${message}`,
     );
   }
 }

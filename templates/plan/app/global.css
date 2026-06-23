@@ -380,9 +380,9 @@
   --rail-gap: 2rem;
 }
 
-@media (min-width: 1024px) {
+@container plan-doc (min-width: 64rem) {
   .plan-content-surface[data-plan-layout="wide"] .plan-document-shell {
-    --plan-wide-component-width: min(1560px, calc(100vw - 5rem));
+    --plan-wide-component-width: min(1560px, calc(100cqw - 5rem));
   }
 
   .plan-content-surface[data-plan-layout="wide"] .plan-document-flow-stack {

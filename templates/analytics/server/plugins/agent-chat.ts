@@ -240,11 +240,11 @@ export default createAgentChatPlugin({
           return filtered.slice(0, 20).map((d) => ({
             id: `dashboard:${d.id}`,
             label: d.name || "Untitled dashboard",
-            description: `/adhoc/${d.id}`,
+            description: `/dashboards/${d.id}`,
             icon: "deck",
             refType: "dashboard",
             refId: d.id,
-            refPath: `/adhoc/${d.id}`,
+            refPath: `/dashboards/${d.id}`,
           }));
         } catch (err) {
           console.error("[analytics] Dashboard mention provider failed:", err);

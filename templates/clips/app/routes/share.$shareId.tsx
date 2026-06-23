@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -22,8 +23,10 @@ import {
   agentNativePath,
   appBasePath,
   appPath,
+  track,
   useSession,
   AgentPanel,
+  getBrowserTabId,
 } from "@agent-native/core/client";
 import {
   VideoPlayer,
@@ -40,6 +43,7 @@ import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,6 +72,10 @@ import {
   clipsSharePageTitle,
   displayRecordingTitle,
 } from "../../shared/share-meta";
+import {
+  buildSignupAttributionQuery,
+  readShareAttribution,
+} from "../../shared/share-attribution";
 
 type SharePageMetaRecording = {
   id: string;
@@ -272,6 +280,61 @@ export default function ShareRoute() {
   const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
+
+  // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
+  // share link) so we can fire funnel events and forward attribution into the
+  // signup URL even when cookies are blocked or `document.referrer` is empty.
+  const attribution = useMemo(
+    () =>
+      readShareAttribution(
+        typeof window === "undefined" ? "" : window.location.search,
+      ),
+    [],
+  );
+  const recordingId = shareId ?? "";
+
+  // share_cta_click — fired alongside (never instead of) the real navigation.
+  // `track` is non-throwing, but guard anyway so tracking can never break a CTA.
+  const fireShareCtaClick = useCallback(
+    (cta: "signup" | "download" | "try_clips" | "signin") => {
+      try {
+        void track("share_cta_click", {
+          surface: "clip",
+          recording_id: recordingId,
+          cta,
+          ref: attribution.ref,
+          via: attribution.via,
+        });
+      } catch {
+        // Never let analytics break a CTA.
+      }
+    },
+    [recordingId, attribution.ref, attribution.via],
+  );
+
+  // Forward attribution into the signup URL so it survives blocked cookies.
+  const signupHref = appPath(
+    `/signup?${buildSignupAttributionQuery(attribution.via)}`,
+  );
+
+  // share_view — fire once when the public share page mounts. The ref guard
+  // prevents double-fire across re-renders / StrictMode double-invocation.
+  const shareViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (shareViewFiredRef.current) return;
+    shareViewFiredRef.current = true;
+    try {
+      void track("share_view", {
+        surface: "clip",
+        recording_id: recordingId,
+        ref: attribution.ref,
+        via: attribution.via,
+      });
+    } catch {
+      // Never let analytics break the page render.
+    }
+  }, [recordingId, attribution.ref, attribution.via]);
+
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
@@ -354,17 +417,22 @@ export default function ShareRoute() {
   // clip instead of falling back to a generic library view.
   useEffect(() => {
     if (!session || !recording?.id) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "share",
-        shareId: recording.id,
-        recordingId: recording.id,
-        path: `/share/${recording.id}`,
-      }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "share",
+          shareId: recording.id,
+          recordingId: recording.id,
+          path: `/share/${recording.id}`,
+        }),
+      },
+    ).catch(() => {});
   }, [session, recording?.id]);
 
   useEffect(() => {
@@ -683,7 +751,11 @@ export default function ShareRoute() {
               </Button>
             ) : session ? null : (
               <Button variant="ghost" size="sm" asChild>
-                <a href={appPath("/")} className="gap-1.5">
+                <a
+                  href={appPath("/")}
+                  className="gap-1.5"
+                  onClick={() => fireShareCtaClick("try_clips")}
+                >
                   Try Clips
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </a>
@@ -869,9 +941,13 @@ export default function ShareRoute() {
                   "List follow-up actions",
                   "Draft questions for the author",
                 ]}
+                browserTabId={getBrowserTabId()}
               />
             ) : (
-              <PublicAgentEmptyState />
+              <PublicAgentEmptyState
+                signupHref={signupHref}
+                onCtaClick={fireShareCtaClick}
+              />
             )}
           </TabsContent>
           <TabsContent
@@ -924,6 +1000,7 @@ export default function ShareRoute() {
           if (!open) setSignInIntent(null);
         }}
         intent={signInIntent ?? "comment"}
+        onSignIn={() => fireShareCtaClick("signin")}
       />
     </div>
   );
@@ -939,7 +1016,13 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function PublicAgentEmptyState() {
+function PublicAgentEmptyState({
+  signupHref,
+  onCtaClick,
+}: {
+  signupHref: string;
+  onCtaClick: (cta: "signup" | "download" | "try_clips" | "signin") => void;
+}) {
   const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
 
   useEffect(() => {
@@ -997,14 +1080,18 @@ function PublicAgentEmptyState() {
         Loom alternative
       </p>
       <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-        <Button asChild className="w-full gap-2">
-          <a href={appPath("/download")}>
-            <IconDownload className="h-4 w-4" />
-            {downloadLabel}
-          </a>
-        </Button>
+        <CaptureInstallButton
+          className="w-full gap-2"
+          align="center"
+          onClick={() => onCtaClick("download")}
+        >
+          <IconDownload className="h-4 w-4" />
+          {downloadLabel}
+        </CaptureInstallButton>
         <Button asChild variant="outline" className="w-full">
-          <a href={appPath("/signup")}>Sign up</a>
+          <a href={signupHref} onClick={() => onCtaClick("signup")}>
+            Sign up
+          </a>
         </Button>
       </div>
     </div>

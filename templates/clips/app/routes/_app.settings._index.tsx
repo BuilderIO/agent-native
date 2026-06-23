@@ -1,24 +1,46 @@
 import { useEffect, useState } from "react";
 import {
   IconBrain,
+  IconBrandSlack,
   IconCloud,
   IconExternalLink,
   IconKey,
   IconLoader2,
   IconServer,
+  IconTrash,
   IconUser,
 } from "@tabler/icons-react";
 import {
   useSession,
   agentNativePath,
+  appApiPath,
   openBuilderConnectPopup,
+  useActionQuery,
+  ChangelogSettingsCard,
 } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/library/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -80,6 +102,25 @@ interface ClipsUserSettings {
   transcriptCleanupEnabled?: boolean;
 }
 
+interface SlackInstallation {
+  id: string;
+  teamId: string;
+  teamName: string | null;
+  enterpriseName: string | null;
+  apiAppId: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  status: string;
+  updatedAt: string;
+}
+
+interface SlackInstallationsResponse {
+  oauthConfigured: boolean;
+  signingConfigured: boolean;
+  scopes: string[];
+  installations: SlackInstallation[];
+}
+
 async function loadSettings(): Promise<ClipsUserSettings> {
   try {
     const res = await fetch(
@@ -108,6 +149,81 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
   );
   if (!res.ok) {
     throw new Error(`Save failed (${res.status})`);
+  }
+}
+
+function absoluteAppUrl(url: string): string {
+  const withBase = url.startsWith("/api/") ? appApiPath(url) : url;
+  return new URL(withBase, window.location.origin).toString();
+}
+
+async function waitForPopupClose(popup: Window): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      window.removeEventListener("focus", onFocus);
+      resolve();
+    };
+    const interval = window.setInterval(() => {
+      if (popup.closed) finish();
+    }, 500);
+    const onFocus = () => {
+      if (popup.closed) finish();
+    };
+    window.addEventListener("focus", onFocus);
+    const timeout = window.setTimeout(finish, 5 * 60 * 1000);
+  });
+}
+
+async function startSlackOAuth(): Promise<void> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/connect-slack?returnUrl=/settings"),
+  );
+  const text = await res.text();
+  let data: {
+    url?: string;
+    error?: string;
+    result?: { url?: string };
+  } = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Keep the fallback below.
+  }
+  if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
+  const url = data.result?.url ?? data.url;
+  if (!url) throw new Error("No Slack OAuth URL returned");
+  const popup = window.open(
+    absoluteAppUrl(url),
+    "clips-slack-oauth",
+    "width=600,height=760",
+  );
+  if (!popup) {
+    throw new Error(
+      "Popup blocked — please allow popups for this site and try again.",
+    );
+  }
+  await waitForPopupClose(popup);
+}
+
+async function requestDisconnectSlack(id: string): Promise<void> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/disconnect-slack"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Disconnect failed (${res.status})`);
   }
 }
 
@@ -141,9 +257,18 @@ export default function SettingsIndexRoute() {
   const { session } = useSession();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
+  const slackStatus = useActionQuery<SlackInstallationsResponse>(
+    "list-slack-installations",
+    undefined,
+    { retry: false },
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingStorage, setSavingStorage] = useState(false);
+  const [connectingSlack, setConnectingSlack] = useState(false);
+  const [disconnectingSlack, setDisconnectingSlack] = useState(false);
+  const [disconnectSlackTarget, setDisconnectSlackTarget] =
+    useState<SlackInstallation | null>(null);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [displayName, setDisplayName] = useState("");
@@ -214,8 +339,51 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  async function handleConnectSlack() {
+    const beforeCount = slackInstallations.length;
+    setConnectingSlack(true);
+    try {
+      await startSlackOAuth();
+      const refreshed = await slackStatus.refetch();
+      const afterCount = refreshed.data?.installations?.length ?? beforeCount;
+      if (afterCount > beforeCount) {
+        toast.success("Slack connected");
+      } else {
+        toast.message("Slack connection checked");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to connect Slack",
+      );
+    } finally {
+      setConnectingSlack(false);
+    }
+  }
+
+  async function handleDisconnectSlack() {
+    const target = disconnectSlackTarget;
+    if (!target) return;
+    setDisconnectingSlack(true);
+    try {
+      await requestDisconnectSlack(target.id);
+      setDisconnectSlackTarget(null);
+      await slackStatus.refetch();
+      toast.success("Slack disconnected");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to disconnect Slack",
+      );
+    } finally {
+      setDisconnectingSlack(false);
+    }
+  }
+
   const storageConfigured = !!storageStatus.data?.configured;
   const activeProviderName = storageStatus.data?.activeProvider?.name ?? null;
+  const slackInstallations = slackStatus.data?.installations ?? [];
+  const slackOauthConfigured = slackStatus.data?.oauthConfigured ?? false;
+  const slackSigningConfigured = slackStatus.data?.signingConfigured ?? false;
+  const slackConnected = slackInstallations.length > 0;
 
   return (
     <>
@@ -226,8 +394,10 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <div className="p-6 max-w-2xl mx-auto space-y-6">
         <p className="text-sm text-muted-foreground">
-          Your personal preferences — scoped to this account.
+          Preferences and connected services for this Clips workspace.
         </p>
+
+        <ChangelogSettingsCard markdown={changelog} />
 
         <Card id="video-storage" className="scroll-mt-16">
           <CardHeader>
@@ -293,6 +463,109 @@ export default function SettingsIndexRoute() {
                 Save storage
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card id="slack" className="scroll-mt-16">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <IconBrandSlack className="size-4 text-primary" />
+              Agent-Native Clips for Slack
+            </CardTitle>
+            <CardDescription>
+              Share a public clip, paste the link in Slack, and it plays inline
+              — no extra steps for viewers. Connect each workspace once.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
+                  {slackStatus.isLoading
+                    ? "Checking Slack"
+                    : slackConnected
+                      ? `${slackInstallations.length} workspace${
+                          slackInstallations.length === 1 ? "" : "s"
+                        } connected`
+                      : slackOauthConfigured
+                        ? "Not connected"
+                        : "OAuth credentials needed"}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Public Clips links can render as playable Slack previews.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={handleConnectSlack}
+                disabled={
+                  connectingSlack ||
+                  slackStatus.isLoading ||
+                  !slackOauthConfigured
+                }
+              >
+                {connectingSlack ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <IconExternalLink className="h-4 w-4" />
+                )}
+                Connect Slack
+              </Button>
+            </div>
+
+            {!slackOauthConfigured ? (
+              <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET for this deployment
+                before connecting workspaces.
+              </div>
+            ) : null}
+
+            {!slackSigningConfigured ? (
+              <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                Set SLACK_SIGNING_SECRET so Slack event callbacks can be
+                verified.
+              </div>
+            ) : null}
+
+            {slackInstallations.length > 0 ? (
+              <div className="space-y-2">
+                {slackInstallations.map((installation) => (
+                  <div
+                    key={installation.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {installation.teamName || installation.teamId}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>{installation.status}</span>
+                        {installation.enterpriseName ? (
+                          <span>{installation.enterpriseName}</span>
+                        ) : null}
+                        <span>Connected by {installation.ownerEmail}</span>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      aria-label={`Disconnect ${
+                        installation.teamName || installation.teamId
+                      }`}
+                      onClick={() => setDisconnectSlackTarget(installation)}
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -461,6 +734,39 @@ export default function SettingsIndexRoute() {
           </Button>
         </div>
       </div>
+      <AlertDialog
+        open={!!disconnectSlackTarget}
+        onOpenChange={(open) => {
+          if (!open && !disconnectingSlack) setDisconnectSlackTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Slack?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Clips will delete the stored bot token for{" "}
+              {disconnectSlackTarget?.teamName ||
+                disconnectSlackTarget?.teamId ||
+                "this workspace"}{" "}
+              and stop sending playable Slack previews.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disconnectingSlack}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDisconnectSlack();
+              }}
+              disabled={disconnectingSlack}
+            >
+              {disconnectingSlack ? "Disconnecting..." : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

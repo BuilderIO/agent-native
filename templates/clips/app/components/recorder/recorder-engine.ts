@@ -99,6 +99,17 @@ export interface RecorderEngineOptions {
    */
   onDisplayTrackEnded?: () => void;
   /**
+   * Fired with the *actual* capture surface the user selected in the browser's
+   * native screen picker, read from the resulting display track's settings.
+   * The `displaySurface` we request is only a hint, and `surfaceSwitching:
+   * include` lets the user swap surfaces mid-recording — so this is the
+   * authority for "is the whole screen (this tab included) being captured?".
+   * Fires once right after acquisition and again on `configurationchange` when
+   * the shared surface switches. Reports `null` when the browser doesn't expose
+   * the resolved surface (Firefox/Safari are partial).
+   */
+  onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
+  /**
    * Fired with progress updates while ffmpeg.wasm is re-encoding a too-large
    * recording. Stage transitions from `loading-ffmpeg` → `preparing` →
    * `encoding` (with 0..1 progress) → `finalizing`. The engine itself
@@ -173,6 +184,17 @@ function voiceFocusedAudioConstraints(
 
 function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
+}
+
+// getUserMedia failed because the requested device is gone (unplugged / stale
+// saved id), not a permission error — recoverable by retrying with the default.
+function isDeviceUnavailableError(err: unknown): boolean {
+  const name = errorName(err);
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
 }
 
 function errorMessage(err: unknown): string {
@@ -398,6 +420,13 @@ export class RecorderEngine {
    */
   private cameraDisconnectNotified = false;
   private micDisconnectNotified = false;
+  /**
+   * Set when a stale/unavailable `micDeviceId` forces a fallback to the system
+   * default mic during `acquire()`. The recording then runs on the default
+   * device, so live transcription (which can only ever use the default mic) is
+   * safe to start even though a specific mic was originally requested.
+   */
+  private micFellBackToDefault = false;
 
   private state: RecorderState = "idle";
 
@@ -426,8 +455,28 @@ export class RecorderEngine {
     return this.cameraStream;
   }
 
+  /**
+   * True when `acquire()` had to fall back from the requested `micDeviceId` to
+   * the system default mic. Lets the UI start live transcription for this
+   * session even though a specific mic was originally selected.
+   */
+  didMicFallBackToDefault(): boolean {
+    return this.micFellBackToDefault;
+  }
+
   getPreviewStream(): MediaStream | null {
     return this.previewStream;
+  }
+
+  /**
+   * The composited screen+camera canvas stream that actually gets recorded
+   * (screen with the camera bubble drawn in), or `null` for screen-only /
+   * camera-only modes where the visible preview already matches the recording.
+   * Used to grab a thumbnail that includes the presenter's camera — the raw
+   * preview stream in screen+camera mode is screen-only and has no face.
+   */
+  getCompositeStream(): MediaStream | null {
+    return this.cameraComposite?.stream ?? null;
   }
 
   getElapsedMs(): number {
@@ -493,6 +542,7 @@ export class RecorderEngine {
     const wantsCamera =
       this.opts.mode === "camera" || this.opts.mode === "screen+camera";
     const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
+    this.micFellBackToDefault = false;
 
     try {
       if (!isBrowserSecureContext()) {
@@ -581,7 +631,20 @@ export class RecorderEngine {
             audio: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "camera");
+          // Stale/unplugged cameraDeviceId — retry with the default camera
+          // instead of failing the recording.
+          if (this.opts.cameraDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "camera");
+            }
+          } else {
+            throw this.friendlyError(err, "camera");
+          }
         }
       }
 
@@ -592,7 +655,22 @@ export class RecorderEngine {
             video: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "microphone");
+          // Same stale-device fallback as the camera — retry default mic.
+          if (this.opts.micDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.micStream = await navigator.mediaDevices.getUserMedia({
+                audio: voiceFocusedAudioConstraints(),
+                video: false,
+              });
+              // Recording is now on the system default mic, so live
+              // transcription can run for this session after all.
+              this.micFellBackToDefault = true;
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "microphone");
+            }
+          } else {
+            throw this.friendlyError(err, "microphone");
+          }
         }
       }
 
@@ -604,7 +682,22 @@ export class RecorderEngine {
       // Without it we fall back to stopping the engine directly — but this
       // bypasses all UI side-effects, so always provide the callback.
       if (this.displayStream) {
+        // The requested `displaySurface` is only a hint; report the surface the
+        // user actually picked so the UI can hide its live camera-bubble overlay
+        // only when the whole screen (this tab included) is captured. With
+        // `surfaceSwitching: include` the user can swap surfaces mid-recording
+        // without a re-prompt, so refresh on `configurationchange` too.
+        const reportDisplaySurface = (track: MediaStreamTrack) => {
+          const settings = track.getSettings() as MediaTrackSettings & {
+            displaySurface?: DisplaySurface;
+          };
+          this.opts.onResolvedDisplaySurface?.(settings.displaySurface ?? null);
+        };
         for (const track of this.displayStream.getVideoTracks()) {
+          reportDisplaySurface(track);
+          track.addEventListener("configurationchange", () =>
+            reportDisplaySurface(track),
+          );
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
               if (this.opts.onDisplayTrackEnded) {

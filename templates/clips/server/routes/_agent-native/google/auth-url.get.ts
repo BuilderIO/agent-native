@@ -8,6 +8,7 @@ import {
   encodeOAuthState,
   getSession,
   isElectron,
+  resolveGoogleSignInCredentials,
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
@@ -34,17 +35,6 @@ function oauthRedirectResponse(url: string) {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    setResponseStatus(event, 422);
-    return {
-      error: "missing_credentials",
-      message:
-        "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
-    };
-  }
-
   try {
     const q = getQuery(event);
     const redirectUri = resolveOAuthRedirectUri(event);
@@ -67,6 +57,23 @@ export default defineEventHandler(async (event: H3Event) => {
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     const calendarConnect =
       q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
+    const credentials = calendarConnect
+      ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null
+      : resolveGoogleSignInCredentials();
+    if (!credentials) {
+      setResponseStatus(event, 422);
+      return {
+        error: "missing_credentials",
+        message: calendarConnect
+          ? "Google Calendar OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+          : "Google sign-in credentials are not configured. Set GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_SIGN_IN_CLIENT_SECRET.",
+      };
+    }
 
     if (calendarConnect && !owner) {
       setResponseStatus(event, 401);
@@ -87,7 +94,7 @@ export default defineEventHandler(async (event: H3Event) => {
     });
 
     const params = new URLSearchParams({
-      client_id: clientId,
+      client_id: credentials.clientId,
       redirect_uri: redirectUri,
       response_type: "code",
       state,

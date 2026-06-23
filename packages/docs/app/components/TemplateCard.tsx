@@ -8,17 +8,42 @@ export { trackEvent };
 
 export const templates = [
   {
-    name: "Calendar",
-    slug: "calendar",
-    replaces: "Replaces or augments Google Calendar, Calendly",
+    name: "Clips",
+    slug: "clips",
+    replaces: "Replaces or augments Loom, Granola, and Wisprflow",
     cliCommand:
-      "npx @agent-native/core@latest create my-calendar-app --template calendar",
-    demoUrl: "https://calendar.agent-native.com",
+      "npx @agent-native/core@latest create my-clips-app --template clips",
+    demoUrl: "https://clips.agent-native.com",
     description:
-      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
-    color: "#10b981",
+      "Screen recordings, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
+    color: "#0EA5E9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800",
+  },
+  {
+    name: "Plans",
+    slug: "plan",
+    replaces: "Visual plan mode for Codex, Claude Code, and coding agents",
+    cliCommand: "npx @agent-native/core@latest skills add visual-plan",
+    demoUrl: "https://plan.agent-native.com",
+    description:
+      "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
+    color: "#52525B",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800",
+  },
+  {
+    name: "Design",
+    slug: "design",
+    replaces: "Replaces or augments design prototyping tools",
+    cliCommand:
+      "npx @agent-native/core@latest create my-design-app --template design",
+    demoUrl: "https://design.agent-native.com",
+    description:
+      "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+    color: "#F472B6",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
   },
   {
     name: "Content",
@@ -32,18 +57,6 @@ export const templates = [
     color: "#7928ca",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
-  },
-  {
-    name: "Plans",
-    slug: "plan",
-    replaces: "Visual plan mode for Codex, Claude Code, and coding agents",
-    cliCommand: "npx @agent-native/core@latest skills add visual-plan",
-    demoUrl: "https://plan.agent-native.com",
-    description:
-      "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
-    color: "#52525B",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800",
   },
   {
     name: "Slides",
@@ -111,19 +124,6 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
   },
   {
-    name: "Clips",
-    slug: "clips",
-    replaces: "Replaces or augments Loom, Granola, and Wisprflow",
-    cliCommand:
-      "npx @agent-native/core@latest create my-clips-app --template clips",
-    demoUrl: "https://clips.agent-native.com",
-    description:
-      "Screen recordings, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
-    color: "#0EA5E9",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800",
-  },
-  {
     name: "Brain",
     slug: "brain",
     replaces:
@@ -152,17 +152,17 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
   },
   {
-    name: "Design",
-    slug: "design",
-    replaces: "Replaces or augments design prototyping tools",
+    name: "Calendar",
+    slug: "calendar",
+    replaces: "Replaces or augments Google Calendar, Calendly",
     cliCommand:
-      "npx @agent-native/core@latest create my-design-app --template design",
-    demoUrl: "https://design.agent-native.com",
+      "npx @agent-native/core@latest create my-calendar-app --template calendar",
+    demoUrl: "https://calendar.agent-native.com",
     description:
-      "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
-    color: "#F472B6",
+      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
+    color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
   },
   {
     name: "Dispatch",

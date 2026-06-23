@@ -1,12 +1,38 @@
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, vi } from "vitest";
 import { describe, expect, it } from "vitest";
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
   buildMcpAppCsp,
   clampMcpAppHeight,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
+  MCP_APP_INITIALIZE_TIMEOUT_MS,
+  McpAppRenderer,
   supportedMcpAppPermissions,
 } from "./McpAppRenderer.js";
 
 describe("McpAppRenderer security helpers", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("grants only supported iframe permissions", () => {
     expect(
       supportedMcpAppPermissions({
@@ -57,4 +83,73 @@ describe("McpAppRenderer security helpers", () => {
     );
     expect(csp).not.toContain("http://evil.example:*");
   });
+
+  it("stops waiting forever when a loaded resource never initializes the MCP bridge", async () => {
+    vi.useFakeTimers();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    const payload = mcpAppPayload({
+      resourceHtml: "<!doctype html><html><body>Static widget</body></html>",
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+
+    await act(async () => {
+      root.render(React.createElement(McpAppRenderer, { app: payload }));
+    });
+
+    expect(container.textContent).toContain("Loading MCP App");
+    const iframe = container.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+
+    await act(async () => {
+      iframe?.dispatchEvent(new Event("load"));
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(MCP_APP_INITIALIZE_TIMEOUT_MS + 1);
+    });
+
+    expect(container.textContent).toContain(
+      "MCP App did not finish initializing.",
+    );
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === "Open in new tab",
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://plan.agent-native.com/plans/plan-123",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
 });
+
+function mcpAppPayload({
+  resourceHtml,
+  openUrl,
+}: {
+  resourceHtml: string;
+  openUrl: string;
+}): AgentMcpAppPayload {
+  return {
+    serverId: "plan",
+    toolName: "open_app",
+    originalToolName: "open_app",
+    resourceUri: "ui://plan/open_app/shell-v45",
+    toolInput: { embed: true },
+    toolResult: {
+      structuredContent: {
+        openLink: { webUrl: openUrl },
+      },
+    },
+    resource: {
+      uri: "ui://plan/open_app/shell-v45",
+      mimeType: "text/html;profile=mcp-app",
+      text: resourceHtml,
+    },
+  };
+}

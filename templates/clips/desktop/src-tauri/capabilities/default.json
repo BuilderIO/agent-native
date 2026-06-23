@@ -15,7 +15,8 @@
     "flow-bar",
     "recording-pill",
     "region-guides",
-    "region-guide-editor"
+    "region-guide-editor",
+    "region-record-border"
   ],
   "permissions": [
     "core:default",

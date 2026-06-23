@@ -325,6 +325,27 @@
   font-size: 12px;
 }
 
+.agent-mcp-app__error {
+  flex-direction: column;
+  text-align: center;
+}
+
+.agent-mcp-app__open {
+  min-height: 28px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+.agent-mcp-app__open:hover {
+  background: hsl(var(--muted));
+}
+
 .agent-mcp-app__error,
 .agent-mcp-app--error {
   color: hsl(var(--destructive));

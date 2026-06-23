@@ -17,6 +17,10 @@ export interface CalendarEvent {
   accountEmail?: string;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
+  /** Client-only marker for overlaid calendar ownership */
+  ownerColor?: string;
+  /** Client-only display name for the overlaid calendar owner */
+  ownerName?: string;
   color?: string;
   /** Google Calendar event color id (1-11). */
   colorId?: string;

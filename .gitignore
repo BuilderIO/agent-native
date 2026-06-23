@@ -19,6 +19,9 @@ packages/docs/*.png
 packages/core/README.md
 packages/dispatch/README.md
 
+# Generated at core build/prepack time for npm package agent lookup
+packages/core/corpus/
+
 # Internal notes
 RAMBLINGS.md
 FUSION-APPS.md

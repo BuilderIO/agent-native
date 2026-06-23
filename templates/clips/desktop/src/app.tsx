@@ -115,6 +115,7 @@ interface LocalRecordingNotice {
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
+type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -190,6 +191,43 @@ function serverUrlForPendingUpload(
 ): string {
   const normalizedCurrent = normalizeServerUrl(currentServerUrl);
   return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
+}
+
+async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
+  const base = serverUrl.replace(/\/+$/, "");
+
+  try {
+    const uploadStatus = await fetch(
+      `${base}/_agent-native/file-upload/status`,
+      {
+        credentials: "include",
+        cache: "no-store",
+      },
+    );
+    const body = uploadStatus.ok
+      ? ((await uploadStatus.json().catch(() => null)) as {
+          configured?: boolean;
+        } | null)
+      : null;
+    if (body?.configured) return true;
+  } catch {
+    // Fall through to the Builder status endpoint.
+  }
+
+  try {
+    const builderStatus = await fetch(`${base}/_agent-native/builder/status`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const body = builderStatus.ok
+      ? ((await builderStatus.json().catch(() => null)) as {
+          configured?: boolean;
+        } | null)
+      : null;
+    return !!body?.configured;
+  } catch {
+    return false;
+  }
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -550,6 +588,8 @@ export function App() {
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
   );
+  const [videoStorageStatus, setVideoStorageStatus] =
+    useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [signInPending, setSignInPending] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -577,8 +617,6 @@ export function App() {
     selectedMicLabel,
     cameraDevices,
     micDevices,
-    setBubbleCameras,
-    setBubbleMics,
     loadDevices,
     requestDeviceAccess,
   } = useMediaDevices({
@@ -600,6 +638,42 @@ export function App() {
     installAuthFetchInterceptor();
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
   }, [serverUrl]);
+
+  const refreshVideoStorageStatus = useCallback(async () => {
+    if (authStatus !== "authed" || localRecordingMode !== "off") {
+      setVideoStorageStatus("configured");
+      return true;
+    }
+
+    setVideoStorageStatus("checking");
+    const configured = await hasConfiguredVideoStorage(serverUrl);
+    setVideoStorageStatus(configured ? "configured" : "missing");
+    return configured;
+  }, [authStatus, localRecordingMode, serverUrl]);
+
+  useEffect(() => {
+    void refreshVideoStorageStatus();
+  }, [refreshVideoStorageStatus]);
+
+  useEffect(() => {
+    if (
+      authStatus !== "authed" ||
+      localRecordingMode !== "off" ||
+      videoStorageStatus !== "missing"
+    ) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshVideoStorageStatus();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [
+    authStatus,
+    localRecordingMode,
+    refreshVideoStorageStatus,
+    videoStorageStatus,
+  ]);
 
   useEffect(() => {
     return installDesktopVoiceDictation({
@@ -1043,13 +1117,16 @@ export function App() {
       }),
     );
     // The bubble window emits `clips:bubble-closed` when the user clicks
-    // the X on the hover controls. Treat that as "camera off" — the
-    // bubble-session effect then tears down the stream + pump.
+    // the X on the hover controls. Treat that as "camera off": stop the
+    // popover-owned camera track now so the hardware light goes off
+    // immediately, and clear `cameraOn` so the bubble-session effect tears
+    // down the rest (pump/window) and the toggle reflects the new state.
     track(
       listen("clips:bubble-closed", () => {
         console.log(
-          "[clips-popover] bubble-closed received — clearing cameraOn",
+          "[clips-popover] bubble-closed received — stopping camera + clearing cameraOn",
         );
+        bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
         setCameraOn(false);
       }),
     );
@@ -1326,6 +1403,24 @@ export function App() {
     };
   }, [bubbleActive, cameraId]);
 
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:release-camera", () => {
+      console.log(`[popover] releasing camera`);
+      bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
+    })
+      .then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
   // height varies (more rows when a camera is on, Recent list toggle, etc.).
@@ -1538,10 +1633,35 @@ export function App() {
     });
   }
 
+  const openVideoStorageSetup = useCallback(() => {
+    const base = serverUrl.replace(/\/+$/, "");
+    setRecError(
+      "Connect Builder.io or S3-compatible storage before recording from desktop. Opening storage setup...",
+    );
+    void openExternal(`${base}/record`).catch((err) => {
+      setRecError(
+        err instanceof Error
+          ? err.message
+          : "Could not open Clips storage setup.",
+      );
+    });
+    void refreshVideoStorageStatus();
+  }, [refreshVideoStorageStatus, serverUrl]);
+
   async function handleStartRecording(options?: {
     ignoreActiveRecorder?: boolean;
   }) {
     if (recorder && !options?.ignoreActiveRecorder) return;
+    if (localRecordingMode === "off") {
+      if (videoStorageStatus === "checking") {
+        setRecError("Checking video storage. Try again in a moment.");
+        return;
+      }
+      if (videoStorageStatus === "missing") {
+        openVideoStorageSetup();
+        return;
+      }
+    }
     setRecError(null);
     setLocalRecordingNotice(null);
     console.log("[clips-popover] handleStartRecording clicked", {
@@ -2103,13 +2223,18 @@ export function App() {
 
       <button
         className="primary start"
+        disabled={
+          localRecordingMode === "off" && videoStorageStatus === "checking"
+        }
         onClick={() => {
           void handleStartRecording();
         }}
       >
-        {localRecordingMode === "off"
-          ? "Start recording"
-          : "Start local recording"}
+        {localRecordingMode === "off" && videoStorageStatus === "checking"
+          ? "Checking storage..."
+          : localRecordingMode === "off"
+            ? "Start recording"
+            : "Start local recording"}
       </button>
       {recError ? (
         recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (

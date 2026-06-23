@@ -19,9 +19,14 @@ import {
   addSession,
   getSession,
   getSessionMaxAge,
+  hasLegacySessionForEmail,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import { getAppName } from "./app-name.js";
+import {
+  hasBetterAuthUserEmail,
+  trackSignupEvent,
+} from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
@@ -664,6 +669,11 @@ export async function createOAuthSession(
   opts: {
     hasProductionSession: boolean;
     desktop?: boolean;
+    trackSignup?: {
+      authProvider: string;
+      authUserId?: string;
+      name?: string | null;
+    };
   },
 ): Promise<OAuthSessionResult> {
   const mobile = isMobile(event);
@@ -671,10 +681,27 @@ export async function createOAuthSession(
   const maxAge = getSessionMaxAge();
 
   let sessionToken: string | undefined;
+  let shouldTrackSignup = false;
   if (!opts.hasProductionSession || needsDeepLink) {
+    if (opts.trackSignup && !opts.hasProductionSession) {
+      const [hasLegacySession, hasBetterAuthUser] = await Promise.all([
+        hasLegacySessionForEmail(email).catch(() => true),
+        hasBetterAuthUserEmail(email).catch(() => true),
+      ]);
+      shouldTrackSignup = !hasLegacySession && !hasBetterAuthUser;
+    }
+
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
+    if (shouldTrackSignup && opts.trackSignup) {
+      await trackSignupEvent({
+        authProvider: opts.trackSignup.authProvider,
+        authUserId: opts.trackSignup.authUserId,
+        email,
+        name: opts.trackSignup.name,
+      });
+    }
     // Desktop SSO: record this session in the home-dir broker file so
     // sibling templates (each with its own database) can resolve the
     // same token without a DB row of their own. Only the PRIMARY
@@ -814,14 +841,27 @@ export function oauthCallbackResponse(
   // same-origin; Builder desktop workspace returns may point back to the
   // local loopback gateway and carry the short-lived `_session` bridge so
   // the local app can promote the newly created hosted OAuth session.
-  setResponseStatus(event, 302);
-  setResponseHeader(
-    event,
-    "Location",
-    appendSessionToOAuthReturnUrl(opts.returnUrl, opts.sessionToken),
+  const location = appendSessionToOAuthReturnUrl(
+    opts.returnUrl,
+    opts.sessionToken,
   );
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Location", location);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return "";
+  // Return a real 302 so the browser lands on the clean return URL instead of
+  // lingering on the provider callback URL with its `code`/`state` query
+  // params. But h3 hands a non-2xx web `Response` straight back WITHOUT merging
+  // the `Set-Cookie` staged earlier in the callback (the framework session
+  // cookie), so mirror those staged cookies onto the redirect Response —
+  // otherwise the sign-in succeeds but the browser arrives back logged out.
+  const headers = new Headers({
+    Location: location,
+    "Referrer-Policy": "no-referrer",
+  });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

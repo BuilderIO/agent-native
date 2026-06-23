@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.66.8",
+  "version": "0.70.0",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -166,10 +166,14 @@
   "files": [
     "bin",
     "blueprints",
+    "corpus",
     "dist",
     "docs",
     "tsconfig.base.json",
-    "src/templates"
+    "src/templates/default",
+    "src/templates/headless",
+    "src/templates/workspace-core",
+    "src/templates/workspace-root"
   ],
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs",

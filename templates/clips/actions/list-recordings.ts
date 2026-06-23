@@ -34,7 +34,9 @@ export default defineAction({
     folderId: z
       .string()
       .nullish()
-      .describe("Folder id (null = root). Only applies to library/space view."),
+      .describe(
+        "Folder id. Omit/null for the unified library or space view; pass a folder id to show only that folder.",
+      ),
     spaceId: z
       .string()
       .nullish()
@@ -103,9 +105,6 @@ export default defineAction({
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
-      } else {
-        // Root of this view
-        whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 

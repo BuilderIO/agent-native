@@ -138,6 +138,9 @@ jobs:
             const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
             const isFork = !!(pr && headRepo && headRepo !== process.env.GITHUB_REPOSITORY);
             const isPrivate = !!(context.payload.repository && context.payload.repository.private);
+            const association = (pr && pr.author_association || '').toUpperCase();
+            const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const isTrustedAuthor = trustedAssociations.includes(association);
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -175,13 +178,10 @@ jobs:
             // instructions or any agent config the runner loads. With the
             // default bundled skill source, visual skill and recap workflow
             // files are reviewed content, not instructions loaded by the runner.
-            // Keep this guard for forks AND all public-repo PRs: a fork or a
-            // public same-repo author could rewrite loaded instruction files
-            // (AGENTS.md/CLAUDE.md/.claude/.mcp.json) and exfiltrate the
-            // secret-backed agent run. Skip it ONLY for private-repo same-repo
-            // PRs, where the author is a trusted org member — a deliberate owner
-            // risk acceptance so legit instruction edits don't false-skip recaps.
-            if (pr && (isFork || !isPrivate)) {
+            // Keep this guard for forks and untrusted public-repo PRs. Trusted
+            // same-repo authors may edit AGENTS.md/CLAUDE.md as normal reviewable
+            // content; the risk acceptance should not depend on repo visibility.
+            if (pr && (isFork || (!isPrivate && !isTrustedAuthor))) {
               try {
                 const files = await github.paginate(github.rest.pulls.listFiles, {
                   owner: context.repo.owner,
@@ -332,13 +332,30 @@ jobs:
           set -uo pipefail
           $RECAP_CLI recap check start --sha "$HEAD_SHA" --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+      - name: Fetch pull request head
+        env:
+          PR_NUMBER_ENV: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            git update-ref refs/recap/pr-head "$HEAD_SHA"
+          else
+            AUTH_B64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH_B64" fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"
+          fi
+          FETCHED_SHA="$(git rev-parse refs/recap/pr-head)"
+          if [ "$FETCHED_SHA" != "$HEAD_SHA" ]; then
+            echo "FATAL: fetched PR head $FETCHED_SHA != event HEAD_SHA $HEAD_SHA — aborting to avoid recapping the wrong commit"
+            exit 1
+          fi
+
       - name: Collect bounded diff
         id: diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          $RECAP_CLI recap collect-diff --base "$BASE_SHA" --head "$HEAD_SHA" --out recap.diff --stat recap.stat
+          $RECAP_CLI recap collect-diff --base "$BASE_SHA" --head refs/recap/pr-head --out recap.diff --stat recap.stat
 
       - name: Probe plan-app auth
         id: auth_probe
@@ -405,7 +422,7 @@ jobs:
 
       - name: Secret scan
         id: scan
-        if: steps.diff.outputs.tiny != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
         run: |
           set -uo pipefail
           # Fail CLOSED: a scanner error or invalid JSON suppresses the diff.
@@ -423,6 +440,7 @@ jobs:
 
       - name: Read previous plan id
         id: prev
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -431,7 +449,7 @@ jobs:
 
       - name: Fetch plan block reference
         id: block_reference
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -451,7 +469,7 @@ jobs:
 
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
@@ -466,7 +484,7 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -495,7 +513,7 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -529,7 +547,7 @@ jobs:
 
       - name: Publish recap source
         id: publish
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
@@ -548,7 +566,7 @@ jobs:
 
       - name: Read plan URL
         id: url
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         run: |
           set -uo pipefail
           PLAN_URL=""
@@ -617,7 +635,7 @@ jobs:
 
       - name: Summarize agent failure
         id: agent_summary
-        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}

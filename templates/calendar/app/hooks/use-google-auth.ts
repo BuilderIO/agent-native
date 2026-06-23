@@ -1,7 +1,36 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client";
 import type { GoogleAuthStatus } from "@shared/api";
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+export interface DesktopAuthIssue {
+  error?: string;
+  message?: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
+interface DesktopAuthResult {
+  token?: string;
+  email?: string;
+}
+
+interface DesktopAuthStartOptions {
+  addAccount?: boolean;
+  previousAccountCount?: number;
+}
+
+interface DesktopAuthOptions {
+  onError?: (issue: DesktopAuthIssue) => void;
+  onSuccess?: (result: DesktopAuthResult) => void | Promise<void>;
+  timeoutMs?: number;
+}
 
 function bodyError(
   body: any,
@@ -132,6 +161,178 @@ export function useGoogleAddAccountUrl(enabled = false) {
   }, [enabled, query.isError, queryClient]);
 
   return query;
+}
+
+export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
+  const { onError, onSuccess, timeoutMs = 120_000 } = options;
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const isDesktopGoogleAuth = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return (
+      /AgentNativeDesktop/i.test(navigator.userAgent) && !isInBuilderFrame()
+    );
+  }, []);
+
+  const clearPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearPoll, [clearPoll]);
+
+  const startDesktopGoogleAuth = useCallback(
+    (startOptions: DesktopAuthStartOptions = {}) => {
+      if (!isDesktopGoogleAuth || typeof window === "undefined") return false;
+
+      clearPoll();
+      setIsPending(true);
+      const flowId =
+        globalThis.crypto?.randomUUID?.() ||
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
+      const params = new URLSearchParams({
+        redirect_uri: redirectUri,
+        desktop: "1",
+        flow_id: flowId,
+      });
+      let popup: Window | null = null;
+      const reportError = (issue: DesktopAuthIssue) => {
+        clearPoll();
+        setIsPending(false);
+        onError?.(issue);
+      };
+      const openAuthUrl = (url: string) => {
+        if (popup && !popup.closed) {
+          popup.location.href = url;
+          return true;
+        }
+        popup = window.open(url, "_blank");
+        return !!popup;
+      };
+
+      const startedAt = Date.now();
+      const finish = async (result: DesktopAuthResult = {}) => {
+        clearPoll();
+        setIsPending(false);
+        await onSuccess?.(result);
+      };
+
+      if (startOptions.addAccount) {
+        popup = window.open("about:blank", "_blank");
+        void (async () => {
+          try {
+            const { url } = await fetchJson<{ url: string }>(
+              agentNativePath(
+                `/_agent-native/google/add-account/auth-url?${params.toString()}`,
+              ),
+              { credentials: "include" },
+            );
+            if (!openAuthUrl(url)) {
+              reportError({
+                code: "popup_blocked",
+                message:
+                  "Calendar could not open Google sign-in. Allow popups and try again.",
+              });
+            }
+          } catch (err) {
+            popup?.close();
+            reportError({
+              code: "desktop_auth_start_failed",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Could not start Google sign-in.",
+            });
+          }
+        })();
+      } else {
+        params.set("redirect", "1");
+        const opened = openAuthUrl(
+          `${window.location.origin}${agentNativePath(
+            "/_agent-native/google/auth-url",
+          )}?${params.toString()}`,
+        );
+        if (!opened) {
+          reportError({
+            code: "popup_blocked",
+            message:
+              "Calendar could not open Google sign-in. Allow popups and try again.",
+          });
+          return true;
+        }
+      }
+
+      pollRef.current = setInterval(async () => {
+        try {
+          const exchangeRes = await fetch(
+            agentNativePath(
+              `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+            ),
+            { credentials: "include" },
+          );
+          const exchange = await exchangeRes.json();
+          if (exchange?.error) {
+            clearPoll();
+            setIsPending(false);
+            onError?.(exchange);
+            return;
+          }
+          if (exchange?.token) {
+            await fetch(
+              agentNativePath(
+                `/_agent-native/auth/session?_session=${exchange.token}`,
+              ),
+              { credentials: "include" },
+            );
+            await finish({ token: exchange.token, email: exchange.email });
+            return;
+          }
+        } catch {
+          // Keep polling; the status endpoint below may still observe success.
+        }
+
+        try {
+          const statusRes = await fetch(
+            agentNativePath("/_agent-native/google/status"),
+            { credentials: "include" },
+          );
+          if (statusRes.ok) {
+            const status = (await statusRes.json()) as GoogleAuthStatus;
+            const connected = startOptions.addAccount
+              ? (status.accounts?.length ?? 0) >
+                (startOptions.previousAccountCount ?? 0)
+              : status.connected;
+            if (connected) {
+              await finish();
+              return;
+            }
+          }
+        } catch {
+          // Keep polling until the timeout.
+        }
+
+        if (Date.now() - startedAt > timeoutMs) {
+          reportError({
+            code: "desktop_auth_timeout",
+            message:
+              "Google sign-in timed out. Finish sign-in in the browser or try again.",
+          });
+        }
+      }, 1500);
+
+      return true;
+    },
+    [clearPoll, isDesktopGoogleAuth, onError, onSuccess, timeoutMs],
+  );
+
+  return {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending: isPending,
+    startDesktopGoogleAuth,
+  };
 }
 
 export function useDisconnectGoogle() {

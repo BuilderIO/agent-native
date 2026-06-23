@@ -387,8 +387,17 @@ export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
-export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
-  const entries = getRuntimeSkills(bundle);
+/**
+ * Skills visible to development/coding agents. Excludes `scope: runtime`
+ * skills that are intended only for the deployed in-app agent.
+ */
+export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
+  return Object.values(bundle.skills).filter(
+    (skill) => skill.meta.scope !== "runtime",
+  );
+}
+
+function generateSkillsPromptBlockForEntries(entries: Skill[]): string {
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {
@@ -409,6 +418,16 @@ To read a skill in dev mode (when you have bash access):
 Available skills:
 ${lines.join("\n")}
 </skills>`;
+}
+
+export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
+  return generateSkillsPromptBlockForEntries(getRuntimeSkills(bundle));
+}
+
+export function generateDevelopmentSkillsPromptBlock(
+  bundle: AgentsBundle,
+): string {
+  return generateSkillsPromptBlockForEntries(getDevelopmentSkills(bundle));
 }
 
 /** For tests — reset the module cache. */

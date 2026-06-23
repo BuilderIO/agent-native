@@ -3,6 +3,7 @@ name: mvp-followup
 description: >-
   Use when asking what to do next after a feature pass while avoiding bloat and
   checking for unfinished MVP work.
+scope: dev
 metadata:
   internal: true
 ---

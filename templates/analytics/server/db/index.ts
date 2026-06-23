@@ -11,7 +11,7 @@ registerShareableResource({
   sharesTable: schema.dashboardShares,
   displayName: "Dashboard",
   titleColumn: "title",
-  getResourcePath: (dashboard) => `/adhoc/${dashboard.id}`,
+  getResourcePath: (dashboard) => `/dashboards/${dashboard.id}`,
   getDb,
 });
 

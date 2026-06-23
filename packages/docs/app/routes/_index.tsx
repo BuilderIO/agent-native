@@ -96,25 +96,29 @@ const bidirectionalTabs = [
     title: "The agent sees everything",
     description:
       "It can read and update any UI, any data, any state in the application.",
-    video: import.meta.env.VITE_AGENT_NATIVE_AGENT_SEES_DEMO_VIDEO_URL,
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
     title: "The UI talks to the agent",
     description:
       "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
-    video: import.meta.env.VITE_AGENT_NATIVE_UI_TALKS_DEMO_VIDEO_URL,
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
     title: "The agent updates its own code",
     description:
       "It can modify the app itself to change features and functionality. Your tools get better over time.",
-    video: import.meta.env.VITE_AGENT_NATIVE_CODE_UPDATES_DEMO_VIDEO_URL,
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
     title: "Everything works both ways",
     description:
       "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
-    video: import.meta.env.VITE_AGENT_NATIVE_BIDIRECTIONAL_DEMO_VIDEO_URL,
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f", // ggignore: public Builder CDN media token
   },
 ];
 
@@ -145,12 +149,12 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
-  "calendar",
-  "content",
+  "clips",
   "plan",
+  "design",
+  "content",
   "slides",
   "analytics",
-  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -257,49 +261,22 @@ function BidirectionalTabs() {
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) =>
-          tab.video ? (
-            <video
-              key={i}
-              ref={(el) => {
-                videoRefs.current[i] = el;
-              }}
-              src={tab.video}
-              muted
-              playsInline
-              preload="auto"
-              onEnded={() => handleVideoEnded(i)}
-              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                i === activeTab
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-              }`}
-            />
-          ) : (
-            <div
-              key={i}
-              aria-hidden
-              className={`absolute inset-0 bg-[var(--bg-secondary)] transition-opacity duration-300 ${
-                i === activeTab
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-              }`}
-            >
-              <div className="flex h-full w-full animate-pulse flex-col justify-between p-5">
-                <div className="space-y-3">
-                  <div className="h-4 w-2/5 rounded-full bg-[var(--docs-border)]" />
-                  <div className="h-3 w-3/4 rounded-full bg-[var(--docs-border)]" />
-                  <div className="h-3 w-1/2 rounded-full bg-[var(--docs-border)]" />
-                </div>
-                <div className="grid gap-3">
-                  <div className="h-28 rounded-lg bg-[var(--docs-border)]/70" />
-                  <div className="h-16 rounded-lg bg-[var(--docs-border)]/50" />
-                </div>
-                <div className="h-8 w-1/3 rounded-full bg-[var(--docs-border)]" />
-              </div>
-            </div>
-          ),
-        )}
+        {bidirectionalTabs.map((tab, i) => (
+          <video
+            key={i}
+            ref={(el) => {
+              videoRefs.current[i] = el;
+            }}
+            src={tab.video}
+            muted
+            playsInline
+            preload="auto"
+            onEnded={() => handleVideoEnded(i)}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+              i === activeTab ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
+        ))}
       </div>
     </div>
   );
@@ -478,6 +455,61 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Templates - breaks out of max-width on ultra-wide screens */}
+        <section
+          id="templates"
+          className="border-t border-[var(--docs-border)] py-20 px-6"
+        >
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Fork and customize a fully-featured app
+            </h2>
+            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+              100% free and open source
+            </p>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              When an action needs screens, start from a vetted app you can
+              customize. Chat is the minimal app scaffold; domain templates add
+              product workflows, example data, and agent-ready actions.
+            </p>
+          </div>
+
+          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {homepageTemplates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
+          </div>
+
+          <div className="mt-8 text-center">
+            <Link
+              data-an-prefetch="render"
+              to="/templates"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click cta", {
+                  label: "view_all_templates",
+                  location: "templates_section",
+                })
+              }
+            >
+              View all templates
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </div>
+        </section>
+
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
@@ -561,61 +593,6 @@ export default function Home() {
 
           <div className="mx-auto max-w-[1200px]">
             <BidirectionalTabs />
-          </div>
-        </section>
-
-        {/* Templates - breaks out of max-width on ultra-wide screens */}
-        <section
-          id="templates"
-          className="border-t border-[var(--docs-border)] py-20 px-6"
-        >
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Add UI with a full featured template
-            </h2>
-            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              100% free and open source
-            </p>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              When an action needs screens, start from a vetted app you can
-              customize. Chat is the minimal app scaffold; domain templates add
-              product workflows, example data, and agent-ready actions.
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {homepageTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "view_all_templates",
-                  location: "templates_section",
-                })
-              }
-            >
-              View all templates
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
           </div>
         </section>
 

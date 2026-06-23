@@ -12,8 +12,10 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import {
   askUserQuestion,
+  buildSignInReturnHref,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -51,11 +53,17 @@ type DesignListItem = {
   updatedAt?: string;
 };
 
+function isAuthUnavailableError(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 401 || status === 403;
+}
+
 export default function Templates() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createMutation = useActionMutation("create-design");
   const generateMutation = useActionMutation("generate-design");
+  const { session, isLoading: sessionLoading } = useSession();
 
   const { data: designSystemsData } = useActionQuery<{
     count: number;
@@ -78,19 +86,36 @@ export default function Templates() {
   useSetPageTitle("Templates");
 
   const handleUseTemplate = async (template: DesignTemplate) => {
+    if (sessionLoading) return;
+    if (!session) {
+      window.location.href = buildSignInReturnHref();
+      return;
+    }
+
     // One quick decision before generating: which format/viewport to target.
     // Skippable — fall back to the template's default sizing if dismissed.
-    const format = await askUserQuestion({
-      question: `What format should this ${template.title.toLowerCase()} target?`,
-      header: "Format",
-      options: [
-        { label: "Desktop", value: "desktop, 1280px wide", recommended: true },
-        { label: "Mobile", value: "mobile, 390px wide" },
-        { label: "Tablet", value: "tablet, 1024px wide" },
-        { label: "Social square", value: "social square, 1080×1080" },
-      ],
-      allowFreeText: false,
-    });
+    let format: unknown = null;
+    try {
+      format = await askUserQuestion({
+        question: `What format should this ${template.title.toLowerCase()} target?`,
+        header: "Format",
+        options: [
+          {
+            label: "Desktop",
+            value: "desktop, 1280px wide",
+            recommended: true,
+          },
+          { label: "Mobile", value: "mobile, 390px wide" },
+          { label: "Tablet", value: "tablet, 1024px wide" },
+          { label: "Social square", value: "social square, 1080×1080" },
+        ],
+        allowFreeText: false,
+      });
+    } catch (error) {
+      if (!isAuthUnavailableError(error)) throw error;
+      window.location.href = buildSignInReturnHref();
+      return;
+    }
     const formatDirective =
       typeof format === "string" && format
         ? `\n\nTarget format: ${format}.`

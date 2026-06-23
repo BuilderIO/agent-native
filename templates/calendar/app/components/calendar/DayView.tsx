@@ -262,7 +262,17 @@ export function DayView({
                   onDraftDiscard={onDraftDiscard}
                 >
                   <button
-                    className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
+                    className={cn(
+                      "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
+                      event.ownerColor && "pr-5",
+                    )}
+                    aria-label={
+                      event.ownerName || event.overlayEmail
+                        ? `${event.title}, ${
+                            event.ownerName || event.overlayEmail
+                          }'s calendar`
+                        : event.title
+                    }
                     style={
                       color
                         ? {
@@ -283,6 +293,13 @@ export function DayView({
                     )}
                     <EventStatusIcon event={event} className="shrink-0" />
                     <span className="truncate">{event.title}</span>
+                    {event.ownerColor && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                        style={{ backgroundColor: event.ownerColor }}
+                      />
+                    )}
                   </button>
                 </EventDetailPopover>
               );
@@ -458,7 +475,15 @@ export function DayView({
                     isBeingDragged && isDragging && "ring-2 ring-primary/40",
                     canDrag && isStart && "cursor-grab",
                     isBeingDragged && isDragging && "cursor-grabbing",
+                    event.ownerColor && "pr-4",
                   )}
+                  aria-label={
+                    event.ownerName || event.overlayEmail
+                      ? `${event.title}, ${
+                          event.ownerName || event.overlayEmail
+                        }'s calendar`
+                      : event.title
+                  }
                   style={{
                     ...posStyle,
                     left: `${li.left}px`,
@@ -483,6 +508,13 @@ export function DayView({
                     opacity: isBeingDragged && isDragging ? 0.9 : undefined,
                   }}
                 >
+                  {event.ownerColor && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
+                      style={{ backgroundColor: event.ownerColor }}
+                    />
+                  )}
                   {durationMin <= 30 ? (
                     <div className="flex items-baseline gap-1.5 truncate">
                       {allOthersOut && (

@@ -1,4 +1,4 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { getBrowserTabId, useAgentRouteState } from "@agent-native/core/client";
 
 export type ClipsView =
   | "library"
@@ -173,7 +173,14 @@ function pathFromCommand(cmd: NavigateCommand): string {
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState, NavigateCommand>({
-    writeDebounceMs: 300,
+    // Scope navigation to this browser tab so the agent reads the clip THIS
+    // tab is showing, not whichever tab navigated last. Without this, the
+    // global `navigation` key is shared across tabs and a chat in tab B can
+    // summarize the clip open in tab A.
+    browserTabId: getBrowserTabId(),
+    // Commit navigation immediately so the agent never reads a stale
+    // recordingId after the user switches clips. The only high-frequency URL
+    // change (meetings ?q=) is already debounced where it is written.
     getNavigationState: ({ pathname, search }) =>
       stateFromLocation(pathname, search),
     getCommandPath: (cmd) => pathFromCommand(cmd),

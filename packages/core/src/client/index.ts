@@ -4,6 +4,8 @@ import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();
 
+export { getBrowserTabId } from "./browser-tab-id.js";
+
 export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,
@@ -641,10 +643,12 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  getFirstTouchAttribution,
   setSentryUser,
   captureError,
   captureClientException,
   type ClientCaptureContext,
+  type FirstTouchAttribution,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {
@@ -705,10 +709,21 @@ export {
   openAgentSidebar,
   submitToAgent,
   type CommandMenuProps,
+  type CommandMenuDoc,
+  type CommandDocsGroupProps,
   type CommandGroupProps,
   type CommandItemProps,
   type CommandShortcutProps,
 } from "./CommandMenu.js";
+export {
+  ChangelogDialog,
+  ChangelogSettingsCard,
+  useChangelogSeen,
+  parseChangelog,
+  type ChangelogDialogProps,
+  type ChangelogSettingsCardProps,
+  type ChangelogEntry,
+} from "./changelog/Changelog.js";
 export {
   DevOverlay,
   useDevOverlayShortcut,

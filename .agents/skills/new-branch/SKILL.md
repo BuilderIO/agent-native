@@ -5,6 +5,7 @@ description: >-
   changes, update main, and create it. Do not auto-run for normal coding, PR,
   Builder.io, or Fusion branch workflows.
 user-invocable: true
+scope: dev
 metadata:
   internal: true
 ---

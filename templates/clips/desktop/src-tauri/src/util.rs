@@ -208,7 +208,10 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
                 set_window_capture_excluded(window, false);
                 continue;
             }
-            let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");
+            let private_guide = matches!(
+                label.as_str(),
+                "region-guides" | "region-guide-editor" | "region-record-border"
+            );
             set_window_capture_excluded(window, private_guide || !visible);
         }
     }

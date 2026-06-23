@@ -95,6 +95,17 @@ export const meta = () => [
   { property: "og:site_name", content: "Agent-Native" },
 ];
 
+function DocsChrome({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="w-full min-w-0 overflow-x-hidden">
+      <ScrollManager />
+      <Header />
+      {children}
+      <Footer />
+    </div>
+  );
+}
+
 // Aliases that serve the same content under multiple paths. Both surfaces
 // link rel=canonical to the primary path so search engines don't see them
 // as duplicates. Keep in sync with the alias mapping in
@@ -298,12 +309,9 @@ export default function Root() {
   }, [mounted]);
 
   const content = (
-    <div className="w-full min-w-0 overflow-x-hidden">
-      <ScrollManager />
-      <Header />
+    <DocsChrome>
       <Outlet />
-      <Footer />
-    </div>
+    </DocsChrome>
   );
 
   return (
@@ -343,51 +351,55 @@ export function ErrorBoundary() {
 
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
-      <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
-        <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--docs-border)]">
-          404
-        </div>
-        <h1 className="mb-3 text-2xl font-semibold tracking-tight">
-          Page not found
-        </h1>
-        <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="flex items-center gap-3">
-          <Link
-            data-an-prefetch="render"
-            to="/"
-            className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-          >
-            Go home
-          </Link>
-          <Link
-            data-an-prefetch="render"
-            to="/docs"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            Read the docs
-          </Link>
-        </div>
-      </main>
+      <DocsChrome>
+        <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+          <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--docs-border)]">
+            404
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold tracking-tight">
+            Page not found
+          </h1>
+          <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
+            The page you're looking for doesn't exist or has been moved.
+          </p>
+          <div className="flex items-center gap-3">
+            <Link
+              data-an-prefetch="render"
+              to="/"
+              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            >
+              Go home
+            </Link>
+            <Link
+              data-an-prefetch="render"
+              to="/docs"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            >
+              Read the docs
+            </Link>
+          </div>
+        </main>
+      </DocsChrome>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
-      <h1 className="mb-3 text-2xl font-semibold tracking-tight">
-        Something went wrong
-      </h1>
-      <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
-        An unexpected error occurred.
-      </p>
-      <Link
-        data-an-prefetch="render"
-        to="/"
-        className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-      >
-        Go home
-      </Link>
-    </main>
+    <DocsChrome>
+      <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+        <h1 className="mb-3 text-2xl font-semibold tracking-tight">
+          Something went wrong
+        </h1>
+        <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
+          An unexpected error occurred.
+        </p>
+        <Link
+          data-an-prefetch="render"
+          to="/"
+          className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        >
+          Go home
+        </Link>
+      </main>
+    </DocsChrome>
   );
 }

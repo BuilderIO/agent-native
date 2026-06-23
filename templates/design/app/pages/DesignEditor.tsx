@@ -428,6 +428,12 @@ export default function DesignEditor() {
   } = useAgentGenerating({
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
+    shouldAdoptRunningTab: () =>
+      Boolean(id) && !generationOutputReadyRef.current,
+    onAdoptRunningTab: (tabId) => {
+      setGenerationChatTabId(tabId);
+      setHasPendingGeneration(true);
+    },
   });
   const handleQuestionFlowContinue = useCallback(
     (runTabId: string) => {

@@ -2151,6 +2151,82 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("created a compact first version");
   });
 
+  it("nudges toward incremental edits for non-extension large-payload actions cut off mid-stream", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing generate-design action",
+                tool: "generate-design",
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([
+              { type: "text", text: "saved a minimal first version" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-design-input-timeout",
+      threadId: "thread-design-input-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Generate a full dashboard design" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).toContain(
+      "preparing the `generate-design` action input",
+    );
+    // Design gets its own incremental counterpart, not the extension wording.
+    expect(secondBody.message).toContain("edit-design");
+    expect(secondBody.message).not.toContain("compact working v1");
+  });
+
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();

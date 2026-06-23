@@ -8,7 +8,7 @@ export function demoNodeExporterDashboardPath(
     tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
   });
   if (options.intro) params.set("demoIntro", "1");
-  return `/adhoc/${dashboardId}?${params.toString()}`;
+  return `/dashboards/${dashboardId}?${params.toString()}`;
 }
 
 export function withDemoIntro(path: string): string {

@@ -22,10 +22,12 @@ import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { identify, track } from "../tracking/index.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -45,6 +47,72 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+async function flushSignupTracking(): Promise<void> {
+  try {
+    await Promise.race([
+      flushTracking(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  } catch {
+    // Signup should never fail because analytics delivery did.
+  }
+}
+
+export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+  if (!adapter) return false;
+  const existing = await adapter
+    .findUserByEmail(email, { includeAccounts: false })
+    .catch(() => null);
+  return !!existing?.user?.email;
+}
+
+export async function trackSignupEvent({
+  authProvider,
+  authUserId,
+  email,
+  name,
+  attribution,
+}: {
+  authProvider: string;
+  authUserId?: string;
+  email: string;
+  name?: string | null;
+  /**
+   * First-touch referral attribution derived from the visitor's `an_ft`
+   * cookie (see `server/attribution.ts`). Snake_case keys such as
+   * `referral_source`, `referrer_user`, and the UTM passthrough are merged
+   * into the `signup` event so we can measure where new users came from.
+   * `undefined` values are dropped; a missing object is a clean no-op.
+   */
+  attribution?: Record<string, string | undefined>;
+}): Promise<void> {
+  identify(email, {
+    email,
+    name: name ?? undefined,
+    authUserId,
+  });
+  const cleanAttribution: Record<string, string> = {};
+  if (attribution) {
+    for (const [key, value] of Object.entries(attribution)) {
+      if (typeof value === "string" && value.length > 0) {
+        cleanAttribution[key] = value;
+      }
+    }
+  }
+  track(
+    "signup",
+    {
+      ...resolveSignupTrackingProperties(),
+      auth_provider: authProvider,
+      ...(authUserId ? { auth_user_id: authUserId } : {}),
+      ...cleanAttribution,
+    },
+    { userId: email },
+  );
+  await flushSignupTracking();
+}
 
 // ---------------------------------------------------------------------------
 // Persistent auth secret
@@ -754,7 +822,17 @@ async function createBetterAuthInstance(
     ...config?.socialProviders,
   };
 
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  const extraScopes = config?.googleScopes ?? [];
+  const googleCredentials =
+    extraScopes.length > 0
+      ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null
+      : resolveGoogleSignInCredentials();
+  if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect
     // Google" round-trip isn't needed. `accessType: "offline"` plus
@@ -762,12 +840,11 @@ async function createBetterAuthInstance(
     // Google only re-issues a refresh token on consent, so re-signing in
     // (e.g. after switching machines) would otherwise leave us with an
     // access token that can't be refreshed.
-    const extraScopes = config?.googleScopes ?? [];
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: googleCredentials.clientId,
+      clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0
         ? {
             scope: mergedScopes,
@@ -794,6 +871,9 @@ async function createBetterAuthInstance(
   const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
     isEmailConfigured() && !shouldSkipEmailVerification();
+
+  const shouldMirrorGoogleAccountTokens =
+    (config?.googleScopes?.length ?? 0) > 0;
 
   const auth = betterAuth({
     basePath,
@@ -868,31 +948,48 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: {
-            id?: string;
-            email?: string;
-            name?: string | null;
-          }) => {
+          after: async (
+            user: {
+              id?: string;
+              email?: string;
+              name?: string | null;
+            },
+            // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
+            // It carries the originating request's headers (and on OAuth
+            // signups the callback request's headers), which is where the
+            // browser's `an_ft` first-touch cookie rides in.
+            context?: {
+              headers?: Headers | null;
+              request?: { headers?: Headers | null } | null;
+            } | null,
+          ) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
-            identify(email, {
-              email,
-              name: user.name ?? undefined,
+            // Derive first-touch referral attribution from the request's
+            // cookie header. Never let attribution parsing throw or block
+            // signup — on any error fall back to `direct`.
+            let attribution: Record<string, string> | undefined;
+            try {
+              const cookieHeader =
+                context?.headers?.get("cookie") ??
+                context?.request?.headers?.get("cookie") ??
+                null;
+              attribution = signupAttributionFromCookieHeader(cookieHeader);
+            } catch (err) {
+              console.error("[auth] failed to derive signup attribution", err);
+              attribution = undefined;
+            }
+            await trackSignupEvent({
+              authProvider: "better-auth",
               authUserId: user.id,
+              email,
+              name: user.name,
+              attribution,
             });
-            track(
-              "signup",
-              {
-                ...resolveSignupTrackingProperties(),
-                auth_provider: "better-auth",
-                auth_user_id: user.id,
-              },
-              { userId: email },
-            );
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
@@ -929,6 +1026,7 @@ async function createBetterAuthInstance(
         // mirroring work; failures never block sign-in.
         create: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (create)",
@@ -939,6 +1037,7 @@ async function createBetterAuthInstance(
         },
         update: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (update)",

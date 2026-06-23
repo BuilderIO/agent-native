@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { and, asc, inArray } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -648,7 +651,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation");
     const localFilesState = await readAppState("local-files");
 
     const screen: Record<string, unknown> = {};

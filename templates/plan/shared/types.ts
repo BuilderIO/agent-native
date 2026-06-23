@@ -103,6 +103,7 @@ export interface PlanSummary {
   approvedAt?: string | null;
   deletedAt?: string | null;
   deletedBy?: string | null;
+  ownerEmail?: string | null;
   canDelete?: boolean;
   sectionCounts: Record<string, number>;
   commentCount: number;

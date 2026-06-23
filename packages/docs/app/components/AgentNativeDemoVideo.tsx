@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-const DEMO_VIDEO_URL = import.meta.env.VITE_AGENT_NATIVE_DEMO_VIDEO_URL || "";
+const DEMO_VIDEO_URL =
+  "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F99ec814b12784b1885742a1c82d9dcf5?alt=media&token=e164a53f-ae25-41f9-b8fb-a58937a4d370"; // ggignore: public Builder CDN media token
 
 export function AgentNativeDemoVideo({
   className = "",
@@ -13,21 +14,19 @@ export function AgentNativeDemoVideo({
     <div
       className={`relative overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black ${className}`}
     >
-      {DEMO_VIDEO_URL ? (
-        <video
-          src={DEMO_VIDEO_URL}
-          aria-label="Agent-Native visual planning demo"
-          autoPlay
-          muted
-          loop
-          playsInline
-          controls
-          preload="auto"
-          onPlaying={() => setIsPlaying(true)}
-          onWaiting={() => setIsPlaying(false)}
-          className="block h-full w-full object-cover"
-        />
-      ) : null}
+      <video
+        src={DEMO_VIDEO_URL}
+        aria-label="Agent-Native visual planning demo"
+        autoPlay
+        muted
+        loop
+        playsInline
+        controls
+        preload="auto"
+        onPlaying={() => setIsPlaying(true)}
+        onWaiting={() => setIsPlaying(false)}
+        className="block h-full w-full object-cover"
+      />
       <div
         aria-hidden
         className={`pointer-events-none absolute inset-0 bg-[var(--bg-secondary)] transition-opacity duration-300 ${

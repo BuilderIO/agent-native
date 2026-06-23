@@ -5,6 +5,7 @@ description: >-
   for app operations — the agent calls them as tools and frontend code calls
   them through client hooks. Use when creating a new action, adding an API
   integration, or wiring up frontend data fetching.
+scope: dev
 metadata:
   internal: true
 ---

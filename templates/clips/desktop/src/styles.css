@@ -3784,6 +3784,55 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(14px);
 }
 
+/* ------------------------------------------------------------------------- */
+/* Overlay: live recording-region border                                      */
+/* ------------------------------------------------------------------------- */
+
+.region-record-border-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.region-record-border-frame {
+  position: absolute;
+  border-radius: 5px;
+  /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
+     lands just outside the captured rect — never inside the recorded video. */
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.95),
+    0 0 0 4px rgba(239, 68, 68, 0.32),
+    0 0 26px 6px rgba(239, 68, 68, 0.26);
+  animation: region-record-border-pulse 1.8s ease-in-out infinite;
+}
+
+/* Gentle pulse that mirrors the live recording dot, signalling "recording
+   now". Honour reduced-motion by holding the frame steady. */
+@keyframes region-record-border-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(239, 68, 68, 0.9),
+      0 0 0 4px rgba(239, 68, 68, 0.28),
+      0 0 22px 5px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(239, 68, 68, 1),
+      0 0 0 4px rgba(239, 68, 68, 0.44),
+      0 0 30px 8px rgba(239, 68, 68, 0.34);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .region-record-border-frame {
+    animation: none;
+  }
+}
+
 @keyframes flow-bar-in {
   from {
     opacity: 0;

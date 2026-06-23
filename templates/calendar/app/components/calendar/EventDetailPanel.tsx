@@ -101,6 +101,7 @@ export function EventDetailPanel({
   const isOverlay = !!event?.overlayEmail;
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
+  const ownerLabel = event?.ownerName || event?.overlayEmail;
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -307,6 +308,17 @@ export function EventDetailPanel({
                   <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
                     <IconMapPin className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{event.location}</span>
+                  </div>
+                )}
+
+                {event.overlayEmail && ownerLabel && (
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <span
+                      aria-hidden="true"
+                      className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
+                      style={{ backgroundColor: event.ownerColor }}
+                    />
+                    <span>Viewing {ownerLabel}'s calendar</span>
                   </div>
                 )}
 

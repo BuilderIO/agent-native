@@ -145,6 +145,7 @@ import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
+import { getDbExec } from "../db/client.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
@@ -159,6 +160,58 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
+/** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
+export interface DbHealthProbeResult {
+  /** The serverless function is live and served the request. */
+  ok: true;
+  /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
+  db: boolean;
+  /** Round-trip time of the probe in milliseconds. */
+  ms: number;
+}
+
+/**
+ * Run a trivial `SELECT 1` to confirm the database is reachable and, as a side
+ * effect, keep a scale-to-zero serverless database (e.g. Neon) warm. Touching
+ * the DB on a schedule prevents the multi-second cold-start that otherwise
+ * stalls the next real user request.
+ *
+ * Always resolves: an app with no database (or a momentarily unreachable one)
+ * is still live, so the probe reports `db: false` rather than throwing. The
+ * `exec` parameter is injectable purely for tests.
+ */
+export async function runDbHealthProbe(
+  exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
+): Promise<DbHealthProbeResult> {
+  const startedAt = Date.now();
+  let db = false;
+  try {
+    await exec().execute("SELECT 1");
+    db = true;
+  } catch {
+    // Live even when the DB is unreachable or the app has no database.
+  }
+  return { ok: true, db, ms: Date.now() - startedAt };
+}
+const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
+const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
+const BUILDER_WAITLIST_FORM_SOURCE = "connect_builder_card";
+const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
+const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
+
+interface BuilderWaitlistFormTarget {
+  formId: string;
+  formsOrigin: string;
+}
+
+interface BuilderWaitlistBody {
+  prompt?: unknown;
+  orgName?: unknown;
+  appUrl?: unknown;
+  pageUrl?: unknown;
+  source?: unknown;
+}
+
 export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
   return Array.from(
     new Set([
@@ -170,6 +223,112 @@ export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
 }
 
 registerBuiltinEngines();
+
+function cleanBuilderWaitlistText(
+  value: unknown,
+  maxLength = BUILDER_WAITLIST_TEXT_LIMIT,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeHttpOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function isAgentNativeHostedRequest(event: H3Event): boolean {
+  const hostname = getRequestURL(event).hostname.toLowerCase();
+  return (
+    hostname === "agent-native.com" || hostname.endsWith(".agent-native.com")
+  );
+}
+
+export function resolveBuilderWaitlistFormTargetForRequest(
+  event: H3Event,
+): BuilderWaitlistFormTarget | null {
+  if (process.env.AGENT_NATIVE_DISABLE_BUILDER_WAITLIST_FORM === "1") {
+    return null;
+  }
+
+  const envFormId = process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORM_ID?.trim();
+  const envFormsOrigin =
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORMS_ORIGIN?.trim();
+  const hasExplicitTarget = Boolean(envFormId || envFormsOrigin);
+  if (!hasExplicitTarget && !isAgentNativeHostedRequest(event)) {
+    return null;
+  }
+
+  const formId = envFormId || DEFAULT_BUILDER_WAITLIST_FORM_ID;
+  const formsOrigin = normalizeHttpOrigin(
+    envFormsOrigin || DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN,
+  );
+  if (!formsOrigin) {
+    throw new Error("Invalid Builder waitlist Forms origin");
+  }
+
+  return { formId, formsOrigin };
+}
+
+async function submitBuilderWaitlistForm(
+  event: H3Event,
+  sessionEmail: string,
+  body: BuilderWaitlistBody,
+): Promise<{ submitted: boolean; formId?: string }> {
+  const target = resolveBuilderWaitlistFormTargetForRequest(event);
+  if (!target) return { submitted: false };
+
+  const appUrl =
+    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+    getOrigin(event);
+  const source =
+    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    BUILDER_WAITLIST_FORM_TIMEOUT_MS,
+  );
+
+  try {
+    const res = await fetch(
+      `${target.formsOrigin}/api/submit/${encodeURIComponent(target.formId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: {
+            email: sessionEmail,
+            orgName: cleanBuilderWaitlistText(body.orgName, 500),
+            appUrl,
+            prompt: cleanBuilderWaitlistText(body.prompt),
+            source,
+          },
+          _hp: "",
+          _meta: {
+            submitterEmail: sessionEmail,
+            pageUrl: appUrl,
+          },
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Forms waitlist submission failed (${res.status})`);
+    }
+    return { submitted: true, formId: target.formId };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function parseBuilderCallbackBoolean(
   value: string | null | undefined,
@@ -426,6 +585,8 @@ export interface CoreRoutesPluginOptions {
   disableSSE?: boolean;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
+  /** Disable the /_agent-native/health DB liveness + warmup probe. */
+  disableHealth?: boolean;
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -470,6 +631,7 @@ export interface CoreRoutesPluginOptions {
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
  *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
  *   GET    /_agent-native/application-state/:key        — read application state
@@ -798,6 +960,20 @@ export function createCoreRoutesPlugin(
           defineEventHandler(() => ({
             message: process.env.PING_MESSAGE ?? "pong",
           })),
+        );
+      }
+
+      // Health + DB warmup — liveness probe that touches the database so
+      // uptime monitors and the keep-warm cron prevent a scale-to-zero
+      // serverless DB (e.g. Neon) from cold-starting on the next real
+      // request. Public, side-effect free, and never cached.
+      if (!options.disableHealth) {
+        getH3App(nitroApp).use(
+          `${P}/health`,
+          defineEventHandler(async (event) => {
+            setResponseHeader(event, "cache-control", "no-store");
+            return runDbHealthProbe();
+          }),
         );
       }
 
@@ -1405,10 +1581,10 @@ export function createCoreRoutesPlugin(
       );
 
       // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
-      // current request has no Builder branch project configured — instead of
-      // the raw 403 from /builder/run, the card surfaces a waitlist CTA that
-      // POSTs here. Recorded as a tracking event so PostHog/Mixpanel/etc.
-      // capture demand without us standing up new storage.
+      // current request has no Builder branch project configured. Hosted
+      // Agent Native deployments submit into the Builder-org Forms waitlist;
+      // local/self-hosted deployments keep the analytics signal without
+      // sending private workspace data to Agent Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -1421,15 +1597,43 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
+          const body = ((await readBody(event).catch(() => ({}))) ??
+            {}) as BuilderWaitlistBody;
+          let formSubmission: { submitted: boolean; formId?: string };
+          try {
+            formSubmission = await submitBuilderWaitlistForm(
+              event,
+              session.email,
+              body,
+            );
+          } catch (err) {
+            await trackBuilderLifecycle(
+              event,
+              "builder branch waitlist form failed",
+              session.email,
+              {
+                reason:
+                  err instanceof Error ? err.message : "unknown_waitlist_error",
+                stage: "waitlist",
+              },
+            );
+            setResponseStatus(event, 502);
+            return {
+              error:
+                "Couldn't join the waitlist. Please try again in a moment.",
+            };
+          }
           await trackBuilderLifecycle(
             event,
             "builder branch waitlist joined",
             session.email,
             {
+              formId: formSubmission.formId ?? null,
+              formSubmitted: formSubmission.submitted,
               stage: "waitlist",
             },
           );
-          return { ok: true };
+          return { ok: true, formSubmitted: formSubmission.submitted };
         }),
       );
 
@@ -1539,6 +1743,12 @@ export function createCoreRoutesPlugin(
                 agentNativeConnectSource:
                   connectTracking.agentNativeConnectSource ??
                   pending.tracking.agentNativeConnectSource,
+                agentNativeApp:
+                  connectTracking.agentNativeApp ??
+                  pending.tracking.agentNativeApp,
+                agentNativeTemplate:
+                  connectTracking.agentNativeTemplate ??
+                  pending.tracking.agentNativeTemplate,
               };
             }
             if (

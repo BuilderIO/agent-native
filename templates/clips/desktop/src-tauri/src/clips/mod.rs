@@ -31,6 +31,7 @@ const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
+const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -448,6 +449,65 @@ pub async fn hide_region_guides(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Live border framing the region currently being recorded. Like the region
+/// guides this is a full-screen, click-through, capture-excluded overlay — but
+/// the rect is ephemeral (it belongs to one recording, not the saved preset),
+/// so it's handed in via the URL query rather than read from config. The React
+/// view paints only an OUTWARD frame so the stroke stays out of the captured
+/// pixels. The recording flow owns this window; it's torn down by
+/// `hide_recording_chrome` / `hide_overlays` when capture stops.
+#[tauri::command]
+pub async fn show_region_record_border(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if !(width > 0.0 && height > 0.0) {
+        return Ok(());
+    }
+    if let Some(existing) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
+        let _ = existing.close();
+    }
+
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let url = WebviewUrl::App(
+        format!("index.html?region={x:.6},{y:.6},{width:.6},{height:.6}#region-record-border")
+            .into(),
+    );
+    let win = WebviewWindowBuilder::new(&app, REGION_RECORD_BORDER_LABEL, url)
+        .title("Clips Recording Region")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(false)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] region record border build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
+    crate::util::show_without_activation(&win);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_region_record_border(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
 /// Reconcile the always-on region-guides overlay with the current config.
 /// Called from config saves and on startup so the guides window matches the
 /// `always_visible` toggle without needing a recording-flow round trip. When a
@@ -748,6 +808,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
         FINALIZING_LABEL,
         FLOW_BAR_LABEL,
         REGION_GUIDES_LABEL,
+        REGION_RECORD_BORDER_LABEL,
     ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -772,7 +833,9 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
     // toggle — otherwise we'd flicker close→reopen right after stop.
     let g = crate::config::feature_config(&app).region_guides;
     let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
-    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL];
+    // The recording-region border belongs to a single recording (never pinned),
+    // so it always tears down here alongside the countdown + toolbar.
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_RECORD_BORDER_LABEL];
     if !keep_region_guides {
         labels.push(REGION_GUIDES_LABEL);
     }
@@ -807,6 +870,7 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
 /// MediaRecorder doesn't touch the camera after start.
 #[tauri::command]
 pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
         dlog!("[clips-tray] close_bubble — destroying bubble webview");
         let _ = w.close();
@@ -1435,6 +1499,9 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
         }
     }
     if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+    if let Some(w) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
         let _ = w.close();
     }
     if let Some(window) = app.get_webview_window("popover") {

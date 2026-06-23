@@ -19,6 +19,7 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
+import { getRequestRunContext } from "../server/request-context.js";
 
 /**
  * Resolve session ID for the current caller.
@@ -82,4 +83,61 @@ export async function deleteAppStateByPrefix(prefix: string): Promise<number> {
   return appStateDeleteByPrefix(sessionId, prefix, {
     requestSource: "agent",
   });
+}
+
+const SAFE_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function normalizeBrowserTabId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Browser tab id for the current request, if the client sent one. Used to
+ * scope ambient UI state (navigation, selection, etc.) so a chat from one tab
+ * reads that tab's state instead of whichever tab wrote the global key last.
+ */
+export function getCurrentRequestBrowserTabId(): string | null {
+  try {
+    return normalizeBrowserTabId(getRequestRunContext()?.browserTabId);
+  } catch {
+    return null;
+  }
+}
+
+/** `key:<tabId>` when a browser tab id is present, otherwise `key`. */
+export function appStateKeyForBrowserTab(
+  key: string,
+  browserTabId: unknown,
+): string {
+  const normalized = normalizeBrowserTabId(browserTabId);
+  return normalized ? `${key}:${normalized}` : key;
+}
+
+/**
+ * Read application state scoped to the requesting browser tab. Reads the
+ * tab-scoped key first and (by default) falls back to the global key so
+ * CLI/external agents and pre-scoping clients keep working.
+ */
+export async function readAppStateForCurrentTab(
+  key: string,
+  options?: { fallbackToGlobal?: boolean },
+): Promise<Record<string, unknown> | null> {
+  const tabKey = appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+  if (tabKey !== key) {
+    const scoped = await readAppState(tabKey).catch(() => null);
+    if (scoped) return scoped;
+    if (options?.fallbackToGlobal === false) return null;
+  }
+  return readAppState(key);
+}
+
+/** Write application state scoped to the requesting browser tab. */
+export async function writeAppStateForCurrentTab(
+  key: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  const tabKey = appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+  return writeAppState(tabKey, value);
 }

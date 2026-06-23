@@ -186,6 +186,21 @@ export default function CalendarTemplate() {
         </div>
       </section>
 
+      {/* Hosted demo note */}
+      <section className="border-t border-[var(--docs-border)] py-8">
+        <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+          <h2 className="mb-2 text-base font-semibold">
+            Google may ask for approval
+          </h2>
+          <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+            Signing in only uses basic Google identity, but connecting Calendar
+            sync asks for calendar access. Some Workspace admins may require
+            approval for the hosted demo. Run locally to use your own Google
+            OAuth client.
+          </p>
+        </div>
+      </section>
+
       {/* By the numbers */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">

@@ -9,7 +9,7 @@ import {
 import { useLocation } from "react-router";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, getBrowserTabId } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -154,6 +154,7 @@ export function Layout({ children }: LayoutProps) {
             "Pull this page from Notion",
           ]}
           scope={documentScope}
+          browserTabId={getBrowserTabId()}
         >
           <main
             className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"

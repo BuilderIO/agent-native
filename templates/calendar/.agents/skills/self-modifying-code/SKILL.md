@@ -4,6 +4,7 @@ description: >-
   How the agent can modify the app's own source code. Use when the agent needs
   to edit components, routes, styles, or scripts, when designing UI for agent
   editability, or when deciding what the agent should and shouldn't modify.
+scope: dev
 metadata:
   internal: true
 ---

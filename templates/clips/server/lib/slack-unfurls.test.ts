@@ -214,7 +214,7 @@ describe("Clips Slack unfurls", () => {
     };
 
     await postSlackUnfurl({
-      token: "xoxb-example",
+      token: "example-bot-token",
       payload,
       fetchImpl: fetchImpl as any,
     });

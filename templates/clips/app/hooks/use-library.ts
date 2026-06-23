@@ -149,9 +149,10 @@ export function useDeleteFolder() {
 }
 
 export function useMoveRecording() {
-  return useActionMutation<any, { id: string; folderId?: string | null }>(
-    "move-recording",
-  );
+  return useActionMutation<
+    any,
+    { id?: string; ids?: string[]; folderId?: string | null }
+  >("move-recording");
 }
 
 export function useTrashRecording() {

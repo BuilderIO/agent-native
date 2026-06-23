@@ -27,6 +27,7 @@ export function resolvePlayerVideoUrl(
   options: {
     addPasswordToken?: boolean;
     appPath?: (path: string) => string;
+    proxyRemoteMedia?: boolean;
   } = {},
 ): string | null {
   let resolvedVideoUrl = recording.videoUrl ?? null;
@@ -51,6 +52,11 @@ export function resolvePlayerVideoUrl(
     );
     if (legacyMatch) {
       resolvedVideoUrl = localRecordingVideoRoute(legacyMatch[1]);
+    } else if (
+      options.proxyRemoteMedia &&
+      /^https?:\/\//i.test(resolvedVideoUrl)
+    ) {
+      resolvedVideoUrl = localRecordingVideoRoute(recording.id);
     }
   }
 

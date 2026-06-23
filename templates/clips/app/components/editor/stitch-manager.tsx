@@ -21,7 +21,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
-import { exportConcat, blobToDataUrl } from "@/lib/ffmpeg-export";
+import { exportConcat } from "@/lib/ffmpeg-export";
 import { toast } from "sonner";
 
 /** Client-side upload via the framework's auto-mounted `/file-upload` route. */
@@ -139,10 +139,11 @@ export function StitchManager({
         blob,
         `${title.replace(/[^a-z0-9-_]+/gi, "-")}.mp4`,
       );
-      let videoUrl = upload?.url ?? null;
+      const videoUrl = upload?.url ?? null;
       if (!videoUrl) {
-        // Fall back to a data URL when no provider is configured.
-        videoUrl = await blobToDataUrl(blob);
+        throw new Error(
+          "Connect Builder.io or S3-compatible storage before stitching recordings.",
+        );
       }
 
       // 3) Create the stitched recording row.

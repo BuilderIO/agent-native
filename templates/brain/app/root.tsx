@@ -24,6 +24,7 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+import changelog from "../CHANGELOG.md?raw";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -137,7 +138,12 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="brain"
+      >
         <CommandMenu.Group heading="Navigate">
           <CommandMenu.Item onSelect={() => navigate("/")}>
             Ask Brain

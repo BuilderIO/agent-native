@@ -1,4 +1,4 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState, getBrowserTabId } from "@agent-native/core/client";
 import { useParams } from "react-router";
 
 export interface NavigationState {
@@ -12,6 +12,7 @@ export function useNavigationState() {
   const params = useParams();
 
   useAgentRouteState<NavigationState>({
+    browserTabId: getBrowserTabId(),
     getNavigationState: ({ pathname, search }) => {
       const state: NavigationState = { view: "list" };
 
