@@ -96,69 +96,29 @@ const bidirectionalTabs = [
     title: "The agent sees everything",
     description:
       "It can read and update any UI, any data, any state in the application.",
-    video: import.meta.env.VITE_AGENT_NATIVE_AGENT_SEES_DEMO_VIDEO_URL || "",
-    preview: {
-      label: "Context graph",
-      title: "Screen context",
-      summary: "Route, selection, and app state stay visible to the agent.",
-      stats: [
-        ["Route", "/plans"],
-        ["Focus", "Release"],
-      ],
-      rows: ["Active screen", "Selected plan", "Open comments"],
-      footer: "Synced with application_state",
-    },
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true",
   },
   {
     title: "The UI talks to the agent",
     description:
       "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
-    video: import.meta.env.VITE_AGENT_NATIVE_UI_TALKS_DEMO_VIDEO_URL || "",
-    preview: {
-      label: "Agent request",
-      title: "Structured handoff",
-      summary: "UI events become agent work with the same app context.",
-      stats: [
-        ["Intent", "Draft"],
-        ["Tool", "Action"],
-      ],
-      rows: ["Compose prompt", "Attach current object", "Run agent"],
-      footer: "Queued through the shared composer",
-    },
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true",
   },
   {
     title: "The agent updates its own code",
     description:
       "It can modify the app itself to change features and functionality. Your tools get better over time.",
-    video: import.meta.env.VITE_AGENT_NATIVE_CODE_UPDATES_DEMO_VIDEO_URL || "",
-    preview: {
-      label: "Code change",
-      title: "Self-improving app",
-      summary: "The agent can inspect, edit, test, and explain app changes.",
-      stats: [
-        ["Files", "3"],
-        ["Checks", "2"],
-      ],
-      rows: ["Read route", "Patch component", "Run tests"],
-      footer: "Changes stay in your repository",
-    },
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true",
   },
   {
     title: "Everything works both ways",
     description:
       "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
-    video: import.meta.env.VITE_AGENT_NATIVE_BIDIRECTIONAL_DEMO_VIDEO_URL || "",
-    preview: {
-      label: "Shared action",
-      title: "One operation",
-      summary: "Clicking and asking call the same typed action surface.",
-      stats: [
-        ["UI", "Button"],
-        ["Agent", "Tool"],
-      ],
-      rows: ["Validate input", "Run action", "Sync result"],
-      footer: "Same data path both ways",
-    },
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f",
   },
 ];
 
@@ -201,88 +161,8 @@ const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
-type BidirectionalPreviewData = (typeof bidirectionalTabs)[number]["preview"];
-
-function BidirectionalPreview({
-  className = "",
-  preview,
-}: {
-  className?: string;
-  preview: BidirectionalPreviewData;
-}) {
-  return (
-    <div
-      aria-label={`${preview.title} preview`}
-      className={`absolute inset-0 bg-[var(--bg-secondary)] p-4 text-[var(--fg)] transition-opacity duration-300 sm:p-5 ${className}`}
-    >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--docs-border)] bg-black/20">
-        <div className="flex items-center justify-between border-b border-[var(--docs-border)] px-4 py-3">
-          <div className="text-xs font-semibold uppercase text-[var(--docs-accent)]">
-            {preview.label}
-          </div>
-          <div className="h-2 w-16 rounded-full bg-[var(--docs-accent)]/60" />
-        </div>
-
-        <div className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[0.9fr_1.1fr]">
-          <div className="flex min-h-0 flex-col gap-3">
-            <div>
-              <h3 className="m-0 text-base font-semibold">{preview.title}</h3>
-              <p className="m-0 mt-2 hidden text-sm leading-relaxed text-[var(--fg-secondary)] sm:block">
-                {preview.summary}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {preview.stats.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)]/70 p-3"
-                >
-                  <div className="text-[11px] uppercase text-[var(--fg-secondary)]">
-                    {label}
-                  </div>
-                  <div className="mt-1 truncate text-xs font-semibold">
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-col rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)]/70 p-3">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-2.5 w-2.5 rounded-full bg-[var(--docs-accent)]" />
-              <div className="h-2.5 w-24 rounded-full bg-[var(--fg-secondary)]/30" />
-            </div>
-            <div className="grid flex-1 gap-2">
-              {preview.rows.map((row, index) => (
-                <div
-                  key={row}
-                  className={`rounded border border-[var(--docs-border)] p-2 text-xs ${
-                    index === 0
-                      ? "bg-[var(--docs-accent)]/12 text-[var(--fg)]"
-                      : "text-[var(--fg-secondary)]"
-                  }`}
-                >
-                  {row}
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 truncate text-[11px] text-[var(--fg-secondary)]">
-              {preview.footer}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
-  const [failedVideoIndexes, setFailedVideoIndexes] = useState<Set<number>>(
-    () => new Set(),
-  );
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const tabContainerRef = useRef<HTMLDivElement | null>(null);
@@ -290,7 +170,6 @@ function BidirectionalTabs() {
   useEffect(() => {
     videoRefs.current.forEach((video, i) => {
       if (!video) return;
-      if (failedVideoIndexes.has(i)) return;
       if (i === activeTab) {
         video.currentTime = 0;
         void video.play().catch(() => {
@@ -300,7 +179,7 @@ function BidirectionalTabs() {
         video.pause();
       }
     });
-  }, [activeTab, failedVideoIndexes]);
+  }, [activeTab]);
 
   // Scroll only within the tab container (horizontal, mobile only).
   // Never uses scrollIntoView — that causes full-page vertical jumps.
@@ -339,15 +218,6 @@ function BidirectionalTabs() {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
       return (i + 1) % bidirectionalTabs.length;
-    });
-  };
-
-  const markVideoFailed = (index: number) => {
-    setFailedVideoIndexes((prev) => {
-      if (prev.has(index)) return prev;
-      const next = new Set(prev);
-      next.add(index);
-      return next;
     });
   };
 
@@ -391,39 +261,22 @@ function BidirectionalTabs() {
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) => {
-          const videoUrl = failedVideoIndexes.has(i) ? "" : tab.video;
-
-          return videoUrl ? (
-            <video
-              key={i}
-              ref={(el) => {
-                videoRefs.current[i] = el;
-              }}
-              src={tab.video}
-              muted
-              playsInline
-              preload="auto"
-              onEnded={() => handleVideoEnded(i)}
-              onError={() => markVideoFailed(i)}
-              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                i === activeTab
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-              }`}
-            />
-          ) : (
-            <BidirectionalPreview
-              key={i}
-              preview={tab.preview}
-              className={
-                i === activeTab
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0"
-              }
-            />
-          );
-        })}
+        {bidirectionalTabs.map((tab, i) => (
+          <video
+            key={i}
+            ref={(el) => {
+              videoRefs.current[i] = el;
+            }}
+            src={tab.video}
+            muted
+            playsInline
+            preload="auto"
+            onEnded={() => handleVideoEnded(i)}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+              i === activeTab ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
+        ))}
       </div>
     </div>
   );
