@@ -7038,7 +7038,7 @@ const PLAN_SKELETON_FILL = {
 function PlanCanvasSkeleton() {
   return (
     <section
-      className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
+      className="plan-canvas relative flex min-h-[65vh] flex-col overflow-hidden border-b border-plan-line"
       aria-hidden="true"
     >
       <div
@@ -7058,13 +7058,17 @@ function PlanCanvasSkeleton() {
         <PlanSkeletonIcon />
       </div>
 
-      <div className="absolute inset-x-4 bottom-20 top-24 mx-auto flex max-w-5xl items-center gap-7 overflow-hidden px-1 sm:px-6">
-        <div className="min-w-0 flex-[1_1_44rem]">
-          <DesktopArtboardSkeleton />
-        </div>
+      {/* Normal flow + flex-1 so the canvas grows to contain the artboards on
+          short viewports (the surface scrolls) instead of clipping them. */}
+      <div className="relative z-0 flex flex-1 items-center justify-center px-4 py-16 sm:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-7">
+          <div className="min-w-0 flex-[1_1_44rem]">
+            <DesktopArtboardSkeleton />
+          </div>
 
-        <div className="hidden w-[15rem] shrink-0 lg:block">
-          <PhoneArtboardSkeleton />
+          <div className="hidden w-[15rem] shrink-0 lg:block">
+            <PhoneArtboardSkeleton />
+          </div>
         </div>
       </div>
 
