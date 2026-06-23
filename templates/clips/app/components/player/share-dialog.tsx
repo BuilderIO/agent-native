@@ -35,6 +35,7 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { SlackShareHint } from "@/components/sharing/slack-share-hint";
 import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
@@ -335,6 +336,10 @@ function LinkTab({
         value={shareUrl}
         disabled={isPending || (!isPublic && canManage)}
       />
+
+      {/* Public links unfurl into a playable video in Slack; surface that here
+          (and a connect link) instead of leaving it buried in Settings. */}
+      {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
       <CopyField
         label="Share with agents"

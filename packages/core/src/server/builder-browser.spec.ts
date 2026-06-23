@@ -3,8 +3,10 @@ import type { H3Event } from "h3";
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
+  BUILDER_AGENT_NATIVE_APP_PARAM,
   BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
   BUILDER_AGENT_NATIVE_FLOW_PARAM,
+  BUILDER_AGENT_NATIVE_TEMPLATE_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
   BUILDER_SIGNUP_SOURCE_PARAM,
@@ -386,6 +388,8 @@ describe("Builder callback CSRF state", () => {
           tracking: {
             agentNativeFlow: "background_agent",
             agentNativeConnectSource: "connect_builder_card",
+            agentNativeApp: "agent-native-clips",
+            agentNativeTemplate: "clips",
           },
         },
       );
@@ -400,6 +404,10 @@ describe("Builder callback CSRF state", () => {
         expect(params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM)).toBe(
           "connect_builder_card",
         );
+        expect(params.get(BUILDER_AGENT_NATIVE_APP_PARAM)).toBe(
+          "agent-native-clips",
+        );
+        expect(params.get(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM)).toBe("clips");
       }
     });
 

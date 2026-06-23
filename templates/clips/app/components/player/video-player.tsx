@@ -928,7 +928,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             ref={videoRef}
             src={activeVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
-            crossOrigin="anonymous"
+            // `crossOrigin` is only needed so the owner's canvas thumbnail
+            // capture isn't tainted. For everyone else (viewers, and the Slack
+            // unfurl embed) it adds nothing — but if the player is ever framed
+            // into a sandboxed/opaque-origin context (Slack double-iframes the
+            // embed), the resulting CORS check on the media bytes fails and the
+            // video won't load. Scope it to owners so embeds load cleanly.
+            crossOrigin={role === "owner" ? "anonymous" : undefined}
             className={cn(
               "w-full h-full",
               cover ? "object-cover" : "object-contain",

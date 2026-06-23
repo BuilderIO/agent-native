@@ -1131,12 +1131,29 @@ export function embedApp(
       return true;
     }
 
+    // We have connected to a standards-track MCP Apps host (Codex, Cursor,
+    // Claude over the SDK, our own renderer, …) through the postMessage
+    // \`ui/*\` bridge rather than ChatGPT's \`window.openai\` global. These hosts
+    // render the resource in a strict sandboxed iframe (typically
+    // \`sandbox="allow-scripts"\`, opaque origin). Self-navigating that iframe to
+    // the real app origin tears down the host bridge and loses the opaque-origin
+    // auth context, which shows up as a permanent / flashing loading state.
+    // Transplanting the app document into the shell keeps the bridge alive and
+    // works under the opaque origin via embed-token auth, exactly like Claude.
+    function isNativeMcpAppsBridgeHost() {
+      return !!app && !openAiBridge;
+    }
+
     function shouldTransplantAppDocument() {
       const render = renderModeSource();
       const mode = render.mode;
+      if (mode === "iframe" || mode === "nested" || render.frame === "iframe" || render.nested) {
+        return false;
+      }
       return (
         isClaudeMcpContentHost() ||
         isChatGptSandboxHost() ||
+        isNativeMcpAppsBridgeHost() ||
         mode === "transplant" ||
         render.frame === "transplant"
       );
@@ -1703,6 +1720,7 @@ export function embedApp(
           return;
         }
         if (
+          message.method === "ui/notifications/host-context-changed" ||
           message.method === "ui/notifications/host-context" ||
           message.method === "ui/notifications/context"
         ) {

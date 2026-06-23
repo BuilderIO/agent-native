@@ -932,7 +932,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 22,
+    panelCount: 25,
     version: CATALOG_VERSION,
     recommended: true,
     buildConfig: () => seedConfig("agent-native-templates-first-party"),
