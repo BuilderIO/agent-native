@@ -1940,6 +1940,14 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
+  // Full-screen capture records this tab's own bubble, which the composite
+  // already bakes into the video — hide the live overlay while recording so it
+  // doesn't appear twice. Countdown isn't recorded; window/tab captures don't
+  // include the overlay, so both keep it.
+  const hideBubbleForFullScreenCapture =
+    rememberedRecorderOptions?.displaySurface === "monitor" &&
+    recordingMode === "screen+camera" &&
+    uiState === "recording";
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Surface a back arrow whenever there's nothing in
@@ -2072,16 +2080,18 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — visible during countdown (so the user can frame
-          themselves) and while actively recording. Hidden during
-          uploading/compressing so the save overlay isn't confused with an
-          ongoing recording. */}
+      {/* Camera bubble — shown during countdown (for framing) and recording.
+          Hidden during uploading/compressing, and during full-screen recording
+          so it isn't captured on top of the composited bubble. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
           onSizeChange={setCameraSize}
-          hidden={uiState !== "recording" && uiState !== "countdown"}
+          hidden={
+            (uiState !== "recording" && uiState !== "countdown") ||
+            hideBubbleForFullScreenCapture
+          }
         />
       )}
 
