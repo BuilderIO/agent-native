@@ -58,6 +58,8 @@ describe("calendar Google auth status", () => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    delete process.env.GOOGLE_LEGACY_CLIENT_ID;
+    delete process.env.GOOGLE_LEGACY_CLIENT_SECRET;
     getOAuthAccountsMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -128,6 +130,52 @@ describe("calendar Google auth status", () => {
       "google",
       "secondary@example.com",
       expect.objectContaining({ access_token: "new-token" }),
+      "owner@example.com",
+    );
+  });
+
+  it("falls back to legacy Google credentials when refreshed tokens were minted by the previous client", async () => {
+    process.env.GOOGLE_LEGACY_CLIENT_ID = "legacy-client-id";
+    process.env.GOOGLE_LEGACY_CLIENT_SECRET = "legacy-client-secret";
+    const primaryRefresh = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("OAuth token refresh failed: unauthorized_client"),
+      );
+    const legacyRefresh = vi.fn().mockResolvedValue({
+      access_token: "legacy-refreshed-token",
+      expiry_date: Date.now() + 60_000,
+    });
+    createOAuth2ClientMock.mockImplementation((clientId: string) => ({
+      refreshToken:
+        clientId === "legacy-client-id" ? legacyRefresh : primaryRefresh,
+    }));
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "secondary@example.com",
+    });
+
+    await getAuthStatus("owner@example.com");
+
+    expect(primaryRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(legacyRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+    );
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+      expect.objectContaining({ access_token: "legacy-refreshed-token" }),
       "owner@example.com",
     );
   });

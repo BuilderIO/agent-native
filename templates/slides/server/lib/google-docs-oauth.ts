@@ -30,19 +30,55 @@ interface GoogleUserInfo {
   verified_email?: boolean;
 }
 
+interface GoogleOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
+function readCredentialPair(
+  clientIdKey: string,
+  clientSecretKey: string,
+): GoogleOAuthCredentials | null {
+  const clientId = process.env[clientIdKey];
+  const clientSecret = process.env[clientSecretKey];
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+function resolveGoogleProviderCredentialCandidates(): GoogleOAuthCredentials[] {
+  const primary = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  const legacy = readCredentialPair(
+    "GOOGLE_LEGACY_CLIENT_ID",
+    "GOOGLE_LEGACY_CLIENT_SECRET",
+  );
+  if (!primary) return legacy ? [legacy] : [];
+  if (!legacy || legacy.clientId === primary.clientId) return [primary];
+  return [primary, legacy];
+}
+
 function getOAuthCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const credentials = resolveGoogleProviderCredentialCandidates()[0];
+  if (!credentials) {
     throw new Error(
       "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
     );
   }
-  return { clientId, clientSecret };
+  return credentials;
 }
 
 export function isGoogleDocsOAuthConfigured(): boolean {
-  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  return resolveGoogleProviderCredentialCandidates().length > 0;
+}
+
+function isPermanentGoogleRefreshError(error: string | undefined): boolean {
+  return (
+    error === "invalid_grant" ||
+    error === "unauthorized_client" ||
+    error === "invalid_client"
+  );
 }
 
 export function getGooglePickerConfig(): {
@@ -98,35 +134,55 @@ async function refreshGoogleDocsToken(
     throw new Error("Google Docs connection expired. Please reconnect.");
   }
 
-  const { clientId, clientSecret } = getOAuthCredentials();
-  const response = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: tokens.refresh_token,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = (await response.json()) as {
+  const credentialCandidates = resolveGoogleProviderCredentialCandidates();
+  let data: {
     access_token?: string;
     expires_in?: number;
     token_type?: string;
     scope?: string;
     error?: string;
     error_description?: string;
-  };
-  if (!response.ok || !data.access_token) {
-    if (
-      data.error === "invalid_grant" ||
-      data.error === "unauthorized_client" ||
-      data.error === "invalid_client"
-    ) {
+  } | null = null;
+  let lastStatusText = "Could not refresh Google token.";
+  for (const credentials of credentialCandidates) {
+    const response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: tokens.refresh_token,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        grant_type: "refresh_token",
+      }),
+    });
+    lastStatusText = response.statusText;
+    data = (await response.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      token_type?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
+    if (response.ok && data.access_token) break;
+    if (!isPermanentGoogleRefreshError(data.error)) {
+      throw new Error(
+        data.error_description ||
+          data.error ||
+          "Could not refresh Google token.",
+      );
+    }
+  }
+
+  if (!data?.access_token) {
+    if (isPermanentGoogleRefreshError(data?.error)) {
       await deleteOAuthTokens(GOOGLE_DOCS_PROVIDER, accountId);
     }
     throw new Error(
-      data.error_description || data.error || "Could not refresh Google token.",
+      data?.error_description ||
+        data?.error ||
+        lastStatusText ||
+        "Could not refresh Google token.",
     );
   }
 

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  resolveGoogleProviderCredentialCandidates,
+  resolveGoogleSignInCredentials,
+} from "./google-oauth-credentials.js";
 
 describe("resolveGoogleSignInCredentials", () => {
   const originalEnv = { ...process.env };
@@ -42,5 +45,28 @@ describe("resolveGoogleSignInCredentials", () => {
       clientId: "provider-client",
       clientSecret: "provider-secret",
     });
+  });
+
+  it("returns primary then legacy provider credentials for refresh fallback", () => {
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+    process.env.GOOGLE_LEGACY_CLIENT_ID = "legacy-client";
+    process.env.GOOGLE_LEGACY_CLIENT_SECRET = "legacy-secret";
+
+    expect(resolveGoogleProviderCredentialCandidates()).toEqual([
+      { clientId: "provider-client", clientSecret: "provider-secret" },
+      { clientId: "legacy-client", clientSecret: "legacy-secret" },
+    ]);
+  });
+
+  it("dedupes legacy provider credentials when they match the primary client", () => {
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+    process.env.GOOGLE_LEGACY_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_LEGACY_CLIENT_SECRET = "legacy-secret";
+
+    expect(resolveGoogleProviderCredentialCandidates()).toEqual([
+      { clientId: "provider-client", clientSecret: "provider-secret" },
+    ]);
   });
 });

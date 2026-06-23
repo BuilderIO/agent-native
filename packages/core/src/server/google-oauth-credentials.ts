@@ -30,3 +30,22 @@ export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null 
 export function hasGoogleSignInCredentials(): boolean {
   return resolveGoogleSignInCredentials() !== null;
 }
+
+export function resolveGoogleProviderCredentials(): GoogleOAuthCredentials | null {
+  return readCredentialPair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET");
+}
+
+export function resolveGoogleLegacyProviderCredentials(): GoogleOAuthCredentials | null {
+  return readCredentialPair(
+    "GOOGLE_LEGACY_CLIENT_ID",
+    "GOOGLE_LEGACY_CLIENT_SECRET",
+  );
+}
+
+export function resolveGoogleProviderCredentialCandidates(): GoogleOAuthCredentials[] {
+  const primary = resolveGoogleProviderCredentials();
+  const legacy = resolveGoogleLegacyProviderCredentials();
+  if (!primary) return legacy ? [legacy] : [];
+  if (!legacy || legacy.clientId === primary.clientId) return [primary];
+  return [primary, legacy];
+}
