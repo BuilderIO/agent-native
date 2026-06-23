@@ -952,12 +952,13 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  // Inline MCP App embeds are gated behind the deploy-toggleable kill switch
-  // (default off). When disabled, advertise no resource and attach no embed
-  // reference so hosts fall back to the tool's deep-link text instead of an
-  // iframe. This is the single chokepoint for every embed surface: tools/list
-  // descriptor meta, tools/call result meta, resources/list, resources/read.
-  if (!requestMeta?.inlineMcpApps) return null;
+  // NB: the inline kill switch is intentionally NOT enforced here. This
+  // resolver also backs `resources/read`, which must keep serving the shell
+  // for a URI the host already holds (e.g. a cached descriptor) so it degrades
+  // gracefully instead of throwing a hard `-32603`. The switch is enforced at
+  // the *advertisement/render* sites (`tools/list` descriptor meta,
+  // `tools/call` result meta, `resources/list`) so disabled embeds never get
+  // advertised in the first place.
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
@@ -1006,6 +1007,9 @@ async function getMcpAppResources(
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
+  // Advertisement path (resources/list + resources/templates/list): suppressed
+  // by the inline kill switch so disabled embeds are never listed.
+  if (!requestMeta?.inlineMcpApps) return [];
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
@@ -1383,7 +1387,10 @@ export async function createMCPServerForRequest(
               : {};
           const toolMeta = {
             ...rawToolMeta,
-            ...(mcpAppResource
+            // Advertisement path: only tag the tool with its inline-embed
+            // descriptor when the kill switch is on, so disabled embeds never
+            // prompt a host to render/read the `ui://` resource.
+            ...(mcpAppResource && requestMeta?.inlineMcpApps
               ? {
                   ...openAiToolDescriptorMeta(mcpAppResource),
                   [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
@@ -1533,12 +1540,14 @@ export async function createMCPServerForRequest(
           !!mcpResult.raw &&
           typeof mcpResult.raw === "object" &&
           (mcpResult.raw as Record<string, unknown>).isError === true;
-        const mcpAppResource = await resolveMcpAppResourceSafely(
-          config,
-          name,
-          entry,
-          requestMeta,
-        );
+        // Render path: only treat the result as an inline embed when the kill
+        // switch is on. When off, `mcpAppResource` is null so every embed
+        // branch below degrades to the plain deep-link artifacts the tool would
+        // otherwise return — no `openai/outputTemplate`, no minted embed-start,
+        // no embed structuredContent — so the host shows a link, not an iframe.
+        const mcpAppResource = requestMeta?.inlineMcpApps
+          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          : null;
         const rawResultForClient = mcpAppResource
           ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
           : rawResult;
