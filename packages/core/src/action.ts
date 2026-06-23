@@ -956,16 +956,27 @@ function coerceStringToSchemaType(raw: string, types: string[]): unknown {
 }
 
 /**
- * Defensively coerce gateway-stringified tool arguments to the types the schema
- * expects. Some model gateways (notably Builder's Gemini-backed gateway) hand
- * back structured tool-call arguments as JSON strings — an array param arrives
- * as `"[{...}]"`, a boolean as `"true"`. Standard Schema (zod) `validate` does
- * not coerce, so these fail validation and the agent thrashes retrying shapes
- * (and can hang). We only touch a string value when the schema expects a
- * non-string type and the string parses cleanly to it; anything ambiguous
- * (schema also allows string) or unparseable is left as-is. Operates on
- * top-level properties only — once an array/object param is parsed, its nested
- * members are already native and validate normally.
+ * Defensively coerce stringified action arguments to the types the schema
+ * expects. Two callers depend on this:
+ *
+ *   1. Model gateways (notably Builder's Gemini-backed gateway) hand back
+ *      structured tool-call arguments as JSON strings — an array param arrives
+ *      as `"[{...}]"`, a boolean as `"true"`.
+ *   2. GET actions called from the browser via `useActionQuery` / `callAction`.
+ *      Those serialize params into the query string, where `URLSearchParams`
+ *      stringifies everything — so `includeSeries: true` arrives as the string
+ *      `"true"` and `limit: 5` as `"5"` (see `action-routes.ts`).
+ *
+ * In both cases Standard Schema (zod) `validate` does not coerce, so the call
+ * fails validation ("expected boolean, received string") — the agent thrashes
+ * retrying shapes and the frontend query errors. We only touch a string value
+ * when the schema expects a non-string type and the string parses cleanly to
+ * it; anything ambiguous (schema also allows string) or unparseable is left
+ * as-is. Operates on top-level properties only — once an array/object param is
+ * parsed, its nested members are already native and validate normally.
+ *
+ * Do NOT narrow this to "gateway-only": the GET query-string path relies on it
+ * too, and `action-routes.spec.ts` guards that round-trip.
  */
 function coerceGatewayStringifiedArgs(
   args: unknown,
