@@ -112,6 +112,18 @@ function getEngineRunErrorDetails(err: EngineError): string | undefined {
   return undefined;
 }
 
+function shouldCaptureRunError(err: unknown): boolean {
+  if (!(err instanceof EngineError)) return true;
+  const errorCode = getEngineRunErrorCode(err);
+  if (!errorCode) return true;
+  const normalizedCode = errorCode.toLowerCase();
+  return (
+    !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== "provider_rate_limited" &&
+    normalizedCode !== "rate_limit_exceeded"
+  );
+}
+
 export interface StartRunOptions {
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
@@ -447,7 +459,9 @@ export function startRun(
         return;
       }
       run.status = "errored";
-      captureRunError(err, "run");
+      if (shouldCaptureRunError(err)) {
+        captureRunError(err, "run");
+      }
       const errorMessage = getRunErrorMessage(err);
       const errorCode =
         err instanceof EngineError ? getEngineRunErrorCode(err) : undefined;

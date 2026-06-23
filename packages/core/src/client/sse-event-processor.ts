@@ -357,6 +357,10 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "stream_keepalive") {
+    return { action: "continue" };
+  }
+
   if (ev.type === "activity") {
     const tool = ev.tool?.trim() || undefined;
     const label = humanizeToolLabelText(ev.label ?? "Working", tool);
@@ -868,6 +872,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
+  onSeq?: (seq: number) => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -906,6 +911,10 @@ export async function readSSEStreamRaw(
         }
         sawDataEvent = true;
         lastMeaningfulEventAt = Date.now();
+
+        if (ev.seq !== undefined && onSeq) {
+          onSeq(ev.seq);
+        }
 
         const { action, autoContinue } = processEvent(
           ev,

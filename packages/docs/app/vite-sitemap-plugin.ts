@@ -127,6 +127,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {
+      path: "/privacy",
+      title: "Agent-Native Privacy Policy",
+      description:
+        "Privacy policy for Agent-Native hosted applications, templates, and browser extensions.",
+      markdown:
+        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, templates, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
+    },
+    {
       path: "/templates",
       title: "Agent-Native Templates",
       description: "Ready-to-fork app templates built with Agent-Native.",

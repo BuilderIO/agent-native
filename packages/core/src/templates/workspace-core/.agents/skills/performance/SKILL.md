@@ -5,6 +5,7 @@ description: >-
   list/read action, a page or sidebar that loads data, or when something loads
   slowly. Covers column projection, indexing hot-path queries, avoiding N+1 and
   round-trip waterfalls, cheap polling, and not recomputing on every read.
+scope: dev
 metadata:
   internal: true
 ---

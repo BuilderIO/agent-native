@@ -46,6 +46,7 @@ import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
+  useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
 import {
   appPath,
@@ -305,12 +306,27 @@ function MiniCalendar({
 function GoogleConnectSidebarButton() {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onSuccess: () => window.location.reload(),
+  });
 
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     setWantAuthUrl(false);
     window.open(authUrl.data.url, "_blank");
   }, [wantAuthUrl, authUrl.data]);
+
+  function handleConnect() {
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({ previousAccountCount: 0 });
+      return;
+    }
+    setWantAuthUrl(true);
+  }
 
   return (
     <div className="border-t border-border p-3">
@@ -324,8 +340,12 @@ function GoogleConnectSidebarButton() {
         <Button
           size="sm"
           className="w-full gap-1.5 text-xs font-semibold"
-          onClick={() => setWantAuthUrl(true)}
-          disabled={authUrl.isLoading || authUrl.isFetching}
+          onClick={handleConnect}
+          disabled={
+            authUrl.isLoading ||
+            authUrl.isFetching ||
+            isGoogleDesktopAuthPending
+          }
         >
           <IconExternalLink className="h-3 w-3" />
           {authUrl.isLoading ? "Connecting..." : "Connect"}
@@ -398,12 +418,30 @@ function GoogleAccountsSection({
   } = useViewPreferences();
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onSuccess: () => window.location.reload(),
+  });
 
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     window.open(addAccountUrl.data.url, "_blank");
     setWantAddAccount(false);
   }, [wantAddAccount, addAccountUrl.data]);
+
+  function handleAddAccount() {
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        addAccount: true,
+        previousAccountCount: accounts.length,
+      });
+      return;
+    }
+    setWantAddAccount(true);
+  }
 
   function handlePickColor(color: string) {
     updateViewPreferences({ colorMode: "single", singleColor: color });
@@ -438,7 +476,12 @@ function GoogleAccountsSection({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setWantAddAccount(true)}
+                onClick={handleAddAccount}
+                disabled={
+                  addAccountUrl.isLoading ||
+                  addAccountUrl.isFetching ||
+                  isGoogleDesktopAuthPending
+                }
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
                 <IconPlus className="h-3.5 w-3.5" />

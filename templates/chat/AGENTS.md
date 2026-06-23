@@ -44,6 +44,9 @@ workflow needs durable UI around the conversation.
 - Before implementing or explaining non-trivial Agent Native behavior, use the
   `agent-native-docs` skill and the built-in `docs-search` action/tool to read
   the version-matched framework docs bundled with `@agent-native/core`.
+- Use the built-in `source-search` action/tool, or search
+  `node_modules/@agent-native/core/corpus`, when you need current core or
+  first-party template implementation examples.
 - Prefer those installed docs over memory or public docs when package APIs,
   generated-app conventions, workspaces, actions, or agent surfaces are involved.
 

@@ -77,7 +77,11 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import type {
+  CalendarEvent,
+  CalendarEventDraft,
+  UpdateEventScope,
+} from "@shared/api";
 import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
@@ -131,6 +135,16 @@ function fallbackDraftRange(fallbackDate: Date) {
   const end = new Date(start);
   end.setHours(10, 0, 0, 0);
   return { start, end };
+}
+
+function isRecurringCalendarEvent(event: CalendarEvent): boolean {
+  return Boolean(event.recurringEventId || event.recurrence?.length);
+}
+
+function updateScopePayload(scope: UpdateEventScope | undefined): {
+  scope?: UpdateEventScope;
+} {
+  return scope ? { scope } : {};
 }
 
 function addMinutesToDateTimeParts(
@@ -448,16 +462,21 @@ export default function CalendarView() {
   // small non-blocking spinner instead of hiding everything behind a skeleton.
   const eventsRefreshing = isFetching && !eventsLoading;
 
-  // Apply overlay colors and filter hidden calendars
+  // Apply overlay ownership markers and filter hidden calendars
   const events = useMemo(() => {
-    const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
+    const ownerMap = new Map(overlayPeople.map((p) => [p.email, p]));
     const sourceEvents = draftEvent
       ? [...rawEvents.filter((e) => e.id !== draftEvent.id), draftEvent]
       : rawEvents;
     return sourceEvents
       .map((e) => {
-        if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
-          return { ...e, color: colorMap.get(e.overlayEmail) };
+        if (e.overlayEmail && ownerMap.has(e.overlayEmail)) {
+          const owner = ownerMap.get(e.overlayEmail);
+          return {
+            ...e,
+            ownerColor: owner?.color,
+            ownerName: owner?.name,
+          };
         }
         const tempId = quickEditTempIds[e.id];
         return tempId && !e._tempId ? { ...e, _tempId: tempId } : e;
@@ -879,24 +898,32 @@ export default function CalendarView() {
       newDate.getDate(),
     );
 
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const isRecurring = isRecurringCalendarEvent(event);
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+      recurrenceScope: isRecurring,
+    });
+    if (!guestNotification) return;
+
+    const undoScope = guestNotification.scope;
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
         start: oldStartISO,
         end: oldEndISO,
         sendUpdates: "none",
+        ...updateScopePayload(undoScope),
       });
     };
-    const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    };
-    const guestNotification = await promptGuestNotification({
-      event,
-      action: "update",
-      updates,
-    });
-    if (!guestNotification) return;
+    const toastId = toast.loading(
+      isRecurring ? "Updating recurring event..." : "Moving event...",
+    );
 
     updateEvent.mutate(
       {
@@ -907,11 +934,12 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast("Event moved", {
+          toast.success("Event moved", {
+            id: toastId,
             action: { label: "Undo", onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to move event"),
+        onError: () => toast.error("Failed to move event", { id: toastId }),
       },
     );
   }
@@ -946,24 +974,32 @@ export default function CalendarView() {
 
     const oldStartISO = event.start;
     const oldEndISO = event.end;
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const isRecurring = isRecurringCalendarEvent(event);
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+      recurrenceScope: isRecurring,
+    });
+    if (!guestNotification) return;
+
+    const undoScope = guestNotification.scope;
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
         start: oldStartISO,
         end: oldEndISO,
         sendUpdates: "none",
+        ...updateScopePayload(undoScope),
       });
     };
-    const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    };
-    const guestNotification = await promptGuestNotification({
-      event,
-      action: "update",
-      updates,
-    });
-    if (!guestNotification) return;
+    const toastId = toast.loading(
+      isRecurring ? "Updating recurring event..." : "Updating event...",
+    );
 
     updateEvent.mutate(
       {
@@ -974,11 +1010,12 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast("Event updated", {
+          toast.success("Event updated", {
+            id: toastId,
             action: { label: "Undo", onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to update event"),
+        onError: () => toast.error("Failed to update event", { id: toastId }),
       },
     );
   }

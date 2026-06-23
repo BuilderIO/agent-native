@@ -6,6 +6,7 @@ description: >-
   Voice Transcription settings section. Covers transcription-source routing,
   cleanup routing, Google realtime gating, and the voice transcription
   application-state keys.
+scope: dev
 metadata:
   internal: true
 ---

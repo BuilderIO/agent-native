@@ -264,6 +264,14 @@ export {
   type SpawnTaskOptions,
 } from "./agent-teams.js";
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
+export {
+  hasGoogleSignInCredentials,
+  resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidates,
+  resolveGoogleProviderCredentials,
+  resolveGoogleSignInCredentials,
+  type GoogleOAuthCredentials,
+} from "./google-oauth-credentials.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {
   getH3App,

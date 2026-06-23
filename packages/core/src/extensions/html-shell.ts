@@ -139,9 +139,14 @@ export function buildExtensionHtml(
       if (_extensionErrors.indexOf(message) !== -1) return;
       _extensionErrors.push(message);
       _extensionErrorDetails.push({ message: message, stack: stack || '' });
+      _renderErrorToast();
+    }
+
+    function _renderErrorToast() {
       var toast = document.getElementById('__extension-error-toast');
       if (!toast) return;
       var msg = document.getElementById('__extension-error-msg');
+      if (!msg || _extensionErrors.length === 0) return;
       if (_extensionErrors.length === 1) {
         msg.textContent = _extensionErrors[0];
       } else {
@@ -635,6 +640,7 @@ export function buildExtensionHtml(
 	    });
 
 	    document.addEventListener('DOMContentLoaded', function() {
+	      _renderErrorToast();
 	      var fixBtn = document.getElementById('__extension-error-fix');
 	      if (fixBtn) {
 	        fixBtn.addEventListener('click', function() {

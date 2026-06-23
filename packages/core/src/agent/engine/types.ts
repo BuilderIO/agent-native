@@ -141,6 +141,7 @@ export type EngineEvent =
   | { type: "thinking-delta"; text: string; signature?: string }
   | { type: "tool-input-start"; id?: string; name?: string }
   | { type: "tool-input-delta"; id?: string; name?: string; text?: string }
+  | { type: "gateway-heartbeat" }
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | {
       type: "tool-call-error";

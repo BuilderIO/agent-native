@@ -635,6 +635,92 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("does not capture expected quota or rate-limit terminal run errors", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-expected-errors-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-credits-limit",
+        "thread-credits-limit",
+        async () => {
+          throw new EngineError(
+            "You've reached the daily AI credits limit for your current plan.",
+            {
+              errorCode: "credits-limit-daily",
+              upgradeUrl: "https://builder.io/account/billing",
+            },
+          );
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-credits-limit",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "You've reached the daily AI credits limit for your current plan.",
+      errorCode: "credits-limit-daily",
+      upgradeUrl: "https://builder.io/account/billing",
+    });
+  });
+
+  it("does not capture exhausted provider 429s while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-rate-limit-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-429-no-capture",
+        "thread-provider-429-no-capture",
+        async () => {
+          throw new EngineError("429 status code (no body)", {
+            statusCode: 429,
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-429-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "429 status code (no body)",
+      errorCode: "provider_rate_limited",
+      details: "429 status code (no body)",
+    });
+  });
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(

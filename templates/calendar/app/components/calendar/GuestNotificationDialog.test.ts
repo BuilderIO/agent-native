@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CalendarEvent } from "@shared/api";
 import {
   getGuestAttendeeCount,
+  shouldOpenGuestNotificationPrompt,
   shouldPromptGuests,
 } from "./GuestNotificationDialog";
 
@@ -41,5 +42,30 @@ describe("guest notification prompt helpers", () => {
         attendees: [{ email: "guest@example.com" }],
       }),
     ).toBe(true);
+  });
+
+  it("prompts for recurring update scope even without guests", () => {
+    const event = calendarEvent({
+      attendees: [],
+      recurringEventId: "series-1",
+    });
+
+    expect(
+      shouldOpenGuestNotificationPrompt({
+        event,
+        recurrenceScope: { enabled: true },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not prompt for ordinary guestless updates", () => {
+    const event = calendarEvent({ attendees: [] });
+
+    expect(
+      shouldOpenGuestNotificationPrompt({
+        event,
+        updates: { title: "New title" },
+      }),
+    ).toBe(false);
   });
 });
