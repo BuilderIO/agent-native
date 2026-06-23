@@ -1024,7 +1024,14 @@ export default function RecordRoute() {
         // chose a specific mic, do not start a parallel system-default mic
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
-        if (wantsMic && !opts.micDeviceId && liveTranscription.supported) {
+        //
+        // The one exception is when a stale saved mic forced the engine to
+        // fall back to the system default during acquire(): the recording is
+        // now on the default device, so live transcription would use the same
+        // mic and is safe to start.
+        const usingDefaultMic =
+          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
 

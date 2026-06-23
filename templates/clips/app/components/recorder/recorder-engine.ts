@@ -420,6 +420,13 @@ export class RecorderEngine {
    */
   private cameraDisconnectNotified = false;
   private micDisconnectNotified = false;
+  /**
+   * Set when a stale/unavailable `micDeviceId` forces a fallback to the system
+   * default mic during `acquire()`. The recording then runs on the default
+   * device, so live transcription (which can only ever use the default mic) is
+   * safe to start even though a specific mic was originally requested.
+   */
+  private micFellBackToDefault = false;
 
   private state: RecorderState = "idle";
 
@@ -446,6 +453,15 @@ export class RecorderEngine {
 
   getCameraStream(): MediaStream | null {
     return this.cameraStream;
+  }
+
+  /**
+   * True when `acquire()` had to fall back from the requested `micDeviceId` to
+   * the system default mic. Lets the UI start live transcription for this
+   * session even though a specific mic was originally selected.
+   */
+  didMicFallBackToDefault(): boolean {
+    return this.micFellBackToDefault;
   }
 
   getPreviewStream(): MediaStream | null {
@@ -515,6 +531,7 @@ export class RecorderEngine {
     const wantsCamera =
       this.opts.mode === "camera" || this.opts.mode === "screen+camera";
     const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
+    this.micFellBackToDefault = false;
 
     try {
       if (!isBrowserSecureContext()) {
@@ -634,6 +651,9 @@ export class RecorderEngine {
                 audio: voiceFocusedAudioConstraints(),
                 video: false,
               });
+              // Recording is now on the system default mic, so live
+              // transcription can run for this session after all.
+              this.micFellBackToDefault = true;
             } catch (retryErr) {
               throw this.friendlyError(retryErr, "microphone");
             }
