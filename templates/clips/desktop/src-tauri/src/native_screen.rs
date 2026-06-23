@@ -252,6 +252,14 @@ fn free_disk_bytes(path: &Path) -> Option<u64> {
 /// to the frontend. Returns a stop flag the caller sets to shut the thread down.
 #[cfg(target_os = "macos")]
 fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool> {
+    // Use the parent directory for the statvfs call. The recording file itself
+    // may not exist yet (warm/begin path defers writing until after countdown),
+    // and statvfs returns ENOENT on non-existent paths. The parent dir is the
+    // pending-uploads folder, which always exists.
+    let check_path = recording_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or(recording_path);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = Arc::clone(&stop);
     std::thread::spawn(move || {
@@ -273,7 +281,7 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
                 continue;
             }
             ticks = 0;
-            if let Some(free) = free_disk_bytes(&recording_path) {
+            if let Some(free) = free_disk_bytes(&check_path) {
                 let free_mb = free / (1024 * 1024);
                 if free < DISK_MONITOR_CRITICAL_BYTES {
                     eprintln!(
