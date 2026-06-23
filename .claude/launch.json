@@ -8,6 +8,16 @@
       "port": 8080
     },
     {
+      "name": "assets-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=assets AGENT_USER_EMAIL=dev@local.test ASSETS_DATABASE_URL=file:/tmp/assets-feedback.db pnpm --filter assets exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "clips-local",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
