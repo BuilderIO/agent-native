@@ -125,6 +125,7 @@ function ClipsExtensionAuthBridge() {
     if (params.get("clipsExtensionAuth") !== "1") return;
     const extensionId = params.get("clipsExtensionId")?.trim();
     if (!extensionId) return;
+    const targetExtensionId = extensionId;
 
     let cancelled = false;
 
@@ -149,7 +150,7 @@ function ClipsExtensionAuthBridge() {
       }
 
       runtime.sendMessage(
-        extensionId,
+        targetExtensionId,
         {
           type: "CLIPS_AUTH_SESSION",
           token: session.token,
