@@ -287,6 +287,13 @@ async function uploadChunk(
   const text = await res.text().catch(() => "");
   const data = text ? (JSON.parse(text) as UploadResult) : {};
   if (!res.ok) {
+    console.error(
+      "[clips-offscreen] chunk upload failed",
+      res.status,
+      "hadAuth:",
+      Boolean(recording.authToken),
+      text.slice(0, 200),
+    );
     throw new Error(
       data?.error || `Upload failed (${res.status}): ${text || res.statusText}`,
     );
@@ -518,6 +525,7 @@ function startRecorderNow(recording: ActiveRecording): void {
   try {
     recording.recorder.start(2000);
     recording.startedAtMs = Date.now();
+    console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
       width: recording.dimensions.width,

@@ -123,6 +123,7 @@
   }
 
   function reconcile(parts: OverlayPart[]): void {
+    console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
     if (wanted.size === 0) {
       document.getElementById(CONTAINER_ID)?.remove();

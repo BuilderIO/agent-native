@@ -875,6 +875,7 @@ async function armRecording(args: {
     settings.captureSurface === "camera" ? "camera" : "screen";
   const surface: "browser" | "window" | "monitor" =
     settings.captureSurface === "camera" ? "browser" : settings.captureSurface;
+  console.log("[clips-bg] arm: start", { mode, surface, tabId: tab.id });
 
   // Pre-warmed on popup open, so this is effectively instant and keeps the
   // getDisplayMedia() call close to the user's click.
@@ -882,13 +883,18 @@ async function armRecording(args: {
 
   // 1) Native "Choose what to share" picker. Do this before any network round
   //    trip so the picker stays tied to the user gesture. Throws if cancelled.
-  await sendOffscreenMessage<{ ok: boolean; width: number; height: number }>({
+  const acq = await sendOffscreenMessage<{
+    ok: boolean;
+    width: number;
+    height: number;
+  }>({
     type: "CLIPS_OFFSCREEN_ACQUIRE",
     sessionId,
     mode,
     surface,
     includeMicrophone: settings.includeMicrophone,
   });
+  console.log("[clips-bg] arm: acquired stream", acq);
 
   // 2) Create the recording row now that we know the user picked a source.
   type CreatedRecording = {
@@ -964,6 +970,7 @@ async function armRecording(args: {
   // flip (markRecordingStarted) advances our phase, so recording begins even on
   // pages where no overlay can be injected (chrome://, the New Tab page, etc.).
   const authToken = (await readAuthSession(settings))?.token;
+  console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -975,6 +982,7 @@ async function armRecording(args: {
       authToken,
     });
   } catch (err) {
+    console.error("[clips-bg] arm: BEGIN failed", err);
     await cancelRecording();
     throw err;
   }
@@ -989,6 +997,7 @@ async function armRecording(args: {
   broadcastOverlayState();
   await chrome.action.setBadgeBackgroundColor({ color: "#e11d48" });
   await chrome.action.setBadgeText({ text: "REC" });
+  console.log("[clips-bg] arm: done — countdown, parts:", desiredParts());
 
   return { ok: true, sessionId, recordingId: created.id, native: true };
 }
@@ -998,6 +1007,7 @@ async function armRecording(args: {
 // on-page timer. Idempotent.
 async function markRecordingStarted() {
   if (overlayPhase !== "countdown") return;
+  console.log("[clips-bg] recorder started → phase=recording");
   clearCountdownTimer();
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
@@ -1178,6 +1188,7 @@ async function finishSaving(
 
 async function stopRecording() {
   const recording = activeNativeRecording;
+  console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
   recording.status = "stopping";
   // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
@@ -1821,6 +1832,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
       response = await dispatchRuntimeMessage(message);
     } catch (err) {
+      console.error(
+        "[clips-bg] message failed:",
+        (message as { type?: unknown })?.type,
+        err,
+      );
       response = {
         ok: false,
         error: err instanceof Error ? err.message : "Could not use Clips.",
@@ -1841,6 +1857,13 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
+    console.log(
+      "[clips-bg] status:",
+      status.status,
+      status.error ?? "",
+      "phase:",
+      overlayPhase,
+    );
     if (
       activeNativeRecording &&
       activeNativeRecording.sessionId === status.sessionId
@@ -1961,6 +1984,12 @@ chrome.action.onClicked.addListener(() => {
     // Await restore — the click may have woken the worker, leaving the module
     // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
+    console.log(
+      "[clips-bg] icon clicked — phase:",
+      overlayPhase,
+      "active:",
+      !!activeNativeRecording,
+    );
     if (!activeNativeRecording) return;
     if (overlayPhase === "countdown") await cancelRecording();
     else if (overlayPhase === "recording" || overlayPhase === "paused") {

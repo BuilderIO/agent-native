@@ -99,7 +99,9 @@ async function initBubble(): Promise<void> {
     video.srcObject = stream;
     ring.appendChild(video);
     await video.play().catch(() => undefined);
-  } catch {
+    console.log("[clips-overlay] camera bubble live");
+  } catch (err) {
+    console.warn("[clips-overlay] camera getUserMedia failed:", err);
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
