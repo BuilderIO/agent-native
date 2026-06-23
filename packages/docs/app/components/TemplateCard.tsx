@@ -33,17 +33,17 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800",
   },
   {
-    name: "Calendar",
-    slug: "calendar",
-    replaces: "Replaces or augments Google Calendar, Calendly",
+    name: "Design",
+    slug: "design",
+    replaces: "Replaces or augments design prototyping tools",
     cliCommand:
-      "npx @agent-native/core@latest create my-calendar-app --template calendar",
-    demoUrl: "https://calendar.agent-native.com",
+      "npx @agent-native/core@latest create my-design-app --template design",
+    demoUrl: "https://design.agent-native.com",
     description:
-      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
-    color: "#10b981",
+      "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+    color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
   },
   {
     name: "Content",
@@ -152,17 +152,17 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
   },
   {
-    name: "Design",
-    slug: "design",
-    replaces: "Replaces or augments design prototyping tools",
+    name: "Calendar",
+    slug: "calendar",
+    replaces: "Replaces or augments Google Calendar, Calendly",
     cliCommand:
-      "npx @agent-native/core@latest create my-design-app --template design",
-    demoUrl: "https://design.agent-native.com",
+      "npx @agent-native/core@latest create my-calendar-app --template calendar",
+    demoUrl: "https://calendar.agent-native.com",
     description:
-      "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
-    color: "#F472B6",
+      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
+    color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
   },
   {
     name: "Dispatch",

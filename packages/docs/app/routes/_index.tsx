@@ -151,7 +151,7 @@ const frameworkPrimitives = [
 const homepageTemplateSlugs = [
   "clips",
   "plan",
-  "calendar",
+  "design",
   "content",
   "slides",
   "analytics",

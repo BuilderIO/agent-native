@@ -63,13 +63,13 @@ Install `/visual-plan` and `/visual-recap` so your coding agent can plan before 
 </td>
 <td width="33%" align="center" valign="top">
 
-**Calendar**
+**Design**
 
-<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
+<a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800" alt="Design template" width="100%" /></a>
 
-**Agent-Native Google Calendar, Calendly**
+**Agent-Native design prototyping**
 
-Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+Generate interactive HTML prototypes, compare variants, refine controls, and export the result.
 
 </td>
 </tr>
