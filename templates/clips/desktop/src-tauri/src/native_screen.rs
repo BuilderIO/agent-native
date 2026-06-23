@@ -970,6 +970,20 @@ pub async fn native_fullscreen_recording_resume(
     let segment_path = segment_path_for(&app, &restart.safe_id, extension, next_counter)?;
     let _ = std::fs::remove_file(&segment_path);
 
+    // Re-check disk space before starting the new segment. The mid-recording
+    // monitor warns but does not block, so space can drop below the hard limit
+    // between the initial start and a resume without being caught here.
+    #[cfg(target_os = "macos")]
+    if let Some(free) = free_disk_bytes(segment_path.parent().unwrap_or(&segment_path)) {
+        if free < DISK_SPACE_BLOCK_BYTES {
+            return Err(format!(
+                "Not enough disk space to resume recording. Free up at least {} and try again (currently {} free).",
+                format_mb(DISK_SPACE_BLOCK_BYTES),
+                format_mb(free)
+            ));
+        }
+    }
+
     // Start the new segment backend FIRST. Only clear paused state if it
     // succeeds — otherwise the session would be left with no backend but
     // appear running, which silently drops everything after the resume.
