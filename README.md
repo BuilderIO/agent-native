@@ -43,11 +43,11 @@ Start with a full featured template. Each one is a complete, 100% free and open-
 
 **Clips**
 
-<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800" alt="Clips template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F189ebd9b2f2b4f0ead3b33138d4e4c10?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
-**Agent-Native Loom**
+**Agent-Native Loom + Jam**
 
-Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
+Record your screen with auto-transcripts and captured browser debug logs, share a link, and let an agent read the transcript, see timestamped frames, and fix the bug.
 
 </td>
 <td width="33%" align="center" valign="top">
