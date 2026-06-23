@@ -51,6 +51,18 @@ export default function TabBar({
             >
               <span className="tab-label">{title}</span>
               <span
+                className="tab-refresh"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTabRefresh(tab.id);
+                }}
+                role="button"
+                tabIndex={-1}
+                title="Reload tab"
+              >
+                <IconReload size={11} strokeWidth={2} />
+              </span>
+              <span
                 className="tab-close"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -58,6 +70,7 @@ export default function TabBar({
                 }}
                 role="button"
                 tabIndex={-1}
+                title="Close tab"
               >
                 <IconX size={10} strokeWidth={2} />
               </span>

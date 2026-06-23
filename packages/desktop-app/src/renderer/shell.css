@@ -195,7 +195,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.tab-close {
+.tab-close,
+.tab-refresh {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -213,11 +214,13 @@ body {
     background var(--ease);
 }
 
-.tab:hover .tab-close {
+.tab:hover .tab-close,
+.tab:hover .tab-refresh {
   opacity: 0.5;
 }
 
-.tab-close:hover {
+.tab-close:hover,
+.tab-refresh:hover {
   opacity: 1 !important;
   background: var(--tab-close-hover);
 }
