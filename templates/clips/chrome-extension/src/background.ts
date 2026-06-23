@@ -1075,7 +1075,17 @@ async function handleOverlayRestart() {
       error: err instanceof Error ? err.message : "Could not restart.",
     };
   }
-  await resetRecordingChunks(recording).catch(() => undefined);
+  // If the previous take's chunks could not be cleared, do NOT re-arm with the
+  // same recordingId — finalize would otherwise assemble stale chunk keys from
+  // the aborted take into the restarted recording. Surface the failure instead.
+  const chunksReset = await resetRecordingChunks(recording);
+  if (!chunksReset) {
+    return {
+      ok: false,
+      error:
+        "Could not clear the previous take before restarting. Stop and start a new recording.",
+    };
+  }
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1092,22 +1102,38 @@ async function handleOverlayRestart() {
   )?.token;
   // Re-arm the recorder on the same (re-homed) source streams with a fresh
   // pre-roll. The offscreen reports "recording" when it restarts.
-  await sendOffscreenMessage({
-    type: "CLIPS_OFFSCREEN_BEGIN",
-    sessionId: recording.sessionId,
-    recordingId: recording.recordingId,
-    uploadUrl: recording.uploadUrl,
-    hasCamera: recording.captureSurface === "camera" || recording.includeCamera,
-    startDelayMs: COUNTDOWN_SECONDS * 1000,
-    authToken: restartAuthToken,
-  }).catch(() => undefined);
+  try {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_BEGIN",
+      sessionId: recording.sessionId,
+      recordingId: recording.recordingId,
+      uploadUrl: recording.uploadUrl,
+      hasCamera:
+        recording.captureSurface === "camera" || recording.includeCamera,
+      startDelayMs: COUNTDOWN_SECONDS * 1000,
+      authToken: restartAuthToken,
+    });
+  } catch (err) {
+    // Re-arming failed: tear the countdown overlay back down and report the
+    // failure instead of leaving the user on a pre-roll with no recorder.
+    recording.status = "error";
+    recording.error =
+      err instanceof Error ? err.message : "Could not restart the recorder.";
+    resetOverlay();
+    await saveActiveNativeRecording();
+    await broadcastUnmount();
+    broadcastOverlayState();
+    return { ok: false, error: recording.error };
+  }
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
   return { ok: true };
 }
 
-async function resetRecordingChunks(recording: NativeRecording): Promise<void> {
+async function resetRecordingChunks(
+  recording: NativeRecording,
+): Promise<boolean> {
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
@@ -1118,12 +1144,13 @@ async function resetRecordingChunks(recording: NativeRecording): Promise<void> {
     includeMicrophone: recording.includeMicrophone,
     includeDeveloperLogs: recording.includeDeveloperLogs,
   });
-  await fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers,
     credentials: "include",
     cache: "no-store",
   }).catch(() => undefined);
+  return Boolean(response?.ok);
 }
 
 async function stopRecording() {
@@ -1142,6 +1169,25 @@ async function stopRecording() {
       type: "CLIPS_OFFSCREEN_STOP",
       sessionId: recording.sessionId,
     });
+    if (response.result && response.result.status === "cancelled") {
+      // Stopped during the pre-roll countdown: no media was captured. Treat it
+      // as an aborted take — discard the empty recording instead of opening a
+      // playback tab for a finished-but-empty clip.
+      await deleteSession(recording.sessionId);
+      await postAction(
+        {
+          clipsBaseUrl: recording.clipsBaseUrl,
+          captureSurface: recording.captureSurface,
+          includeCamera: recording.includeCamera,
+          includeMicrophone: recording.includeMicrophone,
+          includeDeveloperLogs: recording.includeDeveloperLogs,
+        },
+        "trash-recording",
+        { id: recording.recordingId },
+      ).catch(() => undefined);
+      await clearNativeRecording();
+      return { ok: true, cancelled: true };
+    }
     recording.status = "complete";
     recording.error = null;
     if (response.result && typeof response.result.recordingId === "string") {
