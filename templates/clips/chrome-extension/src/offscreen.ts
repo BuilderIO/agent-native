@@ -32,6 +32,9 @@ type BeginMessage = {
   // Pre-roll countdown delay, owned here in the offscreen document (a reliable
   // context) rather than the service worker (which can suspend and drop timers).
   startDelayMs?: number;
+  // Bearer token so chunk uploads authenticate the same way create-recording
+  // does. The offscreen document has no Clips session cookie of its own.
+  authToken?: string;
 };
 
 type SimpleMessage = {
@@ -74,6 +77,7 @@ type ActiveRecording = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
+  authToken: string | null;
   mode: CaptureMode;
   startedAtMs: number;
   mimeType: string;
@@ -267,9 +271,16 @@ async function uploadChunk(
     hasCamera: extra.hasCamera,
   });
   const body = await blob.arrayBuffer();
+  const headers: Record<string, string> = {
+    "Content-Type": blob.type || recording.mimeType,
+    "X-Agent-Native-Frontend": "1",
+  };
+  if (recording.authToken) {
+    headers.Authorization = `Bearer ${recording.authToken}`;
+  }
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": blob.type || recording.mimeType },
+    headers,
     credentials: "include",
     body,
   });
@@ -421,6 +432,7 @@ async function begin(message: BeginMessage): Promise<{
     sessionId: ready.sessionId,
     recordingId: message.recordingId,
     uploadUrl: message.uploadUrl,
+    authToken: message.authToken ?? null,
     mode: ready.mode,
     startedAtMs: 0,
     mimeType,
