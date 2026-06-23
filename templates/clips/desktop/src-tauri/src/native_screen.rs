@@ -736,25 +736,33 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
-        // Only mark corrupt when the SCK delegate explicitly reported failure
-        // (recording_did_fail) AND the file is missing its moov atom. A
-        // transient remove_recording_output error that still produces a valid
-        // MP4 should remain retryable rather than forcing a re-record.
-        if mp4_has_moov(&saved.file_path) == Some(false) {
+        // Only mark corrupt when the SCK delegate explicitly called recording_did_fail
+        // (error contains "finalize failed"). Transient stop_capture /
+        // remove_recording_output errors also return Err but don't prove the moov
+        // was never written — they should remain retryable.
+        let is_definitive = stop_err.contains("finalize failed");
+        if is_definitive && mp4_has_moov(&saved.file_path) == Some(false) {
             saved.corrupt = true;
             eprintln!(
-                "[clips-tray] recording marked corrupt: finalize error + missing moov atom"
+                "[clips-tray] recording marked corrupt: definitive finalize error + missing moov atom"
             );
         }
     } else if mp4_has_moov(&saved.file_path) == Some(false) {
-        // stop_outcome was Ok but the finalize callback timed out — SCK may
-        // still be flushing the moov atom. Keep the file retryable rather
-        // than marking it permanently corrupt on this first check.
+        // stop_outcome was Ok but the finalize callback timed out — SCK may still be
+        // flushing the moov atom. Persist metadata so the clip appears as retryable
+        // in the UI, then bail out before upload_recording_file re-checks moov and
+        // permanently marks it corrupt.
         saved.last_error = Some(
             "Recorded MP4 is missing playback metadata. Please retry the recording."
                 .to_string(),
         );
-        eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — leaving retryable");
+        eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — saving as retryable, skipping upload");
+        write_saved_recording_metadata(&app, &saved)?;
+        emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+        return Err(
+            "Recorded MP4 is missing playback metadata. Please retry the recording."
+                .to_string(),
+        );
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
     }
@@ -859,13 +867,12 @@ pub async fn native_fullscreen_recording_stop_and_save(
             );
         }
     } else if mp4_has_moov(&session.path) == Some(false) {
+        // Non-definitive case (transient error or finalize timeout): the moov may
+        // still be flushing. Proceed with the export so the file lands in the
+        // user-requested folder and is accessible — stranding it in an internal
+        // pending folder with no metadata would leave it unrecoverable.
         eprintln!(
-            "[clips-tray] native local recording has no moov after finalize timeout — rejecting export without deleting file"
-        );
-        return Err(
-            "Recording could not be saved — video finalization timed out and the file may be \
-             incomplete. The raw file has been kept in the Clips pending folder."
-                .into(),
+            "[clips-tray] native local recording has no moov after finalize; exporting anyway so user can access the file"
         );
     }
 
