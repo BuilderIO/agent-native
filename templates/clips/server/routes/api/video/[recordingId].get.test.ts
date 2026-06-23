@@ -324,4 +324,41 @@ describe("/api/video/:recordingId route", () => {
     });
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("does not 500 when application-state is unavailable for anonymous viewers", async () => {
+    // Reproduces the production bug: `resolveAccess` grants public clips to
+    // anonymous viewers, but `readAppState` throws without an authenticated
+    // identity ("Application state access requires an authenticated request
+    // context"). The route must swallow that and fall through to the provider
+    // media URL instead of surfacing an unhandled 500.
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+    mockReadAppState.mockRejectedValue(
+      new Error(
+        "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+      ),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("media", {
+        status: 206,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const event = makeEvent();
+    event.headers.set("range", "bytes=0-2047");
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(event.status).not.toBe(500);
+    expect(fetch).toHaveBeenCalled();
+  });
 });

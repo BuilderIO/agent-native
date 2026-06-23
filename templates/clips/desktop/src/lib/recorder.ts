@@ -88,9 +88,13 @@ const LIVE_UPLOAD_CHUNK_MS = 1_000;
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
-const CLOUD_RECORDING_MAX_LONG_EDGE = 1280;
-const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 900_000;
-const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 96_000;
+// Crisp capture for the desktop browser MediaRecorder fallback. Files are no
+// longer shrunk client-side and the upload provider streams large files, so we
+// keep full 1080p (was downscaled to a 1280 long edge) and a sharp bitrate (was
+// 900 kbps, which left UI and text fuzzy). Dial down if file size matters.
+const CLOUD_RECORDING_MAX_LONG_EDGE = 1920;
+const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
+const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 128_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
