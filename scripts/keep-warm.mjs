@@ -65,7 +65,8 @@ async function pingApp({ name, prodUrl }) {
       if (r.ok) return { name, ok: true, ...r };
       lastErr = `HTTP ${r.status}`;
     } catch (err) {
-      lastErr = err?.name === "TimeoutError" ? "timeout" : String(err?.message ?? err);
+      lastErr =
+        err?.name === "TimeoutError" ? "timeout" : String(err?.message ?? err);
     }
   }
   return { name, ok: false, error: lastErr };
@@ -91,8 +92,11 @@ async function main() {
   for (const r of results) {
     if (r.ok) {
       warmed++;
-      const dbState = r.db === true ? "db:warm" : r.db === false ? "db:none" : "db:?";
-      console.log(`  ✓ ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}`);
+      const dbState =
+        r.db === true ? "db:warm" : r.db === false ? "db:none" : "db:?";
+      console.log(
+        `  ✓ ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}`,
+      );
     } else {
       console.log(`  ✗ ${r.name.padEnd(12)} ${r.error}`);
     }

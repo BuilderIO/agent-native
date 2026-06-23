@@ -98,7 +98,10 @@ function cmdAdd(args: string[]): number {
     file = path.join(dir, `${date}-${slug}-${n++}.md`);
   }
 
-  const content = `---\ntype: ${type}\ndate: ${date}\n---\n${summary}\n`;
+  // Blank line after the closing frontmatter delimiter so the generated file
+  // is already Prettier-clean (Markdown requires a blank line before body text)
+  // and never trips the repo fmt check.
+  const content = `---\ntype: ${type}\ndate: ${date}\n---\n\n${summary}\n`;
   fs.writeFileSync(file, content, "utf-8");
   console.log(`Added changelog entry: ${path.relative(process.cwd(), file)}`);
   return 0;

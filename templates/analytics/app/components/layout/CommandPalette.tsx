@@ -50,11 +50,11 @@ interface ExtensionSearchItem {
 }
 
 const defaultTools = [
-  { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
+  { id: "explorer", name: "Explorer", href: "/dashboards/explorer" },
   {
     id: "customer-health",
     name: "Customer Health",
-    href: "/adhoc/customer-health",
+    href: "/dashboards/customer-health",
   },
 ];
 
