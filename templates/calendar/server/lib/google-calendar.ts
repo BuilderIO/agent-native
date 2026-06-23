@@ -860,6 +860,7 @@ export async function listOverlayEvents(
           eventType: event.eventType || "default",
           accountEmail: undefined,
           overlayEmail,
+          ...mapColor(event),
           attendees: mapAttendees(event),
           organizer: mapOrganizer(event),
           createdAt: event.created || new Date().toISOString(),

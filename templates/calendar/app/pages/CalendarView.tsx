@@ -462,16 +462,21 @@ export default function CalendarView() {
   // small non-blocking spinner instead of hiding everything behind a skeleton.
   const eventsRefreshing = isFetching && !eventsLoading;
 
-  // Apply overlay colors and filter hidden calendars
+  // Apply overlay ownership markers and filter hidden calendars
   const events = useMemo(() => {
-    const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
+    const ownerMap = new Map(overlayPeople.map((p) => [p.email, p]));
     const sourceEvents = draftEvent
       ? [...rawEvents.filter((e) => e.id !== draftEvent.id), draftEvent]
       : rawEvents;
     return sourceEvents
       .map((e) => {
-        if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
-          return { ...e, color: colorMap.get(e.overlayEmail) };
+        if (e.overlayEmail && ownerMap.has(e.overlayEmail)) {
+          const owner = ownerMap.get(e.overlayEmail);
+          return {
+            ...e,
+            ownerColor: owner?.color,
+            ownerName: owner?.name,
+          };
         }
         const tempId = quickEditTempIds[e.id];
         return tempId && !e._tempId ? { ...e, _tempId: tempId } : e;
