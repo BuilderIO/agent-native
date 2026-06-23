@@ -76,10 +76,8 @@ const MultiTabAssistantChatLazy = lazy(() =>
   })),
 );
 import type { MultiTabAssistantChatHeaderProps } from "./MultiTabAssistantChat.js";
-import {
-  assistantUiRecoverableRenderErrorKind,
-  type AssistantChatProps,
-} from "./AssistantChat.js";
+import type { AssistantChatProps } from "./AssistantChat.js";
+import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
