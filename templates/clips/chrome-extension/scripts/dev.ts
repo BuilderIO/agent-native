@@ -62,7 +62,9 @@ function notifyReload(): void {
         /* client went away */
       }
     }
-    console.log(`[clips-dev] rebuild → reload sent to ${clients.size} client(s)`);
+    console.log(
+      `[clips-dev] rebuild → reload sent to ${clients.size} client(s)`,
+    );
   }, 250);
 }
 

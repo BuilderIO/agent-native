@@ -2027,3 +2027,37 @@ chrome.debugger.onDetach.addListener((source) => {
   if (session) session.attached = false;
   tabToSession.delete(tabId);
 });
+
+// ---- Dev auto-reload (unpacked installs only) ------------------------------
+// `pnpm dev:hot` runs a localhost server that streams "reload" after each
+// rebuild; we hold the stream open and reload the extension when it fires, so
+// edits land without touching chrome://extensions. The open fetch also keeps
+// this worker alive while iterating. No-ops for packed/Web Store installs
+// (they have an update_url) and quietly retries when no dev server is running.
+function startDevHotReload(): void {
+  if ("update_url" in chrome.runtime.getManifest()) return;
+  const url = "http://localhost:8123/dev-reload-stream";
+  const connect = (): void => {
+    fetch(url, { cache: "no-store" })
+      .then(async (res) => {
+        const reader = res.body?.getReader();
+        if (!reader) {
+          setTimeout(connect, 2500);
+          return;
+        }
+        const decoder = new TextDecoder();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (decoder.decode(value, { stream: true }).includes("reload")) {
+            chrome.runtime.reload();
+            return;
+          }
+        }
+        setTimeout(connect, 1000);
+      })
+      .catch(() => setTimeout(connect, 2500));
+  };
+  connect();
+}
+startDevHotReload();
