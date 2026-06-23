@@ -449,6 +449,28 @@ function comparableLabel(value: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+// Pages where Chrome forbids content-script / overlay injection, so the on-page
+// countdown + controls can't render. Recording the screen still works; we just
+// warn the user in the popup instead of letting it fail silently.
+function isUnsupportedPage(url: string | undefined | null): boolean {
+  if (!url) return true;
+  const u = url.toLowerCase();
+  return (
+    u.startsWith("chrome://") ||
+    u.startsWith("chrome-extension://") ||
+    u.startsWith("edge://") ||
+    u.startsWith("brave://") ||
+    u.startsWith("arc://") ||
+    u.startsWith("about:") ||
+    u.startsWith("view-source:") ||
+    u.startsWith("devtools://") ||
+    u.startsWith("chrome-search://") ||
+    u.startsWith("chrome-untrusted://") ||
+    u.startsWith("https://chromewebstore.google.com") ||
+    u.startsWith("https://chrome.google.com/webstore")
+  );
+}
+
 function targetCopy(tab: chrome.tabs.Tab | null): {
   title: string;
   subtitle: string;
@@ -793,7 +815,10 @@ async function init(): Promise<void> {
     microphoneDeviceMenu.hidden = true;
   };
 
-  await queryActiveTab();
+  const activeTab = await queryActiveTab();
+  byId<HTMLDivElement>("unsupported-notice").hidden = !isUnsupportedPage(
+    activeTab?.url,
+  );
   render(settings);
   void refreshDevices();
   if (navigator.mediaDevices) {
