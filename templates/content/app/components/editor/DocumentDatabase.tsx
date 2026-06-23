@@ -2003,8 +2003,26 @@ function DatabaseItemPreview({
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const [localTitle, setLocalTitle] = useState(item.document.title);
-  const [localContent, setLocalContent] = useState(item.document.content);
+  // Seed the displayed title/content from a RETAINED dirty controller's pending
+  // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
+  // edit is restored on remount instead of showing stale server content; else
+  // from the server/item value.
+  const [localTitle, setLocalTitle] = useState(() => {
+    const c = peekPreviewDocumentSaveController(item.document.id);
+    const dirty =
+      !!c &&
+      (c.pending.title !== c.lastSaved.title ||
+        c.pending.content !== c.lastSaved.content);
+    return dirty ? c!.pending.title : item.document.title;
+  });
+  const [localContent, setLocalContent] = useState(() => {
+    const c = peekPreviewDocumentSaveController(item.document.id);
+    const dirty =
+      !!c &&
+      (c.pending.title !== c.lastSaved.title ||
+        c.pending.content !== c.lastSaved.content);
+    return dirty ? c!.pending.content : item.document.content;
+  });
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -2121,6 +2139,13 @@ function DatabaseItemPreview({
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
       controller?.mark({ title: nextTitle, content: nextContent });
+    } else if (controller) {
+      // A dirty in-progress edit exists: show the controller's pending edit, not
+      // stale server props. During active typing `pending` already tracks local
+      // (a no-op); on reopen of a retained dirty controller this restores the
+      // unsaved edit instead of showing server content.
+      setLocalTitle(controller.pending.title);
+      setLocalContent(controller.pending.content);
     }
   }, [
     documentId,
