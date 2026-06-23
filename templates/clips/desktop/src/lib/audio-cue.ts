@@ -112,6 +112,7 @@ export function createAudioCue(): AudioCue {
 
     const ctx: AudioContext = new AudioCtx();
     let played = false;
+    let playPromise: Promise<void> | null = null;
     let closed = false;
     let idleTimer: ReturnType<typeof window.setTimeout> | null = null;
 
@@ -126,11 +127,14 @@ export function createAudioCue(): AudioCue {
     };
 
     const play = async () => {
-      if (played || closed) return;
+      if (played || closed) return playPromise ?? Promise.resolve();
       played = true;
-      try {
+      playPromise = (async () => {
         if (ctx.state !== "running") await ctx.resume();
         await scheduleTone(ctx);
+      })();
+      try {
+        await playPromise;
       } catch (err) {
         console.warn("[clips-recorder] start cue unavailable:", err);
         cleanup();
