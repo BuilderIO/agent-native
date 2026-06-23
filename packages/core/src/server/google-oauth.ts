@@ -848,13 +848,20 @@ export function oauthCallbackResponse(
   setResponseStatus(event, 302);
   setResponseHeader(event, "Location", location);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: location,
-      "Referrer-Policy": "no-referrer",
-    },
+  // Return a real 302 so the browser lands on the clean return URL instead of
+  // lingering on the provider callback URL with its `code`/`state` query
+  // params. But h3 hands a non-2xx web `Response` straight back WITHOUT merging
+  // the `Set-Cookie` staged earlier in the callback (the framework session
+  // cookie), so mirror those staged cookies onto the redirect Response —
+  // otherwise the sign-in succeeds but the browser arrives back logged out.
+  const headers = new Headers({
+    Location: location,
+    "Referrer-Policy": "no-referrer",
   });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

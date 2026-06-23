@@ -3586,6 +3586,30 @@ describe("server/auth", () => {
       );
     });
 
+    it("carries the session cookie staged on the event into the 302 redirect", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent();
+      // Simulate the framework session cookie staged earlier in the callback.
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=session-token; Path=/; HttpOnly; SameSite=Lax",
+      );
+
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", { returnUrl: "/" }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      // h3 hands a non-2xx web Response back without merging the staged
+      // Set-Cookie, so the redirect itself must carry it — otherwise the
+      // sign-in succeeds but the browser arrives back logged out.
+      const setCookie =
+        (response as Response).headers.getSetCookie?.() ??
+        [(response as Response).headers.get("set-cookie") ?? ""];
+      expect(setCookie.join("\n")).toContain("an_session=session-token");
+    });
+
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
