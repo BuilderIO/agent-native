@@ -713,6 +713,11 @@ export interface AssistantChatProps {
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /**
+   * Optional secondary model menu (e.g. an image-generation model) shown inside
+   * the composer's model picker. Opt-in; chat-only apps omit it.
+   */
+  imageModelMenu?: ComposerImageModelMenu;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   /** Override Builder/provider connect routing for embedded hosts. */
@@ -978,6 +983,7 @@ const AssistantChatInner = forwardRef<
     availableModels,
     onModelChange,
     onEffortChange,
+    imageModelMenu,
     onForkChat,
     onConnectProvider,
     plusMenuMode = "full",
@@ -3393,6 +3399,7 @@ const AssistantChatInner = forwardRef<
                     availableModels={availableModels}
                     onModelChange={onModelChange}
                     onEffortChange={onEffortChange}
+                    imageModelMenu={imageModelMenu}
                     onConnectProvider={onConnectProvider}
                     toolbarSlot={composerToolbarSlot}
                     contextItems={composerContextItems}
