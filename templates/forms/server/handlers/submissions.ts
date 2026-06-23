@@ -49,6 +49,15 @@ function cleanSubmitterEmail(value: unknown): string | null {
   return trimmed;
 }
 
+// Allowlist the client-surface hint so only known values are stored. Anything
+// else (including spoofed direct POSTs) is dropped to NULL.
+const KNOWN_CLIENT_SURFACES = new Set(["web", "electron", "tauri"]);
+function cleanClientSurface(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return KNOWN_CLIENT_SURFACES.has(normalized) ? normalized : null;
+}
+
 function cleanChatSessionIds(value: unknown): string[] {
   const ids: string[] = [];
   const visit = (item: unknown) => {
@@ -219,6 +228,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
           chatSessionIds?: unknown;
           activeRunId?: unknown;
           pageUrl?: unknown;
+          clientSurface?: unknown;
         })
       : null;
   const session = await getSession(event).catch(() => null);
@@ -231,6 +241,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   ]);
   const activeRunId = cleanMetaText(meta?.activeRunId);
   const pageUrl = cleanMetaText(meta?.pageUrl);
+  const clientSurface = cleanClientSurface(meta?.clientSurface);
 
   await db.insert(schema.responses).values({
     id: responseId,
@@ -239,6 +250,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     submittedAt: now,
     ip,
     submitterEmail,
+    pageUrl,
+    clientSurface,
   });
 
   // Write submission notification to application state (SQL-backed)
@@ -257,8 +270,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // Fire integrations best-effort and never fail the submission. Keep this
   // awaited: serverless hosts can freeze fire-and-forget work as soon as the
   // HTTP response returns, which silently drops Slack/webhook delivery.
-  // Feedback debug context is intentionally integration-only: it helps triage
-  // Slack submissions without retaining page URLs or debug breadcrumbs in SQL.
+  // pageUrl and clientSurface are persisted on the response (above) so owners
+  // can see which screen and which app feedback came from; chat session ids and
+  // run ids remain integration-only debug breadcrumbs we don't retain in SQL.
   try {
     const integrations: FormIntegration[] = settings.integrations ?? [];
     if (integrations.length > 0) {
@@ -273,6 +287,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         chatSessionIds,
         activeRunId,
         pageUrl,
+        clientSurface,
       });
     }
   } catch {
@@ -326,6 +341,8 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
           submitterEmail: r.submitterEmail,
+          pageUrl: r.pageUrl ?? null,
+          clientSurface: r.clientSurface ?? null,
         })) as FormResponse[],
         total: total?.count ?? 0,
         fields: JSON.parse(access.resource.fields),

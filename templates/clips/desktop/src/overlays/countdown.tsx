@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { IconPlayerSkipForwardFilled, IconX } from "@tabler/icons-react";
 
 const COUNTDOWN_STEP_MS = 1000;
 
@@ -62,8 +63,26 @@ export function Countdown() {
 
   return (
     <div className="countdown-root">
-      <div className="countdown-number" key={n} aria-live="polite">
-        {n > 0 ? n : ""}
+      <div className="countdown-controls">
+        <button
+          type="button"
+          className="countdown-control countdown-control-cancel"
+          aria-label="Cancel recording"
+          onClick={() => closeWithEvent("clips:countdown-cancel")}
+        >
+          <IconX size={30} stroke={2.4} />
+        </button>
+        <div className="countdown-number" key={n} aria-live="polite">
+          {n > 0 ? n : ""}
+        </div>
+        <button
+          type="button"
+          className="countdown-control countdown-control-skip"
+          aria-label="Skip countdown and start recording now"
+          onClick={() => closeWithEvent("clips:countdown-done")}
+        >
+          <IconPlayerSkipForwardFilled size={28} />
+        </button>
       </div>
       <div className="countdown-hint" aria-label="Countdown shortcuts">
         <span>

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -26,6 +27,17 @@ use crate::util::{
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+// Geometry of the two circular cancel/skip buttons that flank the countdown
+// number. These MUST stay in sync with the CSS in
+// `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
+// its center sits ±200px logical from the window center). A few px of slop is
+// added to each hit-rect so edge clicks register.
+const COUNTDOWN_CONTROL_OFFSET_X: f64 = 200.0;
+const COUNTDOWN_CONTROL_DIAMETER: f64 = 64.0;
+const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
+// Guards the single cursor-poll loop that toggles click-through on the
+// countdown overlay so only the button zones are interactive.
+static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -304,6 +316,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        stop_countdown_control_tracking();
         let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
@@ -340,8 +353,66 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     configure_overlay_behavior(&win);
     let _ = win.show();
     let _ = app.emit("clips:countdown-shortcuts-active", true);
+    start_countdown_control_tracking(&app);
     dlog!("[clips-tray] countdown shown");
     Ok(())
+}
+
+/// True when the global cursor sits inside either circular cancel/skip button
+/// zone of the countdown overlay. The controls row is centered in the window;
+/// each button's center is `COUNTDOWN_CONTROL_OFFSET_X` logical px to the
+/// left/right of the window center, vertically at the window center. Cursor,
+/// window position, and window size all come from Tauri in physical px with a
+/// desktop top-left origin, so we convert the logical button geometry using the
+/// window's scale factor and do a plain point-in-rect test.
+fn cursor_over_countdown_control(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s), Ok(scale)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+        window.scale_factor(),
+    ) else {
+        return false;
+    };
+    let center_x = p.x as f64 + s.width as f64 / 2.0;
+    let center_y = p.y as f64 + s.height as f64 / 2.0;
+    let half = (COUNTDOWN_CONTROL_DIAMETER / 2.0 + COUNTDOWN_CONTROL_HIT_PAD) * scale;
+    let offset = COUNTDOWN_CONTROL_OFFSET_X * scale;
+    let in_button = |bx: f64| -> bool {
+        c.x >= bx - half && c.x <= bx + half && c.y >= center_y - half && c.y <= center_y + half
+    };
+    in_button(center_x - offset) || in_button(center_x + offset)
+}
+
+/// Poll the cursor against the two button zones while the countdown overlay is
+/// alive, toggling `set_ignore_cursor_events` so the buttons are clickable only
+/// when the cursor is over them and the rest of the screen stays click-through.
+/// Idempotent; mirrors `start_pill_hover_tracking` in `recording_indicator.rs`.
+fn start_countdown_control_tracking(app: &AppHandle) {
+    if COUNTDOWN_CONTROL_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev_interactive = false;
+        while COUNTDOWN_CONTROL_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(COUNTDOWN_LABEL) else {
+                break;
+            };
+            let over = cursor_over_countdown_control(&win);
+            if over != prev_interactive {
+                prev_interactive = over;
+                // ignore_cursor_events(false) => clicks land on the buttons.
+                let _ = win.set_ignore_cursor_events(!over);
+            }
+            tokio::time::sleep(Duration::from_millis(70)).await;
+        }
+        COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn stop_countdown_control_tracking() {
+    COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
 }
 
 /// Full-screen transparent overlay that shows compact bottom-left progress
@@ -800,6 +871,7 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 
 #[tauri::command]
 pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in [
         COUNTDOWN_LABEL,
@@ -827,6 +899,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// popover-close).
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+    stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
     // The countdown + toolbar always tear down on recording stop. The region
     // guides only tear down when they aren't pinned on-screen via the always-on

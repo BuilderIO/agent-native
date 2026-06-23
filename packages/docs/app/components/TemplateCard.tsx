@@ -15,10 +15,10 @@ export const templates = [
       "npx @agent-native/core@latest create my-clips-app --template clips",
     demoUrl: "https://clips.agent-native.com",
     description:
-      "Screen recordings, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
+      "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     color: "#0EA5E9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F189ebd9b2f2b4f0ead3b33138d4e4c10?format=webp&width=800",
   },
   {
     name: "Plans",
@@ -354,7 +354,7 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         data-an-prefetch="render"
         to={`/templates/${template.slug}`}
-        className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
+        className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[924/729] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,

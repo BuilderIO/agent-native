@@ -318,6 +318,8 @@ export default defineAction({
             submittedAt: schema.responses.submittedAt,
             ip: schema.responses.ip,
             submitterEmail: schema.responses.submitterEmail,
+            pageUrl: schema.responses.pageUrl,
+            clientSurface: schema.responses.clientSurface,
           })
           .from(schema.responses)
           .where(responseFilter)

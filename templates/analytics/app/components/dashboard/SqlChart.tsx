@@ -1,5 +1,7 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useState,
@@ -248,6 +250,20 @@ function SeriesLegend({
   );
 }
 
+// When a chart renders inside the full-screen modal it should grow to fill the
+// available space rather than the fixed 250px card height. ChartFrame reads
+// this via context so we avoid threading a prop through every renderer
+// (line/area/bar/pie all share ChartFrame).
+const ChartFillHeightContext = createContext(false);
+
+export function ChartFillHeight({ children }: { children: ReactNode }) {
+  return (
+    <ChartFillHeightContext.Provider value={true}>
+      {children}
+    </ChartFillHeightContext.Provider>
+  );
+}
+
 function ChartFrame({
   panel,
   legendKeys,
@@ -259,13 +275,24 @@ function ChartFrame({
   colors: string[];
   children: ReactNode;
 }) {
+  const fill = useContext(ChartFillHeightContext);
+  const chartHeight = fill ? "h-full min-h-[250px]" : "h-[250px]";
+
   if (!usesPrometheusPresentation(panel)) {
-    return <div className="h-[250px] w-full overflow-visible">{children}</div>;
+    return (
+      <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
+    );
   }
 
   return (
-    <div className="w-full overflow-hidden">
-      <div className="h-[250px] w-full overflow-visible">{children}</div>
+    <div
+      className={`flex w-full flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <div
+        className={`${chartHeight} w-full overflow-visible ${fill ? "flex-1" : ""}`}
+      >
+        {children}
+      </div>
       <SeriesLegend keys={legendKeys} colors={colors} panel={panel} />
     </div>
   );

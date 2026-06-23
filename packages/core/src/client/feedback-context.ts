@@ -1,10 +1,13 @@
 import { getActiveRun } from "./active-run-state.js";
+import { getClientSurface, type ClientSurface } from "./client-surface.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export interface FeedbackClientContext {
   chatSessionIds: string[];
   activeRunId?: string;
   pageUrl?: string;
+  /** Runtime shell the feedback was sent from: web, electron, or tauri. */
+  clientSurface?: ClientSurface;
 }
 
 export interface FeedbackClientContextOptions {
@@ -81,6 +84,7 @@ export function getFeedbackClientContext(
   if (activeRun?.runId) context.activeRunId = activeRun.runId;
   if (typeof window !== "undefined") {
     context.pageUrl = scrubUrl(window.location.href);
+    context.clientSurface = getClientSurface();
   }
   return context;
 }

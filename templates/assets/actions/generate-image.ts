@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
+  readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
@@ -53,6 +54,28 @@ function resolveModelForTier(
   return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
     ? "gemini-3-pro-image"
     : "gemini-3.1-flash-image";
+}
+
+/**
+ * The user's default image model, chosen from the composer's model picker and
+ * persisted in per-user application state. Used as a fallback when no explicit
+ * model, tier, or preset model is supplied. Returns undefined when unset or
+ * invalid so the hardcoded default still applies.
+ */
+async function readUserDefaultImageModel(): Promise<ImageModel | undefined> {
+  try {
+    const stored = await readAppState("imageGenerationModel");
+    const model = stored?.model;
+    if (
+      typeof model === "string" &&
+      (IMAGE_MODELS as readonly string[]).includes(model)
+    ) {
+      return model as ImageModel;
+    }
+  } catch {
+    // No request context or read failure — fall back to defaults below.
+  }
+  return undefined;
 }
 
 export default defineAction({
@@ -226,6 +249,7 @@ export default defineAction({
     const resolvedModel = (args.model ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
+      (await readUserDefaultImageModel()) ??
       "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??

@@ -32,6 +32,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { captureError } from "./capture-error.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -3160,6 +3161,83 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/embed/start`,
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
+        );
+
+        // POST /_agent-native/mcp/embed-error — telemetry sink for MCP App
+        // embed shells. The shell runs in a sandboxed, opaque-origin iframe
+        // (Codex, Cursor, ChatGPT, Claude) with no session cookie or CSRF
+        // token, so this endpoint is intentionally unauthenticated and
+        // CORS-open to the SAME sandbox origins as /embed/start. It forwards a
+        // small, bounded diagnostic payload to Sentry via captureError so we
+        // can see *why* an inline embed failed (handshake timeout, transplant
+        // fetch status/CORS, auth, CSP) per host. Best-effort: always 204,
+        // never throws, body capped, no client-trusted identity.
+        getH3App(nitroApp).use(
+          `${P}/mcp/embed-error`,
+          defineEventHandler(async (event: H3Event) => {
+            const origin = getHeader(event, "origin");
+            if (origin && isMcpEmbedCorsOrigin(origin)) {
+              setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+              setResponseHeader(event, "Vary", "Origin");
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Methods",
+                "POST,OPTIONS",
+              );
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Headers",
+                MCP_EMBED_CORS_ALLOW_HEADERS,
+              );
+            }
+            const method = getMethod(event);
+            if (method === "OPTIONS") {
+              setResponseStatus(event, 204);
+              return "";
+            }
+            if (method !== "POST") {
+              setResponseStatus(event, 405);
+              return { error: "Method not allowed" };
+            }
+            const body = await readBody(event).catch(() => undefined);
+            const rec =
+              body && typeof body === "object" && !Array.isArray(body)
+                ? (body as Record<string, unknown>)
+                : {};
+            const str = (value: unknown, max: number): string | undefined =>
+              typeof value === "string" && value
+                ? value.slice(0, max)
+                : undefined;
+            const message = str(rec.message, 500) ?? "MCP embed failed";
+            try {
+              captureError(new Error(message), {
+                route: `${P}/mcp/embed-error`,
+                method: "POST",
+                userAgent:
+                  str(rec.userAgent, 300) ?? getHeader(event, "user-agent"),
+                tags: {
+                  source: "mcp-embed-shell",
+                  embed_stage: str(rec.stage, 60),
+                  embed_render_mode: str(rec.renderMode, 40),
+                  embed_host: str(rec.host, 160),
+                  embed_bridge: str(rec.bridge, 40),
+                },
+                extra: {
+                  embedUrl: str(rec.url, 600),
+                  httpStatus:
+                    typeof rec.status === "number"
+                      ? rec.status
+                      : str(rec.status, 40),
+                  detail: str(rec.detail, 1200),
+                  origin,
+                },
+              });
+            } catch {
+              // Observability must never throw back into the request path.
+            }
+            setResponseStatus(event, 204);
+            return "";
+          }),
         );
       }
 

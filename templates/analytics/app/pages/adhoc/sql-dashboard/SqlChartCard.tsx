@@ -5,6 +5,7 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconDotsVertical,
+  IconMaximize,
   IconPencil,
   IconTrash,
   IconCode,
@@ -32,9 +33,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { SqlChart } from "@/components/dashboard/SqlChart";
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 import type { SqlPanel } from "./types";
 
@@ -76,6 +83,7 @@ export function SqlChartCard({
   } = useSortable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     panel.chartType === "section",
@@ -229,7 +237,9 @@ export function SqlChartCard({
     );
   }
 
-  const showPanelMenu = editable || panel.chartType === "table";
+  // Every non-section panel exposes at least the Full screen view action, so the
+  // options menu always renders — including on read-only / shared dashboards.
+  const showPanelMenu = true;
 
   return (
     <div
@@ -259,6 +269,13 @@ export function SqlChartCard({
                   <TooltipContent>Panel options</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onSelect={() => setExpanded(true)}>
+                    <IconMaximize className="h-4 w-4 mr-2" />
+                    Full screen
+                  </DropdownMenuItem>
+                  {editable || panel.chartType === "table" ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
                   {panel.chartType === "table" && (
                     <DropdownMenuItem
                       disabled={!exportCsv}
@@ -345,6 +362,19 @@ export function SqlChartCard({
           />
         </CardContent>
       </Card>
+
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
+          <DialogHeader className="shrink-0 pr-8 text-left">
+            <DialogTitle className="truncate">{panel.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <ChartFillHeight>
+              <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+            </ChartFillHeight>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

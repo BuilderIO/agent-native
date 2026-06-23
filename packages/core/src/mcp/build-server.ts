@@ -184,6 +184,46 @@ export interface MCPRequestMeta {
    * `config.actions`. Set by `mountMCP` from `verifyAuth`.
    */
   fullSurface?: boolean;
+  /**
+   * Whether this request may receive inline MCP App embeds (the `ui://`
+   * resource reference hosts render in an iframe). Resolved once per request by
+   * `createMCPServerForRequest` from `isMcpAppsInlineEnabled(identity)` — the
+   * deploy-toggleable kill switch. When `false`, no MCP App resource is
+   * advertised or referenced and tool results fall back to their deep-link
+   * text. Defaults to disabled when unset.
+   */
+  inlineMcpApps?: boolean;
+}
+
+/**
+ * Deploy-toggleable kill switch for inline MCP App embeds — the `ui://`
+ * resource reference hosts like Codex / Cursor / ChatGPT render in a sandboxed
+ * iframe. **Off by default**, so a not-yet-verified inline embed never reaches
+ * normal users; flip it on per environment with `AGENT_NATIVE_MCP_APPS_INLINE=1`
+ * and a redeploy. While the global switch is off, accounts listed in
+ * `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+ * inline embeds, so you can keep verifying a fix in production before enabling
+ * it for everyone. Requires no skills/instructions change — when disabled, tool
+ * results simply fall back to their deep-link text.
+ */
+export function isMcpAppsInlineEnabled(
+  identity: MCPCallerIdentity | undefined,
+): boolean {
+  const flag = process.env.AGENT_NATIVE_MCP_APPS_INLINE?.trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
+    return true;
+  }
+  const email = identity?.userEmail?.trim().toLowerCase();
+  if (email) {
+    const allowed = (
+      process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS ?? ""
+    )
+      .split(/[\s,]+/)
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowed.includes(email)) return true;
+  }
+  return false;
 }
 
 type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
@@ -708,7 +748,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v45";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v46";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -912,6 +952,12 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // Inline MCP App embeds are gated behind the deploy-toggleable kill switch
+  // (default off). When disabled, advertise no resource and attach no embed
+  // reference so hosts fall back to the tool's deep-link text instead of an
+  // iframe. This is the single chokepoint for every embed surface: tools/list
+  // descriptor meta, tools/call result meta, resources/list, resources/read.
+  if (!requestMeta?.inlineMcpApps) return null;
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
@@ -1191,6 +1237,16 @@ export async function createMCPServerForRequest(
     (ownerFromEnv
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
+
+  // Resolve the inline-MCP-App kill switch once per request from the effective
+  // identity + environment, then thread it through `requestMeta` so every
+  // resource/tool handler below honors the same decision. An explicit value on
+  // the incoming meta (tests / embedded callers) wins.
+  requestMeta = {
+    ...(requestMeta ?? {}),
+    inlineMcpApps:
+      requestMeta?.inlineMcpApps ?? isMcpAppsInlineEnabled(effectiveIdentity),
+  };
 
   // The action set the request handlers operate on = base actions + generic
   // cross-app builtins (template wins on name collision). An authenticated

@@ -9,6 +9,12 @@ export default function Footer() {
         <p className="m-0">&copy; {year} Agent-Native</p>
         <div className="flex flex-wrap items-center justify-center gap-4 sm:justify-end">
           <Link
+            to="/download"
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            Download
+          </Link>
+          <Link
             to="/privacy"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >

@@ -73,6 +73,101 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 const CONNECT_TIMEOUT_MS = 3000;
 
+// ---- bitrate tuning for the loopback preview ----------------------------
+//
+// This is a SAME-MACHINE loopback (popover → bubble, both on 127.0.0.1),
+// so there is effectively no bandwidth limit. Left untuned, WebKit's
+// congestion controller still starts the encoder at libwebrtc's cautious
+// ~300 kbps default and ramps up over several seconds, and with the
+// default `balanced` degradation preference it downscales the picture
+// while the bitrate is low. That produced the "bubble is blurry for the
+// first ~10s, then sharpens" regression after the bubble stopped owning a
+// direct local camera stream. We pin a high start/max bitrate and forbid
+// resolution downscaling so the bubble is crisp from the first frame.
+//
+// 720p webcam is comfortable at a few Mbps; these are generous, not silly.
+const BUBBLE_START_BITRATE_KBPS = 2500;
+const BUBBLE_MIN_BITRATE_KBPS = 1200;
+const BUBBLE_MAX_BITRATE_KBPS = 5000;
+
+/**
+ * Pin the sender to a high, fixed bitrate and forbid resolution
+ * downscaling. Called after `setLocalDescription` so `encodings` is
+ * populated on every WebKit build. Best-effort — older WebViews may not
+ * support every field, so we swallow failures.
+ */
+async function configureBubbleSender(
+  sender: RTCRtpSender | null,
+): Promise<void> {
+  if (!sender) return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || params.encodings.length === 0) {
+      // Some WebKit builds report empty encodings until the first
+      // negotiation — seed one so our settings have somewhere to land.
+      params.encodings = [{}];
+    }
+    params.encodings[0].maxBitrate = BUBBLE_MAX_BITRATE_KBPS * 1000;
+    params.encodings[0].maxFramerate = 30;
+    // `minBitrate` is non-standard but honored by libwebrtc-based stacks
+    // (WebKit, Chromium); harmless where unsupported.
+    (params.encodings[0] as { minBitrate?: number }).minBitrate =
+      BUBBLE_MIN_BITRATE_KBPS * 1000;
+    // Never trade resolution for framerate — a soft bubble looks broken;
+    // a marginally lower fps does not.
+    params.degradationPreference = "maintain-resolution";
+    await sender.setParameters(params);
+  } catch (err) {
+    console.warn("[clips-bubble-webrtc] setParameters failed", err);
+  }
+}
+
+/**
+ * Raise the encoder's START bitrate via SDP so it doesn't begin at
+ * libwebrtc's cautious default and slowly climb (the visible quality
+ * ramp). WebKit reads these codec params from our own local description
+ * and applies them to our encoder. Also stamps a high `b=AS`/`b=TIAS`
+ * ceiling on the video m-section.
+ */
+function boostBubbleVideoBitrate(sdp: string | undefined): string {
+  if (!sdp) return sdp ?? "";
+  const eol = sdp.includes("\r\n") ? "\r\n" : "\n";
+  const lines = sdp.split(/\r\n|\n/);
+  const out: string[] = [];
+  let inVideo = false;
+  for (const line of lines) {
+    if (line.startsWith("m=")) {
+      inVideo = line.startsWith("m=video");
+      out.push(line);
+      continue;
+    }
+    if (inVideo && line.startsWith("c=")) {
+      out.push(line);
+      // b=AS is kbps; b=TIAS is bps. Both must follow the c= line.
+      out.push(`b=AS:${BUBBLE_MAX_BITRATE_KBPS}`);
+      out.push(`b=TIAS:${BUBBLE_MAX_BITRATE_KBPS * 1000}`);
+      continue;
+    }
+    if (
+      inVideo &&
+      line.startsWith("a=fmtp:") &&
+      // Skip RTX/FEC payloads (their fmtp carries `apt=`); only primary
+      // codecs honor the x-google-* hints.
+      !line.includes("apt=") &&
+      !line.includes("x-google-start-bitrate")
+    ) {
+      out.push(
+        `${line};x-google-start-bitrate=${BUBBLE_START_BITRATE_KBPS}` +
+          `;x-google-min-bitrate=${BUBBLE_MIN_BITRATE_KBPS}` +
+          `;x-google-max-bitrate=${BUBBLE_MAX_BITRATE_KBPS}`,
+      );
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join(eol);
+}
+
 export interface BubbleWebrtcHandle {
   /** Tear down the peer connection and unsubscribe listeners. */
   stop(): void;
@@ -243,11 +338,23 @@ export function startBubbleWebrtc(
       }
     };
 
+    // Hint the encoder to PRESERVE RESOLUTION. A raw camera track defaults
+    // to "motion" semantics — under any bitrate pressure WebKit downscales
+    // the picture to protect the frame rate, which on this loopback shows
+    // up as a soft/blurry bubble. "detail" flips the default toward keeping
+    // pixels, complementing the explicit `maintain-resolution` set below.
+    try {
+      videoTrack.contentHint = "detail";
+    } catch {
+      // contentHint is a harmless no-op on older WebViews.
+    }
+
     // Add the camera video track. WebRTC will renegotiate if the track
     // id changes, but we only add once per handshake so this is a
-    // one-shot.
+    // one-shot. Capture the sender so we can pin its bitrate below.
+    let sender: RTCRtpSender | null = null;
     try {
-      localPc.addTrack(videoTrack, stream);
+      sender = localPc.addTrack(videoTrack, stream);
     } catch (err) {
       console.warn("[clips-bubble-webrtc] addTrack failed:", err);
       onFailure("add-track-failed");
@@ -258,6 +365,10 @@ export function startBubbleWebrtc(
     let offer: RTCSessionDescriptionInit;
     try {
       offer = await localPc.createOffer();
+      // Raise the encoder's start/max bitrate before we commit the local
+      // description so the bubble is sharp immediately instead of ramping
+      // up over ~10s. See `boostBubbleVideoBitrate`.
+      offer = { ...offer, sdp: boostBubbleVideoBitrate(offer.sdp) };
       await localPc.setLocalDescription(offer);
     } catch (err) {
       console.warn(
@@ -268,6 +379,12 @@ export function startBubbleWebrtc(
       stop();
       return;
     }
+    if (stopped || myId !== handshakeId) return;
+
+    // Now that the local description is set, `getParameters().encodings`
+    // is populated on every WebKit build — pin the bitrate floor/ceiling
+    // and forbid resolution downscaling.
+    await configureBubbleSender(sender);
     if (stopped || myId !== handshakeId) return;
 
     try {

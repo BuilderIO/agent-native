@@ -8,6 +8,16 @@
       "port": 8080
     },
     {
+      "name": "assets-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=assets AGENT_USER_EMAIL=dev@local.test ASSETS_DATABASE_URL=file:/tmp/assets-feedback.db pnpm --filter assets exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "clips-local",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
@@ -75,6 +85,16 @@
       "runtimeArgs": [
         "-c",
         "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-smoke-0610.db pnpm --filter plan exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "plan-localdir",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-localdir.db PLAN_LOCAL_DIR=/Users/steve/Projects/builder/agent-native/framework/plans pnpm --filter plan exec agent-native dev"
       ],
       "port": 8080,
       "autoPort": true

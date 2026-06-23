@@ -102,6 +102,26 @@ CREATE TABLE IF NOT EXISTS form_shares (
 CREATE INDEX IF NOT EXISTS responses_form_id_idx ON responses (form_id, submitted_at);
 CREATE INDEX IF NOT EXISTS form_shares_resource_idx ON form_shares (resource_id, principal_type, principal_id)`,
     },
+    {
+      // Page URL the respondent was on, forwarded by trusted embeds (e.g. the
+      // framework FeedbackButton) as a hidden pass-through field so owners can
+      // see which screen feedback came from in the responses table.
+      version: 11,
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS page_url TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS page_url TEXT`,
+      },
+    },
+    {
+      // Client surface (web/electron/tauri) the respondent submitted from,
+      // forwarded by trusted embeds as a hidden pass-through field so owners can
+      // see whether feedback came from a desktop app or the browser.
+      version: 12,
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS client_surface TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS client_surface TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

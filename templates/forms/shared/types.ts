@@ -147,6 +147,18 @@ export interface FormResponse {
   submittedAt: string;
   /** Email of the submitter when known (claimed by the client; not verified). */
   submitterEmail?: string | null;
+  /**
+   * URL of the page the respondent was on, forwarded by trusted embeds (e.g.
+   * the framework FeedbackButton) as a hidden pass-through field. Null when the
+   * submission carried no page context (e.g. a direct fill on the public page).
+   */
+  pageUrl?: string | null;
+  /**
+   * Runtime shell the feedback was sent from — "web", "electron", or "tauri" —
+   * forwarded by trusted embeds as a hidden pass-through field. Null when
+   * unknown (e.g. a direct fill on the public page).
+   */
+  clientSurface?: string | null;
 }
 
 // ---------------------------------------------------------------------------

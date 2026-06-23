@@ -424,6 +424,10 @@ export default function App() {
     [activeSidebarAppId],
   );
 
+  const handleTabRefresh = useCallback((tabId: string) => {
+    webviewRefs.current.get(tabId)?.reload();
+  }, []);
+
   const handleTabClose = useCallback(
     (tabId: string) => {
       const appState = appTabs[activeSidebarAppId];
@@ -876,6 +880,7 @@ export default function App() {
           }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
+          onTabRefresh={handleTabRefresh}
           onNewTab={handleNewTab}
         />
       )}
