@@ -66,6 +66,45 @@ function clientSurfaceLabel(surface: string): string {
   }
 }
 
+/**
+ * Friendly app name derived from a feedback page URL, so a reviewer can tell at
+ * a glance which app the feedback came from. `plan.agent-native.com` → "Plan",
+ * `analytics.agent-native.com` → "Analytics". Returns null when the host isn't a
+ * recognizable per-app subdomain (the full URL still carries the page).
+ */
+function appLabelFromUrl(pageUrl: string): string | null {
+  try {
+    const { hostname } = new URL(pageUrl);
+    const match = hostname.match(/^([a-z0-9-]+)\.agent-native\.com$/i);
+    const sub = match?.[1];
+    if (!sub || sub === "www") return null;
+    return sub
+      .split("-")
+      .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+      .join(" ");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Readable host+path label for a feedback page URL, used as the visible text of
+ * the Slack link so the app/page is legible inline instead of hidden behind a
+ * bare "open". The full (already client-scrubbed) URL stays the link target.
+ */
+function pageLabelFromUrl(pageUrl: string): string {
+  let label = pageUrl;
+  try {
+    const url = new URL(pageUrl);
+    label = `${url.hostname}${url.pathname}`.replace(/\/$/, "") || url.hostname;
+  } catch {
+    // fall back to the raw string below
+  }
+  if (label.length > 80) label = `${label.slice(0, 79)}…`;
+  // Escape Slack mrkdwn link-text control characters.
+  return label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // ---------------------------------------------------------------------------
 // Format helpers
 // ---------------------------------------------------------------------------
@@ -98,7 +137,9 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
     lines.push(`Run: \`${submission.activeRunId}\``);
   }
   if (submission.pageUrl) {
-    lines.push(`Page: <${submission.pageUrl}|open>`);
+    const appLabel = appLabelFromUrl(submission.pageUrl);
+    if (appLabel) lines.push(`App: ${appLabel}`);
+    lines.push(`Page: <${submission.pageUrl}|${pageLabelFromUrl(submission.pageUrl)}>`);
   }
   if (submission.clientSurface) {
     lines.push(`Source: ${clientSurfaceLabel(submission.clientSurface)}`);

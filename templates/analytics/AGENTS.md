@@ -87,7 +87,14 @@ details live in `.agents/skills/`.
   `id`, category, data sources, panel count, and installed dashboard IDs.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
-  `name`, `overwrite`, and `forceNew`.
+  `name`, `overwrite`, `forceNew`, and `mergePanels`.
+- To add a template's panels to an existing dashboard, call
+  `install-dashboard-template` with `mergePanels: true` and the existing
+  `dashboardId`. It appends only the template panels whose id is not already
+  present (preserving existing panels and order) in one atomic save and returns
+  `{ addedPanelIds, skippedExistingIds, panelCount }`. Prefer this over looping
+  `update-dashboard` to add many panels — sequential calls time out on the ~40s
+  hosted run budget.
 - Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
   `node_exporter` scrapes and `node-exporter-full` for the Linux-focused
   Grafana 1860 revision 45 full dashboard converted into native Analytics

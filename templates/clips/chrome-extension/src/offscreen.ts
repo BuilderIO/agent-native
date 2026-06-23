@@ -29,6 +29,9 @@ type BeginMessage = {
   recordingId: string;
   uploadUrl: string;
   hasCamera?: boolean;
+  // Pre-roll countdown delay, owned here in the offscreen document (a reliable
+  // context) rather than the service worker (which can suspend and drop timers).
+  startDelayMs?: number;
 };
 
 type SimpleMessage = {
@@ -84,6 +87,8 @@ type ActiveRecording = {
   // Set when the recorder is being torn down to start over on the same source
   // streams, so the stop handler skips the usual track cleanup.
   restarting: boolean;
+  // Pending pre-roll timer; non-null means the recorder hasn't started yet.
+  startTimer: ReturnType<typeof setTimeout> | null;
   dimensions: { width: number; height: number };
   hasAudio: boolean;
   hasCamera: boolean;
@@ -416,7 +421,7 @@ async function begin(message: BeginMessage): Promise<{
     recordingId: message.recordingId,
     uploadUrl: message.uploadUrl,
     mode: ready.mode,
-    startedAtMs: Date.now(),
+    startedAtMs: 0,
     mimeType,
     recorder,
     outputStream,
@@ -431,6 +436,7 @@ async function begin(message: BeginMessage): Promise<{
     uploadFailure: null,
     cancelled: false,
     restarting: false,
+    startTimer: null,
     dimensions: { width: ready.width, height: ready.height },
     hasAudio: outputStream.getAudioTracks().length > 0,
     hasCamera:
