@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import {
   AgentChatSurface,
@@ -69,6 +69,20 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
   const handledStateIds = useRef(new Set<string>());
+
+  const navigateThreadUrl = useCallback(
+    (path: string, options?: { replace?: boolean }) =>
+      navigate(dispatchNavTarget(path), options),
+    [navigate],
+  );
+  const threadUrlSync = useMemo(
+    () => ({
+      routeThreadId: routeThreadId ?? null,
+      getPath: chatThreadPath,
+      navigate: navigateThreadUrl,
+    }),
+    [routeThreadId, navigateThreadUrl],
+  );
   const state = location.state as DispatchChatLocationState | null;
   const prompt = state?.dispatchPrompt;
   const thread = state?.dispatchThread;
@@ -135,12 +149,7 @@ export default function ChatRoute() {
         className="dispatch-chat-panel"
         defaultMode="chat"
         storageKey="dispatch"
-        threadUrlSync={{
-          routeThreadId: routeThreadId ?? null,
-          getPath: chatThreadPath,
-          navigate: (path, options) =>
-            navigate(dispatchNavTarget(path), options),
-        }}
+        threadUrlSync={threadUrlSync}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

@@ -38,7 +38,7 @@ import {
   type ChatThreadScope,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
-import { agentNativePath } from "./api-path.js";
+import { agentNativePath, appPath } from "./api-path.js";
 import { callAction } from "./use-action.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
@@ -1051,7 +1051,11 @@ export function MultiTabAssistantChat({
           return;
         }
         const method = options.replace ? "replaceState" : "pushState";
-        window.history[method](window.history.state, "", next);
+        // `getThreadPath` returns a router-local path (no app basename). When we
+        // fall back to the raw History API instead of a router navigate, resolve
+        // the basename so deep-link reloads work in mounted apps.
+        const historyTarget = getThreadPath ? appPath(next) : next;
+        window.history[method](window.history.state, "", historyTarget);
         setUrlThreadId(normalizedThreadId);
         window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
         const popstate =
