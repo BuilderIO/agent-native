@@ -13,6 +13,8 @@ function locationFromLoader(
   try {
     fn({
       request: new Request(url),
+      url: new URL(url),
+      pattern: "/adhoc/:id",
       params: { id },
       context: {} as never,
     });
