@@ -545,6 +545,97 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(calls).toHaveLength(0);
   });
 
+  // Fix #3 regression guard: after a local save AND the server echoing it, the
+  // just-saved latch must CLEAR — otherwise a later genuine external/agent edit
+  // is suppressed forever. This is the hole the final review caught.
+  it("adopts a later external edit after a local save has been echoed by the server", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve();
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    const onContent = (c: string) => {
+      seenContent = c;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Mount clean, type, let the debounce fire + the save RESOLVE → lastSaved
+    // = "mine", hasSavedLocally = true.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    act(() => onChange("mine"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Server now echoes our saved value: initialContent === lastSaved. This must
+    // clear the latch (no adopt, no save), leaving content "mine".
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "mine",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(seenContent).toBe("mine");
+
+    // A LATER genuine external edit must now be adopted (latch was cleared by
+    // the echo). Without the fix the latch stays set and this is suppressed.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "agent edit",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(seenContent).toBe("agent edit");
+    // Only the original local save happened; adopting never saves.
+    expect(calls).toEqual([
+      { documentId: "doc", propertyId: "field", value: "mine" },
+    ]);
+  });
+
   // Fix #3 non-regression (b): dirty local edits survive a remount (never
   // clobbered by initialContent), and seed from the controller's pending.
   it("dirty local edits survive remount (seeded from pending, never clobbered)", async () => {

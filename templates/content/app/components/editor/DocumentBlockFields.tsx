@@ -466,14 +466,27 @@ export function useBlockFieldEditor({
   useEffect(() => {
     const controller = controllerRef.current;
     if (!controller) return;
-    if (
-      initialContent !== controller.lastSaved &&
-      controller.pending === controller.lastSaved &&
-      !controller.hasSavedLocally
-    ) {
+    // Never adopt over a dirty local edit.
+    if (controller.pending !== controller.lastSaved) return;
+    if (initialContent === controller.lastSaved) {
+      // The server has echoed our last-known content — we're back in sync, so
+      // server props are no longer "behind" this controller. Clear the
+      // just-saved latch so a LATER genuine external edit (e.g. an agent) is
+      // adopted normally. (Without this the latch would stick forever after the
+      // first save+echo and suppress all future external updates.)
+      if (controller.hasSavedLocally) controller.mark(initialContent);
+      return;
+    }
+    // initialContent diverges from lastSaved and the field is clean:
+    if (!controller.hasSavedLocally) {
+      // Genuine newer external update — adopt it.
       setContent(initialContent);
       controller.mark(initialContent);
     }
+    // else: server props are stale, lagging a local save the server hasn't
+    // echoed yet. Keep showing lastSaved and wait for the echo above to clear
+    // the latch. (Cross-client concurrent same-field edits remain last-write-
+    // wins for v1; true coherence needs the deferred server-side versioning.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
