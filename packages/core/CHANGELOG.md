@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.68.1
+
+### Patch Changes
+
+- 48356d7: Forward Builder gateway heartbeat JSONL frames through the engine and agent SSE stream so long upstream silences (adaptive thinking, TTFT) do not trip the client no-progress timeout.
+- 48356d7: Fix guided question selection UX: preserve answers across poll refreshes, pause polling while a form is open, show clearer selected-state affordances (including `aria-pressed` on option buttons), and stop duplicate Explore/Decide injection in Design question flows.
+- 48356d7: Resume page-load chat reconnect from the last seen run event seq instead of replaying the full SSE history, preventing duplicated assistant turns after refresh.
+
 ## 0.68.0
 
 ### Minor Changes
