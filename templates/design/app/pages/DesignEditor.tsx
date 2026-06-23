@@ -43,6 +43,8 @@ import {
   ShareButton,
   isEmbedAuthActive,
   sendToAgentChat,
+  readClientAppState,
+  setClientAppState,
   useReconciledState,
   usePresence,
   useFollowUser,
@@ -317,6 +319,8 @@ export default function DesignEditor() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  const persistedSelectionStateRef = useRef<string | null>(null);
+  const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
@@ -340,6 +344,25 @@ export default function DesignEditor() {
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+
+  useEffect(() => {
+    return () => {
+      void (async () => {
+        const current = await readClientAppState("design-selection").catch(
+          () => null,
+        );
+        const ownerId =
+          current && typeof current === "object"
+            ? (current as { ownerId?: unknown }).ownerId
+            : undefined;
+        if (ownerId !== designSelectionOwnerIdRef.current) return;
+        persistedSelectionStateRef.current = null;
+        await setClientAppState("design-selection", null, {
+          keepalive: true,
+        }).catch(() => {});
+      })();
+    };
+  }, []);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -1408,6 +1431,22 @@ export default function DesignEditor() {
       mode,
     };
     (window as any).__designSelection = selection;
+    const persistedSelection = {
+      designId: selection.designId,
+      designTitle: selection.designTitle,
+      activeFileId: selection.activeFileId,
+      activeFilename: selection.activeFilename,
+      selectedElement: selection.selectedElement,
+      mode: selection.mode,
+      ownerId: designSelectionOwnerIdRef.current,
+    };
+    const persistedKey = JSON.stringify(persistedSelection);
+    if (persistedSelectionStateRef.current !== persistedKey) {
+      persistedSelectionStateRef.current = persistedKey;
+      setClientAppState("design-selection", persistedSelection, {
+        keepalive: true,
+      }).catch(() => {});
+    }
     const el = document.documentElement;
     el.dataset.designId = id;
     if (activeFile?.id) el.dataset.fileId = activeFile.id;

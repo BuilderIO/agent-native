@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   McpClientManager,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
 import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 // Fake MCP Client + StdioClientTransport. These stand in for the real
 // @modelcontextprotocol/sdk exports via vi.mock below.
@@ -28,6 +29,36 @@ const serverFixtures: Record<
   }
 > = {};
 const fakeClients: FakeClient[] = [];
+const httpCallHeaders: Array<Record<string, string>> = [];
+const originalFetch = globalThis.fetch;
+const originalOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const [, payload] = token.split(".");
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
+
+function headersFromUnknown(value: unknown): Record<string, string> {
+  if (!value) return {};
+  if (typeof Headers !== "undefined" && value instanceof Headers) {
+    return Object.fromEntries(value.entries());
+  }
+  if (Array.isArray(value)) {
+    return Object.fromEntries(
+      value
+        .filter((entry) => Array.isArray(entry) && entry.length >= 2)
+        .map(([key, headerValue]) => [String(key), String(headerValue)]),
+    );
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([key, headerValue]) => [key, String(headerValue)],
+      ),
+    );
+  }
+  return {};
+}
 
 class FakeClient {
   onerror?: (error: unknown) => void;
@@ -41,6 +72,9 @@ class FakeClient {
   async connect(transport: FakeTransport) {
     this.transport = transport;
   }
+  getTransport() {
+    return this.transport;
+  }
   async listTools() {
     const spec = serverFixtures[this.transport!.key];
     return { tools: spec?.tools ?? [] };
@@ -48,11 +82,17 @@ class FakeClient {
   async callTool({ name, arguments: args }: { name: string; arguments: any }) {
     const spec = serverFixtures[this.transport!.key];
     if (!spec) throw new Error(`No fixture for ${this.transport!.key}`);
+    if (this.transport instanceof FakeHttp) {
+      await this.transport.recordRequestHeaders();
+    }
     return spec.callImpl(name, args);
   }
   async readResource({ uri }: { uri: string }) {
     const spec = serverFixtures[this.transport!.key];
     if (!spec?.readResourceImpl) throw new Error("resources/read unsupported");
+    if (this.transport instanceof FakeHttp) {
+      await this.transport.recordRequestHeaders();
+    }
     return spec.readResourceImpl(uri);
   }
   async close() {
@@ -76,8 +116,27 @@ class FakeStdio {
 class FakeHttp {
   key: string;
   onerror?: (error: unknown) => void;
-  constructor(url: URL) {
+  requestInit?: Record<string, unknown>;
+  fetchImpl?: (input: unknown, init?: unknown) => Promise<unknown>;
+  constructor(
+    private url: URL,
+    opts?: {
+      requestInit?: Record<string, unknown>;
+      fetch?: (input: unknown, init?: unknown) => Promise<unknown>;
+    },
+  ) {
     this.key = `http ${url.toString()}`;
+    this.requestInit = opts?.requestInit;
+    this.fetchImpl = opts?.fetch;
+  }
+  async recordRequestHeaders() {
+    if (this.fetchImpl) {
+      await this.fetchImpl(this.url, {
+        headers: this.requestInit?.headers,
+      });
+      return;
+    }
+    httpCallHeaders.push(headersFromUnknown(this.requestInit?.headers));
   }
   closed = false;
   close() {
@@ -118,6 +177,43 @@ describe("McpClientManager", () => {
   beforeEach(() => {
     for (const k of Object.keys(serverFixtures)) delete serverFixtures[k];
     fakeClients.length = 0;
+    httpCallHeaders.length = 0;
+    delete process.env.A2A_SECRET;
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://directory.example.com";
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      if (String(_input).includes("/_agent-native/org/apps")) {
+        return new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "assets",
+                name: "Assets",
+                url: "https://assets.example.com",
+                a2aUrl: "https://assets.example.com",
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      httpCallHeaders.push(
+        headersFromUnknown((init as { headers?: unknown })?.headers),
+      );
+      return new Response(null, { status: 204 });
+    }) as any;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalOrgDirectoryUrl === undefined) {
+      delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+    } else {
+      process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = originalOrgDirectoryUrl;
+    }
   });
 
   it("is disabled when config is null", async () => {
@@ -282,6 +378,109 @@ describe("McpClientManager", () => {
     ]);
   });
 
+  it("injects per-request identity only for trusted org-scoped first-party HTTP servers", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret";
+    serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
+      tools: [{ name: "generate-asset" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    serverFixtures["http https://third-party.example.com/mcp"] = {
+      tools: [{ name: "search" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        "org_org-123_assets": {
+          type: "http",
+          url: "https://assets.example.com/_agent-native/mcp",
+          headers: { Authorization: "Bearer static-service-token" },
+          firstParty: true,
+          firstPartyOrgId: "org-123",
+        },
+        "org_org-123_zapier": {
+          type: "http",
+          url: "https://third-party.example.com/mcp",
+          headers: { Authorization: "Bearer third-party-token" },
+        },
+      },
+    });
+    await mgr.start();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-123" },
+      async () => {
+        await mgr.callTool("mcp__org_org-123_assets__generate-asset", {});
+        await mgr.callTool("mcp__org_org-123_zapier__search", {});
+      },
+    );
+
+    expect(httpCallHeaders).toHaveLength(2);
+    expect(httpCallHeaders[0].Authorization).toMatch(/^Bearer /);
+    expect(httpCallHeaders[0].Authorization).not.toBe(
+      "Bearer static-service-token",
+    );
+    expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
+    const assetsTransport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(
+      headersFromUnknown(assetsTransport.requestInit?.headers).Authorization,
+    ).toBeUndefined();
+  });
+
+  it("does not inject identity into user-scoped first-party HTTP servers", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret";
+    serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
+      tools: [{ name: "generate-asset" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        "user_abcdef1234_assets": {
+          type: "http",
+          url: "https://assets.example.com/_agent-native/mcp",
+          headers: { Authorization: "Bearer static-user-token" },
+          firstParty: true,
+        },
+      },
+    });
+    await mgr.start();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-123" },
+      () => mgr.callTool("mcp__user_abcdef1234_assets__generate-asset", {}),
+    );
+
+    expect(httpCallHeaders[0].Authorization).toBe("Bearer static-user-token");
+  });
+
+  it("mints a first-party org service identity without request context", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret";
+    serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
+      tools: [{ name: "generate-asset" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        "org_org-123_assets": {
+          type: "http",
+          url: "https://assets.example.com/_agent-native/mcp",
+          firstParty: true,
+          firstPartyOrgId: "org-123",
+        },
+      },
+    });
+    await mgr.start();
+
+    const assetsTransport = fakeClients[0]!.getTransport() as FakeHttp;
+    await assetsTransport.recordRequestHeaders();
+
+    const authorization = httpCallHeaders[0].Authorization;
+    expect(authorization).toMatch(/^Bearer /);
+    const payload = decodeJwtPayload(authorization.replace(/^Bearer\s+/i, ""));
+    expect(payload.sub).toBe("svc-mcp-client@service.org-123");
+    expect(payload.org_id).toBe("org-123");
+    expect(payload.scope).toBe("mcp-connect");
+  });
+
   it("throws a clear error for unknown server prefixes", async () => {
     const mgr = new McpClientManager({
       servers: { a: { command: "a-bin" } },
@@ -332,6 +531,46 @@ describe("McpClientManager", () => {
       const status = mgr.getStatus();
       expect(status.errors.broken).toContain("spawn failed");
       expect(status.totalTools).toBe(1);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("retries unchanged servers left in an error state on reconfigure", async () => {
+    serverFixtures["flaky-bin"] = {
+      tools: [{ name: "ok" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const origConnect = FakeClient.prototype.connect;
+    let failNextConnect = true;
+    FakeClient.prototype.connect = async function (transport: FakeStdio) {
+      if (transport.key === "flaky-bin" && failNextConnect) {
+        failNextConnect = false;
+        throw new Error("temporary handshake failure");
+      }
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      const config = {
+        servers: {
+          flaky: { command: "flaky-bin" },
+        },
+      };
+      const mgr = new McpClientManager(config);
+      await mgr.start();
+
+      expect(mgr.connectedServers).toEqual([]);
+      expect(mgr.getStatus().errors.flaky).toContain(
+        "temporary handshake failure",
+      );
+
+      const summary = await mgr.reconfigure(config);
+
+      expect(summary.reconnected).toEqual(["flaky"]);
+      expect(summary.unchanged).toEqual([]);
+      expect(mgr.connectedServers).toEqual(["flaky"]);
+      expect(mgr.getStatus().errors).toEqual({});
     } finally {
       FakeClient.prototype.connect = origConnect;
     }

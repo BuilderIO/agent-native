@@ -112,6 +112,20 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
 
   useEffect(() => {
     const iframe = iframeRef.current;
+    if (!iframe?.contentWindow || !srcDoc) return;
+    const frameWindow = iframe.contentWindow;
+    const listener = (event: MessageEvent) => {
+      if (event.source !== frameWindow) return;
+      if (isMcpAppReadyMessage(event.data)) {
+        setReady(true);
+      }
+    };
+    window.addEventListener("message", listener);
+    return () => window.removeEventListener("message", listener);
+  }, [srcDoc]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !srcDoc || loadedSrcDoc !== srcDoc) return;
 
     let closed = false;
@@ -285,6 +299,15 @@ export function supportedMcpAppPermissions(
   permissions: McpUiResourcePermissions | undefined,
 ): McpUiResourcePermissions {
   return permissions?.clipboardWrite ? { clipboardWrite: {} } : {};
+}
+
+export function isMcpAppReadyMessage(data: unknown): boolean {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const type = (data as { type?: unknown }).type;
+  return (
+    type === "agentNative.embeddedAppReady" ||
+    type === "agentNative.frameOrigin"
+  );
 }
 
 export function buildMcpAppCsp(csp: McpUiResourceCsp | undefined): string {

@@ -52,6 +52,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
+import type { ImageQualityTier, StyleStrength } from "../../shared/api";
 
 type AssetTab = "all" | "generated" | "references";
 
@@ -129,7 +130,12 @@ type HostConfig = {
   aspectRatio?: string;
   presetId?: string;
   count?: number;
+  tier?: ImageQualityTier;
+  styleStrength?: StyleStrength;
+  includeLogo?: boolean;
+  callerAppId?: string;
   autoGenerate?: boolean;
+  candidateRunIds?: string[];
 };
 
 function isEmbeddedWindow() {
@@ -153,6 +159,40 @@ function normalizeMediaType(value: unknown): PickerMediaType {
   return value === "video" ? "video" : "image";
 }
 
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["", "0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeTier(value: unknown): ImageQualityTier | undefined {
+  return value === "auto" || value === "fast" || value === "best"
+    ? value
+    : undefined;
+}
+
+function normalizeStyleStrength(value: unknown): StyleStrength | undefined {
+  return value === "subtle" || value === "balanced" || value === "strong"
+    ? value
+    : undefined;
+}
+
+function normalizeCandidateRunIds(value: unknown): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const ids = raw
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return ids;
+}
+
 function normalizeHostConfig(value: unknown): HostConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
@@ -170,12 +210,15 @@ function normalizeHostConfig(value: unknown): HostConfig {
     presetId: typeof record.presetId === "string" ? record.presetId : undefined,
     count:
       record.count === undefined ? undefined : normalizeCount(record.count),
+    tier: normalizeTier(record.tier),
+    styleStrength: normalizeStyleStrength(record.styleStrength),
+    includeLogo: normalizeBoolean(record.includeLogo),
+    callerAppId:
+      typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
   if (Object.prototype.hasOwnProperty.call(record, "autoGenerate")) {
-    config.autoGenerate =
-      record.autoGenerate === true ||
-      record.autoGenerate === "true" ||
-      record.autoGenerate === "1";
+    config.autoGenerate = normalizeBoolean(record.autoGenerate) ?? false;
   }
   return config;
 }
@@ -628,9 +671,16 @@ export default function AssetPicker() {
       aspectRatio: params.get("aspectRatio") ?? undefined,
       presetId: params.get("presetId") ?? undefined,
       count: normalizeCount(params.get("count")),
-      autoGenerate:
-        params.get("autoGenerate") === "1" ||
-        params.get("autoGenerate") === "true",
+      tier: normalizeTier(params.get("tier")),
+      styleStrength: normalizeStyleStrength(params.get("styleStrength")),
+      includeLogo: normalizeBoolean(params.get("includeLogo")),
+      callerAppId: params.get("callerAppId") ?? undefined,
+      candidateRunIds: normalizeCandidateRunIds(
+        params.getAll("candidateRunIds").length > 0
+          ? params.getAll("candidateRunIds")
+          : params.get("candidateRunIds"),
+      ),
+      autoGenerate: normalizeBoolean(params.get("autoGenerate")) ?? false,
     } satisfies HostConfig;
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
@@ -654,6 +704,9 @@ export default function AssetPicker() {
     useState<Library | null>(null);
   const autoGenerateKeyRef = useRef<string | null>(null);
   const autoCreateLibraryRef = useRef(false);
+  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
+    string[]
+  >(() => hostConfig.candidateRunIds ?? []);
 
   useEffect(() => {
     setHostConfig((current) => ({ ...current, ...urlHostConfig }));
@@ -664,6 +717,7 @@ export default function AssetPicker() {
     setAspectRatio(urlHostConfig.aspectRatio ?? "16:9");
     setPresetId(urlHostConfig.presetId ?? "none");
     setCount(urlHostConfig.count ?? 3);
+    setVisibleCandidateRunIds(urlHostConfig.candidateRunIds ?? []);
   }, [urlHostConfig]);
 
   const librariesQuery = useActionQuery("list-libraries", {
@@ -741,9 +795,6 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
-  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
-    string[]
-  >([]);
   const generateBatch = useActionMutation(
     "generate-image-batch" as any,
     {
@@ -930,12 +981,20 @@ export default function AssetPicker() {
         imageSize: selectedPreset?.imageSize || "2K",
         dismissible: false,
       })),
+      tier: hostConfig.tier,
+      styleStrength: hostConfig.styleStrength ?? "balanced",
+      includeLogo: hostConfig.includeLogo ?? false,
       source: "ui",
+      callerAppId: hostConfig.callerAppId,
     } as any);
   }, [
     count,
     effectiveAspectRatio,
     generateBatch,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.styleStrength,
+    hostConfig.tier,
     prompt,
     setVisibleCandidateRunIds,
     selectedLibraryId,
@@ -944,8 +1003,35 @@ export default function AssetPicker() {
   ]);
 
   useEffect(() => {
+    const hostCandidateFilterMatches =
+      hostConfig.candidateRunIds?.length &&
+      normalizeMediaType(hostConfig.mediaType) === mediaType &&
+      (hostConfig.libraryId ?? "") === (selectedLibraryId ?? "") &&
+      (hostConfig.prompt ?? "") === prompt &&
+      (hostConfig.aspectRatio ?? "16:9") === aspectRatio &&
+      (hostConfig.presetId ?? "none") === presetId &&
+      (hostConfig.count ?? 3) === count;
+    if (hostCandidateFilterMatches) return;
     setVisibleCandidateRunIds([]);
-  }, [aspectRatio, count, mediaType, presetId, prompt, selectedLibraryId]);
+  }, [
+    aspectRatio,
+    count,
+    hostConfig.aspectRatio,
+    hostConfig.candidateRunIds,
+    hostConfig.count,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.libraryId,
+    hostConfig.mediaType,
+    hostConfig.presetId,
+    hostConfig.prompt,
+    hostConfig.styleStrength,
+    hostConfig.tier,
+    mediaType,
+    presetId,
+    prompt,
+    selectedLibraryId,
+  ]);
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
@@ -960,6 +1046,9 @@ export default function AssetPicker() {
         if (next.aspectRatio !== undefined) setAspectRatio(next.aspectRatio);
         if (next.presetId !== undefined) setPresetId(next.presetId || "none");
         if (next.count !== undefined) setCount(next.count);
+        if (next.candidateRunIds !== undefined) {
+          setVisibleCandidateRunIds(next.candidateRunIds);
+        }
       },
     });
     bridgeRef.current = bridge;
@@ -1010,6 +1099,29 @@ export default function AssetPicker() {
     usingStarterLibrary;
   const preparingGenerationLibrary =
     needsGenerationLibrary && createPickerLibrary.isPending;
+  const waitingForLibraries = mediaType === "image" && !libraryListReady;
+  const preparingAutoLibrary =
+    mediaType === "image" &&
+    Boolean(prompt.trim()) &&
+    (waitingForLibraries || needsGenerationLibrary || preparingGenerationLibrary);
+  const generationButtonLabel = generateBatch.isPending
+    ? "Generating..."
+    : waitingForRequestedPreset
+      ? "Loading preset..."
+      : setupNeeded
+        ? "Setup needed"
+        : preparingAutoLibrary
+          ? "Preparing..."
+          : "Generate";
+  const generationStatus = generateBatch.isPending
+    ? "Generating candidates..."
+    : preparingAutoLibrary
+      ? waitingForLibraries
+        ? "Checking image libraries..."
+        : "Preparing an image library..."
+      : waitingForRequestedPreset
+        ? "Loading the requested preset..."
+        : null;
 
   useEffect(() => {
     if (!selectedPreset?.aspectRatio) return;
@@ -1207,9 +1319,14 @@ export default function AssetPicker() {
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
-                  {generateBatch.isPending ? "Generating..." : "Generate"}
+                  {generationButtonLabel}
                 </Button>
               </div>
+              {generationStatus && (
+                <div className="-mt-1 px-3 pb-2 text-[11px] leading-4 text-muted-foreground">
+                  {generationStatus}
+                </div>
+              )}
             </div>
           ) : null}
 

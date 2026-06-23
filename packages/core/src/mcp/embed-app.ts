@@ -595,6 +595,15 @@ export function embedApp(
       );
     }
 
+    function importHeadChildrenWithBase(source, baseHref) {
+      const base = document.createElement("base");
+      base.href = baseHref;
+      document.head.replaceChildren(
+        base,
+        ...Array.from(source.childNodes).map((node) => document.importNode(node, true))
+      );
+    }
+
     function isModuleScript(script) {
       return (script.getAttribute("type") || "").trim().toLowerCase() === "module";
     }
@@ -790,10 +799,7 @@ export function embedApp(
       );
       const scripts = Array.from(parsed.querySelectorAll("script"));
       copyDocumentElementAttributes(parsed.documentElement);
-      importChildren(parsed.head, document.head);
-      const base = document.createElement("base");
-      base.href = config.baseHref;
-      document.head.prepend(base);
+      importHeadChildrenWithBase(parsed.head, config.baseHref);
       importChildren(parsed.body, document.body);
       for (const script of scripts) {
         if (isRunnableClassicScript(script)) runClassicScript(script);

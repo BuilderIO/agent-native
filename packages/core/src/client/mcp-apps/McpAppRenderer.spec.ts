@@ -3,6 +3,7 @@ import {
   buildMcpAppCsp,
   clampMcpAppHeight,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
+  isMcpAppReadyMessage,
   supportedMcpAppPermissions,
 } from "./McpAppRenderer.js";
 
@@ -24,6 +25,22 @@ describe("McpAppRenderer security helpers", () => {
     expect(clampMcpAppHeight(420, 700)).toBe(420);
     expect(clampMcpAppHeight(120, 700)).toBe(220);
     expect(clampMcpAppHeight(420, 180)).toBe(180);
+  });
+
+  it("treats embedded app frame handshakes as ready signals", () => {
+    expect(isMcpAppReadyMessage({ type: "agentNative.embeddedAppReady" })).toBe(
+      true,
+    );
+    expect(
+      isMcpAppReadyMessage({
+        type: "agentNative.frameOrigin",
+        origin: "http://127.0.0.1:8100",
+      }),
+    ).toBe(true);
+    expect(isMcpAppReadyMessage({ type: "agentNative.submitChat" })).toBe(
+      false,
+    );
+    expect(isMcpAppReadyMessage(null)).toBe(false);
   });
 
   it("builds a restrictive CSP and drops invalid source expressions", () => {

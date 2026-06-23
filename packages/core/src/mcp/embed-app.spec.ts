@@ -71,6 +71,10 @@ describe("embedApp", () => {
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain("mountTransplantedHtml");
+    expect(html).toContain("function importHeadChildrenWithBase(source, baseHref)");
+    expect(html).toContain("document.head.replaceChildren(");
+    expect(html).toContain("importHeadChildrenWithBase(parsed.head, config.baseHref)");
+    expect(html).not.toContain("document.head.prepend(base)");
     expect(html).toContain("resolveTransplantAppDocumentSource");
     expect(html).toContain('"X-Agent-Native-Embed-Transplant": "1"');
     expect(html).toContain('Accept: "application/json"');
