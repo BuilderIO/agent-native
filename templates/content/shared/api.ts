@@ -194,6 +194,13 @@ export interface DeleteDocumentPropertyRequest {
   propertyId: string;
 }
 
+export interface ReorderDocumentPropertyRequest {
+  documentId: string;
+  propertyId: string;
+  targetPropertyId: string;
+  position?: "before" | "after";
+}
+
 export interface ContentDatabase {
   id: string;
   documentId: string;

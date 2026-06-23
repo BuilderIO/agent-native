@@ -308,8 +308,9 @@ export function PreRecordPanel({
   }, [cameraId, cameras]);
 
   // Camera-only mode needs a camera — coerce a restored "off" sentinel to
-  // "default" so Start doesn't forward it as an exact deviceId (covers the
-  // ?mode=camera deep-link/restore path the mode buttons already handle).
+  // "default" so Start doesn't forward it as an exact deviceId. This is the
+  // single owner of that coercion: it covers both the mode-button click and the
+  // ?mode=camera deep-link/restore path.
   useEffect(() => {
     if (mode === "camera" && cameraId === NO_CAMERA_DEVICE_ID) {
       setCameraId("default");
@@ -583,15 +584,10 @@ export function PreRecordPanel({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
-                  chooseMode(opt.value);
-                  if (
-                    opt.value === "camera" &&
-                    cameraId === NO_CAMERA_DEVICE_ID
-                  ) {
-                    chooseCamera("default");
-                  }
-                }}
+                // Camera-only mode needs a camera; the [mode, cameraId] effect
+                // below coerces a restored "off" sentinel to "default" for both
+                // this click and the ?mode=camera deep-link path.
+                onClick={() => chooseMode(opt.value)}
                 className={cn(
                   "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-left transition-colors",
                   active
