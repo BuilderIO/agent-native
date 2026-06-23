@@ -486,6 +486,10 @@ type DesktopOpenRequest = {
   runId?: string;
 };
 
+type DesktopShortcutActivationRequest = DesktopOpenRequest & {
+  requestId: string;
+};
+
 type DesktopShortcutBehavior = "toggle" | "show";
 
 type DesktopShortcutBinding = {
@@ -567,6 +571,10 @@ interface ElectronAPI {
       request: DesktopShortcutUpsertRequest,
     ): Promise<DesktopShortcutUpdateResult>;
     removeBinding(id: string): Promise<DesktopShortcutUpdateResult>;
+    onActivate(
+      cb: (request: DesktopShortcutActivationRequest) => void,
+    ): () => void;
+    ackActivation(requestId: string, appId?: string): void;
   };
 
   setActiveApp(appId: string): void;

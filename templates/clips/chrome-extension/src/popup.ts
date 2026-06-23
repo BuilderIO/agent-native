@@ -44,6 +44,13 @@ type PopupStatusResponse = {
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
 
+type StoredAuth = {
+  token: string;
+  email?: string;
+  clipsBaseUrl: string;
+  savedAt?: string;
+};
+
 type ParsedFeedbackTarget = {
   endpoint: string;
   slug: string;
@@ -192,6 +199,46 @@ function saveSettings(settings: ExtensionSettings): Promise<void> {
   });
 }
 
+function readStoredAuth(
+  settings: ExtensionSettings,
+): Promise<StoredAuth | null> {
+  return new Promise((resolve) => {
+    chrome.storage.session.get("clipsAuth", (value) => {
+      const auth = value.clipsAuth as Partial<StoredAuth> | undefined;
+      if (
+        auth &&
+        typeof auth.token === "string" &&
+        auth.token.trim() &&
+        typeof auth.clipsBaseUrl === "string" &&
+        auth.clipsBaseUrl.replace(/\/+$/, "") ===
+          settings.clipsBaseUrl.replace(/\/+$/, "")
+      ) {
+        resolve({
+          token: auth.token,
+          email: typeof auth.email === "string" ? auth.email : undefined,
+          clipsBaseUrl: auth.clipsBaseUrl.replace(/\/+$/, ""),
+          savedAt: typeof auth.savedAt === "string" ? auth.savedAt : undefined,
+        });
+        return;
+      }
+      resolve(null);
+    });
+  });
+}
+
+function clearStoredAuth(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.session.remove("clipsAuth", () => resolve());
+  });
+}
+
+async function authHeaders(
+  settings: ExtensionSettings,
+): Promise<Record<string, string>> {
+  const auth = await readStoredAuth(settings);
+  return auth ? { Authorization: `Bearer ${auth.token}` } : {};
+}
+
 function queryActiveTab(): Promise<chrome.tabs.Tab | null> {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -246,11 +293,13 @@ function createTab(url: string): Promise<void> {
 async function readAuthStatus(
   settings: ExtensionSettings,
 ): Promise<AuthStatus> {
+  const headers = await authHeaders(settings);
   try {
     const response = await fetch(
       `${settings.clipsBaseUrl}/_agent-native/auth/session`,
       {
         method: "GET",
+        headers,
         credentials: "include",
         cache: "no-store",
       },
@@ -259,9 +308,52 @@ async function readAuthStatus(
       email?: string;
       error?: string;
     } | null;
-    return response.ok && body?.email ? "signed-in" : "signed-out";
+    if (response.ok && body?.email) return "signed-in";
+    if (headers.Authorization) await clearStoredAuth();
+    return "signed-out";
   } catch {
     return "signed-out";
+  }
+}
+
+async function readVideoStorageConfigured(
+  settings: ExtensionSettings,
+): Promise<boolean> {
+  const base = settings.clipsBaseUrl.replace(/\/+$/, "");
+  const headers = await authHeaders(settings);
+
+  try {
+    const response = await fetch(`${base}/_agent-native/file-upload/status`, {
+      method: "GET",
+      headers,
+      credentials: "include",
+      cache: "no-store",
+    });
+    const body = response.ok
+      ? ((await response.json().catch(() => null)) as {
+          configured?: boolean;
+        } | null)
+      : null;
+    if (body?.configured) return true;
+  } catch {
+    // Fall through to the Builder status check.
+  }
+
+  try {
+    const response = await fetch(`${base}/_agent-native/builder/status`, {
+      method: "GET",
+      headers,
+      credentials: "include",
+      cache: "no-store",
+    });
+    const body = response.ok
+      ? ((await response.json().catch(() => null)) as {
+          configured?: boolean;
+        } | null)
+      : null;
+    return !!body?.configured;
+  } catch {
+    return false;
   }
 }
 
@@ -436,7 +528,6 @@ async function init(): Promise<void> {
   const feedbackHint = byId<HTMLDivElement>("feedback-hint");
   const feedbackSubmit = byId<HTMLButtonElement>("feedback-submit");
   const feedbackSuccess = byId<HTMLDivElement>("feedback-success");
-  const permissions = byId<HTMLButtonElement>("permissions");
   const openLibrary = byId<HTMLButtonElement>("open-library");
   const openSettings = byId<HTMLButtonElement>("open-settings");
   const openRecent = byId<HTMLButtonElement>("open-recent");
@@ -639,10 +730,6 @@ async function init(): Promise<void> {
     }
   });
 
-  permissions.addEventListener("click", () => {
-    chrome.runtime.openOptionsPage();
-  });
-
   openLibrary.addEventListener("click", async () => {
     await createTab(settings.clipsBaseUrl);
     window.close();
@@ -661,7 +748,7 @@ async function init(): Promise<void> {
   if (!activeRecording && authStatus === "signed-out") {
     start.hidden = true;
     signIn.hidden = false;
-    setStatus("Sign in to Clips to record.");
+    setStatus("");
   }
 
   start.addEventListener("click", async () => {
@@ -673,7 +760,19 @@ async function init(): Promise<void> {
       start.disabled = false;
       start.hidden = true;
       signIn.hidden = false;
-      setStatus("Sign in to Clips first, then start recording.", "error");
+      setStatus("");
+      return;
+    }
+    setStatus("Checking video storage...");
+    const storageConfigured = await readVideoStorageConfigured(settings);
+    if (!storageConfigured) {
+      start.disabled = false;
+      setStatus(
+        "Connect Builder.io or S3 storage in Clips, then start recording.",
+        "error",
+      );
+      await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
+      window.close();
       return;
     }
     setStatus("Starting recording...");
@@ -688,7 +787,7 @@ async function init(): Promise<void> {
     if (isSignInError(message)) {
       start.hidden = true;
       signIn.hidden = false;
-      setStatus("Sign in to Clips first, then start recording.", "error");
+      setStatus("");
       return;
     }
     setStatus(message, "error");

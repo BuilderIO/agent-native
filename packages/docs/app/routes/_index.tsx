@@ -96,25 +96,69 @@ const bidirectionalTabs = [
     title: "The agent sees everything",
     description:
       "It can read and update any UI, any data, any state in the application.",
-    video: import.meta.env.VITE_AGENT_NATIVE_AGENT_SEES_DEMO_VIDEO_URL,
+    video: import.meta.env.VITE_AGENT_NATIVE_AGENT_SEES_DEMO_VIDEO_URL || "",
+    preview: {
+      label: "Context graph",
+      title: "Screen context",
+      summary: "Route, selection, and app state stay visible to the agent.",
+      stats: [
+        ["Route", "/plans"],
+        ["Focus", "Release"],
+      ],
+      rows: ["Active screen", "Selected plan", "Open comments"],
+      footer: "Synced with application_state",
+    },
   },
   {
     title: "The UI talks to the agent",
     description:
       "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
-    video: import.meta.env.VITE_AGENT_NATIVE_UI_TALKS_DEMO_VIDEO_URL,
+    video: import.meta.env.VITE_AGENT_NATIVE_UI_TALKS_DEMO_VIDEO_URL || "",
+    preview: {
+      label: "Agent request",
+      title: "Structured handoff",
+      summary: "UI events become agent work with the same app context.",
+      stats: [
+        ["Intent", "Draft"],
+        ["Tool", "Action"],
+      ],
+      rows: ["Compose prompt", "Attach current object", "Run agent"],
+      footer: "Queued through the shared composer",
+    },
   },
   {
     title: "The agent updates its own code",
     description:
       "It can modify the app itself to change features and functionality. Your tools get better over time.",
-    video: import.meta.env.VITE_AGENT_NATIVE_CODE_UPDATES_DEMO_VIDEO_URL,
+    video: import.meta.env.VITE_AGENT_NATIVE_CODE_UPDATES_DEMO_VIDEO_URL || "",
+    preview: {
+      label: "Code change",
+      title: "Self-improving app",
+      summary: "The agent can inspect, edit, test, and explain app changes.",
+      stats: [
+        ["Files", "3"],
+        ["Checks", "2"],
+      ],
+      rows: ["Read route", "Patch component", "Run tests"],
+      footer: "Changes stay in your repository",
+    },
   },
   {
     title: "Everything works both ways",
     description:
       "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
-    video: import.meta.env.VITE_AGENT_NATIVE_BIDIRECTIONAL_DEMO_VIDEO_URL,
+    video: import.meta.env.VITE_AGENT_NATIVE_BIDIRECTIONAL_DEMO_VIDEO_URL || "",
+    preview: {
+      label: "Shared action",
+      title: "One operation",
+      summary: "Clicking and asking call the same typed action surface.",
+      stats: [
+        ["UI", "Button"],
+        ["Agent", "Tool"],
+      ],
+      rows: ["Validate input", "Run action", "Sync result"],
+      footer: "Same data path both ways",
+    },
   },
 ];
 
@@ -145,20 +189,100 @@ const frameworkPrimitives = [
 ];
 
 const homepageTemplateSlugs = [
+  "clips",
+  "plan",
   "calendar",
   "content",
-  "plan",
   "slides",
   "analytics",
-  "clips",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
+type BidirectionalPreviewData = (typeof bidirectionalTabs)[number]["preview"];
+
+function BidirectionalPreview({
+  className = "",
+  preview,
+}: {
+  className?: string;
+  preview: BidirectionalPreviewData;
+}) {
+  return (
+    <div
+      aria-label={`${preview.title} preview`}
+      className={`absolute inset-0 bg-[var(--bg-secondary)] p-4 text-[var(--fg)] transition-opacity duration-300 sm:p-5 ${className}`}
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--docs-border)] bg-black/20">
+        <div className="flex items-center justify-between border-b border-[var(--docs-border)] px-4 py-3">
+          <div className="text-xs font-semibold uppercase text-[var(--docs-accent)]">
+            {preview.label}
+          </div>
+          <div className="h-2 w-16 rounded-full bg-[var(--docs-accent)]/60" />
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[0.9fr_1.1fr]">
+          <div className="flex min-h-0 flex-col gap-3">
+            <div>
+              <h3 className="m-0 text-base font-semibold">{preview.title}</h3>
+              <p className="m-0 mt-2 hidden text-sm leading-relaxed text-[var(--fg-secondary)] sm:block">
+                {preview.summary}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {preview.stats.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)]/70 p-3"
+                >
+                  <div className="text-[11px] uppercase text-[var(--fg-secondary)]">
+                    {label}
+                  </div>
+                  <div className="mt-1 truncate text-xs font-semibold">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)]/70 p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-[var(--docs-accent)]" />
+              <div className="h-2.5 w-24 rounded-full bg-[var(--fg-secondary)]/30" />
+            </div>
+            <div className="grid flex-1 gap-2">
+              {preview.rows.map((row, index) => (
+                <div
+                  key={row}
+                  className={`rounded border border-[var(--docs-border)] p-2 text-xs ${
+                    index === 0
+                      ? "bg-[var(--docs-accent)]/12 text-[var(--fg)]"
+                      : "text-[var(--fg-secondary)]"
+                  }`}
+                >
+                  {row}
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 truncate text-[11px] text-[var(--fg-secondary)]">
+              {preview.footer}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
+  const [failedVideoIndexes, setFailedVideoIndexes] = useState<Set<number>>(
+    () => new Set(),
+  );
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const tabContainerRef = useRef<HTMLDivElement | null>(null);
@@ -166,6 +290,7 @@ function BidirectionalTabs() {
   useEffect(() => {
     videoRefs.current.forEach((video, i) => {
       if (!video) return;
+      if (failedVideoIndexes.has(i)) return;
       if (i === activeTab) {
         video.currentTime = 0;
         void video.play().catch(() => {
@@ -175,7 +300,7 @@ function BidirectionalTabs() {
         video.pause();
       }
     });
-  }, [activeTab]);
+  }, [activeTab, failedVideoIndexes]);
 
   // Scroll only within the tab container (horizontal, mobile only).
   // Never uses scrollIntoView — that causes full-page vertical jumps.
@@ -214,6 +339,15 @@ function BidirectionalTabs() {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
       return (i + 1) % bidirectionalTabs.length;
+    });
+  };
+
+  const markVideoFailed = (index: number) => {
+    setFailedVideoIndexes((prev) => {
+      if (prev.has(index)) return prev;
+      const next = new Set(prev);
+      next.add(index);
+      return next;
     });
   };
 
@@ -257,8 +391,10 @@ function BidirectionalTabs() {
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) =>
-          tab.video ? (
+        {bidirectionalTabs.map((tab, i) => {
+          const videoUrl = failedVideoIndexes.has(i) ? "" : tab.video;
+
+          return videoUrl ? (
             <video
               key={i}
               ref={(el) => {
@@ -269,6 +405,7 @@ function BidirectionalTabs() {
               playsInline
               preload="auto"
               onEnded={() => handleVideoEnded(i)}
+              onError={() => markVideoFailed(i)}
               className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
                 i === activeTab
                   ? "opacity-100"
@@ -276,30 +413,17 @@ function BidirectionalTabs() {
               }`}
             />
           ) : (
-            <div
+            <BidirectionalPreview
               key={i}
-              aria-hidden
-              className={`absolute inset-0 bg-[var(--bg-secondary)] transition-opacity duration-300 ${
+              preview={tab.preview}
+              className={
                 i === activeTab
                   ? "opacity-100"
                   : "pointer-events-none opacity-0"
-              }`}
-            >
-              <div className="flex h-full w-full animate-pulse flex-col justify-between p-5">
-                <div className="space-y-3">
-                  <div className="h-4 w-2/5 rounded-full bg-[var(--docs-border)]" />
-                  <div className="h-3 w-3/4 rounded-full bg-[var(--docs-border)]" />
-                  <div className="h-3 w-1/2 rounded-full bg-[var(--docs-border)]" />
-                </div>
-                <div className="grid gap-3">
-                  <div className="h-28 rounded-lg bg-[var(--docs-border)]/70" />
-                  <div className="h-16 rounded-lg bg-[var(--docs-border)]/50" />
-                </div>
-                <div className="h-8 w-1/3 rounded-full bg-[var(--docs-border)]" />
-              </div>
-            </div>
-          ),
-        )}
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -478,6 +602,61 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Templates - breaks out of max-width on ultra-wide screens */}
+        <section
+          id="templates"
+          className="border-t border-[var(--docs-border)] py-20 px-6"
+        >
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Fork and customize a fully-featured app
+            </h2>
+            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+              100% free and open source
+            </p>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              When an action needs screens, start from a vetted app you can
+              customize. Chat is the minimal app scaffold; domain templates add
+              product workflows, example data, and agent-ready actions.
+            </p>
+          </div>
+
+          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {homepageTemplates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
+          </div>
+
+          <div className="mt-8 text-center">
+            <Link
+              data-an-prefetch="render"
+              to="/templates"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click cta", {
+                  label: "view_all_templates",
+                  location: "templates_section",
+                })
+              }
+            >
+              View all templates
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </div>
+        </section>
+
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
@@ -561,61 +740,6 @@ export default function Home() {
 
           <div className="mx-auto max-w-[1200px]">
             <BidirectionalTabs />
-          </div>
-        </section>
-
-        {/* Templates - breaks out of max-width on ultra-wide screens */}
-        <section
-          id="templates"
-          className="border-t border-[var(--docs-border)] py-20 px-6"
-        >
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Add UI with a full featured template
-            </h2>
-            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              100% free and open source
-            </p>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              When an action needs screens, start from a vetted app you can
-              customize. Chat is the minimal app scaffold; domain templates add
-              product workflows, example data, and agent-ready actions.
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {homepageTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "view_all_templates",
-                  location: "templates_section",
-                })
-              }
-            >
-              View all templates
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
           </div>
         </section>
 

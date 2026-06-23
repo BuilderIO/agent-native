@@ -61,6 +61,12 @@ type ExternalMessage =
   | {
       type: "CLIPS_CAPTURE_CANCEL";
       sessionId?: string;
+    }
+  | {
+      type: "CLIPS_AUTH_SESSION";
+      token?: string;
+      email?: string;
+      clipsBaseUrl?: string;
     };
 
 type ChromeTab = {
@@ -169,6 +175,13 @@ type CaptureSession = {
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
+};
+
+type StoredAuth = {
+  token: string;
+  email?: string;
+  clipsBaseUrl: string;
+  savedAt: string;
 };
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -318,6 +331,12 @@ function sessionStorageSet(value: Record<string, unknown>): Promise<void> {
   });
 }
 
+function sessionStorageGet(keys: string[]): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    chrome.storage.session.get(keys, (value) => resolve(value));
+  });
+}
+
 function sessionStorageRemove(key: string): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.storage.session.remove(key, () => {
@@ -326,6 +345,48 @@ function sessionStorageRemove(key: string): Promise<void> {
       else resolve();
     });
   });
+}
+
+function originOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+async function saveAuthSession(auth: StoredAuth): Promise<void> {
+  await sessionStorageSet({ clipsAuth: auth });
+}
+
+async function readAuthSession(
+  settings: ExtensionSettings,
+): Promise<StoredAuth | null> {
+  const stored = await sessionStorageGet(["clipsAuth"]);
+  const auth = stored.clipsAuth as Partial<StoredAuth> | undefined;
+  if (
+    !auth ||
+    typeof auth.token !== "string" ||
+    !auth.token.trim() ||
+    typeof auth.clipsBaseUrl !== "string" ||
+    originOf(auth.clipsBaseUrl) !== originOf(settings.clipsBaseUrl)
+  ) {
+    return null;
+  }
+  return {
+    token: auth.token,
+    email: typeof auth.email === "string" ? auth.email : undefined,
+    clipsBaseUrl: normalizeBaseUrl(auth.clipsBaseUrl),
+    savedAt: typeof auth.savedAt === "string" ? auth.savedAt : nowIso(),
+  };
+}
+
+async function authHeaders(
+  settings: ExtensionSettings,
+): Promise<Record<string, string>> {
+  const auth = await readAuthSession(settings);
+  return auth ? { Authorization: `Bearer ${auth.token}` } : {};
 }
 
 async function saveActiveNativeRecording(): Promise<void> {
@@ -408,6 +469,7 @@ async function postAction<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Agent-Native-Frontend": "1",
+    ...(await authHeaders(settings)),
   };
   const timezone = timezoneHeader();
   if (timezone) headers["x-user-timezone"] = timezone;
@@ -818,7 +880,10 @@ async function handlePopupSignIn(message: {
 }) {
   const settings = await readSettings(message.settings);
   await storageSet(settings);
-  await createTab(settings.clipsBaseUrl);
+  const signInUrl = new URL(`${settings.clipsBaseUrl}/library`);
+  signInUrl.searchParams.set("clipsExtensionAuth", "1");
+  signInUrl.searchParams.set("clipsExtensionId", chrome.runtime.id);
+  await createTab(signInUrl.toString());
   return { ok: true };
 }
 

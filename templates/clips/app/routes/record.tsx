@@ -1215,6 +1215,15 @@ export default function RecordRoute() {
 
       let createdId: string | null = null;
       try {
+        const status = await fetchVideoStorageStatus();
+        if (isStale()) return;
+        markStorageConfigured(status);
+        if (!status.configured) {
+          throw new Error(
+            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+          );
+        }
+
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;
 
@@ -1442,7 +1451,7 @@ export default function RecordRoute() {
         setCompressionProgress(null);
       }
     },
-    [navigate, probeVideoMetadata],
+    [markStorageConfigured, navigate, probeVideoMetadata],
   );
 
   const importLoom = useCallback(
