@@ -254,7 +254,6 @@ svg {
 
 .row-button:focus-visible,
 .toggle:focus-visible,
-.readiness-summary:focus-visible,
 .primary:focus-visible,
 .secondary-action:focus-visible {
   outline: none;
@@ -442,48 +441,6 @@ svg {
     10% 80%,
     0 62%
   );
-}
-
-.readiness-summary {
-  display: grid;
-  width: 100%;
-  min-height: 42px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--fg);
-  cursor: pointer;
-  text-align: left;
-  transition: background 120ms;
-}
-
-.readiness-summary:hover {
-  background: var(--surface-hover);
-}
-
-.readiness-title {
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.readiness-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--brand);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.readiness-action svg {
-  width: 12px;
-  height: 12px;
 }
 
 .primary,
@@ -765,7 +722,8 @@ svg {
 
 .options-page {
   min-height: 100vh;
-  background: hsl(220 10% 97%);
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .options-shell {
@@ -782,15 +740,10 @@ svg {
 }
 
 .brand-mark {
-  display: grid;
   width: 34px;
   height: 34px;
-  place-items: center;
   border-radius: 8px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 15px;
-  font-weight: 760;
+  box-shadow: var(--shadow-sm);
 }
 
 .eyebrow {
@@ -814,10 +767,10 @@ h1 {
   display: grid;
   gap: 10px;
   padding: 20px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: var(--background);
-  box-shadow: 0 18px 60px rgba(17, 24, 39, 0.08);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
 }
 
 .field {
@@ -834,11 +787,11 @@ h1 {
 .field input,
 .field select {
   min-height: 40px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 0 11px;
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--fg);
+  background: var(--bg);
 }
 
 .form-actions {
@@ -853,9 +806,9 @@ h1 {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: var(--background);
+  background: var(--bg);
 }
 
 .toggle-title,

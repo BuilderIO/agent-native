@@ -1179,9 +1179,7 @@ async function getRendererActiveAppId(
       `window.__agentNativeDesktopShortcutBridge?.getActiveAppId?.() ?? ""`,
       true,
     );
-    return typeof result === "string" && result.trim()
-      ? result.trim()
-      : null;
+    return typeof result === "string" && result.trim() ? result.trim() : null;
   } catch (err) {
     debugDesktopShortcut("active app query failed", {
       error: err instanceof Error ? err.message : String(err),
@@ -1205,7 +1203,7 @@ async function invokeRendererDesktopShortcutActivation(
     const handled = (result as { handled?: unknown }).handled === true;
     const appId =
       typeof (result as { appId?: unknown }).appId === "string"
-        ? ((result as { appId: string }).appId)
+        ? (result as { appId: string }).appId
         : "";
     if (handled && appId) activeAppId = appId;
     debugDesktopShortcut("activation bridge result", {
