@@ -438,10 +438,7 @@ describe("Vite MCP embed headers", () => {
       vi.fn(),
     );
 
-    expect(setHeader).toHaveBeenCalledWith(
-      "Access-Control-Allow-Origin",
-      "*",
-    );
+    expect(setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", "*");
     expect(setHeader).toHaveBeenCalledWith(
       "Cross-Origin-Resource-Policy",
       "cross-origin",
@@ -463,7 +460,11 @@ describe("Vite MCP embed headers", () => {
     plugin.configureServer(server);
 
     const setHeader = vi.fn();
-    middleware!({ url: "/assets/library", headers: {} }, { setHeader }, vi.fn());
+    middleware!(
+      { url: "/assets/library", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
 
     expect(setHeader).not.toHaveBeenCalledWith(
       "Access-Control-Allow-Origin",

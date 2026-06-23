@@ -121,7 +121,8 @@ describe("first-party remote MCP metadata", () => {
       ),
     ).resolves.toEqual({
       ok: false,
-      error: "First-party MCP URL does not match the org-directory app endpoint",
+      error:
+        "First-party MCP URL does not match the org-directory app endpoint",
     });
   });
 

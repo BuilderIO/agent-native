@@ -434,7 +434,7 @@ describe("McpClientManager", () => {
     };
     const mgr = new McpClientManager({
       servers: {
-        "user_abcdef1234_assets": {
+        user_abcdef1234_assets: {
           type: "http",
           url: "https://assets.example.com/_agent-native/mcp",
           headers: { Authorization: "Bearer static-user-token" },

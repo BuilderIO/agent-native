@@ -110,7 +110,9 @@ async function resolveTarget(args: z.infer<typeof schemaInput>) {
     navigationDesignId ??
     (selectionMatchesOwner ? selectionDesignId : undefined);
   const canUseSelection =
-    selectionMatchesOwner && Boolean(designId) && selectionDesignId === designId;
+    selectionMatchesOwner &&
+    Boolean(designId) &&
+    selectionDesignId === designId;
   return {
     designId,
     fileId:
@@ -137,7 +139,9 @@ export default defineAction({
   run: async (args) => {
     const target = await resolveTarget(args);
     if (!target.designId) {
-      throw new Error("No active design found. Open a design or pass designId.");
+      throw new Error(
+        "No active design found. Open a design or pass designId.",
+      );
     }
 
     const db = getDb();

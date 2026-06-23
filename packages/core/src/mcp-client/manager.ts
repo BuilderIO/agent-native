@@ -795,9 +795,7 @@ async function buildFirstPartyRequestInit(
     ...headersToRecord(init.headers),
   };
   removeAuthorizationHeaders(headers);
-  const token = await mintFirstPartyMcpIdentityToken(trust).catch(
-    () => null,
-  );
+  const token = await mintFirstPartyMcpIdentityToken(trust).catch(() => null);
   if (token) headers.Authorization = `Bearer ${token}`;
   return { ...init, headers };
 }
@@ -892,9 +890,10 @@ async function mintFirstPartyMcpIdentityToken(
   const subject =
     userEmail && requestOrgId
       ? userEmail
-      : (
-          await import("../mcp/connect-store.js")
-        ).serviceIdentityEmail("mcp-client", orgId);
+      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
+          "mcp-client",
+          orgId,
+        );
 
   return signA2AToken(subject, orgDomain, orgSecret, {
     expiresIn: "5m",

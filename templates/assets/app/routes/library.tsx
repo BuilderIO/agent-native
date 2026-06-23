@@ -1103,7 +1103,9 @@ export default function AssetPicker() {
   const preparingAutoLibrary =
     mediaType === "image" &&
     Boolean(prompt.trim()) &&
-    (waitingForLibraries || needsGenerationLibrary || preparingGenerationLibrary);
+    (waitingForLibraries ||
+      needsGenerationLibrary ||
+      preparingGenerationLibrary);
   const generationButtonLabel = generateBatch.isPending
     ? "Generating..."
     : waitingForRequestedPreset

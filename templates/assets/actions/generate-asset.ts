@@ -29,7 +29,9 @@ const schema = z.object({
   libraryHint: z
     .string()
     .optional()
-    .describe("Brand, campaign, or use-case hint used when matching a library."),
+    .describe(
+      "Brand, campaign, or use-case hint used when matching a library.",
+    ),
   aspectRatio: z.enum(ASPECT_RATIOS).default("16:9"),
   presetId: z
     .string()
