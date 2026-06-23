@@ -1061,6 +1061,10 @@ type PrefetchedSqlDashboard = {
   };
   archivedAt: string | null;
   hiddenAt: string | null;
+  hiddenBy: string | null;
+  visibility: Visibility;
+  ownerEmail: string | null;
+  updatedAt: string | null;
 } & ResourceAccess;
 
 async function fetchSqlDashboardForPrefetch(
@@ -1088,6 +1092,13 @@ async function fetchSqlDashboardForPrefetch(
       },
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
+      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+      visibility:
+        data.visibility === "org" || data.visibility === "public"
+          ? data.visibility
+          : "private",
+      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
       role: typeof data.role === "string" ? data.role : undefined,
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
@@ -1851,6 +1862,32 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
         <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+          {/* Ask link */}
+          <Link
+            to="/ask"
+            onClick={(event) => {
+              if (
+                location.pathname !== "/ask" &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                navigateWithAgentChatViewTransition(navigate, "/ask");
+              }
+            }}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+              location.pathname === "/ask"
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
+            )}
+          >
+            <IconMessageCircle className="h-4 w-4" />
+            Ask
+          </Link>
+
           {/* Overview link */}
           <Link
             to="/overview"
@@ -1905,32 +1942,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconTemplate className="h-4 w-4" />
             Catalog
-          </Link>
-
-          {/* Ask link */}
-          <Link
-            to="/ask"
-            onClick={(event) => {
-              if (
-                location.pathname !== "/ask" &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                !event.shiftKey &&
-                !event.altKey
-              ) {
-                event.preventDefault();
-                navigateWithAgentChatViewTransition(navigate, "/ask");
-              }
-            }}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/ask"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconMessageCircle className="h-4 w-4" />
-            Ask
           </Link>
 
           {/* Dashboards section */}
