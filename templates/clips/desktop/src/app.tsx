@@ -1042,13 +1042,16 @@ export function App() {
       }),
     );
     // The bubble window emits `clips:bubble-closed` when the user clicks
-    // the X on the hover controls. Treat that as "camera off" — the
-    // bubble-session effect then tears down the stream + pump.
+    // the X on the hover controls. Treat that as "camera off": stop the
+    // popover-owned camera track now so the hardware light goes off
+    // immediately, and clear `cameraOn` so the bubble-session effect tears
+    // down the rest (pump/window) and the toggle reflects the new state.
     track(
       listen("clips:bubble-closed", () => {
         console.log(
-          "[clips-popover] bubble-closed received — clearing cameraOn",
+          "[clips-popover] bubble-closed received — stopping camera + clearing cameraOn",
         );
+        bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
         setCameraOn(false);
       }),
     );
@@ -1324,6 +1327,24 @@ export function App() {
       }
     };
   }, [bubbleActive, cameraId]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:release-camera", () => {
+      console.log(`[popover] releasing camera`);
+      bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
+    })
+      .then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content

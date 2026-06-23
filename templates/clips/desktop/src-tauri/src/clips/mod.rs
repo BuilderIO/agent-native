@@ -807,6 +807,7 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
 /// MediaRecorder doesn't touch the camera after start.
 #[tauri::command]
 pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
         dlog!("[clips-tray] close_bubble — destroying bubble webview");
         let _ = w.close();
