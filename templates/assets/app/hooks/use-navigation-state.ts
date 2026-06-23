@@ -21,12 +21,16 @@ function optionalLibraryTab(params: URLSearchParams) {
     : undefined;
 }
 
+function optionalThreadId(params: URLSearchParams) {
+  return optionalParam(params, "thread");
+}
+
 function navigationFromPath(pathname: string, search = "") {
+  const params = new URLSearchParams(search);
   // The "library" view is the brand-kit detail page (route /brand-kits/:id).
   // Keep the internal view key stable for the agent/MCP contract.
   const library = pathname.match(/^\/brand-kits\/([^/]+)/);
   if (library) {
-    const params = new URLSearchParams(search);
     return {
       view: "library",
       libraryId: library[1],
@@ -37,10 +41,14 @@ function navigationFromPath(pathname: string, search = "") {
   if (asset) return { view: "asset", assetId: asset[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "asset", assetId: image[1] };
-  if (pathname === "/") return { view: "create" };
+  if (pathname === "/") {
+    return {
+      view: "create",
+      threadId: optionalThreadId(params),
+    };
+  }
   // The "picker" view is the image Library browser (route /library).
   if (pathname === "/library") {
-    const params = new URLSearchParams(search);
     return {
       view: "picker",
       mediaType:
@@ -93,7 +101,14 @@ function pathFromCommand(command: any): string | null {
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
-  if (command.view === "create") return "/";
+  if (command.view === "create") {
+    const params = new URLSearchParams();
+    if (typeof command.threadId === "string" && command.threadId.trim()) {
+      params.set("thread", command.threadId.trim());
+    }
+    const query = params.toString();
+    return query ? `/?${query}` : "/";
+  }
   if (command.view === "picker") {
     const params = new URLSearchParams();
     if (command.mediaType === "image" || command.mediaType === "video") {

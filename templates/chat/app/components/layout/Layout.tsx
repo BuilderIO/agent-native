@@ -151,6 +151,7 @@ export function Layout({ children }: LayoutProps) {
             position="right"
             chatViewTransition
             storageKey="chat"
+            threadUrlSync
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}

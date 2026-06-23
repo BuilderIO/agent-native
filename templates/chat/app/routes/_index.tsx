@@ -45,6 +45,7 @@ export default function ChatRoute() {
         className="h-full"
         defaultMode="chat"
         storageKey="chat"
+        threadUrlSync
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}

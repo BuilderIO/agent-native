@@ -10,6 +10,7 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   path?: string;
+  threadId?: string;
 }
 
 export function useNavigationState() {
@@ -17,12 +18,17 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname, search, hash }) => ({
-      view: viewForPath(pathname),
-      path: appPath(pathname),
-    }),
+    getNavigationState: ({ pathname, search }) => {
+      const params = new URLSearchParams(search);
+      const threadId = params.get("thread")?.trim();
+      return {
+        view: viewForPath(pathname),
+        path: appPath(pathname),
+        ...(threadId ? { threadId } : {}),
+      };
+    },
     getCommandPath: (command) =>
-      routerPath(command.path || pathForView(command.view)),
+      routerPath(command.path || pathForCommand(command)),
     onNavigate: (_command, path) => {
       if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
         markAgentChatHomeHandoff("chat");
@@ -60,6 +66,14 @@ function pathForView(view?: string): string {
     default:
       return "/";
   }
+}
+
+function pathForCommand(command: any): string {
+  const path = pathForView(command?.view);
+  if (path !== "/") return path;
+  const threadId =
+    typeof command?.threadId === "string" ? command.threadId.trim() : "";
+  return threadId ? `/?thread=${encodeURIComponent(threadId)}` : "/";
 }
 
 function routerPath(path: string): string {

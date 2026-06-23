@@ -781,6 +781,47 @@ function chatTabStatusFromAgentTeamStatus(
 }
 
 const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_THREAD_URL_PARAM = "thread";
+const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
+
+export interface ChatThreadUrlSyncOptions {
+  /** Query-string parameter used to address a chat thread. Default: `thread`. */
+  paramName?: string;
+}
+
+function normalizeUrlThreadId(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function resolveThreadUrlSync(
+  value: MultiTabAssistantChatProps["threadUrlSync"],
+): { enabled: boolean; paramName: string } {
+  if (!value) return { enabled: false, paramName: DEFAULT_THREAD_URL_PARAM };
+  if (value === true) {
+    return { enabled: true, paramName: DEFAULT_THREAD_URL_PARAM };
+  }
+  return {
+    enabled: true,
+    paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
+  };
+}
+
+function readUrlThreadId(paramName: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return normalizeUrlThreadId(
+      params.get(paramName) ??
+        (paramName === DEFAULT_THREAD_URL_PARAM
+          ? params.get("threadId")
+          : null),
+    );
+  } catch {
+    return null;
+  }
+}
 
 function runToAgentTeamTabInfo(
   run: AgentTeamRunSummary,
@@ -846,6 +887,12 @@ export type MultiTabAssistantChatProps = Omit<
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
+   * Keep the active thread in the URL query string. When enabled, `?thread=id`
+   * opens a chat, and the same route without the param is the create/new-chat
+   * state.
+   */
+  threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
+  /**
    * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
    * new chats automatically inherit this scope and scoped chats tuck away when
    * the user leaves the resource. General chats remain visible across resource
@@ -864,15 +911,68 @@ export function MultiTabAssistantChat({
   storageKey,
   restoreActiveThread = true,
   browserTabId,
+  threadUrlSync = false,
   scope = null,
   ...props
 }: MultiTabAssistantChatProps) {
+  const { enabled: threadUrlSyncEnabled, paramName: threadUrlParamName } =
+    resolveThreadUrlSync(threadUrlSync);
+  const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
+    threadUrlSyncEnabled ? readUrlThreadId(threadUrlParamName) : null,
+  );
+
+  useEffect(() => {
+    if (!threadUrlSyncEnabled) return;
+    const update = () => setUrlThreadId(readUrlThreadId(threadUrlParamName));
+    update();
+    window.addEventListener("popstate", update);
+    window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
+    };
+  }, [threadUrlParamName, threadUrlSyncEnabled]);
+
+  const writeThreadUrl = useCallback(
+    (threadId: string | null, options: { replace?: boolean } = {}): void => {
+      if (!threadUrlSyncEnabled || typeof window === "undefined") return;
+      try {
+        const url = new URL(window.location.href);
+        const normalizedThreadId = normalizeUrlThreadId(threadId);
+        if (normalizedThreadId) {
+          url.searchParams.set(threadUrlParamName, normalizedThreadId);
+        } else {
+          url.searchParams.delete(threadUrlParamName);
+        }
+        if (threadUrlParamName !== "threadId") {
+          url.searchParams.delete("threadId");
+        }
+        const next = `${url.pathname}${url.search}${url.hash}`;
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (next === current) {
+          setUrlThreadId(normalizedThreadId);
+          return;
+        }
+        const method = options.replace ? "replaceState" : "pushState";
+        window.history[method](window.history.state, "", next);
+        setUrlThreadId(normalizedThreadId);
+        window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+        const popstate =
+          typeof PopStateEvent === "function"
+            ? new PopStateEvent("popstate", { state: window.history.state })
+            : new Event("popstate");
+        window.dispatchEvent(popstate);
+      } catch {}
+    },
+    [threadUrlParamName, threadUrlSyncEnabled],
+  );
+
   const {
     threads,
     activeThreadId,
     isLoading,
     createThread,
-    switchThread,
+    switchThread: switchThreadState,
     detachThread,
     forkThread,
     saveThreadData,
@@ -880,7 +980,18 @@ export function MultiTabAssistantChat({
     searchThreads,
     refreshThreads,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope, { restoreActiveThread });
+  } = useChatThreads(apiUrl, storageKey, scope, {
+    restoreActiveThread,
+    routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
+  });
+
+  const switchThread = useCallback(
+    (threadId: string, options: { replace?: boolean } = {}) => {
+      switchThreadState(threadId);
+      writeThreadUrl(threadId, options);
+    },
+    [switchThreadState, writeThreadUrl],
+  );
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1370,9 +1481,18 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread();
+      createThread().then((id) => {
+        if (id) writeThreadUrl(null);
+      });
     }
-  }, [activeThreadId, threads, parentMap, switchThread, createThread]);
+  }, [
+    activeThreadId,
+    threads,
+    parentMap,
+    switchThread,
+    createThread,
+    writeThreadUrl,
+  ]);
 
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the
@@ -1412,10 +1532,11 @@ export function MultiTabAssistantChat({
         if (id) {
           newThreadIds.current.add(id);
           setOpenTabIds([id]);
+          writeThreadUrl(null, { replace: true });
         }
       });
     }
-  }, [isLoading, openTabIds, activeThreadId, createThread]);
+  }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl]);
 
   useEffect(() => {
     let stopped = false;
@@ -1700,9 +1821,12 @@ export function MultiTabAssistantChat({
             setOpenTabIds((prev) =>
               prev.includes(newId) ? prev : [...prev, newId],
             );
+            if (!background) {
+              writeThreadUrl(newId);
+            }
             sendToTab(newId);
             if (background && previousTabId) {
-              switchThread(previousTabId);
+              switchThreadState(previousTabId);
             }
           }
         });
@@ -1729,6 +1853,8 @@ export function MultiTabAssistantChat({
     removeContextInTab,
     setContextInTab,
     switchThread,
+    switchThreadState,
+    writeThreadUrl,
   ]);
 
   // Replay submits posted before this lazy panel's listener attached. Dedup in
@@ -1800,9 +1926,10 @@ export function MultiTabAssistantChat({
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      writeThreadUrl(null);
     }
     return id;
-  }, [createThread]);
+  }, [createThread, writeThreadUrl]);
 
   const cleanupClosedTab = useCallback((tabId: string) => {
     if (parentMapRef.current[tabId]) {
@@ -1842,6 +1969,7 @@ export function MultiTabAssistantChat({
             if (newId) {
               newThreadIds.current.add(newId);
               setOpenTabIds([newId]);
+              writeThreadUrl(null);
             }
           });
           return prev; // Keep old tab until new one is ready
@@ -1855,7 +1983,7 @@ export function MultiTabAssistantChat({
       });
       cleanupClosedTab(tabId);
     },
-    [switchThread, createThread, cleanupClosedTab],
+    [switchThread, createThread, cleanupClosedTab, writeThreadUrl],
   );
 
   const closeOtherTabs = useCallback(
@@ -1906,7 +2034,8 @@ export function MultiTabAssistantChat({
     if (id) {
       newThreadIds.current.add(id);
       setOpenTabIds([id]);
-      switchThread(id);
+      switchThreadState(id);
+      writeThreadUrl(null);
       dismissedSubAgentTabsRef.current.clear();
       // Clean up all old refs
       chatRefs.current.clear();
@@ -1917,7 +2046,7 @@ export function MultiTabAssistantChat({
       setSubAgentNames({});
       setSubAgentStatuses({});
     }
-  }, [createThread, switchThread]);
+  }, [createThread, switchThreadState, writeThreadUrl]);
 
   // Keyboard shortcuts dispatched from AgentPanel based on the active mode
   useEffect(() => {
@@ -1955,6 +2084,14 @@ export function MultiTabAssistantChat({
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
+        void createThread(threadId).then((createdId) => {
+          if (!createdId) return;
+          setOpenTabIds((prev) =>
+            prev.includes(createdId) ? prev : [...prev, createdId],
+          );
+          writeThreadUrl(null);
+        });
+        return;
       }
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
@@ -1965,7 +2102,7 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [switchThread]);
+  }, [createThread, switchThread, writeThreadUrl]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;
@@ -2125,8 +2262,15 @@ export function MultiTabAssistantChat({
       },
     ) => {
       saveThreadData(threadId, data);
+      if (
+        data.messageCount > 0 &&
+        threadId === activeThreadIdRef.current &&
+        readUrlThreadId(threadUrlParamName) !== threadId
+      ) {
+        writeThreadUrl(threadId);
+      }
     },
-    [saveThreadData],
+    [saveThreadData, threadUrlParamName, writeThreadUrl],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────

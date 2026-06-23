@@ -468,6 +468,51 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(badges[0]?.textContent).toContain("Using this form");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
   });
+
+  it("syncs selected and new chat states to the URL when enabled", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Second thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    threadMocks.createThread.mockImplementationOnce(async () => "thread-new");
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      headerProps?.setActiveTabId("thread-2");
+    });
+    expect(window.location.search).toBe("?thread=thread-2");
+
+    await act(async () => {
+      await headerProps?.addTab();
+      await Promise.resolve();
+    });
+    expect(window.location.search).toBe("");
+  });
 });
 
 describe("MultiTabAssistantChat cold-start first message", () => {

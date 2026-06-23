@@ -100,8 +100,18 @@ function persistedActiveThreadId() {
   }
 }
 
+function threadIdFromSearch(search: string) {
+  const value = new URLSearchParams(search).get("thread")?.trim();
+  return value || null;
+}
+
+function chatThreadPath(threadId: string) {
+  return `/?thread=${encodeURIComponent(threadId)}`;
+}
+
 function AssetsChatsSection() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     threads,
     activeThreadId,
@@ -159,7 +169,10 @@ function AssetsChatsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      options?.isNew ? "/" : chatThreadPath(threadId),
+    );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -261,7 +274,9 @@ function AssetsChatsSection() {
       </div>
       <div className="grid gap-0.5">
         {visibleThreads.map((thread) => {
-          const isActive = thread.id === activeThreadId;
+          const isActive =
+            thread.id ===
+            (threadIdFromSearch(location.search) ?? activeThreadId);
           const isRenaming = thread.id === renamingThreadId;
           return (
             <div

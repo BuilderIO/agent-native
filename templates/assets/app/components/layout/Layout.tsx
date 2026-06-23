@@ -122,6 +122,7 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         chatViewTransition
         storageKey={ASSETS_CHAT_STORAGE_KEY}
+        threadUrlSync
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}

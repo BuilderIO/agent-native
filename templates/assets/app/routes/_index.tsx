@@ -46,6 +46,7 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
+        threadUrlSync
         browserTabId={getBrowserTabId()}
         showHeader={false}
         showTabBar={false}
