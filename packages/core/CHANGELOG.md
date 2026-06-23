@@ -1,5 +1,66 @@
 # @agent-native/core
 
+## 0.70.1
+
+### Patch Changes
+
+- 8003c56: Coerce gateway-stringified tool arguments before action validation. Some model gateways (notably Builder's Gemini-backed gateway) hand structured tool-call arguments back as JSON strings — an array param arrives as `"[{...}]"`, a boolean as `"true"`. Standard Schema (zod) validation does not coerce, so these calls failed validation and the agent could thrash retrying different shapes (and hang). The validation wrapper now coerces a string value to the type its schema field declares (array/object via `JSON.parse`, boolean, number/integer) when — and only when — the schema expects a non-string type and the string parses cleanly to it; ambiguous or unparseable values are left untouched so the normal validation error still surfaces.
+- 8003c56: Composer model picker improvements. The picker now supports an optional secondary "image model" menu via a new `imageModelMenu` prop on `AgentChatSurface` / `AssistantChat` (opt-in; chat-only apps are unaffected) — apps that drive a separate generation model (e.g. Assets' image model) can surface it in the same dropdown so it's clear which model reasons about the request and which produces the output. The reasoning-effort list is now a collapsed-by-default accordion (matching the provider groups) instead of always-expanded, keeping the menu compact. Model catalog: the Builder gateway list now lists Opus 4.8 (was 4.7) and drops the retired GPT-5.1 Codex Mini entry.
+- 8003c56: Remove the setup/onboarding checklist that appeared above the agent chat (the
+  "Setup N of 5" panel with Connect an AI engine / image & video generation /
+  asset storage / email / GitHub steps) and its header "Setup" re-open button.
+  Setup is now surfaced in better places — the settings panel and per-feature
+  setup affordances — so the panel no longer takes up sidebar space in any app.
+- 8003c56: Feedback submissions now forward a `clientSurface` hint (web / electron / tauri)
+  alongside the existing page URL, so form owners can tell whether feedback came
+  from the Agent Native desktop app, a Tauri shell (e.g. Clips), or a browser.
+  Detection is exposed as a reusable `getClientSurface()` client helper and is
+  passed through as hidden metadata — it never appears as a visible form field.
+- 8003c56: Fix the "Sign in with Google" button getting stuck disabled when the OAuth
+  window is closed without finishing (e.g. to retry in a different browser
+  profile). The button was only ever re-enabled on an explicit OAuth error or
+  the 5-minute poll timeout, so a cancelled sign-in left the primary CTA greyed
+  out with no way to retry short of refreshing. The sign-in screen now re-enables
+  the button (and stops the pending exchange poll) when the window regains focus
+  or becomes visible again — mirroring the existing email-verification recovery.
+- 8003c56: Add observability and a safety valve for inline MCP App embeds, on top of the
+  Codex/Cursor transplant fix already shipped in 0.70.0.
+
+  When an inline embed cannot load in a host, the shell now reports a bounded,
+  structured diagnostic (stage, message, HTTP status, host, render mode, bridge
+  type) to a new CORS-open `POST /_agent-native/mcp/embed-error` route, which
+  forwards it to Sentry via `captureError` — so embed failures across Codex,
+  Cursor, ChatGPT, and Claude are inspectable instead of an opaque spinner. The
+  failure card also surfaces the specific cause (e.g. "Embedded app returned HTTP
+  500" / session-expired) and promotes "Open in new tab" to the primary action.
+
+  Adds a deploy-toggleable kill switch for inline MCP App embeds, **off by
+  default**. Set `AGENT_NATIVE_MCP_APPS_INLINE=1` to enable inline embeds for an
+  environment; while it is off, accounts listed in
+  `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+  them, so a fix can be verified in production before it reaches normal users.
+  When disabled, no `ui://` resource is advertised or referenced and tool results
+  fall back to their deep-link text — no skills/instructions change required.
+
+- 8003c56: Show a friendly "You're all set" confirmation page after authorizing an MCP
+  client whose redirect is a native deep link (cursor://, vscode://, …). Instead
+  of leaving the browser tab dangling on a blank page after the OS handed the code
+  to the app, the tab now shows a checkmark, a "return to your agent to continue"
+  message, and re-fires the deep link so the client still receives the code.
+  https/loopback callbacks keep the standard redirect.
+- 8003c56: Clarify the "Where should visual plans and recaps live?" install prompt: move
+  the "(recommended)" marker into the hosted option's label and tighten its
+  description to "100% free and open source. Supports comments, browser editor,
+  and sharing. Requires one-time browser sign-in."
+- 8003c56: When a hosted run is cut off mid-step and exhausts its in-invocation
+  continuation budget without finishing, the chat now ends with a loud,
+  unambiguous "stopped before finishing" terminal instead of a silent stall or a
+  misleading clean `done`. The terminal carries a machine-readable
+  `run_budget_exhausted` error code that is deliberately excluded from the
+  client's auto-recoverable allow-list, so the chain terminates rather than
+  looping another continuation into the same wall, and any half-streamed partial
+  text is cleared so the message stands alone.
+
 ## 0.70.0
 
 ### Minor Changes
