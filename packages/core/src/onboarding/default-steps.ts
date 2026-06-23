@@ -86,9 +86,9 @@ const llmStep: OnboardingStep = {
       id: "builder",
       kind: "builder-cli-auth",
       label: "Connect Builder",
-      description:
-        "Connect the Builder space where this app should run. This unlocks managed LLM credits, web search, browser automation, and file uploads. Cloud code changes appear when Builder Cloud Agents are available for the workspace.",
+      description: "Builder.io's free tier includes AI credits.",
       primary: true,
+      badge: "free",
       payload: {
         scope: "llm",
       },

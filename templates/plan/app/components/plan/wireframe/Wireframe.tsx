@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { IconPencil } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type {
@@ -24,7 +25,7 @@ import {
   Screen,
   renderNodes,
 } from "./kit";
-import { useWireframeStyle } from "./use-wireframe-style";
+import { toggleWireframeStyle, useWireframeStyle } from "./use-wireframe-style";
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
@@ -233,6 +234,7 @@ function ArtboardFrame({
       }}
     >
       <div
+        className="group/wireframe-artboard relative"
         style={{
           width: "100%",
           maxWidth: maxFrameWidth,
@@ -243,6 +245,7 @@ function ArtboardFrame({
         <div
           ref={ref}
           className="plan-kit-artboard relative"
+          data-rough-scope="wireframe"
           style={{
             width,
             height,
@@ -282,11 +285,38 @@ function ArtboardFrame({
             selector={selector}
           />
         </div>
+        {!designMode && !skeleton && <WireframeStyleToggleButton />}
       </div>
       {caption && (
         <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
       )}
     </div>
+  );
+}
+
+function WireframeStyleToggleButton() {
+  const style = useWireframeStyle();
+  const nextStyle = style === "sketchy" ? "clean" : "sketchy";
+  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
+  const description = `Switch to ${label.toLowerCase()} visual style`;
+
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      data-rough="none"
+      data-wireframe-style-toggle
+      aria-label={description}
+      title={description}
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleWireframeStyle();
+      }}
+      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
+    >
+      <IconPencil className="size-3.5" aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 

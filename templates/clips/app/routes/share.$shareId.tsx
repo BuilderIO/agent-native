@@ -10,7 +10,9 @@ import { useLoaderData, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
+  IconArrowLeft,
   IconDownload,
+  IconDots,
   IconExternalLink,
   IconLogin2,
   IconShare3,
@@ -20,8 +22,9 @@ import {
   agentNativePath,
   appBasePath,
   appPath,
-  PoweredByBadge,
   useSession,
+  AgentPanel,
+  getBrowserTabId,
 } from "@agent-native/core/client";
 import {
   VideoPlayer,
@@ -38,6 +41,12 @@ import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -51,6 +60,15 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "../../shared/loom";
+import {
+  buildClipsShareMeta,
+  clipsSharePageTitle,
+  displayRecordingTitle,
+} from "../../shared/share-meta";
 
 type SharePageMetaRecording = {
   id: string;
@@ -67,24 +85,9 @@ type SharePageMetaRecording = {
 type SharePageLoaderData = {
   recording: SharePageMetaRecording | null;
   agentContextUrl: string | null;
+  origin: string | null;
+  shareUrl: string | null;
 };
-
-const CLIPS_DEFAULT_TITLE = "Untitled recording";
-
-function hasGeneratedTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
-}
-
-function pageTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title)
-    ? `${title!.trim()} · Clips`
-    : "Clip recording · Clips";
-}
-
-function displayRecordingTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
-}
 
 function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
@@ -117,18 +120,16 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-function metaDescription(recording: SharePageMetaRecording | null): string {
-  const description = recording?.description?.trim();
-  if (description) return description.slice(0, 160);
-  if (hasGeneratedTitle(recording?.title)) {
-    return `Watch "${recording!.title.trim()}" on Clips.`;
-  }
-  return "Watch this screen recording on Clips.";
-}
-
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.shareId;
-  if (!id) return { recording: null, agentContextUrl: null };
+  const requestUrl = new URL(request.url);
+  if (!id)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   const [rec] = await getDb()
     .select({
@@ -148,12 +149,24 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  if (!rec) return { recording: null, agentContextUrl: null };
+  if (!rec)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   if (rec.visibility !== "public") {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return { recording: null, agentContextUrl: null };
+    if (!access)
+      return {
+        recording: null,
+        agentContextUrl: null,
+        origin: requestUrl.origin,
+        shareUrl: null,
+      };
   }
 
   const recording: SharePageMetaRecording = {
@@ -179,10 +192,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
+    origin: requestUrl.origin,
+    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: new URL(request.url).origin,
+            origin: requestUrl.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -192,35 +207,35 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const recording = data?.recording ?? null;
-  const title = pageTitle(recording?.title);
-  const description = metaDescription(recording);
-  const image =
-    recording?.animatedThumbnailUrl || recording?.thumbnailUrl || undefined;
-
-  return [
-    { title },
-    { name: "description", content: description },
-    { property: "og:title", content: title },
-    { property: "og:description", content: description },
-    { property: "og:type", content: "video.other" },
-    ...(image ? [{ property: "og:image", content: image }] : []),
-    {
-      name: "twitter:card",
-      content: image ? "summary_large_image" : "summary",
-    },
-    { name: "twitter:title", content: title },
-    { name: "twitter:description", content: description },
-  ];
+  return buildClipsShareMeta({
+    recording: data?.recording ?? null,
+    origin: data?.origin ?? null,
+    shareUrl: data?.shareUrl ?? null,
+  });
 };
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
+const CLIPS_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
+const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
+const CLIPS_AGENT_DOCS_URL =
+  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+
+type ViewerPlatform = "mac" | "windows";
+
+function detectViewerPlatform(): ViewerPlatform | null {
+  if (typeof navigator === "undefined") return null;
+  const ua = navigator.userAgent;
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Mac/i.test(ua)) return "mac";
+  return null;
+}
 
 function AgentDiscovery({
   recording,
   agentContextUrl,
 }: {
-  recording: SharePageMetaRecording | null;
+  recording: Pick<SharePageMetaRecording, "id" | "title"> | null;
   agentContextUrl: string | null;
 }) {
   if (!recording || !agentContextUrl) return null;
@@ -317,17 +332,46 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const unlockedAgentContextUrl =
+    typeof dataQ.data?.data?.agentContextUrl === "string"
+      ? dataQ.data.data.agentContextUrl
+      : null;
   const agentDiscovery = (
     <AgentDiscovery
-      recording={loaderData.recording}
-      agentContextUrl={loaderData.agentContextUrl}
+      recording={recording ?? loaderData.recording}
+      agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
     />
   );
 
   useEffect(() => {
     if (!recording) return;
-    document.title = pageTitle(recording.title);
+    document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
+
+  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
+  // agent mounted in the side panel has no navigation context. Write it
+  // explicitly for signed-in viewers so view-screen grounds the chat to this
+  // clip instead of falling back to a generic library view.
+  useEffect(() => {
+    if (!session || !recording?.id) return;
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "share",
+          shareId: recording.id,
+          recordingId: recording.id,
+          path: `/share/${recording.id}`,
+        }),
+      },
+    ).catch(() => {});
+  }, [session, recording?.id]);
 
   useEffect(() => {
     if (!recording) {
@@ -365,6 +409,7 @@ export default function ShareRoute() {
       },
     } as any,
     durationMs: recording?.durationMs ?? 0,
+    trackOpenWithoutVideo: isLoomEmbedBacked,
   });
 
   // If the backend returned 401 with passwordRequired, prompt.
@@ -489,6 +534,8 @@ export default function ShareRoute() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const loomStorageSetupFailure =
+      storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure = !explicitFailure && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
@@ -503,7 +550,9 @@ export default function ShareRoute() {
           : "Finishing up this clip...";
     const message = storageSetupFailure
       ? canManageStorage
-        ? "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
+        ? loomStorageSetupFailure
+          ? "The Loom source link is preserved. Connect Builder.io or S3 storage, then retry the import."
+          : "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it."
         : session
           ? "The creator needs to connect Builder.io or S3 storage before this clip can finish."
           : "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload."
@@ -597,11 +646,25 @@ export default function ShareRoute() {
     );
   }
 
+  const canDownloadRecording = Boolean(
+    recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+          {session ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("/")}
+              aria-label="Back to home"
+            >
+              <IconArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : null}
           <div className="min-w-0 flex-1">
             {showTitleSkeleton ? (
               <Skeleton
@@ -611,12 +674,6 @@ export default function ShareRoute() {
             ) : (
               <h1 className="truncate text-sm font-medium">{visibleTitle}</h1>
             )}
-            <p className="truncate text-xs text-muted-foreground">
-              Shared with Clips
-              {recording.visibility !== "private" ? (
-                <> · {capitalize(recording.visibility)}</>
-              ) : null}
-            </p>
           </div>
 
           <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
@@ -630,7 +687,7 @@ export default function ShareRoute() {
                   <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
               </Button>
-            ) : (
+            ) : session ? null : (
               <Button variant="ghost" size="sm" asChild>
                 <a href={appPath("/")} className="gap-1.5">
                   Try Clips
@@ -638,6 +695,31 @@ export default function ShareRoute() {
                 </a>
               </Button>
             )}
+            {!viewerCanEdit && canDownloadRecording ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 shrink-0 px-0"
+                    aria-label="Clip options"
+                  >
+                    <IconDots className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void downloadRecording();
+                    }}
+                    disabled={downloading}
+                  >
+                    <IconDownload className="h-4 w-4" />
+                    {downloading ? "Downloading..." : "Download MP4"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {viewerIsOwner ? (
               <DeleteRecordingMenu
                 recordingId={recording.id}
@@ -650,6 +732,7 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
@@ -667,6 +750,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -710,7 +794,9 @@ export default function ShareRoute() {
                       return;
                     }
                     tracking.reportReaction(emoji);
-                    const liveCt = playerRef.current?.video?.currentTime;
+                    const liveCt = isLoomEmbedBacked
+                      ? null
+                      : playerRef.current?.video?.currentTime;
                     const liveMs =
                       typeof liveCt === "number" &&
                       Number.isFinite(liveCt) &&
@@ -737,7 +823,7 @@ export default function ShareRoute() {
                   }}
                 />
               ) : null}
-              {recording.enableDownloads && recording.videoUrl ? (
+              {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -755,38 +841,49 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-l lg:border-t-0">
-        <Tabs
-          defaultValue={recording.enableComments ? "comments" : "transcript"}
-          className="flex h-full flex-col"
-        >
-          <TabsList
-            className={`grid h-14 w-full rounded-none border-b border-border bg-transparent p-0 px-6 ${
-              recording.enableComments ? "grid-cols-2" : "grid-cols-1"
-            }`}
-          >
-            {recording.enableComments ? (
-              <TabsTrigger
-                value="comments"
-                className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-              >
-                Activity
-                {comments.length > 0 ? (
-                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-foreground tabular-nums">
-                    {comments.length}
-                  </span>
-                ) : null}
-              </TabsTrigger>
-            ) : null}
-            <TabsTrigger
-              value="transcript"
-              className="h-full justify-start rounded-none border-b-2 border-transparent bg-transparent px-0 text-sm font-semibold text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-            >
+        <Tabs defaultValue="agent" className="flex h-full flex-col">
+          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+            <TabsTrigger value="agent" className="text-xs">
+              Agent
+            </TabsTrigger>
+            <TabsTrigger value="comments" className="text-xs gap-1">
+              Comments
+              {comments.length > 0 ? (
+                <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                  {comments.length}
+                </span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="transcript" className="text-xs">
               Transcript
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="text-xs">
+              Insights
             </TabsTrigger>
           </TabsList>
           <TabsContent
+            value="agent"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+          >
+            {sessionLoading ? null : session ? (
+              <AgentPanel
+                emptyStateText="Ask about this clip…"
+                dynamicSuggestions={false}
+                suggestions={[
+                  "Summarize this clip",
+                  "Find the key moments",
+                  "List follow-up actions",
+                  "Draft questions for the author",
+                ]}
+                browserTabId={getBrowserTabId()}
+              />
+            ) : (
+              <PublicAgentEmptyState />
+            )}
+          </TabsContent>
+          <TabsContent
             value="transcript"
-            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
           >
             <TranscriptPanel
               segments={transcriptSegments}
@@ -799,33 +896,33 @@ export default function ShareRoute() {
               recordingTitle={recording.title}
             />
           </TabsContent>
-          {recording.enableComments ? (
-            <TabsContent
-              value="comments"
-              className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden"
-            >
-              <CommentsPanel
-                recordingId={recording.id}
-                comments={comments}
-                currentMs={currentMs}
-                currentUserEmail={session?.email}
-                enableComments={recording.enableComments}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                onUnauthenticated={requireSignIn}
-                queryKey={["public-recording", shareId, password]}
-                selectComments={(d: any) => d?.data?.comments}
-                applyComments={(d: any, next) =>
-                  d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
-                }
-                presentation="share"
-              />
-            </TabsContent>
-          ) : null}
+          <TabsContent
+            value="comments"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <CommentsPanel
+              recordingId={recording.id}
+              comments={comments}
+              currentMs={currentMs}
+              currentUserEmail={session?.email}
+              enableComments={recording.enableComments}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+              onUnauthenticated={requireSignIn}
+              queryKey={["public-recording", shareId, password]}
+              selectComments={(d: any) => d?.data?.comments}
+              applyComments={(d: any, next) =>
+                d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
+              }
+              presentation="share"
+            />
+          </TabsContent>
+          <TabsContent
+            value="insights"
+            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+          >
+            <PublicInsightsState />
+          </TabsContent>
         </Tabs>
-
-        <div className="flex justify-center border-t border-border p-3">
-          <PoweredByBadge />
-        </div>
       </aside>
 
       <SignInPromptDialog
@@ -849,8 +946,88 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function PublicAgentEmptyState() {
+  const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
+
+  useEffect(() => {
+    setPlatform(detectViewerPlatform());
+  }, []);
+
+  const downloadLabel =
+    platform === "mac"
+      ? "Download for Mac"
+      : platform === "windows"
+        ? "Download for Windows"
+        : "Download desktop app";
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <div className="mb-6 flex flex-col items-center gap-3">
+        <img
+          src={appPath("/agent-native-icon-light.svg")}
+          alt="Agent-Native"
+          className="block h-8 w-auto dark:hidden"
+        />
+        <img
+          src={appPath("/agent-native-icon-dark.svg")}
+          alt="Agent-Native"
+          className="hidden h-8 w-auto dark:block"
+        />
+      </div>
+      <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
+        <a
+          href={CLIPS_TEMPLATE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          Agent-Native Clips
+        </a>{" "}
+        is a free,{" "}
+        <a
+          href={CLIPS_SOURCE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          open-source
+        </a>
+        ,{" "}
+        <a
+          href={CLIPS_AGENT_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+        >
+          agent-friendly
+        </a>{" "}
+        Loom alternative
+      </p>
+      <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
+        <Button asChild className="w-full gap-2">
+          <a href={appPath("/download")}>
+            <IconDownload className="h-4 w-4" />
+            {downloadLabel}
+          </a>
+        </Button>
+        <Button asChild variant="outline" className="w-full">
+          <a href={appPath("/signup")}>Sign up</a>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PublicInsightsState() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
+        Views, completion, and viewer details are visible to editors of this
+        clip.
+      </p>
+    </div>
+  );
 }
 
 function EndState({

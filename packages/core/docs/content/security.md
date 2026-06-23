@@ -9,6 +9,13 @@ Agent-native apps are designed to be secure by default. The framework provides a
 
 ## What you get for free, and what you own {#what-you-own}
 
+```an-diagram title="Defense in layers" summary="The framework owns most of the threat surface; you own two things — tagging tables for scoping and validating external input."
+{
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework owns</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">You own</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
 When you build on the standard patterns, the framework already handles most of the threat surface for you:
 
 - **Data isolation** — agent SQL is rewritten so it can only see the current user's (and active org's) rows. See [Data Scoping](#data-scoping).
@@ -76,6 +83,13 @@ await db.insert(notes).values({ title, ownerEmail: email });
 await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
 ```
 
+```an-callout
+{
+  "tone": "risk",
+  "body": "Never build SQL by string concatenation or template literals. Pass user input as `args` to `exec` / `db-query`, or use Drizzle — both always parameterize. The `pnpm guards` checks catch unscoped and concatenated queries at CI time."
+}
+```
+
 ## XSS Prevention {#xss}
 
 React auto-escapes all JSX expressions. Additional guidelines:
@@ -107,6 +121,13 @@ Scoping flows from the authenticated session down to the SQL the agent runs:
 
 ```
 session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+```an-diagram title="The scoping pipeline" summary="Agent SQL never touches base tables directly — it reads through a temporary view scoped to the current identity, so a bare table name can only return owned rows."
+{
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Signed-in session<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agent SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+}
 ```
 
 The signed-in session carries `email` and (when an org is active) `orgId`. The framework establishes request context from that session, exposes the active org to agent SQL as `AGENT_ORG_ID`, and rewrites every query so it can only see rows the current identity owns. The same path applies whether the query comes from the UI, an action, or the agent — the agent cannot read data for an org the user isn't a member of.
@@ -166,6 +187,23 @@ export const projects = table("projects", {
   title: text("title").notNull(),
   ...ownableColumns(), // adds owner_email + org_id + visibility
 });
+```
+
+```an-schema title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable."
+{
+  "entities": [
+    {
+      "id": "ownable",
+      "name": "ownable resource",
+      "note": "Any table that spreads ...ownableColumns()",
+      "fields": [
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
+        { "name": "org_id", "type": "text", "nullable": true, "note": "Owner's active org at creation. Drives org-visibility checks." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "private | org | public — coarse default, defaults to private." }
+      ]
+    }
+  ]
+}
 ```
 
 ### Access guards in actions {#access-guards}

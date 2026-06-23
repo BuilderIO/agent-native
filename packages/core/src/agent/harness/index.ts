@@ -45,7 +45,25 @@ export {
   createAiSdkHarnessAdapter,
   type AiSdkHarnessAdapterOptions,
   type AiSdkHarnessRuntime,
+  type CodexCliAuthConfig,
 } from "./ai-sdk-adapter.js";
+export {
+  ACP_PACKAGE,
+  acpAutoPermissionDecision,
+  acpContentBlockToText,
+  acpFileChangeEventsFromToolContent,
+  acpUpdateToHarnessEvents,
+  buildAcpPromptBlocks,
+  createAcpHarnessAdapter,
+  resolveAcpWorkspacePath,
+  selectAcpPermissionOption,
+  type AcpHarnessAdapterOptions,
+  type AcpSessionUpdate,
+} from "./acp-adapter.js";
+export {
+  BUILTIN_ACP_PRESETS,
+  registerBuiltinAcpHarnesses,
+} from "./acp-builtin.js";
 export { registerBuiltinAgentHarnesses } from "./builtin.js";
 export {
   agentHarnessBackgroundAgentController,

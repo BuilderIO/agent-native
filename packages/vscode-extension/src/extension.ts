@@ -67,7 +67,7 @@ class AgentNativeController {
     const normalized = normalizeOpenUrl(raw);
     if (!normalized) {
       await vscode.window.showErrorMessage(
-        "Agent Native can open http(s) app URLs or vscode://builderio.agent-native/open links.",
+        "Agent Native can open http(s) app URLs or vscode://builder.agent-native/open links.",
       );
       return undefined;
     }

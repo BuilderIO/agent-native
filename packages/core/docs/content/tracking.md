@@ -19,6 +19,13 @@ track(
 );
 ```
 
+```an-diagram title="One track() call, every provider" summary="Server and client callers hit the same registry, which fans every event out to all active providers in parallel."
+{
+  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
+  "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## Built-in providers {#built-in}
 
 Set an env var and the provider auto-registers at server startup. No code changes required.
@@ -94,6 +101,20 @@ Track calls are fire-and-forget — they return immediately and never block the 
 ## Client-side tracking {#client}
 
 `track()` also works from browser/app code. Import the client twin from `@agent-native/core/client` and call it the same way — it POSTs the event to the framework route at `POST /_agent-native/track`, which forwards it to the **same** registered server-side providers (PostHog, Mixpanel, Amplitude, webhook). No analytics SDK ships to the browser and no provider keys are exposed client-side.
+
+```an-api title="The client tracking route"
+{
+  "method": "POST",
+  "path": "/_agent-native/track",
+  "summary": "Forward a browser event to the registered server-side providers",
+  "auth": "Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay.",
+  "params": [
+    { "name": "name", "in": "body", "type": "string", "required": true, "description": "Event name. Capped at 200 characters." },
+    { "name": "properties", "in": "body", "type": "object", "description": "Event properties (~16KB cap). `source: \"client\"` and the active `org_id` are added server-side." }
+  ],
+  "description": "Identity is resolved **server-side** from the session — browser code never passes a `userId`. Fire-and-forget: never blocks the UI, never throws, swallows network errors. Oversized or malformed payloads are rejected."
+}
+```
 
 ```ts
 import { track } from "@agent-native/core/client";

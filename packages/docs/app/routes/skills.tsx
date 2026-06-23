@@ -7,16 +7,18 @@ import { withDefaultSocialImage } from "../seo";
 export const meta = () =>
   withDefaultSocialImage([
     {
-      title: "Agent Skills — Visual Plan & Visual Recap for coding agents",
+      title:
+        "Agent Skills — Visual Plan, Visual Recap, and Content for coding agents",
     },
     {
       name: "description",
       content:
-        "Install Agent-Native app-backed skills your coding agent runs as slash commands. /visual-plan opens structured plans; /visual-recap turns a PR diff into a high-altitude review.",
+        "Install Agent-Native app-backed skills your coding agent can use for visual planning, PR recaps, and repo-backed MDX content editing.",
     },
     {
       property: "og:title",
-      content: "Agent Skills — Visual Plan & Visual Recap for coding agents",
+      content:
+        "Agent Skills — Visual Plan, Visual Recap, and Content for coding agents",
     },
     {
       property: "og:description",
@@ -26,7 +28,7 @@ export const meta = () =>
     {
       name: "keywords",
       content:
-        "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, slash command, agent-native",
+        "agent skills, visual plan, visual recap, content skill, local file mode, coding agent, Claude Code, Codex, PR review, planning, MDX, agent-native",
     },
   ]);
 
@@ -40,7 +42,7 @@ type Skill = {
   features: string[];
   docsTo: string;
   videoAriaLabel: string;
-  videoUrl: string;
+  videoUrl?: string;
 };
 
 const SKILLS: Skill[] = [
@@ -56,8 +58,7 @@ const SKILLS: Skill[] = [
     ],
     docsTo: "/docs/template-plan",
     videoAriaLabel: "Visual Plan skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F343345910cf644bcae709e799db839bc?alt=media&token=4d31d6e8-3e7c-4b56-8dd3-3e650847380a",
+    videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
   },
   {
     command: "/visual-recap",
@@ -71,8 +72,20 @@ const SKILLS: Skill[] = [
     ],
     docsTo: "/docs/pr-visual-recap",
     videoAriaLabel: "Visual Recap skill demo video",
-    videoUrl:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff3b332ce5bc1405091f4e4f63c09e790?alt=media&token=1ec8fb67-a0fc-4c93-91ee-4d46c2d21c77",
+    videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
+  },
+  {
+    command: "content",
+    name: "Content",
+    tagline: "Edit repo MDX",
+    description:
+      "Installs Content as an app-backed skill for local docs, blogs, resources, MDX pages, and local components.",
+    features: [
+      "Writes agent-native.json for Content Local File Mode",
+      "Uses Content actions when a local bridge is available",
+    ],
+    docsTo: "/docs/template-content",
+    videoAriaLabel: "Content skill demo video",
   },
 ];
 
@@ -137,6 +150,8 @@ function CliCopy({
 
 function SkillVideo({ skill }: { skill: Skill }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  if (!skill.videoUrl) return null;
+
   function handleVideoReady(event: SyntheticEvent<HTMLVideoElement>) {
     setIsLoaded(true);
     void event.currentTarget.play().catch(() => {
@@ -223,7 +238,7 @@ function SkillCard({ skill }: { skill: Skill }) {
         </Link>
       </div>
 
-      <SkillVideo skill={skill} />
+      {skill.videoUrl ? <SkillVideo skill={skill} /> : null}
     </article>
   );
 }
@@ -240,9 +255,9 @@ export default function SkillsPage() {
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install slash commands powered by Agent-Native apps you can fully
-              customize. Start with visual plans before you build and
-              high-altitude recaps after each diff.
+              Install app-backed skills powered by Agent-Native apps you can
+              fully customize: visual review workflows plus repo-backed Content
+              for local Markdown and MDX editing.
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
@@ -255,14 +270,14 @@ export default function SkillsPage() {
       {/* Skill cards */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Two skills, one install
+          App-backed skills for coding agents
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Both ship in the same bundle. Use hosted shareable Plan links, local
-          files only, or a self-hosted/custom Plan app, and your agent opens the
-          review surface in the right mode.
+          Use hosted shareable app links, local files, or a self-hosted/custom
+          app, and your agent gets instructions plus the matching MCP surface
+          when one is required.
         </p>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-3">
           {SKILLS.map((skill) => (
             <SkillCard key={skill.command} skill={skill} />
           ))}
@@ -285,6 +300,14 @@ export default function SkillsPage() {
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
             Read the Visual Plans docs
+            <span aria-hidden>→</span>
+          </Link>
+          <Link
+            data-an-prefetch="render"
+            to="/docs/template-content"
+            className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
+          >
+            Read the Content docs
             <span aria-hidden>→</span>
           </Link>
           <Link

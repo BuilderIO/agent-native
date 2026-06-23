@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.11.5
+
+### Patch Changes
+
+- d9e93a3: Improve Dispatch default route SEO and social metadata titles.
+
 ## 0.11.4
 
 ### Patch Changes

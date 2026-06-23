@@ -19,6 +19,13 @@ The docs site is the reference implementation. Today it ships:
 
 Setting `publicMcp: true` additionally exposes opted-in actions as a public MCP endpoint, allowing external agents to call them directly (see [MCP Protocol](/docs/mcp-protocol)).
 
+```an-diagram title="What a public route publishes" summary="A public route fans out into agent-friendly representations. Reading the route is separate from calling tools — tool access stays opt-in."
+{
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
+  "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
+}
+```
+
 ## Configuration {#config}
 
 Add `agentWeb` under the existing workspace app config (in your app's `package.json` under the `agent-native` key — or equivalently `workspace.agentWeb`, `agentWeb`, or `root.agentWeb`). The public route list is still derived from the app's route access settings; `agentWeb` controls how that public surface is represented to agents.
@@ -67,23 +74,25 @@ This keeps mixed apps natural. A forms app can expose a public form page and kee
 
 Public page access and public tool access are separate. A route being public only means agents can read that route as HTML, Markdown, sitemap entries, llms entries, and structured data.
 
+```an-callout
+{
+  "tone": "warning",
+  "body": "**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app."
+}
+```
+
 To expose an action through a public agent protocol, the action must opt in:
 
-```ts
-export default defineAction({
-  description: "Search published docs",
-  readOnly: true,
-  publicAgent: {
-    expose: true,
-    readOnly: true,
-    requiresAuth: false,
-    isConsequential: false,
-    title: "Search published docs",
-  },
-  run: async (args) => {
-    // ...
-  },
-});
+```an-annotated-code title="Opting one safe action onto the public surface"
+{
+  "filename": "actions/search-docs.ts",
+  "language": "ts",
+  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "annotations": [
+    { "lines": "4", "label": "Explicit opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
+    { "lines": "5-7", "label": "Self-describe safety", "note": "Mark it read-only, declare whether it needs auth, and flag whether it is consequential. Public MCP excludes consequential/write actions unless policy explicitly allows them." }
+  ]
+}
 ```
 
 `agentWeb.publicMcp` stays `false` by default. When public MCP is enabled, the server should expose only actions with `publicAgent.expose === true`, and should still exclude consequential or write actions unless the action and auth policy explicitly allow them.

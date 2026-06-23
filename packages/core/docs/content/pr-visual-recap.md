@@ -24,6 +24,13 @@ On each PR push, the workflow:
 7. Upserts a single sticky PR comment that embeds the screenshots **inline** with a `<picture>` element (served through GitHub's camo image proxy) next to the link to the interactive recap.
 8. Completes the `Visual Recap` check as success, skipped, or neutral.
 
+```an-diagram title="What happens on each PR push" summary="A bounded diff feeds a real coding agent, which authors a recap; the workflow screenshots it and upserts one sticky comment."
+{
+  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding agent<br><small class=\"diagram-muted\">Claude Code / Codex reads diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">One sticky PR comment<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
+  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+}
+```
+
 A re-push updates the same plan and the same sticky comment in place — no orphaned plans, no comment spam.
 
 ## Installing it
@@ -149,6 +156,13 @@ This also means you can merge the workflow file **before** the secrets exist: wi
 If you want to generate recaps for fork PRs, a second workflow file is available: `.github/workflows/pr-visual-recap-fork.yml`. It uses `pull_request_target` (which runs with base-repo secrets) but requires an explicit **per-PR maintainer opt-in** via a `recap` label before the recap agent runs.
 
 To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same secrets (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) apply.
+
+```an-diagram title="Fork PR consent gate" summary="Fork PRs get no secrets by default; the opt-in workflow runs only after a maintainer reviews the diff and applies the recap label."
+{
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">no recap runs automatically</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Maintainer review</span><small class=\"diagram-muted\">skim diff for prompt-injection, then apply the <code>recap</code> label</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">is fork PR? &amp; label present?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+}
+```
 
 ### How the label gate works
 

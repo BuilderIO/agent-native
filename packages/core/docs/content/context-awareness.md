@@ -24,6 +24,13 @@ Six patterns solve this:
 5. **Prompt handoff** -- UI controls call `sendToAgentChat()` when a click should become an agent turn
 6. **`navigate`** -- a one-shot command from the agent that tells the UI where to go
 
+```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+{
+  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
+  "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## Context layers {#context-layers}
 
 Use different context channels for different jobs:
@@ -184,57 +191,28 @@ Use `pending-selection-context` for one-shot "act on this exact highlighted text
 
 Every template should have a `view-screen` action. It reads navigation and selection state, fetches the relevant data, and returns a snapshot of what the user sees. This is the agent's eyes.
 
-```ts
-// actions/view-screen.ts
-import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
-import { eq, inArray } from "drizzle-orm";
-import { z } from "zod";
-import { getDb, schema } from "../server/db/index.js";
-
-export default defineAction({
-  description:
-    "See what the user is currently looking at on screen. Reads navigation and selection state and fetches matching data.",
-  schema: z.object({}),
-  http: false,
-  run: async () => {
-    const navigation = (await readAppState("navigation")) as any;
-    const selection = (await readAppState("selection")) as any;
-    const screen: Record<string, unknown> = {};
-    if (navigation) screen.navigation = navigation;
-    if (selection) screen.selection = selection;
-
-    const db = getDb();
-
-    // Fetch data based on what the user is viewing
-    if (navigation?.view === "inbox") {
-      screen.emailList = await db
-        .select()
-        .from(schema.emails)
-        .where(eq(schema.emails.label, navigation.label));
-    }
-    if (navigation?.threadId) {
-      screen.thread = await db
-        .select()
-        .from(schema.threads)
-        .where(eq(schema.threads.id, navigation.threadId));
-    }
-    if (selection?.kind === "email.messages") {
-      screen.selectedMessages = await db
-        .select()
-        .from(schema.emails)
-        .where(inArray(schema.emails.id, selection.messageIds));
-    }
-
-    if (Object.keys(screen).length === 0) {
-      return "No application state found. Is the app running?";
-    }
-    return screen;
-  },
-});
+```an-annotated-code title="view-screen — the agent's eyes"
+{
+  "filename": "actions/view-screen.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});",
+  "annotations": [
+    { "lines": "10-11", "label": "Tool surface", "note": "The agent reads this description to know it can call `view-screen` to see the current UI." },
+    { "lines": "13", "label": "http: false", "note": "Internal action — not exposed over HTTP. The agent and `pnpm action` call it, not the browser." },
+    { "lines": "15-16", "label": "Read state", "note": "Pulls the lightweight `navigation` and `selection` keys the UI wrote." },
+    { "lines": "23-37", "label": "Hydrate", "note": "Turns those IDs into **fresh** records straight from SQL, so the agent verifies the live object before acting." }
+  ]
+}
 ```
 
 The agent should call `pnpm action view-screen` before acting on the current UI. This is a hard convention across all templates. When adding new features, update `view-screen` to return data for the new view and any new selection shape.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Keep `navigation` and `selection` small.** Store IDs plus short labels, not whole records. `view-screen` fetches the source of truth on demand, so stale or bulky state never reaches the agent."
+}
+```
 
 ## Prompt handoff with `sendToAgentChat()` {#send-to-agent-chat}
 
@@ -386,3 +364,10 @@ How it works:
 - The server stores the source on each event
 - When processing sync events, the UI filters out events matching its own `ignoreSource` value -- so it doesn't refetch data it just wrote
 - Events from agents, other tabs, and actions still come through normally
+
+```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+{
+  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
+  "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
+}
+```

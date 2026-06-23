@@ -41,6 +41,13 @@ Separate concern from [notifications](/docs/notifications): notifications fire o
 | `failed`    | Error terminal              |
 | `cancelled` | User interrupted            |
 
+```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
+{
+  "html": "<div class=\"diagram-run\"><div class=\"diagram-box\" data-rough>startRun()</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel running\" data-rough><span class=\"diagram-pill accent\">running</span><small class=\"diagram-muted\">updateRunProgress() &#8635; percent + step</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col terminal\"><span class=\"diagram-pill ok\">succeeded</span><span class=\"diagram-pill warn\">failed</span><span class=\"diagram-pill\">cancelled</span><small class=\"diagram-muted\">completeRun() &rarr; sets completed_at</small></div></div>",
+  "css": ".diagram-run{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-run .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:12px 16px}.diagram-run .terminal{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.diagram-run .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 Terminal statuses set `completed_at`. The UI tray shows only `running` rows; completed rows stay in the database for `action=list` queries.
 
 ## API {#api}
@@ -105,6 +112,22 @@ Mounted at `/_agent-native/runs/*` by the core-routes plugin. **Read-only over H
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
 | `DELETE` | `/_agent-native/runs/:id`         |
+
+```an-api title="List active runs" method="GET" path="/_agent-native/runs"
+{
+  "method": "GET",
+  "path": "/_agent-native/runs",
+  "summary": "List the caller's runs. The RunsTray polls this with active=true.",
+  "description": "Read-only and owner-scoped — every row has an `owner` column and every query filters on it, so callers only ever see their own runs. Writes (start/update/complete) go through the agent's `manage-progress` tool, not HTTP.",
+  "auth": "Session cookie (owner-scoped)",
+  "params": [
+    { "name": "active", "in": "query", "type": "boolean", "required": false, "description": "When true, returns only `running` rows." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Array of AgentRun rows owned by the caller." }
+  ]
+}
+```
 
 ## UI component {#ui}
 

@@ -7,17 +7,21 @@ description: "An agent-powered email client. Connect your Gmail and the agent ca
 
 An agent-powered email client. Connect your Gmail account and the agent can read, draft, send, and organize email for you — alongside a fast, keyboard-first inbox you can drive yourself. Think Superhuman, but the agent is a first-class citizen and the codebase is yours to own.
 
-<!-- screenshot:
-  app: mail
-  view: /inbox
-  shows: Inbox listing (Priya Mehta, Acme Billing, Marcus Tang, GitHub, Sasha Park, Linear, Hannah Reyes, Acme Recruiting, Notion, Stripe, Vercel, Calendly, Olivia Brennan, AWS Billing, Dan Kim, Figma) with the agent sidebar open and suggestion chips visible
-  account: screenshot-account (seeded with the email set above via the standard inbound flow)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inbox 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Search'></span><span data-icon='edit' aria-label='Compose'></span><span data-icon='bell' aria-label='Notify'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priya Mehta</strong><span><strong>Q3 launch</strong> — final assets ready for review</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme Billing</strong><span>Your monthly invoice is ready</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcus Tang</span><span>Onboarding flow research findings</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR ready for review</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 assigned to you</span><span>May 2</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Weekly payments summary</span><span>Apr 29</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>New booking confirmed</span><span>Apr 28</span></div></div></div>"
+}
+```
 
-![Mail inbox with the agent sidebar](/screenshots/mail.png)
+When you open the app, the keyboard-first inbox and thread view stay focused on the mail itself. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
 
-When you open the app, you'll see your inbox on the left, the open thread in the middle, and the agent in the sidebar on the right. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
+```an-diagram title="How a mail request flows" summary="Keyboard shortcuts and agent prompts run the same actions. Email lives in Gmail; drafts, automations, and tracking live in SQL and application_state."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You drive<br><small class=\"diagram-muted\">J/K/E/R shortcuts</small></div><div class=\"diagram-node\">You ask the agent<br><small class=\"diagram-muted\">\"draft a friendly decline\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">multi-account, via OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">drafts · automations · tracking</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Inbox refreshes live</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 ## What you can do with it
 
@@ -112,27 +116,15 @@ To connect Gmail in dev, you need a Google OAuth client:
 
 Tokens are stored in the `oauth_tokens` SQL table and refresh automatically. You can connect multiple Gmail accounts once the first is set up.
 
-### Key features (technical)
+### Key features
 
-**Gmail sync (multi-account).** Connect one or many Google accounts via OAuth. List and search actions query all connected inboxes by default; results carry an `accountEmail` field so you can tell which inbox each thread came from. Scope to a single account with `--account=user@example.com`. OAuth tokens are stored via `@agent-native/core/oauth-tokens` under the `"google"` provider.
+**Multi-account Gmail.** Connect one or more Google accounts, then list, search, draft, send, label, archive, star, or trash across connected inboxes.
 
-**Multiple compose drafts.** The compose panel supports multiple draft tabs at once. Each draft is stored as an `application_state` entry at `compose-{id}` and syncs live between the agent and the UI. The agent can create a new draft with `manage-draft --action=create`, edit your in-progress draft with `--action=update`, or close tabs with `--action=delete`. Drafts use markdown in the body field; the TipTap editor renders it as rich text and converts to HTML on send.
+**Draft workflows.** Multiple compose drafts sync through application state, and queued SQL drafts let teammates or Slack users request mail for the owner to review and send.
 
-**Queued draft review.** Drafts requested by teammates or Slack are durable SQL rows in `queued_email_drafts`. The agent uses `queue-email-draft` to assign a draft to an org member, returns a review URL such as `/draft-queue/<id>`, and waits for the owner to review or explicitly send. The queue supports listing assigned drafts, editing them, opening one in the compose panel, dismissing it, and sending one or all reviewed drafts.
+**Automations and tracking.** Natural-language triage rules can label, archive, mark read, star, trash, or trigger manually; sent messages can track opens and clicks.
 
-**AI triage via automations.** Mail supports automation rules that run against new inbox email using AI. A rule has a natural-language condition (for example, `"from a newsletter"` or `"subject contains invoice"`) and a list of actions (`label`, `archive`, `mark_read`, `star`, `trash`). Manage them via `pnpm action manage-automations --action=create|list|update|delete|enable|disable`, or through the Settings page. Rules fire automatically and can be triggered manually with `pnpm action trigger-automations`.
-
-**Send tracking.** Sent messages get open-pixel and link-click tracking injected automatically. Settings live under `mail-settings.tracking` with `tracking.opens` and `tracking.clicks` (both default `true`). Only links in the new portion of a reply or forward are rewritten — quoted content is left alone. Pull stats for any sent message with `pnpm action get-tracking --id=<message-id>`, or from `GET /api/emails/:id/tracking`. Open and click events are stored in the `email_tracking` and `email_link_tracking` tables.
-
-**Search.** `pnpm action search-emails --q=<term>` searches across all views and all connected accounts. The UI search bar maps to the same action. Both `search-emails` and `list-emails` take `--compact` for shorter output and `--fields=from,subject,date` to limit returned fields.
-
-**Bulk operations and export.**
-
-- `pnpm action bulk-archive --older-than=30` archives everything older than N days.
-- `pnpm action export-emails --view=inbox --output=file.json` dumps a view to JSON.
-- Archive, trash, mark-read, and star all accept comma-separated IDs (`--id=id1,id2,id3`) for bulk changes.
-
-**Inline thread previews in agent chat.** When the agent answers a question about a specific thread, it can embed a live preview of the thread directly in the chat message via an `embed` code fence. The preview is a sandboxed iframe that shows the full conversation without leaving the chat, with an "Open in app" button that navigates the main window to that thread.
+**Search, bulk actions, and previews.** Shared actions power inbox search, bulk archive/export, and inline thread previews the agent can embed in chat.
 
 ### How the agent sees your context
 
@@ -163,6 +155,61 @@ When a Google account is connected, email lives in Gmail — the app is a view o
 | `oauth_tokens` table          | Google OAuth tokens (provider `"google"`, one row per account) |
 
 Emails flowing through the API have the shape `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
+
+```an-schema title="Mail SQL tables" summary="Email itself lives in Gmail. The SQL tables hold what Gmail doesn't: queued drafts, send-tracking events, and OAuth tokens. Settings and ephemeral state live in the settings and application_state stores."
+{
+  "entities": [
+    {
+      "id": "queued_email_drafts",
+      "name": "queued_email_drafts",
+      "note": "Teammate/Slack-requested drafts awaiting owner review",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "assignedTo", "type": "string", "note": "org member who reviews/sends" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "markdown" },
+        { "name": "status", "type": "enum", "note": "review at /draft-queue/<id>" }
+      ]
+    },
+    {
+      "id": "email_tracking",
+      "name": "email_tracking",
+      "note": "Open-pixel events for sent messages",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string" },
+        { "name": "openedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "email_link_tracking",
+      "name": "email_link_tracking",
+      "note": "Link-click events for sent messages",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "messageId", "type": "string", "fk": "email_tracking.messageId" },
+        { "name": "url", "type": "string" },
+        { "name": "clickedAt", "type": "datetime" }
+      ]
+    },
+    {
+      "id": "oauth_tokens",
+      "name": "oauth_tokens",
+      "note": "Framework table — one row per connected Google account",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "provider", "type": "string", "note": "\"google\"" },
+        { "name": "accountEmail", "type": "string" },
+        { "name": "accessToken", "type": "string" },
+        { "name": "refreshToken", "type": "string" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "email_tracking", "to": "email_link_tracking", "kind": "1-n", "label": "click events" }
+  ]
+}
+```
 
 Routes in the UI:
 

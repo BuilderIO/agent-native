@@ -7,17 +7,21 @@ description: "Async screen recording, calendar-synced meeting notes, and push-to
 
 A capture-everything app: screen recordings, meeting notes from your calendar, and Fn-hold voice dictation. The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
 
-<!-- screenshot:
-  app: clips
-  view: /library
-  shows: Library with Acme Co. organization, folders (Onboarding videos / Customer calls / Bug repros) and spaces (Engineering / Design / Sales) in the sidebar, six recordings in a 3-column grid (Q3 OKRs review meeting, Walkthrough of new onboarding flow, Eng standup May 4, Dictation - Ideas for landing page copy, Customer call - Acme Corp pricing review, Bug repro - drag-and-drop in Safari)
-  account: screenshot-account (recordings imported into this org via the standard upload + meetings flow)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
-
-![Clips library with recordings, folders, and spaces](/screenshots/clips.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>Share</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
+}
+```
 
 Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent, and it can "hear" the transcript and "see" timestamped frames even when the underlying model cannot ingest raw video or audio.
+
+```an-diagram title="Capture, transcribe, reuse" summary="Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."
+{
+  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">Share</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
+  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 ## What you can do with it
 
@@ -27,6 +31,8 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Preview public clips in Slack** with a Loom-style playable unfurl after the
+  workspace installs your Clips Slack app.
 - **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
@@ -48,6 +54,56 @@ The endpoints follow the same public/password/expiry rules as the share page.
 Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
+
+Slack previews use the same sharing boundary. The `/api/slack/unfurl` webhook
+only returns a playable Slack `video` block for ready, public clips without a
+password, expiry hit, archive marker, or trash marker. Other clips still get the
+normal share-page title/thumbnail metadata and require opening Clips.
+
+```an-api title="Agent context entry point"
+{
+  "method": "GET",
+  "path": "/api/agent-context.json",
+  "summary": "Compact, agent-readable description of a shared clip",
+  "description": "Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.",
+  "auth": "Same public / password / expiry rules as the share page",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Clip metadata plus transcript and frame API links" }
+  ]
+}
+```
+
+```an-api title="Timestamped transcript"
+{
+  "method": "GET",
+  "path": "/api/agent-transcript.json",
+  "summary": "Timestamped transcript segments for a shared clip",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
+  ],
+  "responses": [
+    { "status": "200", "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels" }
+  ]
+}
+```
+
+```an-api title="Frame at a timestamp"
+{
+  "method": "GET",
+  "path": "/api/agent-frame.jpg",
+  "summary": "A JPEG frame extracted from the video at an original-video timestamp",
+  "params": [
+    { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" },
+    { "name": "atMs", "in": "query", "type": "integer", "required": true, "description": "Original-video timestamp in milliseconds" }
+  ],
+  "responses": [
+    { "status": "200", "description": "image/jpeg frame" }
+  ]
+}
+```
 
 ## Getting started
 
@@ -88,22 +144,134 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
+4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; and set the Request URL to `https://your-clips.example.com/api/slack/unfurl`. Configure `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Clips deployment.
 
-### Key features (technical)
+### Host your own Clips server
 
-**One library, three capture types.** Screen recordings, calendar-sourced meetings, and push-to-talk dictations all live in the same searchable library. Recordings and transcripts are deliberately split into separate tables so the library grid and the transcript view each render fast.
+The hosted Clips app at [clips.agent-native.com](https://clips.agent-native.com)
+is just a deployed copy of the Clips template. To run your own server, scaffold
+the template, deploy it like any other agent-native app, then point the desktop
+tray app at your deployment.
 
-**Transcript and AI pipeline.** Each recording gets timestamped transcript segments (`{startMs, endMs, text}`), an auto-generated title, summary, and chapter markers. `cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features (titles, summaries, quotes) delegate to the agent chat.
+1. **Create the app.**
 
-**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching accumulate in a recording's `edits_json` rather than re-encoding. The client concatenates and exports through ffmpeg.wasm, so the original media stays intact.
+   ```bash
+   npx @agent-native/core@latest create my-clips --standalone --template clips
+   cd my-clips
+   pnpm install
+   ```
 
-**Agent-readable share links.** A public Clips share link advertises a compact agent context URL that points at the transcript and frame APIs, so text- and image-only models can understand a recording without ingesting raw video — see [Agent-readable clips](#agent-readable-clips) above.
+2. **Configure production state.** Set a persistent `DATABASE_URL`, the normal
+   production auth/secrets variables from [Deployment](/docs/deployment), and a
+   video storage provider. Builder.io Connect is the easiest storage path; for
+   self-hosted storage, use `S3_*` or `R2_*` variables for an S3-compatible
+   bucket.
 
-**Meetings compose with recordings.** A meeting owns the recording it captures, but the `recordings` row stays the source of truth for the video and per-segment transcript instead of duplicating media.
+3. **Deploy the web app.** For a plain Node deploy:
+
+   ```bash
+   pnpm build
+   node .output/server/index.mjs
+   ```
+
+   You can also use any Nitro target from [Deployment](/docs/deployment), such
+   as Netlify, Vercel, Cloudflare Pages, AWS Lambda, or Deno Deploy. Make sure
+   `BETTER_AUTH_URL` is the public Clips origin, for example
+   `https://clips.example.com`.
+
+4. **Connect the desktop tray app.** Open Clips Desktop settings and set
+   **Clips server URL** to the public base URL of your deployment, for example
+   `https://clips.example.com`. If the app is mounted under a workspace path,
+   include that path, such as `https://example.com/clips`. Click **Connect**,
+   then sign in with an account on that Clips server.
+
+5. **Connect optional integrations.** Google Calendar powers the Meetings tab,
+   `GEMINI_API_KEY` or Builder.io Connect powers transcript cleanup and titles,
+   `GROQ_API_KEY` can provide speech-to-text fallback, and Slack credentials
+   enable playable Slack unfurls.
+
+For local development, run the web app with `pnpm dev` and point the desktop
+tray app at `http://localhost:8094`.
+
+### Key features
+
+**One library, three capture types.** Screen recordings, calendar meetings, and push-to-talk dictations share one searchable library.
+
+**Transcript and AI pipeline.** Recordings get timestamped transcript segments, generated titles, summaries, and chapter markers.
+
+**Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
+
+**Agent-readable share links.** Public share links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
+
+**Slack playable unfurls.** Public share links can render a Slack `video` block
+that points at the existing `/embed/:id` player. This is a workspace Slack app
+install, not a global crawler behavior: normal Open Graph/Twitter metadata is
+the fallback when the app is not installed.
 
 ### Data model
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+```an-schema title="Clips core data model" summary="recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+{
+  "entities": [
+    {
+      "id": "recordings",
+      "name": "recordings",
+      "note": "Core resource; source of truth for media. ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "video_url", "type": "text", "note": "plus format / size / duration / thumbnails" },
+        { "name": "status", "type": "text" },
+        { "name": "edits_json", "type": "text", "note": "Non-destructive edits" },
+        { "name": "chapters_json", "type": "text", "nullable": true },
+        { "name": "password", "type": "text", "nullable": true, "note": "Privacy: password / expiry" }
+      ]
+    },
+    {
+      "id": "recording_transcripts",
+      "name": "recording_transcripts",
+      "note": "Split out so the library and transcript views render fast",
+      "fields": [
+        { "name": "recording_id", "type": "text", "fk": "recordings.id" },
+        { "name": "segments_json", "type": "text", "note": "{ startMs, endMs, text }" },
+        { "name": "full_text", "type": "text" },
+        { "name": "language", "type": "text" },
+        { "name": "status", "type": "text" }
+      ]
+    },
+    {
+      "id": "clips_meetings",
+      "name": "clips_meetings",
+      "note": "Calendar-sourced or ad-hoc; owns a recording",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "recording_id", "type": "text", "fk": "recordings.id", "nullable": true },
+        { "name": "summary_md", "type": "text", "nullable": true },
+        { "name": "bullets_json", "type": "text", "nullable": true },
+        { "name": "action_items_json", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "clips_dictations",
+      "name": "clips_dictations",
+      "note": "Push-to-talk dictation history; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "full_text", "type": "text", "note": "Raw" },
+        { "name": "cleaned_text", "type": "text", "nullable": true },
+        { "name": "source", "type": "text", "note": "fn-hold, etc." },
+        { "name": "target_app", "type": "text", "nullable": true }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "recordings", "to": "recording_transcripts", "kind": "1-1", "label": "transcript" },
+    { "from": "recordings", "to": "clips_meetings", "kind": "1-1", "label": "captured by" }
+  ]
+}
+```
 
 | Table                                           | What it holds                                                                                                                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

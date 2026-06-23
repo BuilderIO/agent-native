@@ -532,7 +532,9 @@ switch (command) {
     // Run an action from actions/ (or scripts/ for backwards compat)
     const actionName = args[0];
     if (!actionName) {
-      console.error("Usage: agent-native action <name> [--args]");
+      console.error(
+        `Usage: agent-native action <name> ['{"arg":"value"}'] [--args]`,
+      );
       process.exit(1);
     }
     const tsxAction = findTsxBin();
@@ -613,7 +615,7 @@ switch (command) {
     import("./invoke.js")
       .then(async (m) => {
         const code = await m.runInvoke(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -626,7 +628,7 @@ switch (command) {
     import("./agents.js")
       .then(async (m) => {
         const code = await m.runAgents(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -667,7 +669,10 @@ switch (command) {
     // browser device-code flow (no token copying). `--all` connects every
     // first-party hosted app; `--token` is the no-browser fallback.
     import("./connect.js")
-      .then((m) => m.runConnect(args))
+      .then(async (m) => {
+        await m.runConnect(args);
+        process.exit(process.exitCode ?? 0);
+      })
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -790,7 +795,7 @@ switch (command) {
     import("./add.js")
       .then((m) => {
         const code = m.runAdd(args);
-        if (code !== 0) process.exit(code);
+        process.exit(code);
       })
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -872,7 +877,7 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray
+  agent-native skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
                                 --no-connect skips auth (run 'connect' later);

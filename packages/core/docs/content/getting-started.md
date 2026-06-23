@@ -1,12 +1,13 @@
 ---
 title: "Getting Started"
-description: "Create an agent app — with a chat UI or headless — add an action, and watch the agent call it."
+description: "Create an agent app, understand instructions, skills, and actions, then watch the agent call its first action."
 ---
 
 # Getting Started
 
 Agent-Native apps give an AI agent and your UI the same actions, data, and
-state. The smallest useful app is a single action.
+state. A basic agent is made from instructions that guide it, skills that teach
+repeatable behavior, and actions that let it do real work.
 
 **Want a complete app to start from?** Clone one of our rich templates —
 [Chat](/docs/template-chat), [Mail](/docs/template-mail),
@@ -15,11 +16,35 @@ state. The smallest useful app is a single action.
 each a full-featured app you customize.
 
 Building from scratch? The only choice up front is whether you want a UI —
-everything after (defining actions, running the agent) is the same either way.
+everything after (writing instructions, adding skills, defining actions, running
+the agent) is the same either way.
+
+```an-file-tree title="A basic Agent-Native agent"
+{
+  "entries": [
+    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
+    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+  ]
+}
+```
+
+This is true whether you start with a chat UI, a headless agent, or a full app.
+The UI changes the surface; instructions, skills, and actions give the agent its
+guidance and behavior.
 
 ## 1. Create your app
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
+
+Run `create` with no flags and it asks how you want to start (a full template,
+Chat, or Headless) before anything else:
+
+```bash
+npx @agent-native/core@latest create my-app
+```
+
+Or pass a flag to skip the prompt:
 
 **Want a UI?** Start from the Chat template. You get a working agent plus a
 customizable chat UI, and every action you add shows up in it automatically:
@@ -35,10 +60,10 @@ loop, no UI shell:
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-Then install:
+Then install from the folder you created:
 
 ```bash
-cd my-app
+cd my-agent # or my-app if you chose the Chat template
 pnpm install
 ```
 
@@ -49,26 +74,28 @@ From here on, the two are identical.
 An action is one operation your agent — and your UI — can call. Both scaffolds
 ship with this example:
 
-```ts
-// actions/hello.ts
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Say hello from the local agent.",
-  schema: z.object({
-    name: z.string().default("world"),
-  }),
-  http: { method: "GET" },
-  readOnly: true,
-  run: async ({ name }) => {
-    return { message: `Hello, ${name}!` };
-  },
-});
+```an-annotated-code title="Your first action"
+{
+  "filename": "actions/hello.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Say hello from the local agent.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Tool description", "note": "The agent reads `description` to decide when to call this as a tool." },
+    { "lines": "6-8", "label": "Typed contract", "note": "One zod `schema` validates input from every surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "9", "label": "HTTP verb", "note": "Opt this action into an auto-mounted HTTP endpoint." },
+    { "lines": "10", "label": "Read-only", "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries." },
+    { "lines": "11-13", "label": "One implementation", "note": "The `run` body is the single source of truth that every surface executes." }
+  ]
+}
 ```
 
-Replace `hello` with the smallest real operation in your domain. You define it
-once; every surface picks it up.
+Replace `hello` with the first real operation in your domain. You define it once;
+every surface picks it up.
+
+Use `AGENTS.md` for guidance that should apply every turn. Use a skill when the
+agent needs a reusable workflow or domain procedure. Use an action when the
+agent needs a typed, testable way to read data, write data, call an API, or
+perform an approval.
 
 ## 3. Run it
 
@@ -94,12 +121,26 @@ pnpm dev
 That one action is now reachable from the chat UI, the CLI, HTTP, MCP, A2A,
 scheduled jobs, and webhooks. Define once, call from anywhere.
 
+```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+{
+  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
+  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## State is built in
 
 Headless doesn't mean stateless. Actions, sessions, application state, threads,
 run history, and credentials all live in SQL. Locally that's SQLite at
 `data/app.db`; in production you set `DATABASE_URL`. See
 [Deployment](/docs/deployment).
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state."
+}
+```
 
 ## Customize the UI
 
@@ -133,21 +174,6 @@ leaves out. The cleanest move is to start (or re-scaffold) from the Chat
 template; your `actions/`, agent, and SQL state carry over unchanged. See
 [Agent Surfaces](/docs/agent-surfaces) for every surface in between.
 
-## Compose mini-apps
-
-A big workspace is usually easier to reason about as a few focused apps than one
-giant one. A `hubspot-pipeline` app can own CRM access, a `gong-evidence` app can
-own transcripts, and a `deal-brief` app can call both over A2A:
-
-```bash
-pnpm agent-native agents list
-pnpm agent-native invoke gong-evidence "Find transcript evidence for deal_123."
-```
-
-Each app keeps its own actions, agent, and state, and can discover its siblings.
-See [Multi-App Workspaces](/docs/multi-app-workspace) and
-[A2A Protocol](/docs/a2a-protocol).
-
 ## Project structure
 
 ```text
@@ -155,7 +181,8 @@ my-app/
   actions/         # Agent-callable actions
   app/             # React frontend (UI templates only; omitted when headless)
   server/          # Nitro API server (routes, plugins)
-  .agents/         # Agent instructions and skills
+  AGENTS.md        # Always-on agent instructions
+  .agents/         # Skills the agent can pull in when relevant
   data/app.db      # Local SQLite state when DATABASE_URL is unset
 ```
 

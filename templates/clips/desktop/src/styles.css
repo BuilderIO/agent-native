@@ -19,6 +19,9 @@
   --border: #e2e6ef;
   --border-strong: #d4d9e4;
 
+  --status-ok: #22c55e;
+  --status-warn: #f97316;
+
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
@@ -515,34 +518,6 @@ body[data-clips-route="recording-pill"] #root {
   color: var(--fg);
 }
 
-.row-select {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 0;
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-  outline: none;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.row-select:disabled {
-  cursor: not-allowed;
-}
-
-.row-select:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
-  border-radius: 4px;
-}
-
 /* Custom device picker — button + popover menu (replaces native <select>). */
 .row-button {
   flex: 1;
@@ -573,11 +548,20 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .row-label {
-  flex: 1;
-  min-width: 0;
+  /* Never shrink the label — the wave line gives up space first so the device
+     name always stays fully visible. Cap + ellipsis only for pathological
+     long names. */
+  flex: 0 0 auto;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Flexible filler between the label and the chevron when there's no meter
+   (camera rows / mic off) — keeps the chevron pinned to the right. */
+.row-flex {
+  flex: 1 1 auto;
 }
 
 .row-chev {
@@ -744,53 +728,48 @@ body[data-clips-route="recording-pill"] #root {
   transform: translateX(14px);
 }
 
-/* Mic level indicator — animated bars under the mic row. */
+/* Live mic level meter — a single wave line driven by real audio, sitting
+   inline between the device label and the chevron. The ends are masked so the
+   line fades in/out instead of butting against the label or chevron. */
 .mic-wave {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 4px;
-  height: 3px;
-  display: flex;
-  gap: 2px;
-  align-items: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  margin: 0 4px;
   pointer-events: none;
-  opacity: 0.55;
+  /* Soft fade at both ends so the line reads as ambient, not boxed-in. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
 }
 
-.mic-wave .bar {
-  flex: 1;
-  background: var(--brand);
-  border-radius: 1px;
-  animation: mic-pulse 1.2s ease-in-out infinite;
-  height: 60%;
+.mic-wave-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-.mic-wave .b1 {
-  animation-delay: 0s;
-  height: 40%;
-}
-.mic-wave .b2 {
-  animation-delay: 0.15s;
-  height: 80%;
-}
-.mic-wave .b3 {
-  animation-delay: 0.3s;
-  height: 55%;
-}
-.mic-wave .b4 {
-  animation-delay: 0.45s;
-  height: 70%;
-}
-
-@keyframes mic-pulse {
-  0%,
-  100% {
-    transform: scaleY(1);
-  }
-  50% {
-    transform: scaleY(0.4);
-  }
+.mic-wave-path {
+  fill: none;
+  /* Matches the recording pill's mic waveform accent. */
+  stroke: rgba(74, 222, 128, 0.95);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Keep the line crisp regardless of the non-uniform x-stretch. */
+  vector-effect: non-scaling-stroke;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -865,16 +844,18 @@ body[data-clips-route="recording-pill"] #root {
 /* ------------------------------------------------------------------------- */
 
 .readiness {
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--surface);
   overflow: hidden;
+  flex-shrink: 0;
   transition:
     border-color 120ms,
     background 120ms;
 }
 
 .readiness-open {
-  border-color: var(--border);
+  border-color: var(--border-strong);
   background: var(--bg);
 }
 
@@ -884,13 +865,13 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: 42px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
   color: var(--fg);
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 10px 12px;
   text-align: left;
   transition: background 120ms;
 }
@@ -905,17 +886,17 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-open .readiness-summary {
-  min-height: 38px;
+  min-height: 42px;
   border-radius: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
 .readiness-title {
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1;
 }
 
@@ -924,10 +905,17 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-action {
-  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--brand);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
+}
+
+.readiness-open .readiness-action {
+  color: var(--fg-muted);
 }
 
 .readiness-list {
@@ -997,6 +985,64 @@ body[data-clips-route="recording-pill"] #root {
   outline: none;
   border-color: var(--brand);
   box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.readiness-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.readiness-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.readiness-status-ok {
+  color: var(--status-ok);
+}
+
+.readiness-status-warn {
+  color: var(--status-warn);
+}
+
+.readiness-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    color 120ms,
+    background 120ms;
+  flex-shrink: 0;
+}
+
+.readiness-refresh:hover {
+  color: var(--fg);
+  background: var(--surface-hover);
+}
+
+.readiness-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.readiness-refresh-spinning svg {
+  animation: readiness-spin 0.8s linear infinite;
+}
+
+@keyframes readiness-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .readiness-empty {

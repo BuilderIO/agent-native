@@ -13,18 +13,18 @@ Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Mar
 
 ## A job file {#job-file}
 
-```markdown
----
-schedule: "0 7 * * *"
-enabled: true
-runAs: creator
----
-
-# Morning digest
-
-Summarize the emails received overnight. Group by sender domain.
-Pin the top 3 threads that look like they need a reply today to the
-"Needs reply" label. Draft replies for any that are obvious.
+```an-annotated-code title="jobs/morning-digest.md"
+{
+  "filename": "jobs/morning-digest.md",
+  "language": "markdown",
+  "code": "---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n\"Needs reply\" label. Draft replies for any that are obvious.",
+  "annotations": [
+    { "lines": "2", "label": "When", "note": "Standard 5-field cron — `0 7 * * *` is every day at 07:00." },
+    { "lines": "3", "label": "Pause switch", "note": "Flip to `false` to stop the job without deleting it." },
+    { "lines": "4", "label": "Identity", "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key." },
+    { "lines": "7-12", "label": "The prompt", "note": "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context." }
+  ]
+}
 ```
 
 That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and workspace context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
@@ -93,15 +93,18 @@ Summarize overnight emails.`,
 
 ## How the scheduler runs {#how-scheduler-runs}
 
-The scheduler is a framework plugin (the internal `processRecurringJobs()` routine). On each tick it:
+The scheduler is a framework plugin (the internal `processRecurringJobs()` routine) that runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running.
 
-1. Lists every enabled `jobs/*.md` resource across all owners.
-2. Compares `nextRun` to the current time.
-3. For each due job, spins up a fresh agent thread with the job body as the user message.
-4. The agent runs its loop — calling actions, writing to SQL, sending A2A messages, emailing, whatever the prompt asks for.
-5. On completion, writes `lastRun`, `lastStatus`, `lastError`, and recomputes `nextRun` from the cron.
+```an-diagram title="One scheduler tick" summary="Every 60s the scheduler finds due jobs, runs each as a fresh agent thread, and writes the outcome back to the job file."
+{
+  "html": "<div class=\"sched\"><div class=\"diagram-box accent\"><code>setInterval</code> &bull; 60s &#8635;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">1 &middot; scan</span><small class=\"diagram-muted\">list every enabled <code>jobs/*.md</code> across all owners</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; due?</span><small class=\"diagram-muted\">compare <code>nextRun</code> to now</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">3 &middot; run</span><small class=\"diagram-muted\">fresh agent thread, job body as the user message &mdash; actions, SQL, A2A, email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">4 &middot; record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code>, recompute <code>nextRun</code></small></div></div>",
+  "css": ".sched{display:flex;flex-direction:column;gap:6px;max-width:520px}.sched .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.sched .diagram-box{align-self:flex-start}.sched .diagram-arrow{font-size:18px;align-self:center}"
+}
+```
 
-The scheduler runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running. On scale-to-zero serverless hosts, jobs only fire while an instance is warm — if reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+```an-callout
+{ "tone": "risk", "body": "**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS)." }
+```
 
 ## Debugging a job {#debugging}
 

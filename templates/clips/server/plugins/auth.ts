@@ -29,6 +29,7 @@ export default createAuthPlugin({
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
+    "/api/slack",
     "/api/agent-context.json",
     "/api/agent-transcript.json",
     "/api/agent-frame.jpg",

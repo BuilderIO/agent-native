@@ -188,6 +188,26 @@ ${googleNoticeRunLocalHtml}
 ${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
+  const identitySsoHtml = identitySsoLoginButtonHtml();
+  const identitySsoScript = identitySsoHtml
+    ? `
+    function __anIdentitySsoUrl() {
+      var params = new URLSearchParams();
+      params.set('return', __anGetReturnPath());
+      return __anPath('/_agent-native/identity/login') + '?' + params.toString();
+    }
+    function __anStartIdentitySso(event) {
+      if (event && event.preventDefault) event.preventDefault();
+      window.location.href = __anIdentitySsoUrl();
+      return false;
+    }
+    (function __anPrepareIdentitySsoButton() {
+      var identity = document.getElementById('identity-sso-btn');
+      if (!identity) return;
+      identity.setAttribute('href', __anIdentitySsoUrl());
+      identity.addEventListener('click', __anStartIdentitySso);
+    })();`
+    : "";
 
   const marketingStyles = hasMarketing
     ? `
@@ -688,7 +708,7 @@ ${
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
-  .msg.success { color: #4ade80; }
+  .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
   .step-progress {
     display: grid;
@@ -734,9 +754,9 @@ ${
   .progress-step.complete,
   .progress-step.current { color: #e5e5e5; }
   .progress-step.complete span {
-    background: #d9f99d;
-    border-color: #d9f99d;
-    color: #111;
+    background: rgba(0,181,255,0.16);
+    border-color: rgba(0,181,255,0.55);
+    color: #dff7ff;
   }
   .progress-step.current span {
     background: #fff;
@@ -753,7 +773,7 @@ ${
   }
   .verification-kicker {
     margin-bottom: 0.5rem;
-    color: #bef264;
+    color: #33C4FF;
     font-size: 0.75rem;
     font-weight: 500;
   }
@@ -985,7 +1005,7 @@ ${marketingPanelHtml}
     id="upgrade-note"
     data-upgrade-copy="Continue signing in to attach this app to your account and migrate local data."
   ></p>
-${identitySsoLoginButtonHtml()}
+${identitySsoHtml}
 ${
   renderGoogleButton
     ? `
@@ -1183,12 +1203,35 @@ ${
       __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
       __anRedirectToSignedInApp(ret);
     }
+    function __anHasControlCharacter(value) {
+      for (var i = 0; i < value.length; i++) {
+        if (value.charCodeAt(i) < 32) return true;
+      }
+      return false;
+    }
+    function __anNormalizeReturnPath(raw) {
+      var value = typeof raw === 'string' ? raw : '';
+      if (!value || __anHasControlCharacter(value)) return '';
+      if (value.charAt(0) === '\\\\') return '';
+      if (value.charAt(0) === '/' && (value.charAt(1) === '/' || value.charAt(1) === '\\\\')) return '';
+      try {
+        var url = new URL(value, window.location.origin);
+        if (url.origin !== window.location.origin) return '';
+        return url.pathname + url.search + url.hash;
+      } catch(e) {
+        return '';
+      }
+    }
+    function __anCurrentReturnPath() {
+      return window.location.pathname + window.location.search + window.location.hash;
+    }
     function __anGetReturnPath() {
       try {
         var inner = new URLSearchParams(window.location.search).get('return');
-        if (inner) return inner;
+        var normalized = __anNormalizeReturnPath(inner);
+        if (normalized) return normalized;
       } catch(e) {}
-      return window.location.pathname + window.location.search;
+      return __anCurrentReturnPath();
     }
     function __anMountedPathname(pathname) {
       var base = __anBasePath();
@@ -1203,10 +1246,11 @@ ${
     function __anGetSignedInReturnPath() {
       try {
         var inner = new URLSearchParams(window.location.search).get('return');
-        if (inner) return inner;
+        var normalized = __anNormalizeReturnPath(inner);
+        if (normalized) return normalized;
       } catch(e) {}
       if (__anIsAuthEntryPath(window.location.pathname)) return __anPath('/');
-      return window.location.pathname + window.location.search + window.location.hash;
+      return __anCurrentReturnPath();
     }
     function __anWithAuthCacheBypass(ret) {
       try {
@@ -1225,6 +1269,7 @@ ${
     function __anRedirectToSignedInApp(ret) {
       window.location.replace(__anWithAuthCacheBypass(ret || __anGetSignedInReturnPath()));
     }
+${identitySsoScript}
     (function __anRedirectIfAlreadySignedIn() {
       fetch(__anPath('/_agent-native/auth/session'), {
         headers: { 'Accept': 'application/json' },
@@ -1553,6 +1598,19 @@ ${
       var signupPassword = document.getElementById('s-pass');
       return pendingSignupPassword || (signupPassword && signupPassword.value) || '';
     }
+    function __anNormalizeAuthEmail(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+    function __anIsValidAuthEmail(value) {
+      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(__anNormalizeAuthEmail(value));
+    }
+    function __anShowEmailValidationError(input, msg) {
+      if (msg) {
+        msg.textContent = 'Enter a valid email address, like you@example.com.';
+        msg.classList.add('show', 'error');
+      }
+      if (input && typeof input.focus === 'function') input.focus();
+    }
     function movePendingSignupToLogin(message) {
       var email = getPendingSignupEmail();
       setActiveTab('login', { persist: true });
@@ -1756,7 +1814,14 @@ ${
     btn.disabled = true;
     btn.textContent = 'Creating account…';
     try {
-      var email = document.getElementById('s-email').value;
+      var emailInput = document.getElementById('s-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1855,7 +1920,14 @@ ${
     btn.disabled = true;
     btn.textContent = 'Sending…';
     try {
-      var email = document.getElementById('f-email').value;
+      var emailInput = document.getElementById('f-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = original;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/ba/request-password-reset'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1891,11 +1963,19 @@ ${
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     try {
+      var emailInput = document.getElementById('l-email');
+      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+      if (!__anIsValidAuthEmail(email)) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        __anShowEmailValidationError(emailInput, msg);
+        return;
+      }
       var res = await fetch(__anPath('/_agent-native/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: document.getElementById('l-email').value,
+          email: email,
           password: document.getElementById('l-pass').value,
         }),
       });
@@ -2106,7 +2186,7 @@ export function getResetPasswordHtml(): string {
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
-  .msg.success { color: #4ade80; }
+  .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
   .back { display: inline-block; margin-top: 1rem; font-size: 0.75rem; color: #888; text-decoration: none; }
   .back:hover { color: #bbb; }

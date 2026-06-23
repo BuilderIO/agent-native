@@ -57,6 +57,7 @@ vi.mock("./share-password.js", () => ({
 }));
 
 import {
+  buildPublicAgentContext,
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
 } from "./public-agent-context";
@@ -178,5 +179,180 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("does not fetch bytes for legacy Loom embed imports", async () => {
+    await expect(
+      loadRecordingMediaBytes(
+        makeRecording({
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
+          videoFormat: "mp4",
+        }) as any,
+      ),
+    ).rejects.toThrow(/legacy Loom embed/i);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildPublicAgentContext", () => {
+  it("omits frame APIs and recommended frames for legacy Loom embed imports", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
+          videoFormat: "mp4",
+        }) as any,
+        viewerIsOwner: false,
+        apiToken: "signed-token",
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [{ startMs: 1000, title: "Chapter" }],
+      ctas: [],
+    });
+
+    expect(context.clip.sourceProvider).toBe("loom");
+    expect(context.apis).not.toHaveProperty("frame");
+    expect(context.recommendedFrames).toEqual([]);
+    expect(context.instructions.join(" ")).toMatch(
+      /frame extraction is not available/i,
+    );
+  });
+
+  it("keeps frame APIs for reuploaded Loom source recordings", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "https://cdn.example.com/reuploaded.mp4",
+          videoFormat: "mp4",
+          videoSizeBytes: 1024,
+        }) as any,
+        viewerIsOwner: false,
+        apiToken: "signed-token",
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [{ startMs: 1000, title: "Chapter" }],
+      ctas: [],
+    });
+
+    expect(context.clip.sourceProvider).toBe("loom");
+    expect(context.apis).toHaveProperty("frame");
+    expect(context.recommendedFrames.length).toBeGreaterThan(0);
+  });
+
+  it("exposes compact redacted browser diagnostics in public agent context", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: "https://clips.example.com/record",
+        userAgent: "Test",
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: 2,
+          consoleErrorCount: 1,
+          consoleWarnCount: 1,
+          networkCount: 2,
+          networkFailureCount: 1,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs: [
+          {
+            timestampMs: 1,
+            elapsedMs: 1,
+            level: "log",
+            message: "Started",
+          },
+          {
+            timestampMs: 2,
+            elapsedMs: 2,
+            level: "error",
+            message: "Failed without token=<redacted>",
+          },
+        ],
+        networkRequests: [
+          {
+            timestampMs: 3,
+            elapsedMs: 3,
+            type: "fetch",
+            method: "GET",
+            url: "https://api.example.com/fail?token=<redacted>",
+            status: 500,
+            durationMs: 120,
+          },
+          {
+            timestampMs: 4,
+            elapsedMs: 4,
+            type: "xhr",
+            method: "POST",
+            url: "/ok",
+            status: 200,
+            durationMs: 40,
+          },
+        ],
+      },
+    });
+
+    expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
+    expect(context.browserDiagnostics?.consoleIssues).toEqual([
+      {
+        timestampMs: 2,
+        level: "error",
+        message: "Failed without token=<redacted>",
+      },
+    ]);
+    expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
+      {
+        timestampMs: 3,
+        type: "fetch",
+        method: "GET",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+    ]);
+    expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
+    expect(
+      context.browserDiagnostics?.failedNetworkRequests[0],
+    ).not.toHaveProperty("url");
   });
 });

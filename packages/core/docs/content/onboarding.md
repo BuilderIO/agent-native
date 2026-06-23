@@ -10,6 +10,13 @@ When you first open an app built on the agent-native framework, you'll see a
 to the agent chat: connect an AI engine, optionally point the app at shared
 infrastructure, and add providers only when you need them.
 
+```an-diagram title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done."
+{
+  "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
+  "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
+}
+```
+
 ## For end users
 
 ### What you'll see
@@ -93,49 +100,33 @@ All routes live under `/_agent-native/onboarding/`:
 | `POST /_agent-native/onboarding/reopen`             | Clear dismissal (re-show panel)   |
 | `GET /_agent-native/onboarding/dismissed`           | Read dismissal + allComplete flag |
 
+```an-api title="List onboarding steps"
+{
+  "method": "GET",
+  "path": "/_agent-native/onboarding/steps",
+  "summary": "List all registered steps with their completion status",
+  "description": "Drives the sidebar checklist — returns each step's id, title, methods, required flag, and whether `isComplete` currently passes.",
+  "responses": [
+    { "status": "200", "description": "Array of steps with completion status for the current user/app." }
+  ]
+}
+```
+
 ### Adding a step from a template
 
-```ts
-// server/plugins/my-onboarding.ts
-import { defineNitroPlugin } from "@agent-native/core/server";
-import { registerOnboardingStep } from "@agent-native/core/onboarding";
-import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
-
-export default defineNitroPlugin(() => {
-  registerOnboardingStep({
-    id: "gmail",
-    order: 100,
-    title: "Connect Gmail",
-    description: "Grant read/send access so the agent can work with email.",
-    methods: [
-      {
-        id: "oauth",
-        kind: "link",
-        primary: true,
-        label: "Sign in with Google",
-        payload: {
-          url: "/_agent-native/google/auth-url?scope=mail",
-          external: false,
-        },
-      },
-      {
-        id: "delegate",
-        kind: "agent-task",
-        label: "Let the agent set it up",
-        badge: "beta",
-        payload: {
-          prompt: "Walk me through connecting Gmail. Set env vars as needed.",
-        },
-      },
-    ],
-    // OAuth tokens live in the oauth_tokens store (saveOAuthTokens), not env vars.
-    // Check the store — not process.env.GMAIL_REFRESH_TOKEN.
-    isComplete: async () => {
-      const accounts = await listOAuthAccounts("google");
-      return accounts.length > 0;
-    },
-  });
-});
+```an-annotated-code title="Registering a custom onboarding step"
+{
+  "filename": "server/plugins/my-onboarding.ts",
+  "language": "ts",
+  "code": "import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});",
+  "annotations": [
+    { "lines": "5", "label": "Auto-mounted", "note": "Register from a Nitro plugin — the framework handles rendering, completion tracking, and dismissal." },
+    { "lines": "7", "label": "Stable id", "note": "Re-registering with the same `id` after defaults load overrides a built-in step." },
+    { "lines": "12-19", "label": "Primary method", "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow." },
+    { "lines": "20-26", "label": "Delegate path", "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt." },
+    { "lines": "28-31", "label": "Completion check", "note": "`isComplete` runs server-side. OAuth tokens live in the `oauth_tokens` store — check it, not `process.env.GMAIL_REFRESH_TOKEN`." }
+  ]
+}
 ```
 
 ### Checking Workspace Connections in Onboarding

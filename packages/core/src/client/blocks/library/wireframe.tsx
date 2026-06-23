@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { IconPencil } from "@tabler/icons-react";
 import { defineBlock } from "../types.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type {
@@ -25,6 +26,7 @@ import {
   RoughOverlay,
   Screen,
   renderNodes,
+  toggleWireframeStyle,
   useIsDark,
   useWireframeStyle,
 } from "./wireframe-kit.js";
@@ -209,6 +211,7 @@ function ArtboardFrame({
   // by the fit factor. Falls back to the surface floor before the first measure
   // so SSR / first paint reserves a sensible box rather than collapsing.
   const reservedHeight = (measuredHeight ?? minHeight) * fitScale;
+  const reserveScaledHeight = fixedHeight != null || fitScale !== 1;
 
   return (
     <div
@@ -220,16 +223,18 @@ function ArtboardFrame({
       }}
     >
       <div
+        className="group/wireframe-artboard relative"
         style={{
           width: "100%",
           maxWidth: maxFrameWidth,
-          height: reservedHeight,
+          ...(reserveScaledHeight ? { height: reservedHeight } : {}),
           marginInline: "auto",
         }}
       >
         <div
           ref={ref}
           className="plan-kit-artboard relative"
+          data-rough-scope="wireframe"
           style={{
             width,
             // Auto-height by default (content-driven, floored at `minHeight`);
@@ -275,11 +280,38 @@ function ArtboardFrame({
             selector={selector}
           />
         </div>
+        {!designMode && !skeleton && <WireframeStyleToggleButton />}
       </div>
       {caption && (
         <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
       )}
     </div>
+  );
+}
+
+function WireframeStyleToggleButton() {
+  const style = useWireframeStyle();
+  const nextStyle = style === "sketchy" ? "clean" : "sketchy";
+  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
+  const description = `Switch to ${label.toLowerCase()} visual style`;
+
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      data-rough="none"
+      data-wireframe-style-toggle
+      aria-label={description}
+      title={description}
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleWireframeStyle();
+      }}
+      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
+    >
+      <IconPencil className="size-3.5" aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -418,6 +450,7 @@ export function WireframeBlock({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<WireframeData>) {
   return (
     <section
@@ -426,7 +459,7 @@ export function WireframeBlock({
       data-block-id={blockId}
     >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <WireframeSurfaceView data={data} ctx={ctx} />
+      <WireframeSurfaceView data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );

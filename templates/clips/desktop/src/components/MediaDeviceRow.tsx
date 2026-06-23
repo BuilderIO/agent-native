@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
+import { useRowMenu } from "./useRowMenu";
+import { useMicMeter } from "../hooks/useMicMeter";
 
 function Toggle({
   on,
@@ -24,13 +26,26 @@ function Toggle({
   );
 }
 
-function MicWave() {
+// Live mic level meter — a single wave line driven by real audio. The hook
+// owns the analyser and writes the path's `d`; the line oscillates around the
+// center and flattens when silent.
+function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
+  const pathRef = useMicMeter({ deviceId, active });
+
   return (
     <span className="mic-wave" aria-hidden>
-      <span className="bar b1" />
-      <span className="bar b2" />
-      <span className="bar b3" />
-      <span className="bar b4" />
+      <svg
+        className="mic-wave-svg"
+        viewBox="0 0 100 24"
+        preserveAspectRatio="none"
+      >
+        <path
+          ref={pathRef}
+          className="mic-wave-path"
+          d="M 0 12 L 100 12"
+          fill="none"
+        />
+      </svg>
     </span>
   );
 }
@@ -39,22 +54,26 @@ export function MediaDeviceRow({
   kind,
   devices,
   selectedId,
+  selectedLabel,
   onSelect,
   onRefresh,
   on,
   onToggle,
   systemAudio,
   onSystemAudioToggle,
+  meterActive = true,
 }: {
   kind: "camera" | "mic";
   devices: MediaDeviceInfo[];
   selectedId: string;
-  onSelect: (id: string) => void;
+  selectedLabel?: string;
+  onSelect: (id: string, label: string) => void;
   onRefresh: () => void;
   on: boolean;
   onToggle: (v: boolean) => void;
   systemAudio?: boolean;
   onSystemAudioToggle?: (v: boolean) => void;
+  meterActive?: boolean;
 }) {
   const current = useMemo(
     () =>
@@ -64,37 +83,24 @@ export function MediaDeviceRow({
     [devices, selectedId],
   );
   const label =
+    // Prefer the live label from the enumerated device.
     current?.label ||
     (selectedId
-      ? kind === "camera"
-        ? "Selected camera unavailable"
-        : "Selected mic unavailable"
+      ? devices.length > 0
+        ? // List is loaded but the saved device isn't in it — genuinely gone.
+          kind === "camera"
+          ? "Selected camera unavailable"
+          : "Selected mic unavailable"
+        : // List is still locked (no getUserMedia grant yet this session,
+          // e.g. a cold launch). Fall back to the label we persisted with
+          // the id last time so the user still sees their device by name.
+          selectedLabel || (kind === "camera" ? "Camera" : "Microphone")
       : kind === "camera"
         ? "Default camera"
         : "Default mic");
   const Icon = kind === "camera" ? CameraIcon : MicIcon;
 
-  const [open, setOpen] = useState(false);
-  const rowRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click — native-feeling popover behavior.
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(ev: MouseEvent) {
-      const el = rowRef.current;
-      if (!el) return;
-      if (!el.contains(ev.target as Node)) setOpen(false);
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { open, setOpen, rowRef } = useRowMenu();
 
   const disabled = !on;
   const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
@@ -118,16 +124,23 @@ export function MediaDeviceRow({
         title={label}
       >
         <span className="row-label">{label}</span>
+        {kind === "mic" && on ? (
+          <MicWave deviceId={selectedId} active={on && meterActive} />
+        ) : (
+          <span className="row-flex" aria-hidden />
+        )}
         <span className="row-chev" aria-hidden>
           <ChevronDown />
         </span>
       </button>
       <Toggle
         on={on}
-        onChange={onToggle}
+        onChange={(v) => {
+          if (!v) setOpen(false);
+          onToggle(v);
+        }}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
-      {kind === "mic" && on ? <MicWave /> : null}
       {open ? (
         <div className="row-menu" role="menu">
           <button
@@ -136,7 +149,7 @@ export function MediaDeviceRow({
             role="menuitemradio"
             aria-checked={!selectedId}
             onClick={() => {
-              onSelect("");
+              onSelect("", "");
               setOpen(false);
             }}
           >
@@ -170,7 +183,7 @@ export function MediaDeviceRow({
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
-                      onSelect(d.deviceId);
+                      onSelect(d.deviceId, d.label);
                       setOpen(false);
                     }}
                   >

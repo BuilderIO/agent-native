@@ -33,42 +33,46 @@ npx @agent-native/core@latest create my-platform
 
 Chat gives you auth, durable chat threads, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
 
-If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#create-your-agent): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
+If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#1-create-your-app): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
 
 ## Project Structure {#project-structure}
 
 Every template follows the same broad layout:
 
-```text
-my-template/
-  app/
-    root.tsx              # HTML shell and providers
-    routes/               # React Router file routes
-    components/           # Template UI
-    hooks/                # UI state and data hooks
-
-  actions/
-    *.ts                  # defineAction operations
-
-  server/
-    db/schema.ts          # Drizzle schema
-    plugins/db.ts         # additive migrations
-    plugins/*.ts          # startup integrations
-    routes/api/*.ts       # custom routes only when actions are not enough
-
-  shared/
-    types.ts              # shared client/server types
-
-  .agents/skills/
-    <skill>/SKILL.md      # agent guidance for complex workflows
-
-  AGENTS.md               # template-specific agent instructions
-  package.json
-  react-router.config.ts
-  vite.config.ts
+```an-file-tree title="Template project layout"
+{
+  "title": "my-template/",
+  "entries": [
+    { "path": "app/", "note": "React frontend" },
+    { "path": "app/root.tsx", "note": "HTML shell and providers" },
+    { "path": "app/routes/", "note": "React Router file routes" },
+    { "path": "app/components/", "note": "Template UI" },
+    { "path": "app/hooks/", "note": "UI state and data hooks" },
+    { "path": "actions/", "note": "defineAction operations — the single source of truth" },
+    { "path": "server/db/schema.ts", "note": "Drizzle schema" },
+    { "path": "server/plugins/db.ts", "note": "additive migrations" },
+    { "path": "server/plugins/", "note": "startup integrations" },
+    { "path": "server/routes/api/", "note": "custom routes only when actions are not enough" },
+    { "path": "shared/types.ts", "note": "shared client/server types" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md — agent guidance for complex workflows" },
+    { "path": "AGENTS.md", "note": "template-specific agent instructions" },
+    { "path": "package.json" },
+    { "path": "react-router.config.ts" },
+    { "path": "vite.config.ts" }
+  ]
+}
 ```
 
 Do not add a `data/` directory for application state. Durable app data belongs in SQL, and the UI reads it through actions or typed server handlers.
+
+The four areas of every template wire together through one shared action surface and one SQL database — the agent and the UI are equal partners over the same operations:
+
+```an-diagram title="How a template's four areas connect" summary="The UI and the agent both reach SQL through the same actions; application state and polling sync keep them aligned."
+{
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
+  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 ## Model Data In SQL {#data-models}
 
@@ -137,31 +141,18 @@ Use the [Database](/docs/database) and [Security](/docs/security) docs before ad
 
 Actions are the single source of truth for app behavior. The agent calls them as tools, the frontend calls them through hooks, and other apps can reach them through MCP/A2A.
 
-```ts
-// actions/create-project.ts
-import { defineAction } from "@agent-native/core/action";
-import { getDb } from "../server/db/index.js"; // getDb is created per app via createGetDb(schema) in server/db/index.ts
-import { nanoid } from "nanoid";
-import { z } from "zod";
-import * as schema from "../server/db/schema";
-
-export default defineAction({
-  description: "Create a project.",
-  schema: z.object({
-    title: z.string().min(1).describe("Project title"),
-  }),
-  run: async ({ title }, ctx) => {
-    const db = getDb();
-    const id = nanoid();
-    await db.insert(schema.projects).values({
-      id,
-      title,
-      ownerEmail: ctx.userEmail,
-      orgId: ctx.orgId,
-    });
-    return { id, title };
-  },
-});
+```an-annotated-code title="actions/create-project.ts"
+{
+  "filename": "actions/create-project.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
+  "annotations": [
+    { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
+    { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
+    { "lines": "9-11", "label": "Typed contract", "note": "One zod `schema` validates input from the agent, the UI, HTTP, MCP, and A2A." },
+    { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
+  ]
+}
 ```
 
 Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `parallelSafe: true` only for mutating actions that are safe to run concurrently with same-turn tool calls. Use `toolCallable: false` for high-blast-radius actions that should not run from sandboxed tools.

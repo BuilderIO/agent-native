@@ -52,10 +52,18 @@ export interface SettingsPanelProps {
   }[];
   onClose: () => void;
   onRefetch?: () => void;
+  showHeader?: boolean;
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { recording, visibility, ctas, onClose, onRefetch } = props;
+  const {
+    recording,
+    visibility,
+    ctas,
+    onClose,
+    onRefetch,
+    showHeader = true,
+  } = props;
 
   const update = useActionMutation("update-recording", {
     onSuccess: () => onRefetch?.(),
@@ -92,12 +100,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-medium">Settings</h2>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <IconX className="h-4 w-4" />
-        </Button>
-      </div>
+      {showHeader ? (
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h2 className="text-sm font-medium">Settings</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <IconX className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Privacy */}

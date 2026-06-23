@@ -11,6 +11,13 @@ Every agent-native app ships with a **workspace**: the customization layer that 
 
 The twist: **it's SQL rows, not filesystem files.** Each user gets their own workspace stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
 
+```an-diagram title="A Claude-Code workspace, but stored in SQL" summary="The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."
+{
+  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native workspace</span><small class=\"diagram-muted\">rows in one SQL database</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">one codebase, many users, scoped <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
+  "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
+}
+```
+
 | Claude Code / Codex              | Agent-native workspace                             |
 | -------------------------------- | -------------------------------------------------- |
 | Files on your local disk         | Rows in a shared SQL database                      |
@@ -44,6 +51,13 @@ The canonical paths that control how the agent uses each resource:
 
 These paths apply across all three scopes — workspace, organization/app, and personal. The later scope wins when the same path exists at multiple levels.
 
+```an-diagram title="Three scopes, one effective file" summary="The runtime resolves the same path across workspace, app, and personal scopes on read — the most specific scope wins."
+{
+  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">company-wide defaults from Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organization / app</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
+  "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
+}
+```
+
 ## Getting Started: a 1-minute walkthrough {#getting-started}
 
 Change how the agent behaves, in 60 seconds.
@@ -58,6 +72,10 @@ Change how the agent behaves, in 60 seconds.
    ```
 
 3. Save, switch to **Chat**, ask anything — the agent follows the new rule immediately.
+
+```an-callout
+{ "tone": "info", "body": "No restart, no redeploy. `AGENTS.md` is read at the start of every turn, so an edit you save now changes the agent's behavior on the very next message." }
+```
 
 **Next steps, when you want them:**
 
@@ -163,6 +181,26 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 
+Every one of these surfaces — `AGENTS.md`, skills, memory, custom agents, MCP servers — is the same underlying resource shape: a `path` + `scope` + `content`, addressed and resolved the same way.
+
+```an-schema title="The workspace resource model" summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read."
+{
+  "entities": [
+    {
+      "id": "resource",
+      "name": "workspace resource",
+      "note": "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
+      "fields": [
+        { "name": "path", "type": "string", "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md" },
+        { "name": "scope", "type": "workspace | shared | personal", "note": "Which level this row lives at" },
+        { "name": "owner", "type": "string", "nullable": true, "note": "u:<email> for personal scope" },
+        { "name": "content", "type": "text", "note": "Markdown / JSON / YAML body" }
+      ]
+    }
+  ]
+}
+```
+
 ## Skills {#skills}
 
 Skills are Markdown resource files under the `skills/` path (preferably `skills/<name>/SKILL.md`) that give the agent on-demand domain knowledge, invoked in chat with `/skill-name`. Add them from the Workspace tab or, in Code mode, from `.agents/skills/`.
@@ -179,25 +217,18 @@ Use them when you want a focused delegate with its own name, description, model 
 
 Custom agents use YAML frontmatter plus Markdown instructions:
 
-```markdown
----
-name: Design
-description: >-
-  Reviews layouts, interaction patterns, and product UX decisions.
-model: inherit
-tools: inherit
-delegate-default: false
----
-
-# Role
-
-You are a focused design agent.
-
-## Responsibilities
-
-- Review layouts and interaction flows
-- Suggest stronger visual direction
-- Be concise and opinionated
+```an-annotated-code title="A custom agent profile"
+{
+  "filename": "agents/design.md",
+  "language": "markdown",
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Role\n\nYou are a focused design agent.\n\n## Responsibilities\n\n- Review layouts and interaction flows\n- Suggest stronger visual direction\n- Be concise and opinionated",
+  "annotations": [
+    { "lines": "2", "label": "@mention handle", "note": "`name` is what appears in the `@`-dropdown and what the main agent delegates to." },
+    { "lines": "3-4", "label": "When to delegate", "note": "The `description` is what the orchestrator reads to decide this profile fits a task." },
+    { "lines": "5", "label": "Model", "note": "`inherit` reuses the main agent's model. Override only when the profile clearly needs a different one." },
+    { "lines": "6", "note": "`tools: inherit` for now — the field is reserved for future per-agent tool policies." }
+  ]
+}
 ```
 
 Recommended conventions:

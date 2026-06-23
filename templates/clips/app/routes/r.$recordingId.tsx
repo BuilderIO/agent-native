@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   IconShare3,
-  IconSettings,
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
   IconScissors,
   IconAlertTriangle,
+  IconHelpCircle,
+  IconClipboardCopy,
+  IconFileText,
+  IconSparkles,
 } from "@tabler/icons-react";
 import {
   useActionMutation,
@@ -16,8 +20,12 @@ import {
   useSession,
   AgentPanel,
   agentNativePath,
+  getBrowserTabId,
+  readClientAppState,
+  useChangeVersions,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
@@ -30,6 +38,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   VideoPlayer,
@@ -48,12 +61,42 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import {
+  isLoomEmbedBackedRecording,
+  isLoomRecordingSource,
+} from "@shared/loom";
 
 export function meta() {
   return [{ title: "Clip recording · Clips" }];
 }
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
+type WorkflowKind = "pr" | "sop" | "ticket" | "email";
+
+const WORKFLOW_MENU_ITEMS: Array<{
+  kind: WorkflowKind;
+  label: string;
+  tooltip?: string;
+}> = [
+  { kind: "pr", label: "Generate PR summary" },
+  {
+    kind: "sop",
+    label: "Generate SOP",
+    tooltip:
+      "SOP means Standard Operating Procedure: a reusable step-by-step runbook generated from this clip.",
+  },
+  { kind: "ticket", label: "Generate ticket" },
+  { kind: "email", label: "Generate email" },
+];
+
+interface GeneratedWorkflowState {
+  kind?: WorkflowKind;
+  status?: "generating" | "ready" | "failed" | string;
+  content?: string;
+  recordingId?: string;
+  requestedAt?: string;
+  error?: string;
+}
 
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
@@ -73,6 +116,18 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
     return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
   }
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
+}
+
+function InsightsUnavailableState() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
+        Views, completion, and viewer details are visible to editors of this
+        clip.
+      </p>
+    </div>
+  );
 }
 
 function parseTimeParam(raw: string | null): number {
@@ -106,13 +161,12 @@ export default function RecordingPage() {
   const { recordingId } = useParams<{ recordingId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const search = searchParams.toString();
   const startMs = parseTimeParam(searchParams.get("t"));
   const panelParam = searchParams.get("panel");
   const { session } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel>("transcript");
+  const [panel, setPanel] = useState<SidePanel>("agent");
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
@@ -124,7 +178,13 @@ export default function RecordingPage() {
   const [retryingFinalize, setRetryingFinalize] = useState(false);
 
   useEffect(() => {
-    if (panelParam === "comments" || panelParam === "transcript") {
+    if (
+      panelParam === "agent" ||
+      panelParam === "comments" ||
+      panelParam === "transcript" ||
+      panelParam === "insights" ||
+      panelParam === "settings"
+    ) {
       setPanel(panelParam);
     }
   }, [panelParam]);
@@ -180,22 +240,60 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const appStateVersion = useChangeVersions(["app-state", "action"]);
+  const generatedWorkflowQ = useQuery<GeneratedWorkflowState | null>({
+    queryKey: [
+      "app-state",
+      "clips-workflow",
+      recording?.id ?? "",
+      appStateVersion,
+    ],
+    enabled: Boolean(recording?.id),
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) =>
+      query.state.data?.status === "generating" ? 2000 : false,
+    queryFn: async ({ signal }) => {
+      if (!recording?.id) return null;
+      return readClientAppState<GeneratedWorkflowState>(
+        `clips-workflow-${recording.id}`,
+        { signal },
+      );
+    },
+  });
+  const generatedWorkflow =
+    generatedWorkflowQ.data?.recordingId === recording?.id
+      ? generatedWorkflowQ.data
+      : null;
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const isLoomRecording = isLoomRecordingSource(recording);
+  const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
     setProcessingTimeout(false);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/finalize-recording"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: recordingId }),
-        },
-      );
+      const retryingLoomImport = isLoomRecording;
+      const actionPath = retryingLoomImport
+        ? "/_agent-native/actions/import-loom-recording"
+        : "/_agent-native/actions/finalize-recording";
+      if (retryingLoomImport && !recording?.sourceWindowTitle) {
+        throw new Error("This Loom recording is missing its source URL.");
+      }
+      const res = await fetch(agentNativePath(actionPath), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          retryingLoomImport
+            ? {
+                recordingId,
+                url: recording?.sourceWindowTitle,
+              }
+            : { id: recordingId },
+        ),
+      });
       const body = (await res.json().catch(() => null)) as {
         error?: string;
         result?: { status?: string; storageSetupRequired?: boolean };
@@ -216,19 +314,26 @@ export default function RecordingPage() {
         });
         return;
       }
-      toast.success("Clip upload resumed");
+      toast.success(
+        retryingLoomImport ? "Loom import resumed" : "Clip upload resumed",
+      );
       await playerDataQ.refetch();
     } catch (err) {
-      toast.error("Couldn't resume upload", {
-        description:
-          err instanceof Error ? err.message : "Try again in a moment.",
-        duration: 12_000,
-      });
+      toast.error(
+        isLoomRecording
+          ? "Couldn't retry Loom import"
+          : "Couldn't resume upload",
+        {
+          description:
+            err instanceof Error ? err.message : "Try again in a moment.",
+          duration: 12_000,
+        },
+      );
     } finally {
       setRetryingFinalize(false);
       void playerDataQ.refetch();
     }
-  }, [playerDataQ, recordingId]);
+  }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
@@ -263,13 +368,32 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
-    onSuccess: () => toast.success("Workflow request queued"),
+    onSuccess: () => {
+      toast.success("Workflow request queued");
+      void generatedWorkflowQ.refetch();
+    },
     onError: handleAiError,
   });
+  function handleGenerateWorkflow(kind: WorkflowKind) {
+    if (!recording) return;
+    setEditing(false);
+    setPanel("agent");
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
+    );
+    generateWorkflow.mutate({
+      recordingId: recording.id,
+      kind,
+    } as any);
+  }
 
   useEffect(() => {
-    if (!canEdit && editing) setEditing(false);
-  }, [canEdit, editing]);
+    if (recording && panel === "settings" && !canEdit) setPanel("agent");
+  }, [canEdit, panel, recording]);
+
+  useEffect(() => {
+    if (!canUseNativeEditor && editing) setEditing(false);
+  }, [canUseNativeEditor, editing]);
 
   useEffect(() => {
     if (!recording) return;
@@ -320,23 +444,6 @@ export default function RecordingPage() {
     return () => clearTimeout(handle);
   }, [recording?.status, recording?.videoUrl, recordingId]);
 
-  // Sync navigation state
-  useEffect(() => {
-    if (!recordingId) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "recording",
-        recordingId,
-        path: `/r/${recordingId}${search ? `?${search}` : ""}`,
-        panel,
-        ...(startMs > 0 ? { searchHitMs: startMs } : {}),
-      }),
-    }).catch(() => {});
-  }, [panel, recordingId, search, startMs]);
-
   usePlayerShortcuts({ playerRef, chapters });
 
   const tracking = useViewTracking({
@@ -386,6 +493,7 @@ export default function RecordingPage() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
       isNativeSaveFailureReason(rawFailureReason);
@@ -404,14 +512,18 @@ export default function RecordingPage() {
           : "Uploading and assembling your video — this usually takes just a few seconds.";
     const storageSetupFailure = waitingForStorage;
     const label = storageSetupFailure
-      ? "Connect storage to finish saving this clip."
+      ? loomStorageSetupFailure
+        ? "Connect storage to import this Loom."
+        : "Connect storage to finish saving this clip."
       : nativeSaveFailed
         ? "Upload paused; clip saved locally."
         : isFailure
           ? "Something went wrong while saving this clip."
           : "Finishing up your clip…";
     const failureReason = storageSetupFailure
-      ? "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
+      ? loomStorageSetupFailure
+        ? "The Loom source link is preserved. Connect Builder.io or S3 storage and Clips will retry saving its own copy."
+        : "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
       : displayReason;
     const detail = failureDetail(rawFailureReason);
     return (
@@ -454,16 +566,34 @@ export default function RecordingPage() {
             {retryingFinalize ? (
               <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-border bg-card p-6 shadow-lg">
                 <Spinner className="h-8 w-8 text-muted-foreground" />
-                <div className="text-sm font-medium">Uploading saved clip…</div>
+                <div className="text-sm font-medium">
+                  {loomStorageSetupFailure
+                    ? "Importing Loom..."
+                    : "Uploading saved clip…"}
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  Storage is connected. Clips is finishing the upload now.
+                  {loomStorageSetupFailure
+                    ? "Storage is connected. Clips is saving its own copy now."
+                    : "Storage is connected. Clips is finishing the upload now."}
                 </p>
               </div>
             ) : (
               <StorageSetupCard
-                title="Connect storage to finish saving"
-                description="Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
-                connectedDescription="Storage connected. Uploading this clip..."
+                title={
+                  loomStorageSetupFailure
+                    ? "Connect storage to import Loom"
+                    : "Connect storage to finish saving"
+                }
+                description={
+                  loomStorageSetupFailure
+                    ? "Choose where Clips should store videos. After it connects, Clips will retry this Loom import."
+                    : "Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
+                }
+                connectedDescription={
+                  loomStorageSetupFailure
+                    ? "Storage connected. Importing Loom..."
+                    : "Storage connected. Uploading this clip..."
+                }
                 onConfigured={retryFinalizeAfterStorage}
               />
             )}
@@ -483,7 +613,11 @@ export default function RecordingPage() {
             size="sm"
             disabled={retryingFinalize}
           >
-            {storageSetupFailure ? "Retry upload" : "Check again"}
+            {storageSetupFailure
+              ? loomStorageSetupFailure
+                ? "Retry import"
+                : "Retry upload"
+              : "Check again"}
           </Button>
           <Button onClick={() => navigate("/")} variant="ghost" size="sm">
             Back to library
@@ -525,7 +659,7 @@ export default function RecordingPage() {
             </p>
           </div>
 
-          {canEdit ? (
+          {canUseNativeEditor ? (
             <Button
               variant={editing ? "secondary" : "outline"}
               size="sm"
@@ -601,50 +735,42 @@ export default function RecordingPage() {
                   Remove silences (&gt;1.2s)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "pr",
-                    } as any)
+                {WORKFLOW_MENU_ITEMS.map((item) => {
+                  const menuItem = (
+                    <DropdownMenuItem
+                      key={item.kind}
+                      disabled={generateWorkflow.isPending}
+                      onSelect={() => handleGenerateWorkflow(item.kind)}
+                      className={
+                        item.tooltip ? "justify-between gap-3" : undefined
+                      }
+                    >
+                      <span>{item.label}</span>
+                      {item.tooltip ? (
+                        <IconHelpCircle
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                        />
+                      ) : null}
+                    </DropdownMenuItem>
+                  );
+
+                  if (!item.tooltip) {
+                    return menuItem;
                   }
-                >
-                  Generate PR summary
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "sop",
-                    } as any)
-                  }
-                >
-                  Generate SOP
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "ticket",
-                    } as any)
-                  }
-                >
-                  Generate ticket
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "email",
-                    } as any)
-                  }
-                >
-                  Generate email
-                </DropdownMenuItem>
+
+                  return (
+                    <Tooltip key={item.kind}>
+                      <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                      <TooltipContent
+                        side="left"
+                        className="max-w-64 text-xs leading-5"
+                      >
+                        {item.tooltip}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -654,6 +780,7 @@ export default function RecordingPage() {
             recordingTitle={recording.title}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
+            isLoomRecording={isLoomEmbedBacked}
             hasPassword={Boolean(recording.hasPassword)}
           >
             <Button
@@ -676,10 +803,10 @@ export default function RecordingPage() {
         <div
           className={cn(
             "flex-1 flex flex-col overflow-hidden",
-            editing && canEdit ? "min-h-0" : "p-4 gap-4",
+            editing && canUseNativeEditor ? "min-h-0" : "p-4 gap-4",
           )}
         >
-          {editing && canEdit ? (
+          {editing && canUseNativeEditor ? (
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
@@ -688,6 +815,7 @@ export default function RecordingPage() {
                   ref={playerRef}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
+                  embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
                   editsJson={recording.editsJson}
                   thumbnailUrl={recording.thumbnailUrl}
@@ -785,159 +913,285 @@ export default function RecordingPage() {
       {/* Side panel */}
       {!editing ? (
         <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
-          {panel === "settings" && canEdit ? (
-            <SettingsPanel
-              recording={recording}
-              visibility={recording.visibility}
-              ctas={ctas}
-              onClose={() => setPanel("transcript")}
-              onRefetch={() => playerDataQ.refetch()}
-            />
-          ) : (
-            <>
-              <Tabs
-                value={panel}
-                onValueChange={(v) => setPanel(v as SidePanel)}
-                className="flex flex-col h-full"
+          <Tabs
+            value={panel}
+            onValueChange={(v) => setPanel(v as SidePanel)}
+            className="flex flex-col h-full"
+          >
+            <TabsList
+              className={cn(
+                "mx-3 mt-3 grid w-auto",
+                canEdit ? "grid-cols-5" : "grid-cols-4",
+              )}
+            >
+              <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
+                Agent
+              </TabsTrigger>
+              <TabsTrigger
+                value="comments"
+                className="min-w-0 gap-1 px-2 text-xs"
               >
-                <TabsList
-                  className={cn(
-                    "mx-3 mt-3 grid w-auto",
-                    canEdit ? "grid-cols-4" : "grid-cols-2",
-                  )}
-                >
-                  <TabsTrigger value="transcript" className="text-xs">
-                    Transcript
-                  </TabsTrigger>
-                  <TabsTrigger value="comments" className="text-xs gap-1">
-                    Comments
-                    {comments.length > 0 ? (
-                      <span className="ml-0.5 text-[10px] rounded-full bg-accent px-1.5 tabular-nums">
-                        {comments.length}
-                      </span>
-                    ) : null}
-                  </TabsTrigger>
-                  {canEdit ? (
-                    <TabsTrigger value="insights" className="text-xs">
-                      Insights
-                    </TabsTrigger>
-                  ) : null}
-                  {canEdit ? (
-                    <TabsTrigger value="agent" className="text-xs">
-                      Agent
-                    </TabsTrigger>
-                  ) : null}
-                </TabsList>
-
-                <TabsContent
-                  value="transcript"
-                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-                >
-                  <TranscriptPanel
-                    segments={transcriptSegments}
-                    fullText={transcriptFullText}
-                    durationMs={recording.durationMs}
-                    currentMs={currentMs}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    status={transcriptStatus}
-                    failureReason={transcriptFailureReason}
-                    cleanup={transcriptCleanup}
-                    recordingTitle={recording.title}
-                    onRetry={() => {
-                      // Re-run transcription now that the user may have
-                      // connected Builder/Gemini or after a one-off network
-                      // error. The action flips the row to 'pending' first,
-                      // so the UI swaps back to "Transcribing…".
-                      fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/request-transcript",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId: recording.id,
-                            force: true,
-                          }),
-                        },
-                      )
-                        .then((res) => {
-                          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        })
-                        .catch((err) =>
-                          toast.error(
-                            `Retry failed: ${err?.message ?? "network error"}`,
-                          ),
-                        )
-                        .finally(() => playerDataQ.refetch());
-                    }}
-                  />
-                </TabsContent>
-                <TabsContent
-                  value="comments"
-                  className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-                >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={currentMs}
-                    currentUserEmail={session?.email}
-                    enableComments={recording.enableComments}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    queryKey={[
-                      "action",
-                      "get-recording-player-data",
-                      { recordingId: recordingId ?? "" },
-                    ]}
-                  />
-                </TabsContent>
-                {canEdit ? (
-                  <TabsContent
-                    value="insights"
-                    className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-                  >
-                    <InsightsPanel
-                      recordingId={recording.id}
-                      durationMs={recording.durationMs}
-                    />
-                  </TabsContent>
+                Activity
+                {comments.length > 0 ? (
+                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
+                    {comments.length}
+                  </span>
                 ) : null}
-                {canEdit ? (
-                  <TabsContent
-                    value="agent"
-                    className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden flex flex-col"
-                  >
-                    <AgentPanel
-                      emptyStateText="Ask about this clip…"
-                      suggestions={[
+              </TabsTrigger>
+              <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
+                Transcript
+              </TabsTrigger>
+              <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
+                Insights
+              </TabsTrigger>
+              {canEdit ? (
+                <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
+                  Settings
+                </TabsTrigger>
+              ) : null}
+            </TabsList>
+
+            <TabsContent
+              value="agent"
+              className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+            >
+              <AgentPanel
+                browserTabId={getBrowserTabId()}
+                emptyStateText="Ask about this clip…"
+                dynamicSuggestions={false}
+                chatNotice={
+                  generatedWorkflow ? (
+                    <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+                  ) : null
+                }
+                suggestions={
+                  canEdit
+                    ? [
                         "Summarize this clip",
                         "Generate chapters from the transcript",
-                        "Remove filler words and silences",
-                      ]}
-                    />
-                  </TabsContent>
-                ) : null}
-              </Tabs>
-
+                        "Find action items and follow-ups",
+                        "Draft a shareable recap",
+                      ]
+                    : [
+                        "Summarize this clip",
+                        "Find the key moments",
+                        "List follow-up actions",
+                        "Draft questions for the author",
+                      ]
+                }
+              />
+            </TabsContent>
+            <TabsContent
+              value="transcript"
+              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+            >
+              <TranscriptPanel
+                segments={transcriptSegments}
+                fullText={transcriptFullText}
+                durationMs={recording.durationMs}
+                currentMs={currentMs}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                status={transcriptStatus}
+                failureReason={transcriptFailureReason}
+                cleanup={transcriptCleanup}
+                recordingTitle={recording.title}
+                onRetry={() => {
+                  // Re-run transcription now that the user may have connected
+                  // Builder/Gemini or after a one-off network error. The action
+                  // flips the row to 'pending' first, so the UI swaps back to
+                  // "Transcribing…".
+                  fetch(
+                    agentNativePath(
+                      "/_agent-native/actions/request-transcript",
+                    ),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        recordingId: recording.id,
+                        force: true,
+                      }),
+                    },
+                  )
+                    .then((res) => {
+                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    })
+                    .catch((err) =>
+                      toast.error(
+                        `Retry failed: ${err?.message ?? "network error"}`,
+                      ),
+                    )
+                    .finally(() => playerDataQ.refetch());
+                }}
+              />
+            </TabsContent>
+            <TabsContent
+              value="comments"
+              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+            >
+              <CommentsPanel
+                recordingId={recording.id}
+                comments={comments}
+                currentMs={currentMs}
+                currentUserEmail={session?.email}
+                enableComments={recording.enableComments}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                queryKey={[
+                  "action",
+                  "get-recording-player-data",
+                  { recordingId: recordingId ?? "" },
+                ]}
+              />
+            </TabsContent>
+            <TabsContent
+              value="insights"
+              className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+            >
               {canEdit ? (
-                <div className="border-t border-border p-2">
-                  <Button
-                    onClick={() => setPanel("settings")}
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                  >
-                    <IconSettings className="h-4 w-4" />
-                    Settings
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
+                <InsightsPanel
+                  recordingId={recording.id}
+                  durationMs={recording.durationMs}
+                />
+              ) : (
+                <InsightsUnavailableState />
+              )}
+            </TabsContent>
+            {canEdit ? (
+              <TabsContent
+                value="settings"
+                className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+              >
+                <SettingsPanel
+                  recording={recording}
+                  visibility={recording.visibility}
+                  ctas={ctas}
+                  onClose={() => setPanel("agent")}
+                  onRefetch={() => playerDataQ.refetch()}
+                  showHeader={false}
+                />
+              </TabsContent>
+            ) : null}
+          </Tabs>
         </aside>
       ) : null}
     </div>
   );
+}
+
+function GeneratedWorkflowNotice({
+  workflow,
+}: {
+  workflow: GeneratedWorkflowState;
+}) {
+  const [copied, setCopied] = useState(false);
+  const status = workflow.status ?? (workflow.content ? "ready" : "generating");
+  const content =
+    typeof workflow.content === "string" ? workflow.content.trim() : "";
+  const isReady = status === "ready" && content.length > 0;
+  const isFailed = status === "failed";
+  const title = workflowTitle(workflow.kind);
+
+  async function handleCopy() {
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      toast.success(`${title} copied`);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error("Couldn't copy generated output");
+    }
+  }
+
+  return (
+    <div className="bg-background px-3 py-2.5">
+      <div className="overflow-hidden rounded-md border border-border bg-muted/20">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+              {isReady ? (
+                <IconFileText className="h-3.5 w-3.5" />
+              ) : (
+                <IconSparkles className="h-3.5 w-3.5" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-foreground">
+                {title}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {isReady
+                  ? "Generated from this clip"
+                  : isFailed
+                    ? workflow.error ||
+                      "The agent could not finish this output."
+                    : "The agent is writing this output now."}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Badge
+              variant={
+                isFailed ? "destructive" : isReady ? "secondary" : "outline"
+              }
+              className="px-1.5 py-0 text-[10px] font-medium"
+            >
+              {workflowStatusLabel(status, isReady)}
+            </Badge>
+            {content ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px]"
+                onClick={handleCopy}
+              >
+                <IconClipboardCopy className="h-3.5 w-3.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        {content ? (
+          <div className="max-h-48 overflow-auto px-3 py-2">
+            <div className="whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
+              {content}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+            {isFailed ? null : <Spinner className="h-3.5 w-3.5" />}
+            <span>
+              {isFailed
+                ? workflow.error || "No generated output was saved."
+                : "Generated output will appear here when it is ready."}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function workflowTitle(kind: GeneratedWorkflowState["kind"]) {
+  switch (kind) {
+    case "pr":
+      return "Generated PR Summary";
+    case "sop":
+      return "Generated SOP";
+    case "ticket":
+      return "Generated Ticket";
+    case "email":
+      return "Generated Email";
+    default:
+      return "Generated Output";
+  }
+}
+
+function workflowStatusLabel(status: string, isReady: boolean) {
+  if (isReady) return "Ready";
+  if (status === "failed") return "Failed";
+  return "Generating";
 }
 
 function capitalize(s: string) {

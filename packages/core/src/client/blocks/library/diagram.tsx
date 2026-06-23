@@ -1,6 +1,17 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
+import {
+  IconArrowsMaximize,
+  IconScribble,
+  IconShape2,
+  IconX,
+} from "@tabler/icons-react";
 import { cn } from "../../utils.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
@@ -9,7 +20,12 @@ import type {
   BlockRenderContext,
 } from "../types.js";
 import { AiEditableFieldLabel } from "../AiEditableField.js";
-import { RoughOverlay, useIsDark, useWireframeStyle } from "./wireframe-kit.js";
+import {
+  RoughOverlay,
+  toggleWireframeStyle,
+  useIsDark,
+  useWireframeStyle,
+} from "./wireframe-kit.js";
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
@@ -601,24 +617,64 @@ export function DiagramLightbox({
 function ExpandableDiagramBody({
   data,
   ctx,
+  compact,
 }: {
   data: DiagramData;
   ctx: BlockRenderContext;
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const supportsStyleToggle = Boolean(data.html);
+  const style = useWireframeStyle();
+  const sketchy = style === "sketchy";
+  const styleLabel = sketchy
+    ? "Switch to clean diagrams"
+    : "Switch to hand-drawn diagrams";
+  const styleTooltip = sketchy
+    ? "Hand-drawn diagrams - switch to clean"
+    : "Clean diagrams - switch to hand-drawn";
   return (
     <div className="group/diagram relative">
-      <DiagramBody data={data} ctx={ctx} />
-      <button
-        type="button"
-        data-plan-interactive
-        onClick={() => setExpanded(true)}
-        aria-label="Expand diagram"
-        title="Expand diagram"
-        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
-      >
-        <IconArrowsMaximize className="size-4" />
-      </button>
+      <DiagramBody data={data} ctx={ctx} compact={compact} />
+      <TooltipProvider delayDuration={100} skipDelayDuration={0}>
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+          {supportsStyleToggle && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-plan-interactive
+                  onClick={() => toggleWireframeStyle()}
+                  aria-label={styleLabel}
+                  aria-pressed={sketchy}
+                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                >
+                  {sketchy ? (
+                    <IconScribble className="size-4" />
+                  ) : (
+                    <IconShape2 className="size-4" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{styleTooltip}</TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-plan-interactive
+                onClick={() => setExpanded(true)}
+                aria-label="Expand diagram"
+                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+              >
+                <IconArrowsMaximize className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Expand diagram</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
       {expanded ? (
         <DiagramLightbox onClose={() => setExpanded(false)}>
           <DiagramBody data={data} ctx={ctx} />
@@ -639,6 +695,7 @@ export function DiagramRead({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<DiagramData>) {
   return (
     <section
@@ -647,7 +704,7 @@ export function DiagramRead({
       data-block-id={blockId}
     >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <ExpandableDiagramBody data={data} ctx={ctx} />
+      <ExpandableDiagramBody data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-muted-foreground">{summary}</p>}
     </section>
   );

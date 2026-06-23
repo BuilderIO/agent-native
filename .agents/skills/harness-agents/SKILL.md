@@ -1,7 +1,7 @@
 ---
 name: harness-agents
 description: >-
-  Add or use full agent harness runtimes like Claude Code, Codex, Pi, Cursor, or Mastra inside Agent Native.
+  Add or use full agent harness runtimes like Claude Code, Codex, Pi, Cursor, Mastra, or ACP agents inside Agent Native.
 scope: dev
 ---
 
@@ -67,6 +67,52 @@ Native stores it but does not inspect it.
 Harness runs are projected into the shared `BackgroundAgentRun` shape with
 `createAgentHarnessBackgroundAgentController()` and are available through the
 existing run routes as `goalId=agent-harness`.
+
+## ACP Agents
+
+Agent Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
+Protocol) client and drive a local coding agent — Gemini CLI, Claude Code, or
+any ACP-compliant agent — through this same substrate. This is scoped to **local
+coding**: the agent is spawned as a child process speaking newline-delimited
+JSON-RPC over stdio, and inherits the parent environment so it reuses the user's
+local CLI login. It is not a hosted/sandboxed transport, and it is not a
+chat/A2A transport.
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+
+// Built-in presets (commands overridable via the resolve config):
+const gemini = resolveAgentHarness("acp:gemini");
+const claude = resolveAgentHarness("acp:claude-code");
+
+// Or any ACP agent by command:
+const custom = resolveAgentHarness("acp", {
+  command: "gemini",
+  args: ["--experimental-acp"],
+});
+```
+
+- The protocol transport (`@zed-industries/agent-client-protocol`) is an optional
+  dependency loaded lazily; `installPackage` surfaces a clear install hint.
+- The agent binary (e.g. `@google/gemini-cli`, `@zed-industries/claude-code-acp`)
+  is a separate external CLI the user installs; presets launch it through `npx`
+  by default and the command/args are overridable because agent ACP entry flags
+  still evolve.
+- `permissionMode` maps onto ACP `session/request_permission` using the reported
+  tool-call kind: reads always run, edits run under `allow-edits`, everything
+  risky prompts unless `allow-all`. Approvals surface as `approval-request`
+  events; answer them through the harness session's `approve()`.
+- `resumeState` carries the ACP `sessionId`; resume works when the agent
+  advertises the `loadSession` capability and degrades to a fresh session
+  otherwise.
+- `fs/read_text_file` and `fs/write_text_file` are served against the session
+  workspace and refuse paths that escape it; terminal methods are not advertised
+  (the agent uses its own shell).
 
 ## Adapter Guidance
 

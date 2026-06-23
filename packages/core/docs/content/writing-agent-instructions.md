@@ -7,6 +7,13 @@ description: "How to write great agent instructions for an agent-native app or t
 
 The agent's behavior in an agent-native app is only as good as the instructions you give it. Three surfaces carry that guidance: `AGENTS.md` (the map), skills (the deep dives), and action/tool descriptions (how the agent picks the right tool). Write each one for fast retrieval, not for prose.
 
+```an-diagram title="Three authored surfaces + one runtime surface" summary="AGENTS.md and tool descriptions load every turn; skills load on demand; application_state is written live by your UI."
+{
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">the map: purpose, core rules, state keys, action + skills index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>Tool descriptions</strong><small class=\"diagram-muted\">drive tool selection — one precise sentence each</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">On demand</span><strong>Skills</strong><small class=\"diagram-muted\">deep how-to, loaded when the description fires</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">written by your UI: navigation, selection, focus</small></div></div>",
+  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
 ## Keep AGENTS.md small and skimmable {#small-agents-md}
 
 `AGENTS.md` is loaded as orientation. It should be the smallest thing that lets the agent act correctly, with everything deep pushed into skills. Aim for these sections and little else:
@@ -106,6 +113,26 @@ defineAction({
   // ...
 });
 ```
+
+## Skills vs actions {#skills-vs-actions}
+
+Skills and actions are complementary. A skill is guidance the agent reads; an
+action is code the agent can run.
+
+| Need                                                                   | Use                                |
+| ---------------------------------------------------------------------- | ---------------------------------- |
+| The agent needs to follow a workflow, policy, checklist, or rubric     | **Skill**                          |
+| The agent needs examples, reference material, or domain-specific rules | **Skill**                          |
+| The agent needs to read or write app data                              | **Action**                         |
+| The agent needs to call an external API or perform an approval         | **Action**                         |
+| The agent calls the right operation but in the wrong way               | Improve the **skill**              |
+| The agent cannot reliably invoke the operation                         | Improve the **action**             |
+| The agent chooses the wrong tool                                       | Improve the **action description** |
+
+Most real features use both: the skill explains how to approach the task, and
+the action provides the typed operation. For example, an `invoice-review` skill
+can explain the review policy and escalation rules, while `list-invoices`,
+`flag-invoice`, and `approve-invoice` actions do the actual reads and writes.
 
 ## Bake in anti-fabrication and verify-before-done {#anti-fabrication}
 

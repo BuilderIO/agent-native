@@ -20,6 +20,12 @@ export type ResolvedComposeAttachment = ComposeAttachment & {
   data: Buffer;
 };
 
+type ResolveComposeAttachmentOptions = {
+  readGmailAttachment?: (
+    attachment: ComposeAttachment,
+  ) => Promise<Buffer | null>;
+};
+
 function stripCrlf(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
 }
@@ -166,6 +172,7 @@ function wrapBase64(value: string): string {
 export async function resolveComposeAttachments(
   attachments: unknown,
   ownerEmail?: string,
+  options?: ResolveComposeAttachmentOptions,
 ): Promise<ResolvedComposeAttachment[]> {
   if (!Array.isArray(attachments)) return [];
 
@@ -174,6 +181,32 @@ export async function resolveComposeAttachments(
     const att = raw as Partial<ComposeAttachment>;
     if (!att.filename || typeof att.filename !== "string") continue;
     if (att.filename.includes("/") || att.filename.includes("..")) continue;
+
+    if (att.source === "gmail" || att.gmailMessageId || att.gmailAttachmentId) {
+      if (
+        !att.gmailMessageId ||
+        !att.gmailAttachmentId ||
+        !options?.readGmailAttachment
+      ) {
+        throw new Error("Gmail attachment cannot be resolved");
+      }
+      const data = await options.readGmailAttachment(att as ComposeAttachment);
+      if (!data) throw new Error("Gmail attachment could not be read");
+      resolved.push({
+        id: att.id || att.gmailAttachmentId,
+        filename: att.filename,
+        originalName: att.originalName || att.filename,
+        mimeType: att.mimeType || "application/octet-stream",
+        size: att.size || data.length,
+        url: att.url || "",
+        source: "gmail",
+        gmailMessageId: att.gmailMessageId,
+        gmailAttachmentId: att.gmailAttachmentId,
+        accountEmail: att.accountEmail,
+        data,
+      });
+      continue;
+    }
 
     const filePath = path.join(UPLOADS_DIR, att.filename);
     let data: Buffer;

@@ -4,8 +4,12 @@ Install dependencies, then run the hello action:
 
 ```bash
 pnpm install
-pnpm action hello --name Builder
+pnpm action hello '{"name":"Builder"}'
 ```
+
+`actions/run.ts` is only the shared CLI dispatcher that powers
+`pnpm action <name>`. Add real agent-callable actions as separate files such as
+`actions/hello.ts`.
 
 Then run the production app-agent loop against this folder:
 

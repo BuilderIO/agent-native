@@ -120,10 +120,15 @@ ownership, privacy, sharing, and branding needs.
 
 By default, create the plan via the Plan MCP connector. NEVER hand the plan over
 as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
-wireframe. If the connector's tools are missing, do NOT fall back to inline
-output: the usual cause is a connector that did not finish connecting this
-session (it registers zero tools), not auth. Stop and give the user the exact
-restore step for their current client: in Codex/Codex Desktop run
+wireframe. Some clients lazy-load connector tools through a deferred tool
+registry instead of showing the `plan` namespace upfront; before declaring the
+connector missing, search/load tools with the host's discovery surface
+(`tool_search` when available) for `create_visual_plan`, `create_ui_plan`, or
+`get_plan_blocks`, then use the Plan MCP tools it exposes. If the connector's
+tools are still missing after discovery, do NOT fall back to inline output: the
+usual cause is a connector that did not finish connecting this session (it
+registers zero tools), not auth. Stop and give the user the exact restore step
+for their current client: in Codex/Codex Desktop run
 `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
 and start a new Codex session; in Claude Code run `/mcp` and choose
 Authenticate/Reconnect (or run the same reconnect command with
@@ -161,6 +166,12 @@ is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
    and put `diagram`, `data-model`,
    `api-endpoint`, `diff`, `file-tree`, `code`, and `annotated-code` blocks
    directly next to the relevant prose.
+   Wide document layout is renderer-owned and intentionally allowlisted: only
+   literal code-review surfaces (`diff`, `annotated-code`) and `tabs` blocks
+   with vertical orientation or diff-like children break out wider than prose.
+   Keep `api-endpoint`, `openapi-spec`, `data-model`, `json-explorer`,
+   `wireframe`, question, and `custom-html` blocks in normal document flow unless
+   their own renderer says otherwise.
 4. Surface the returned Plans link or inline MCP App and ask the user to review.
    Always include the actual URL in chat so the next step is a click in CLI or
    other text-only hosts. When the host exposes an embedded browser/preview panel
@@ -230,6 +241,14 @@ beside frames with `targetId` plus `placement`; keep implementation details,
 tradeoffs, file maps, data contracts, risks, and verification in the document
 body below the canvas.
 
+When the user asks for a flow, storyboard, journey, wireframe, canvas, or "what
+this looks like", treat that as a canvas-first request. Make one artboard per
+user-visible state, connect only adjacent transitions, and use short canvas
+annotations for the product notes. Do not substitute a document-body `diagram`
+block for the requested storyboard just because HTML diagrams are faster to
+write; diagrams belong below the canvas for backend mechanics, architecture, or
+data-flow explanation.
+
 Keep product wireframes and explanatory/meta diagrams separate. Start with pure
 screens that look like the app state under discussion, without callout prose or
 architecture notes embedded inside the UI. Put arrows, labels, contracts, data
@@ -288,6 +307,12 @@ in lanes, annotations are plain-text designer notes anchored by
 authoring or editing ANY canvas, artboard, or annotation, READ
 `references/canvas.md` in this skill directory — it is the single source of truth
 for canvas/artboard mechanics. Do not author canvas layouts from memory.
+Canvas artboards use the same HTML wireframe path as document-body
+`WireframeBlock` screens: author `<Screen surface="..." html={...} />` with a
+semantic HTML fragment. Do not author fresh kit-tree children such as
+`<FrameScreen>`, `<Card>`, `<Row>`, or `<Btn>` inside canvas `<Screen>` tags;
+those are legacy compatibility markup for old plans and produce brittle canvas
+layouts.
 
 ## Document quality — read `references/document-quality.md`
 

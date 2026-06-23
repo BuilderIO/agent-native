@@ -13,6 +13,8 @@ use core_graphics::display::{CGDisplay, CGPoint};
 #[cfg(target_os = "macos")]
 use screencapturekit::audio_devices::AudioInputDevice;
 #[cfg(target_os = "macos")]
+use screencapturekit::cg::CGRect;
+#[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
     SCRecordingOutput, SCRecordingOutputCodec, SCRecordingOutputConfiguration,
     SCRecordingOutputDelegate, SCRecordingOutputFileType,
@@ -21,8 +23,11 @@ use screencapturekit::recording_output::{
 use screencapturekit::shareable_content::SCShareableContent;
 #[cfg(target_os = "macos")]
 use screencapturekit::stream::{
-    configuration::SCStreamConfiguration, content_filter::SCContentFilter, sc_stream::SCStream,
+    configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+    output_type::SCStreamOutputType, sc_stream::SCStream,
 };
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -39,6 +44,8 @@ const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
+const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
+const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -59,6 +66,14 @@ const SIPS_PATH: &str = "/usr/bin/sips";
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct NativeCaptureRegion {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 struct NativeFullscreenSession {
@@ -89,6 +104,10 @@ struct NativeFullscreenSession {
     /// resume so the new segment captures the same source with the same
     /// audio configuration as the initial start.
     restart: RestartInfo,
+    /// True between `warm` and `begin`: the SCStream is capturing (mic
+    /// warming up) but the recording output hasn't been attached yet, so
+    /// nothing is written to disk. `begin` attaches it and flips this false.
+    pending_recording_output: bool,
 }
 
 #[derive(Clone)]
@@ -102,6 +121,8 @@ struct RestartInfo {
     segment_counter: u32,
     /// CGDirectDisplayID of the display to record. None = first available.
     target_display_id: Option<u32>,
+    /// Normalized display-relative capture rectangle for Region recordings.
+    capture_region: Option<NativeCaptureRegion>,
 }
 
 enum NativeFullscreenBackend {
@@ -113,6 +134,12 @@ enum NativeFullscreenBackend {
         stream: SCStream,
         recording: SCRecordingOutput,
         finish: Arc<RecordingFinish>,
+        /// Set true once the first microphone sample buffer is delivered.
+        /// Used by the warm/begin split: the recording output is attached
+        /// only after the mic is live so the clip doesn't start with a
+        /// silent second while ScreenCaptureKit's mic pipeline spins up.
+        /// `None` when the recording has no microphone input.
+        mic_ready: Option<Arc<AtomicBool>>,
     },
 }
 
@@ -325,8 +352,110 @@ pub async fn native_fullscreen_recording_available() -> Result<bool, String> {
     }
 }
 
+/// Longest the `begin` phase waits for the microphone's first sample before
+/// attaching the recording output anyway. The mic has usually warmed during
+/// the countdown by now; this is just a safety net so a slow/denied mic can't
+/// stall the start.
+#[cfg(target_os = "macos")]
+const MIC_WARM_TIMEOUT_MS: u64 = 1500;
+
+/// Acquire a backend (ScreenCaptureKit, or the screencapture fallback) and
+/// store it as the active session. Shared by the immediate-start command and
+/// the no-warm branch of `begin`.
+///
+/// When `defer_recording_output` is true the SCStream is started without the
+/// recording output attached (warm phase) — and on SCK failure the error is
+/// returned rather than falling back to screencapture, because that child
+/// records immediately and would capture the countdown.
+#[cfg(target_os = "macos")]
+fn start_native_session_locked(
+    app: &AppHandle,
+    state: &State<'_, NativeFullscreenRecordingState>,
+    recording_id: &str,
+    include_audio: bool,
+    capture_system_audio: bool,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
+    capture_region: Option<NativeCaptureRegion>,
+    defer_recording_output: bool,
+) -> Result<NativeFullscreenStartInfo, String> {
+    let safe_id = sanitize_recording_id(recording_id);
+    let has_specific_mic = mic_device_id
+        .as_deref()
+        .is_some_and(|v| !v.trim().is_empty())
+        || mic_device_label
+            .as_deref()
+            .is_some_and(|v| !v.trim().is_empty());
+    let session = match start_screencapturekit_recording(
+        app,
+        &safe_id,
+        include_audio,
+        capture_system_audio,
+        mic_device_id.as_deref(),
+        mic_device_label.as_deref(),
+        capture_region,
+        defer_recording_output,
+    ) {
+        Ok(session) => session,
+        Err(sck_err) => {
+            if defer_recording_output {
+                return Err(sck_err);
+            }
+            if include_audio && has_specific_mic {
+                return Err(format!(
+                    "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                ));
+            }
+            eprintln!(
+                "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+            );
+            start_screencapture_recording(
+                app,
+                &safe_id,
+                include_audio,
+                capture_system_audio,
+                capture_region,
+            )
+            .map_err(|fallback_err| {
+                format!(
+                    "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+                )
+            })?
+        }
+    };
+    let width = session.width;
+    let height = session.height;
+
+    let previous = {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    };
+    if let Some(mut previous) = previous {
+        discard_session(&mut previous);
+    }
+
+    {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        *guard = Some(session);
+    }
+
+    Ok(NativeFullscreenStartInfo {
+        recording_id: recording_id.to_string(),
+        width,
+        height,
+    })
+}
+
+/// Phase 1 of the warm/begin start. Starts ScreenCaptureKit capture with the
+/// recording output DEFERRED so the microphone pipeline warms up (its first
+/// sample lands ~1s after capture begins) without that silent second being
+/// written to the file. Meant to be called during the countdown.
+///
+/// Best-effort: warming is skipped or quietly abandoned (no mic, non-macOS, or
+/// ScreenCaptureKit unavailable) and `begin` then performs a normal immediate
+/// start — so failures here never block recording.
 #[tauri::command]
-pub async fn native_fullscreen_recording_start(
+pub async fn native_fullscreen_recording_warm(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
@@ -334,6 +463,64 @@ pub async fn native_fullscreen_recording_start(
     capture_system_audio: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
+    capture_region: Option<NativeCaptureRegion>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (
+            app,
+            state,
+            recording_id,
+            include_audio,
+            capture_system_audio,
+            mic_device_id,
+            mic_device_label,
+            capture_region,
+        );
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Only the mic introduces a warm-up gap; with mic off there's nothing
+        // to pre-warm, so `begin` just starts normally. SCK failures are
+        // swallowed too — `begin` detects the absent warm session and falls
+        // back to an immediate start, so warming is always best-effort.
+        if include_audio {
+            if let Err(err) = start_native_session_locked(
+                &app,
+                &state,
+                &recording_id,
+                include_audio,
+                capture_system_audio,
+                mic_device_id,
+                mic_device_label,
+                capture_region,
+                true,
+            ) {
+                eprintln!(
+                    "[clips-tray] microphone pre-warm unavailable; will start normally at begin: {err}"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Phase 2 of the warm/begin start. If a warmed (deferred) session exists,
+/// waits for the microphone's first sample, attaches the recording output —
+/// so the file starts with both video and mic live — and rebaselines the
+/// duration clock to this moment. Otherwise performs a normal immediate start.
+#[tauri::command]
+pub async fn native_fullscreen_recording_begin(
+    app: AppHandle,
+    state: State<'_, NativeFullscreenRecordingState>,
+    recording_id: String,
+    include_audio: bool,
+    capture_system_audio: bool,
+    mic_device_id: Option<String>,
+    mic_device_label: Option<String>,
+    capture_region: Option<NativeCaptureRegion>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
     {
@@ -345,59 +532,70 @@ pub async fn native_fullscreen_recording_start(
             capture_system_audio,
             mic_device_id,
             mic_device_label,
+            capture_region,
         );
         return Err("Native full-screen recording is currently macOS-only.".into());
     }
 
     #[cfg(target_os = "macos")]
     {
-        let safe_id = sanitize_recording_id(&recording_id);
-        let has_specific_mic = mic_device_id
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty())
-            || mic_device_label
-                .as_deref()
-                .is_some_and(|v| !v.trim().is_empty());
-        let session = match start_screencapturekit_recording(
-            &app,
-            &safe_id,
-            include_audio,
-            capture_system_audio,
-            mic_device_id.as_deref(),
-            mic_device_label.as_deref(),
-        ) {
-            Ok(session) => session,
-            Err(sck_err) => {
-                if include_audio && has_specific_mic {
-                    return Err(format!(
-                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
-                    ));
-                }
-                eprintln!(
-                    "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
-                );
-                start_screencapture_recording(&app, &safe_id, include_audio, capture_system_audio).map_err(|fallback_err| {
-                    format!(
-                        "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
-                    )
-                })?
-            }
+        let is_warmed = {
+            let guard = state.inner.lock().map_err(|e| e.to_string())?;
+            guard
+                .as_ref()
+                .map(|s| s.pending_recording_output)
+                .unwrap_or(false)
         };
+        if !is_warmed {
+            return start_native_session_locked(
+                &app,
+                &state,
+                &recording_id,
+                include_audio,
+                capture_system_audio,
+                mic_device_id,
+                mic_device_label,
+                capture_region,
+                false,
+            );
+        }
+
+        // Grab the mic-ready flag without holding the lock during the wait.
+        let mic_ready = {
+            let guard = state.inner.lock().map_err(|e| e.to_string())?;
+            guard.as_ref().and_then(|s| match s.backend.as_ref() {
+                Some(NativeFullscreenBackend::ScreenCaptureKit { mic_ready, .. }) => {
+                    mic_ready.clone()
+                }
+                _ => None,
+            })
+        };
+        if let Some(ready) = mic_ready {
+            let deadline = Instant::now() + Duration::from_millis(MIC_WARM_TIMEOUT_MS);
+            while !ready.load(Ordering::Relaxed) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(15));
+            }
+        }
+
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
         let width = session.width;
         let height = session.height;
-
-        let previous = {
-            let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-            guard.take()
-        };
-        if let Some(mut previous) = previous {
-            discard_session(&mut previous);
-        }
-
+        if let Some(NativeFullscreenBackend::ScreenCaptureKit {
+            stream, recording, ..
+        }) = session.backend.as_ref()
         {
-            let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-            *guard = Some(session);
+            stream
+                .add_recording_output(recording)
+                .map_err(|e| format!("add recording output failed: {e:?}"))?;
         }
+        // Rebaseline the duration clock: the warm phase ran during the
+        // countdown, so `started_at` (set at warm time) is several seconds
+        // early. The clip's first written frame is now, so measure from now.
+        session.started_at = Instant::now();
+        session.pending_recording_output = false;
 
         Ok(NativeFullscreenStartInfo {
             recording_id,
@@ -628,6 +826,7 @@ pub async fn native_fullscreen_recording_resume(
         restart.mic_device_label.as_deref(),
         &segment_path,
         restart.target_display_id,
+        restart.capture_region,
     )?;
     session.backend = Some(backend);
     session.segments.push(segment_path);
@@ -757,6 +956,7 @@ fn start_segment_backend(
     mic_device_label: Option<&str>,
     segment_path: &Path,
     target_display_id: Option<u32>,
+    capture_region: Option<NativeCaptureRegion>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     #[cfg(target_os = "macos")]
     {
@@ -771,6 +971,10 @@ fn start_segment_backend(
             mic_device_id,
             mic_device_label,
             target_display_id,
+            capture_region,
+            // Resume records immediately — the mic was already warmed by the
+            // initial start, so there's no silent-head to avoid here.
+            false,
         ) {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
@@ -779,13 +983,18 @@ fn start_segment_backend(
                 );
             }
         }
-        let (backend, w, h) =
-            start_screencapture_backend_at(segment_path, include_audio, target_display_id)
-                .map_err(|fallback_err| {
-                    format!(
+        let (backend, w, h) = start_screencapture_backend_at(
+            app,
+            segment_path,
+            include_audio,
+            target_display_id,
+            capture_region,
+        )
+        .map_err(|fallback_err| {
+            format!(
                 "ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})"
             )
-                })?;
+        })?;
         Ok((backend, w, h))
     }
     #[cfg(not(target_os = "macos"))]
@@ -798,6 +1007,8 @@ fn start_segment_backend(
             mic_device_id,
             mic_device_label,
             segment_path,
+            target_display_id,
+            capture_region,
         );
         Err("Native full-screen recording is currently macOS-only.".into())
     }
@@ -813,6 +1024,14 @@ fn start_screencapturekit_backend_at(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    capture_region: Option<NativeCaptureRegion>,
+    // When true the SCStream is started WITHOUT attaching the recording
+    // output — capture runs (warming the mic) but nothing is written until
+    // `add_recording_output` is called later by `begin`. When false the
+    // recording output is attached before capture starts (resume path +
+    // the no-warm fallback), preserving the original record-immediately
+    // behavior.
+    defer_recording_output: bool,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     let content =
         SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
@@ -824,11 +1043,20 @@ fn start_screencapturekit_backend_at(
 
     let source_width = display.width();
     let source_height = display.height();
-    let (width, height) = native_capture_dimensions(source_width, source_height);
-    let filter = SCContentFilter::create()
+    let region_rect = region_source_rect(capture_region, source_width, source_height)?;
+    let (capture_width, capture_height) = region_rect
+        .as_ref()
+        .map(|(_, width, height)| (*width, *height))
+        .unwrap_or((source_width, source_height));
+    let (width, height) = native_capture_dimensions(capture_width, capture_height);
+    let filter_builder = SCContentFilter::create()
         .with_display(display)
-        .with_excluding_windows(&[])
-        .build();
+        .with_excluding_windows(&[]);
+    let filter = if let Some((rect, _, _)) = region_rect {
+        filter_builder.with_content_rect(rect).build()
+    } else {
+        filter_builder.build()
+    };
     let selected_mic = if include_audio {
         resolve_microphone_capture_device(mic_device_id, mic_device_label)?
     } else {
@@ -848,6 +1076,9 @@ fn start_screencapturekit_backend_at(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
+    if let Some((rect, _, _)) = region_rect {
+        config.set_source_rect(rect);
+    }
     if let Some(device) = selected_mic.as_ref() {
         config.set_microphone_capture_device_id(&device.id);
         eprintln!(
@@ -871,23 +1102,43 @@ fn start_screencapturekit_backend_at(
     .ok_or_else(|| {
         "ScreenCaptureKit recording output could not be created. macOS 15+ is required.".to_string()
     })?;
-    let stream = SCStream::new(&filter, &config);
-    stream
-        .add_recording_output(&recording)
-        .map_err(|e| format!("add recording output failed: {e:?}"))?;
+    let mut stream = SCStream::new(&filter, &config);
+    // Observe the microphone stream so `begin` can wait for the first sample
+    // before attaching the recording output (avoids the silent-mic head).
+    let mic_ready = if include_audio {
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_cb = Arc::clone(&flag);
+        stream.add_output_handler(
+            move |_sample, of_type| {
+                if matches!(of_type, SCStreamOutputType::Microphone) {
+                    flag_cb.store(true, Ordering::Relaxed);
+                }
+            },
+            SCStreamOutputType::Microphone,
+        );
+        Some(flag)
+    } else {
+        None
+    };
+    if !defer_recording_output {
+        stream
+            .add_recording_output(&recording)
+            .map_err(|e| format!("add recording output failed: {e:?}"))?;
+    }
     if let Err(err) = stream.start_capture() {
         let _ = stream.remove_recording_output(&recording);
         let _ = std::fs::remove_file(output_path);
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {source_width}x{source_height}, mic={include_audio} system_audio={capture_system_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
             stream,
             recording,
             finish,
+            mic_ready,
         },
         Some(width),
         Some(height),
@@ -898,9 +1149,11 @@ fn start_screencapturekit_backend_at(
 /// Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
 fn start_screencapture_backend_at(
+    app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
     target_display_id: Option<u32>,
+    capture_region: Option<NativeCaptureRegion>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     if !std::path::Path::new("/usr/sbin/screencapture").exists() {
         return Err("macOS screencapture is unavailable on this machine.".into());
@@ -915,6 +1168,24 @@ fn start_screencapture_backend_at(
             })
         })
         .unwrap_or_else(|| "-D1".to_string());
+    let (region_arg, region_width, region_height) = if let Some(region) = capture_region {
+        let (mx, my, mw, mh) = crate::util::tray_monitor_physical_rect(app);
+        let (rect, width, height) = region_source_rect(Some(region), mw, mh)?
+            .ok_or_else(|| "Recording region is unavailable.".to_string())?;
+        (
+            Some(format!(
+                "{},{},{},{}",
+                mx + rect.x.round() as i32,
+                my + rect.y.round() as i32,
+                rect.width.round() as u32,
+                rect.height.round() as u32
+            )),
+            Some(width),
+            Some(height),
+        )
+    } else {
+        (None, None, None)
+    };
     let mut command = Command::new("/usr/sbin/screencapture");
     command
         .arg("-v")
@@ -926,6 +1197,9 @@ fn start_screencapture_backend_at(
         .stderr(Stdio::null());
     if include_audio {
         command.arg("-g");
+    }
+    if let Some(region_arg) = region_arg {
+        command.arg(format!("-R{region_arg}"));
     }
     command.arg(output_path);
     let mut child = command
@@ -942,7 +1216,11 @@ fn start_screencapture_backend_at(
         ));
     }
     eprintln!("[clips-tray] screencapture recording started");
-    Ok((NativeFullscreenBackend::Screencapture { child }, None, None))
+    Ok((
+        NativeFullscreenBackend::Screencapture { child },
+        region_width,
+        region_height,
+    ))
 }
 
 /// After all segments are finalized, make sure `session.path` contains a
@@ -1154,9 +1432,14 @@ fn native_extension_for_mime_type(mime_type: &str) -> &'static str {
 
 #[cfg(target_os = "macos")]
 fn normalize_audio_device_name(value: &str) -> String {
+    // Collapse to lowercase alphanumeric tokens so WebKit labels and CoreAudio
+    // names compare equal despite punctuation/possessive differences
+    // (e.g. "User's AirPods" vs "User AirPods", "Mic (Default)" vs "Mic").
     value
         .to_lowercase()
-        .replace("(default)", "")
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -1166,7 +1449,23 @@ fn normalize_audio_device_name(value: &str) -> String {
 fn names_match(a: &str, b: &str) -> bool {
     let a = normalize_audio_device_name(a);
     let b = normalize_audio_device_name(b);
-    !a.is_empty() && !b.is_empty() && (a == b || a.contains(&b) || b.contains(&a))
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a == b || a.contains(&b) || b.contains(&a) {
+        return true;
+    }
+    // Token-subset fallback: every token of the shorter name must appear in the
+    // longer one (covers reordering and dropped possessives that substring
+    // matching misses, e.g. "User's AirPods" -> "User s airpods").
+    let a_tokens: Vec<&str> = a.split(' ').collect();
+    let b_tokens: Vec<&str> = b.split(' ').collect();
+    let (short, long) = if a_tokens.len() <= b_tokens.len() {
+        (&a_tokens, &b_tokens)
+    } else {
+        (&b_tokens, &a_tokens)
+    };
+    short.iter().all(|token| long.contains(token))
 }
 
 #[cfg(target_os = "macos")]
@@ -1180,10 +1479,18 @@ fn resolve_microphone_capture_device(
         .filter(|value| !value.is_empty());
 
     if device_id.is_none() && device_label.is_none() {
+        eprintln!("[clips-tray] audio input devices not provided");
         return Ok(None);
     }
 
     let devices = AudioInputDevice::list();
+    devices.iter().for_each(|device| {
+        eprintln!(
+            "[clips-tray] audio input device: id={} name={}",
+            device.id, device.name
+        );
+    });
+
     let resolved = device_id
         .and_then(|id| devices.iter().find(|device| device.id == id))
         .or_else(|| {
@@ -1194,6 +1501,14 @@ fn resolve_microphone_capture_device(
             })
         })
         .cloned();
+
+    eprintln!(
+        "[clips-tray] mic resolve: requested id={device_id:?} label={device_label:?} -> {}",
+        match &resolved {
+            Some(device) => format!("matched {} ({})", device.name, device.id),
+            None => "NO MATCH".to_string(),
+        }
+    );
 
     resolved.map(Some).ok_or_else(|| {
         let requested = device_label.or(device_id).unwrap_or("selected microphone");
@@ -1558,6 +1873,8 @@ fn start_screencapturekit_recording(
     capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
+    capture_region: Option<NativeCaptureRegion>,
+    defer_recording_output: bool,
 ) -> Result<NativeFullscreenSession, String> {
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
@@ -1573,9 +1890,11 @@ fn start_screencapturekit_recording(
         mic_device_id,
         mic_device_label,
         target_display_id,
+        capture_region,
+        defer_recording_output,
     )?;
     let (fallback_width, fallback_height) = primary_monitor_size(app);
-    Ok(new_fullscreen_session(
+    let mut session = new_fullscreen_session(
         backend,
         path,
         MP4_RECORDING_MIME_TYPE,
@@ -1589,8 +1908,11 @@ fn start_screencapturekit_recording(
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
             target_display_id,
+            capture_region,
         },
-    ))
+    );
+    session.pending_recording_output = defer_recording_output;
+    Ok(session)
 }
 
 #[cfg(target_os = "macos")]
@@ -1599,6 +1921,7 @@ fn start_screencapture_recording(
     safe_id: &str,
     include_audio: bool,
     capture_system_audio: bool,
+    capture_region: Option<NativeCaptureRegion>,
 ) -> Result<NativeFullscreenSession, String> {
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
@@ -1607,15 +1930,20 @@ fn start_screencapture_recording(
         "[clips-tray] starting screencapture (fallback) recording -> {}",
         path.display()
     );
-    let (backend, _w, _h) =
-        start_screencapture_backend_at(&path, include_audio, target_display_id)?;
-    let (width, height) = primary_monitor_size(app);
+    let (backend, w, h) = start_screencapture_backend_at(
+        app,
+        &path,
+        include_audio,
+        target_display_id,
+        capture_region,
+    )?;
+    let (fallback_width, fallback_height) = primary_monitor_size(app);
     Ok(new_fullscreen_session(
         backend,
         path,
         QUICKTIME_RECORDING_MIME_TYPE,
-        width,
-        height,
+        w.or(fallback_width),
+        h.or(fallback_height),
         RestartInfo {
             safe_id: safe_id.to_string(),
             include_audio,
@@ -1626,6 +1954,7 @@ fn start_screencapture_recording(
             mic_device_label: None,
             segment_counter: 0,
             target_display_id,
+            capture_region,
         },
     ))
 }
@@ -1652,6 +1981,7 @@ fn new_fullscreen_session(
         paused_total: Duration::ZERO,
         paused_at: None,
         restart,
+        pending_recording_output: false,
     }
 }
 
@@ -1686,6 +2016,48 @@ fn native_capture_dimensions(width: u32, height: u32) -> (u32, u32) {
     )
 }
 
+#[cfg(target_os = "macos")]
+fn region_source_rect(
+    region: Option<NativeCaptureRegion>,
+    source_width: u32,
+    source_height: u32,
+) -> Result<Option<(CGRect, u32, u32)>, String> {
+    let Some(region) = region else {
+        return Ok(None);
+    };
+    let clamp_unit = |value: f64| {
+        if value.is_finite() {
+            value.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    let source_width = source_width.max(2);
+    let source_height = source_height.max(2);
+    let x = clamp_unit(region.x) * source_width as f64;
+    let y = clamp_unit(region.y) * source_height as f64;
+    let max_width = (source_width as f64 - x).max(1.0);
+    let max_height = (source_height as f64 - y).max(1.0);
+    let width = (clamp_unit(region.width) * source_width as f64)
+        .clamp(1.0, max_width)
+        .floor();
+    let height = (clamp_unit(region.height) * source_height as f64)
+        .clamp(1.0, max_height)
+        .floor();
+
+    let width_u32 = width as u32;
+    let height_u32 = height as u32;
+    if width_u32 < 2 || height_u32 < 2 {
+        return Err("Recording region is too small.".into());
+    }
+
+    Ok(Some((
+        CGRect::new(x.floor(), y.floor(), width, height),
+        width_u32,
+        height_u32,
+    )))
+}
+
 /// How long to wait for `SCRecordingOutput` to flush its trailing fragment
 /// and write the `moov` after we ask it to stop. Normal finalize is well
 /// under a second for these clips; this is only a safety ceiling for the
@@ -1710,6 +2082,7 @@ fn stop_native_recording(
             stream,
             recording,
             finish,
+            ..
         } => {
             let stop_result = stream
                 .stop_capture()
@@ -1837,6 +2210,7 @@ async fn upload_recording_file(
         session.width,
         session.height,
         Some(duration_ms),
+        has_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -1872,6 +2246,7 @@ async fn upload_saved_recording_file(
         saved.width,
         saved.height,
         Some(saved.duration_ms),
+        saved.has_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -2184,6 +2559,7 @@ fn prepare_recording_file(
     width: Option<u32>,
     height: Option<u32>,
     duration_ms: Option<u128>,
+    has_audio: bool,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
@@ -2207,13 +2583,52 @@ fn prepare_recording_file(
         temporary: false,
     };
 
+    let mut smallest_attempt_bytes: Option<u64> = None;
+    let ffmpeg_path = resolve_ffmpeg_path();
+
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
+        if has_audio {
+            if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
+                let normalized_path = normalized_recording_path(path);
+                let _ = std::fs::remove_file(&normalized_path);
+                match normalize_audio_with_ffmpeg(ffmpeg_path, path, &normalized_path) {
+                    Ok(()) => {
+                        let normalized_bytes = std::fs::metadata(&normalized_path)
+                            .map_err(|e| format!("normalized recording file missing: {e}"))?
+                            .len();
+                        if normalized_bytes > 0 && normalized_bytes <= max_upload_bytes() {
+                            eprintln!(
+                                "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
+                                source_bytes, normalized_bytes
+                            );
+                            return Ok(PreparedRecordingFile {
+                                path: normalized_path,
+                                mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+                                bytes: normalized_bytes,
+                                temporary: true,
+                            });
+                        }
+                        let _ = std::fs::remove_file(&normalized_path);
+                        eprintln!(
+                            "[clips-tray] audio normalization produced unusable output ({} bytes); uploading original",
+                            normalized_bytes
+                        );
+                    }
+                    Err(err) => {
+                        let _ = std::fs::remove_file(&normalized_path);
+                        eprintln!(
+                            "[clips-tray] audio normalization failed; uploading original: {err}"
+                        );
+                    }
+                }
+            } else {
+                eprintln!("[clips-tray] ffmpeg unavailable; uploading original without audio normalization");
+            }
+        }
         return Ok(original);
     }
 
-    let mut smallest_attempt_bytes: Option<u64> = None;
-
-    if let Some(ffmpeg_path) = resolve_ffmpeg_path() {
+    if let Some(ffmpeg_path) = ffmpeg_path {
         let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
@@ -2233,6 +2648,7 @@ fn prepare_recording_file(
                 width,
                 height,
                 duration_ms,
+                has_audio,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -2408,6 +2824,15 @@ fn compressed_recording_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{stem}-compressed.mp4"))
 }
 
+fn normalized_recording_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("recording");
+    path.with_file_name(format!("{stem}-normalized.mp4"))
+}
+
 #[derive(Clone, Copy)]
 struct FfmpegTranscodePreset {
     label: &'static str,
@@ -2538,6 +2963,48 @@ fn ffmpeg_scaled_dimensions(
     ))
 }
 
+fn normalize_audio_with_ffmpeg(
+    ffmpeg_path: &str,
+    source: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
+    let mut command = Command::new(ffmpeg_path);
+    command
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("warning")
+        .arg("-i")
+        .arg(source)
+        .arg("-map")
+        .arg("0:v:0")
+        .arg("-map")
+        .arg("0:a?")
+        .arg("-c:v")
+        .arg("copy")
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(audio_bitrate)
+        .arg("-af")
+        .arg(AUDIO_LOUDNESS_FILTER)
+        .arg("-ac")
+        .arg("2")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg("-f")
+        .arg("mp4")
+        .arg(output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let child = command
+        .spawn()
+        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    wait_for_transcode_child(child, FFMPEG_TIMEOUT, "ffmpeg")
+}
+
 fn native_transcode_presets(
     width: Option<u32>,
     height: Option<u32>,
@@ -2581,6 +3048,7 @@ fn transcode_with_ffmpeg(
     width: Option<u32>,
     height: Option<u32>,
     duration_ms: Option<u128>,
+    normalize_audio: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -2601,6 +3069,10 @@ fn transcode_with_ffmpeg(
         command
             .arg("-vf")
             .arg(format!("scale={scaled_w}:{scaled_h}:flags=lanczos"));
+    }
+
+    if normalize_audio {
+        command.arg("-af").arg(AUDIO_LOUDNESS_FILTER);
     }
 
     let duration_rate_limit =

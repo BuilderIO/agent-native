@@ -56,6 +56,40 @@ describe("tracking providers", () => {
     });
   });
 
+  it("waits for queued provider sends when flushing", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = () => resolve(new Response("{}"));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("qa.event", { app: "qa" }, { userId: "u1" });
+    let flushed = false;
+    const flushPromise = flushTracking().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(flushed).toBe(false);
+
+    resolveFetch?.();
+    await flushPromise;
+
+    expect(flushed).toBe(true);
+  });
+
   it("does not register Agent Native Analytics for localhost app URLs", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");

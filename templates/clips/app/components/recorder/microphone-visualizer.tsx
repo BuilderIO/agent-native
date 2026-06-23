@@ -8,7 +8,6 @@ export type MicrophoneTestStatus = "idle" | "starting" | "live" | "error";
 export interface MicrophoneVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
-  selectedLabel?: string;
   idleActionLabel?: string;
   idleHelper?: string;
   className?: string;
@@ -115,7 +114,6 @@ export async function friendlyMicError(err: unknown): Promise<string> {
 export function MicrophoneVisualizer({
   deviceId,
   disabled,
-  selectedLabel,
   idleActionLabel = "Test mic",
   idleHelper,
   className,
@@ -440,33 +438,42 @@ export function MicrophoneVisualizer({
 
   const live = status === "live";
   const starting = status === "starting";
-  const helper = disabled
-    ? "Microphone is disabled for this recording."
+  const statusLabel = disabled
+    ? "Off"
     : error
-      ? error
+      ? "Needs access"
       : live
         ? hasSignal
-          ? "Signal detected — your selected microphone is picking you up."
-          : "Speak now — the waveform should move with your voice."
+          ? "Signal"
+          : "Listening"
         : starting
-          ? "Opening microphone…"
-          : (idleHelper ??
-            "Click Test mic, then speak to verify input before recording.");
+          ? "Opening"
+          : null;
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-muted/25 p-3",
-        disabled && "opacity-70",
-        className,
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground">Mic check</div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {selectedLabel ?? "Selected microphone"}
-          </div>
+    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "relative h-7 min-w-0 flex-1 overflow-hidden rounded-full border bg-muted/20",
+            live && hasSignal ? "border-foreground/35" : "border-border",
+          )}
+        >
+          <canvas
+            ref={canvasRef}
+            aria-label="Selected microphone waveform"
+            className="h-full w-full opacity-75"
+          />
+          {statusLabel ? (
+            <span
+              className={cn(
+                "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm",
+                error && "text-foreground",
+              )}
+            >
+              {statusLabel}
+            </span>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -474,39 +481,18 @@ export function MicrophoneVisualizer({
           size="sm"
           disabled={disabled || starting}
           onClick={live ? stopTest : startTest}
-          className="h-8 px-2.5 text-xs"
+          className="h-7 shrink-0 px-2.5 text-xs"
         >
-          {live ? "Stop" : starting ? "Listening…" : idleActionLabel}
+          {live ? "Stop" : starting ? "Opening..." : idleActionLabel}
         </Button>
       </div>
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-lg border bg-background",
-          live && hasSignal ? "border-foreground/45" : "border-border",
-        )}
-      >
-        <canvas
-          ref={canvasRef}
-          aria-label="Selected microphone waveform"
-          className="h-12 w-full"
-        />
-        {live && (
-          <div
-            className={cn(
-              "pointer-events-none absolute right-2 top-2 h-2 w-2 rounded-full",
-              hasSignal ? "bg-foreground" : "bg-muted-foreground/40",
-            )}
-          />
-        )}
-      </div>
-      <p
-        className={cn(
-          "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-foreground",
-        )}
-      >
-        {helper}
-      </p>
+      {error ? (
+        <p className="text-[11px] leading-snug text-foreground">{error}</p>
+      ) : idleHelper && !live && !starting ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {idleHelper}
+        </p>
+      ) : null}
     </div>
   );
 }

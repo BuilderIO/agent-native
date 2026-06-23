@@ -17,6 +17,13 @@ approval/denial controls, or links into app views. Use [MCP Apps](/docs/mcp-apps
 when an external host such as Claude, ChatGPT, Copilot, or Cursor should render
 an inline route from your app.
 
+```an-diagram title="The native render path" summary="An action returns JSON; the runtime matches an explicit widget discriminant or chatUI.renderer; AssistantChat mounts a real React component. No iframe, no HTML execution."
+{
+  "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action runs<br><small class=\"diagram-muted\">returns structured JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">mounts a React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
+  "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## Action-declared widgets {#action-declared-widgets}
 
 The native path has two explicit parts:
@@ -90,9 +97,12 @@ export default defineAction({
 });
 ```
 
-The renderer only takes over when the action declares `chatUI` or the result has
-an explicit known `widget` discriminant. It never shape-infers arbitrary objects
-and it never executes HTML or JavaScript from tool results.
+```an-callout
+{
+  "tone": "success",
+  "body": "The renderer only takes over when the action declares `chatUI` **or** the result carries an explicit known `widget` discriminant. It never shape-infers arbitrary objects and never executes HTML or JavaScript from tool results — so a native widget can't become an injection vector."
+}
+```
 
 When a user asks for a chart, graph, table, trend, or compact report, app agents
 should prefer an action that declares one of these native renderers. The final
@@ -198,6 +208,13 @@ and surrounding app layout. The [Drop-in Agent](/docs/drop-in-agent#custom-chat-
 tutorial points here for the runtime story, and [Component API](/docs/components#agent-chat-ui)
 lists each connector and adapter with its import path; the contract itself is
 described below.
+
+```an-diagram title="BYO runtime keeps the Agent-Native chat shell" summary="Your external agent streams normalized events through a connector; Agent-Native keeps the composer, transcript, tool cards, approvals, and native widgets."
+{
+  "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>Your agent<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">normalized message-* / tool-* events</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
+  "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 All connectors are exported from `@agent-native/core/client/chat` (and the root
 `@agent-native/core/client` entry). Use the generic HTTP runtime when your agent

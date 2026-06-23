@@ -10,6 +10,8 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { parseSlidesFigDesignSystem } from "../server/lib/fig-design-system.js";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
+const DEFAULT_MAX_SOURCE_CHARS = 60_000;
+
 export default defineAction({
   description:
     "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
@@ -40,9 +42,19 @@ export default defineAction({
       .describe(
         "If true, replace deckId's slides with slides converted from the file.",
       ),
+    maxChars: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(100_000)
+      .optional()
+      .describe(
+        "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
+      ),
   }),
-  run: async ({ filePath, format, deckId, importIntoDeck }) => {
+  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
     const absPath = resolveUserUploadedFile(filePath);
+    const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
 
     const fileBuffer = await fs.promises.readFile(absPath);
 
@@ -170,14 +182,14 @@ export default defineAction({
         format: "docx",
         title,
         sectionCount: doc.sections.length,
-        text: doc.text,
-        sections: doc.sections.map((s) => ({
-          heading: s.heading,
-          content: s.content,
-          text: stripTags(s.content),
-          contentPreview: stripTags(s.content).slice(0, 500),
-        })),
+        text: truncateText(doc.text, sourceLimit).text,
+        sections: summarizeSections(doc.sections),
         textLength: doc.text.length,
+        truncated: doc.text.length > sourceLimit,
+        note:
+          doc.text.length > sourceLimit
+            ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
+            : undefined,
         deckId,
       };
     }
@@ -221,18 +233,23 @@ export default defineAction({
           imported: true,
         };
       }
+      const totalTextLength = textPages.reduce(
+        (sum, p) => sum + p.text.length,
+        0,
+      );
 
       return {
         format: "pdf",
         title: `Imported PDF (${pages.length} pages)`,
         pageCount: pages.length,
         textPageCount: textPages.length,
-        pages: textPages.map((p) => ({
-          pageNum: p.num,
-          text: p.text,
-          textPreview: p.text.slice(0, 500),
-          textLength: p.text.length,
-        })),
+        pages: truncatePages(textPages, sourceLimit),
+        totalTextLength,
+        truncated: totalTextLength > sourceLimit,
+        note:
+          totalTextLength > sourceLimit
+            ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
+            : undefined,
         deckId,
       };
     }
@@ -267,6 +284,57 @@ function normalizePdfPages(result: unknown): { num: number; text: string }[] {
     num: i + 1,
     text: pageText.trim(),
   }));
+}
+
+function truncateText(
+  text: string,
+  limit: number,
+): { text: string; truncated: boolean } {
+  if (text.length <= limit) return { text, truncated: false };
+  return { text: text.slice(0, limit), truncated: true };
+}
+
+function takeFromBudget(
+  text: string,
+  budget: { remaining: number },
+): { text: string; truncated: boolean } {
+  if (budget.remaining <= 0) {
+    return { text: "", truncated: text.length > 0 };
+  }
+  if (text.length <= budget.remaining) {
+    budget.remaining -= text.length;
+    return { text, truncated: false };
+  }
+  const taken = text.slice(0, budget.remaining);
+  budget.remaining = 0;
+  return { text: taken, truncated: true };
+}
+
+function truncatePages(pages: { num: number; text: string }[], limit: number) {
+  const budget = { remaining: limit };
+  return pages
+    .map((p) => {
+      const truncated = takeFromBudget(p.text, budget);
+      return {
+        pageNum: p.num,
+        text: truncated.text,
+        textPreview: p.text.slice(0, 500),
+        textLength: p.text.length,
+        truncated: truncated.truncated,
+      };
+    })
+    .filter((p) => p.text || p.textLength === 0);
+}
+
+function summarizeSections(sections: { heading: string; content: string }[]) {
+  return sections.map((s) => {
+    const plain = stripTags(s.content);
+    return {
+      heading: s.heading,
+      textPreview: plain.slice(0, 500),
+      textLength: plain.length,
+    };
+  });
 }
 
 async function replaceDeckSlides(

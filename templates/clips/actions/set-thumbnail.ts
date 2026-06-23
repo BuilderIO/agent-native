@@ -26,6 +26,7 @@ import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
@@ -91,6 +92,9 @@ export default defineAction({
       );
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
+    }
+    if (args.kind !== "upload") {
+      assertNativeRecordingMedia(existing);
     }
 
     const edits = parseEdits(existing.editsJson);

@@ -19,6 +19,13 @@ One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-ag
 If you are deciding whether to expose an operation headlessly, in chat, in an
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
+```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+{
+  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
+  "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+}
+```
+
 If the UI and agent both need to do something, reach for an action — not a custom
 route. For when a route-shaped protocol _is_ the right call, see [Prefer Actions
 For App Operations](/docs/server#actions-first).
@@ -50,6 +57,13 @@ export default defineAction({
 Run it from the same folder:
 
 ```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+The CLI accepts a JSON object as the action input, which matches the structured
+tool calls agents already make. Simple flags still work for quick manual runs:
+
+```bash
 pnpm action hello --name Steve
 ```
 
@@ -65,22 +79,17 @@ around actions, not a required prerequisite for the action itself.
 
 ## Defining an action {#defining}
 
-```ts
-// actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Reply to an email thread in the user's voice.",
-  schema: z.object({
-    emailId: z.string().describe("The id of the email to reply to."),
-    body: z.string().describe("The reply body, in markdown."),
-  }),
-  run: async ({ emailId, body }) => {
-    await db.insert(replies).values({ emailId, body });
-    return { ok: true, emailId };
-  },
-});
+```an-annotated-code title="Anatomy of an action"
+{
+  "filename": "actions/reply-to-email.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
+    { "lines": "6-9", "label": "Typed contract", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
+    { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
+  ]
+}
 ```
 
 That's it. The framework auto-discovers every file in `actions/` and mounts them on startup.
@@ -140,6 +149,23 @@ export default defineAction({
 ```
 
 For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions/get-lead?leadId=abc`.
+
+```an-api title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead"
+{
+  "method": "GET",
+  "path": "/_agent-native/actions/get-lead",
+  "summary": "Every action is mounted here automatically — the filename is the action name.",
+  "description": "POST by default; `http: { method: \"GET\" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.",
+  "auth": "Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`",
+  "params": [
+    { "name": "leadId", "in": "query", "type": "string", "required": true, "description": "GET args arrive as query params; POST args arrive in the JSON body." }
+  ],
+  "responses": [
+    { "status": "200", "description": "The action's return value as JSON." },
+    { "status": "400", "description": "Input failed schema validation before run() fired." }
+  ]
+}
+```
 
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — default `POST`. `GET` actions are auto-marked `readOnly` so successful calls don't trigger a UI poll-refresh.
 - **`http: { path: "..." }`** — override the mounted URL under `/_agent-native/actions/`. Defaults to the filename. **Path overrides change the URL only for direct HTTP callers** — `useActionQuery`, `useActionMutation`, and `callAction` always call `/_agent-native/actions/<name>` regardless of this override, so overriding the path makes those hooks 404. Use path overrides only for external HTTP callers. Note also that `:param` route segments in the override path are **not** parsed into `run()` args — only query-string params and JSON body fields are.
@@ -396,10 +422,12 @@ headless, render in chat, or grow into a full screen.
 Every action is runnable via `pnpm action`:
 
 ```bash
-pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
 ```
 
-Flags are parsed into the shape your schema expects. Useful for agent-dev loops, scripts, and cron.
+JSON input is the preferred shape for agents and complex objects. Flags are
+still parsed into the same schema shape for simple manual runs and existing
+scripts. Useful for agent-dev loops, scripts, and cron.
 
 ## Calling it from another agent (A2A) {#a2a}
 

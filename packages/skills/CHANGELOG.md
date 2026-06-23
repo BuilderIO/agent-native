@@ -1,5 +1,158 @@
 # @agent-native/skills
 
+## 0.2.52
+
+### Patch Changes
+
+- Updated dependencies [1b61a90]
+  - @agent-native/core@0.67.0
+
+## 0.2.51
+
+### Patch Changes
+
+- Updated dependencies [11a28e7]
+  - @agent-native/core@0.66.9
+
+## 0.2.50
+
+### Patch Changes
+
+- f514c12: Add the Content app-backed skill and a `skills add content --mode local-files`
+  install path that writes Content local-file workspace defaults to
+  `agent-native.json`.
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+- Updated dependencies [f514c12]
+  - @agent-native/core@0.66.8
+
+## 0.2.49
+
+### Patch Changes
+
+- Updated dependencies [3d7df7d]
+- Updated dependencies [3d7df7d]
+  - @agent-native/core@0.66.7
+
+## 0.2.48
+
+### Patch Changes
+
+- Updated dependencies [337bcc5]
+- Updated dependencies [337bcc5]
+- Updated dependencies [337bcc5]
+  - @agent-native/core@0.66.6
+
+## 0.2.47
+
+### Patch Changes
+
+- Updated dependencies [c650d44]
+  - @agent-native/core@0.66.5
+
+## 0.2.46
+
+### Patch Changes
+
+- Updated dependencies [54b2c33]
+  - @agent-native/core@0.66.4
+
+## 0.2.45
+
+### Patch Changes
+
+- Updated dependencies [533afe1]
+  - @agent-native/core@0.66.3
+
+## 0.2.44
+
+### Patch Changes
+
+- Updated dependencies [89d3852]
+- Updated dependencies [89d3852]
+- Updated dependencies [89d3852]
+- Updated dependencies [89d3852]
+- Updated dependencies [89d3852]
+  - @agent-native/core@0.66.2
+
+## 0.2.43
+
+### Patch Changes
+
+- Updated dependencies [113abe7]
+- Updated dependencies [113abe7]
+  - @agent-native/core@0.66.1
+
+## 0.2.42
+
+### Patch Changes
+
+- Updated dependencies [bd0d8b5]
+  - @agent-native/core@0.66.0
+
+## 0.2.41
+
+### Patch Changes
+
+- Updated dependencies [2b8cfd0]
+  - @agent-native/core@0.65.0
+
+## 0.2.40
+
+### Patch Changes
+
+- Updated dependencies [13c202b]
+  - @agent-native/core@0.64.1
+
+## 0.2.39
+
+### Patch Changes
+
+- Updated dependencies [9d5f12b]
+  - @agent-native/core@0.64.0
+
+## 0.2.38
+
+### Patch Changes
+
+- Updated dependencies [0105ab5]
+  - @agent-native/core@0.63.6
+
+## 0.2.37
+
+### Patch Changes
+
+- 7c28a87: Fix CLI commands hanging indefinitely on success due to Node.js keep-alive and telemetry timers
+- Updated dependencies [7c28a87]
+  - @agent-native/core@0.63.5
+
+## 0.2.36
+
+### Patch Changes
+
+- Updated dependencies [7d72d52]
+- Updated dependencies [7d72d52]
+- Updated dependencies [7d72d52]
+  - @agent-native/core@0.63.4
+
+## 0.2.35
+
+### Patch Changes
+
+- Updated dependencies [ad14341]
+  - @agent-native/core@0.63.3
+
+## 0.2.34
+
+### Patch Changes
+
+- Updated dependencies [d9e93a3]
+- Updated dependencies [d9e93a3]
+- Updated dependencies [d9e93a3]
+  - @agent-native/core@0.63.2
+
 ## 0.2.33
 
 ### Patch Changes

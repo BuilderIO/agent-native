@@ -18,6 +18,17 @@ With one config file, every agent-native app in your workspace gains access to t
 
 You can also [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — individual users or whole organizations — without editing a config file.
 
+Every source resolves into one runtime **MCP manager**, and every tool it learns lands in the agent's tool registry under a collision-proof `mcp__<server-id>__<tool>` prefix — searchable by intent through `tool-search`.
+
+```an-diagram title="Client direction: many sources, one tool registry" summary="Config files, env, and runtime UI all merge into the MCP manager; its tools appear prefixed and tool-searchable alongside your app's actions. This is the mirror of the server direction."
+{
+  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">shared across apps</small></div><div class=\"diagram-box\" data-rough>App-root <code>mcp.config.json</code><br><small class=\"diagram-muted\">per-app override</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / production</small></div><div class=\"diagram-box\" data-rough>Remote via settings UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent tool registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">discover by intent</small></div></div></div>",
+  "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
+}
+```
+
+> The opposite direction — making _your_ app an MCP server that other hosts consume — lives in [MCP Protocol](/docs/mcp-protocol) and [External Agents](/docs/external-agents).
+
 ## Built-in browser and computer-use capabilities {#built-in-capabilities}
 
 Agent-native includes local-development toggles for common stdio MCP servers.
@@ -86,6 +97,21 @@ Create `mcp.config.json` at your workspace root (or at an individual app root �
       ],
     },
   },
+}
+```
+
+The shape is small: a `servers` map keyed by server id, where each entry is either a stdio launcher (`command` + `args` + optional `env`) or a remote `{ "type": "http", "url", "headers" }` entry.
+
+```an-annotated-code title="mcp.config.json, annotated"
+{
+  "filename": "mcp.config.json",
+  "language": "jsonc",
+  "code": "{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}",
+  "annotations": [
+    { "lines": "3", "label": "Server id", "note": "The key becomes the tool prefix: this server's tools surface as `mcp__claude-in-chrome__*` in the agent's registry, so they can't collide with your template's actions." },
+    { "lines": "4-6", "label": "stdio launcher", "note": "`command` + `args` spawn a local binary. Stdio servers are intended for **local development** — they are a no-op in edge runtimes." },
+    { "lines": "6", "label": "Process env", "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens." }
+  ]
 }
 ```
 
@@ -176,6 +202,13 @@ If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips)
 
 Dispatch is the conventional hub — it already coordinates across apps.
 
+```an-diagram title="Hub model: one app serves org-scope MCP servers" summary="Dispatch holds the org-scope MCP servers; consumer apps pull and merge them as mcp__hub_<orgId>_<name>__*. Only org-scope rows are shared — personal credentials stay put."
+{
+  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">org-scope MCP servers</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge each ~60s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
+  "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
+}
+```
+
 For new workspace setups, prefer **Dispatch workspace MCP resources** when you
 want the same All-app vs selected-app grant model used by workspace skills,
 instructions, and reference resources. Add a workspace resource with:
@@ -247,6 +280,22 @@ Local UI adds in each app hot-reload via `McpClientManager.reconfigure()` — no
 ## Status route {#status-route}
 
 Every app exposes `GET /_agent-native/mcp/status` for tooling and onboarding:
+
+```an-api
+{
+  "method": "GET",
+  "path": "/_agent-native/mcp/status",
+  "summary": "MCP client status for tooling and onboarding",
+  "description": "Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build \"detected — your agent can now drive X\" hints or to debug connection problems.",
+  "responses": [
+    {
+      "status": "200",
+      "description": "Configured vs connected servers, tool inventory, and per-server errors.",
+      "example": "{\n  \"configuredServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"connectedServers\": [\"claude-in-chrome\", \"playwright\"],\n  \"totalTools\": 21,\n  \"tools\": [\n    {\n      \"source\": \"claude-in-chrome\",\n      \"name\": \"mcp__claude-in-chrome__navigate\",\n      \"description\": \"Navigate the browser to a URL\"\n    }\n  ],\n  \"errors\": {}\n}"
+    }
+  ]
+}
+```
 
 ```json
 {

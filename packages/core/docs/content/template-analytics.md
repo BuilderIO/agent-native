@@ -7,17 +7,21 @@ description: "Ask analytics questions in plain English, get charts and dashboard
 
 Ask analytics questions in plain English, get charts and dashboards back. The agent connects to BigQuery, GA4, Amplitude, the built-in first-party event collector, HubSpot, Jira, and a dozen other sources, writes the query for you, validates it, and renders the answer as a chart, table, or saved dashboard panel.
 
-<!-- screenshot:
-  app: analytics
-  view: /adhoc/<dashboard-id>
-  shows: Adhoc dashboard with 3 KPI cards (Weekly active users 24,318 / New signups 1,842 / Revenue MRR $48,210), Weekly active users line chart and Revenue over time area chart side by side, Signups by source bar chart below
-  account: screenshot-account (dashboard authored on this account against a seeded warehouse)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
-
-![Analytics dashboard with KPIs and charts](/screenshots/analytics.png)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+}
+```
 
 It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
+
+```an-diagram title="Question to chart" summary="The agent consults the data dictionary, writes SQL, validates it against the warehouse, then renders a chart or saves a panel."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 ## What you can do with it
 
@@ -89,42 +93,15 @@ pnpm dev
 
 The CLI prints the local dev URL. Sign in with Google, then open the **Data Sources** page to connect BigQuery, GA4, first-party tracking, HubSpot, Jira, and the rest.
 
-### Key features (technical)
+### Key features
 
-**Natural-language chart generation.** Ask the agent in plain English. It picks the right data source, writes the SQL, validates it against the warehouse, and renders the chart inline in chat or as a saved panel. Chart types: `line`, `area`, `bar`, `metric`, `table`, `pie`.
+**Ask questions, get charts.** The agent picks a data source, writes and validates SQL, then renders a chart, table, metric, or saved panel.
 
-**Reusable SQL dashboards.** Dashboards are a named config with an array of panels. Each panel has an `id`, `title`, `sql`, `source` (`bigquery` / `ga4` / `amplitude` / `first-party`), `chartType`, and `width` (1 or 2 columns). See the full shape in `templates/analytics/app/pages/adhoc/sql-dashboard/types.ts`.
+**Dashboards and investigations.** Reusable dashboards keep SQL panels, filters, saved views, and sharing; ad-hoc analyses save longer findings with re-run instructions.
 
-Dashboards support:
+**Living data dictionary.** Metric definitions, owners, source tables, and known caveats give the agent the real warehouse vocabulary before it writes queries.
 
-- **Parametric SQL** — declare `variables` and `filters` at the dashboard level; panels reference them with `{{var}}` interpolation.
-- **Saved views** — per-dashboard filter presets stored in the `dashboard_views` table.
-- **Resizable panels** — 1- or 2-column width per panel; the grid fills the rest.
-- **Sharing** — private by default, share with users or orgs (`viewer` / `editor` / `admin`).
-
-**Ad-hoc analyses.** Long-form investigations that cross-reference sources. An analysis saves the original question, step-by-step re-run instructions, the data sources it touched, and the full findings in Markdown. Anyone with access can re-run it against fresh data. Stored in the `analyses` table (see `templates/analytics/server/db/schema.ts`).
-
-**Living data dictionary.** Canonical catalog of metrics — metric name, definition, table, columns, SQL template, known gotchas, owner, and data lag. The agent reads it before writing any SQL, so it uses the real warehouse column names (`hs_is_closed`, not guessed `is_closed`) and knows about caveats like "excludes internal emails". Seeded by asking the agent to import definitions from an existing source (dbt descriptions, a Notion page, a team wiki).
-
-**SQL query explorer.** Direct queries against BigQuery and supported analytics backends from the **Ad-hoc** view. Useful for iterating before saving a dashboard panel.
-
-**First-party analytics collector.** Hosted apps can send product and template events to `/track` with a public write key. Query those events through `query-agent-native-analytics` or dashboard panels with `source: "first-party"`.
-
-**Multiple data connectors.** Built-in actions for common sources:
-
-| Category      | Actions                                                                  |
-| ------------- | ------------------------------------------------------------------------ |
-| Warehouse     | `bigquery`, `bigquery-table-info`, `ga4-report`                          |
-| Product       | `mixpanel-events`, `amplitude-events`, `posthog-events`                  |
-| CRM & Revenue | `hubspot-deals`, `hubspot-metrics`, `hubspot-pipelines`, `apollo-search` |
-| Engineering   | `github-prs`, `jira-search`, `jira-analytics`                            |
-| Support       | `pylon-issues`, `gong-calls`                                             |
-| Community     | `commonroom-members`, `twitter-tweets`                                   |
-| Content & SEO | `seo-top-keywords`, `seo-page-keywords`, `seo-blog-pages`                |
-
-Full list lives in `templates/analytics/actions/`. New sources are added by dropping a new action file — the agent picks them up automatically.
-
-**Organizations and sharing.** Multi-org deployments are wired up by default via `@agent-native/core/org`. Dashboards and analyses are scoped to the active org. The `/team` route manages members and invitations. See `templates/analytics/app/routes/team.tsx`. Sharing uses the framework's `share-resource` primitive. Coarse visibility is `private` / `org` / `public`; fine-grained grants are per-principal with `viewer` / `editor` / `admin` roles.
+**Broad connector surface.** BigQuery, GA4, product analytics, CRM, support, community, GitHub/Jira, SEO, and first-party `/track` events all come through actions the agent can call.
 
 ### Working with the agent
 
@@ -179,6 +156,59 @@ Note: the BigQuery OAuth credential for Google sign-in is a **separate** credent
 ### Data model
 
 Core tables (see `templates/analytics/server/db/schema.ts`):
+
+```an-schema title="Analytics data model" summary="Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
+{
+  "entities": [
+    {
+      "id": "dashboards",
+      "name": "dashboards",
+      "note": "Explorer and SQL dashboards",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "kind", "type": "text", "note": "\"explorer\" or \"sql\"" },
+        { "name": "config", "type": "text", "note": "JSON matching SqlDashboardConfig" }
+      ]
+    },
+    {
+      "id": "dashboard_views",
+      "name": "dashboard_views",
+      "note": "Saved filter presets per dashboard",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "dashboard_id", "type": "text", "fk": "dashboards.id" }
+      ]
+    },
+    {
+      "id": "analyses",
+      "name": "analyses",
+      "note": "Re-runnable ad-hoc investigations",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "question", "type": "text" },
+        { "name": "instructions", "type": "text", "note": "Re-run steps" },
+        { "name": "dataSources", "type": "text", "note": "Sources touched" },
+        { "name": "resultMarkdown", "type": "text" },
+        { "name": "resultData", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "bigquery_cache",
+      "name": "bigquery_cache",
+      "note": "Result cache keyed by SQL hash",
+      "fields": [
+        { "name": "sql_hash", "type": "text", "pk": true },
+        { "name": "bytes_processed", "type": "integer" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "dashboards", "to": "dashboard_views", "kind": "1-n", "label": "saved views" }
+  ]
+}
+```
+
+Plus per-resource share tables (`dashboard_shares`, `analysis_shares`) and the org tables (`organizations`, `org_members`, `org_invitations`) provided by `@agent-native/core/org`. The data dictionary lives in the framework's `settings` table under scoped keys.
 
 - **`dashboards`** — both Explorer and SQL dashboards. `kind` is `"explorer"` or `"sql"`; `config` is a JSON blob matching `SqlDashboardConfig`.
 - **`dashboard_shares`** — per-resource share grants (principal, role).

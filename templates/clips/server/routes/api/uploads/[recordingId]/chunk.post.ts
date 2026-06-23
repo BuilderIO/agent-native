@@ -27,6 +27,10 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { getEventOwnerContext } from "../../../../lib/recordings.js";
+import {
+  shouldRejectVideoUploadWithoutStorage,
+  STORAGE_SETUP_REQUIRED_REASON,
+} from "../../../../lib/video-storage.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   listAppState,
@@ -180,6 +184,31 @@ export default defineEventHandler(async (event: H3Event) => {
       return failedUploadResponse(
         existing.failureReason ?? "Recording upload has already failed.",
       );
+    }
+
+    if (await shouldRejectVideoUploadWithoutStorage()) {
+      const now = new Date().toISOString();
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureReason: STORAGE_SETUP_REQUIRED_REASON,
+          updatedAt: now,
+        })
+        .where(eq(schema.recordings.id, recordingId));
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "failed",
+        failureReason: STORAGE_SETUP_REQUIRED_REASON,
+        storageSetupRequired: true,
+        updatedAt: now,
+      });
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: STORAGE_SETUP_REQUIRED_REASON,
+        storageSetupRequired: true,
+      };
     }
 
     const raw = await readRawBody(event, false);

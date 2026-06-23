@@ -69,6 +69,34 @@ describe("PlanTableOfContents", () => {
     ]);
   });
 
+  it("does not synthesize a block label that a real heading already names", () => {
+    const blocks: PlanBlock[] = [
+      {
+        id: "kc",
+        type: "rich-text",
+        data: { markdown: "## Key changes" },
+      },
+      {
+        id: "d1",
+        type: "diff",
+        data: { filename: "a.ts", before: "1", after: "2" },
+      },
+      {
+        id: "files",
+        type: "file-tree",
+        data: { entries: [{ path: "a.ts", change: "modified" }] },
+      },
+    ];
+
+    const items = collectPlanTocItems(blocks);
+    // The "## Key changes" heading already covers the diff block, so the diff
+    // must NOT add a second "Key changes" entry; the file-tree still gets one.
+    expect(items.map((item) => ({ id: item.id, label: item.label }))).toEqual([
+      { id: "plan-heading-kc-0", label: "Key changes" },
+      { id: "plan-section-files", label: "Files changed" },
+    ]);
+  });
+
   it("cleans simple markdown from heading labels", () => {
     const blocks: PlanBlock[] = [
       {

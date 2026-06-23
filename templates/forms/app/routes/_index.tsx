@@ -23,14 +23,23 @@ import {
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
+const SEO_TITLE =
+  "Agent-Native Forms - Open Source AI form builder and response analytics";
+const SEO_DESCRIPTION =
+  "Open Source AI form builder for creating, publishing, editing, and analyzing forms and responses from a chat-first workspace.";
+
 export function meta() {
   return [
-    { title: "Forms - Agent-Native" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent builds, publishes, and analyzes forms alongside you.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 

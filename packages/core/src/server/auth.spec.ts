@@ -1030,6 +1030,28 @@ describe("server/auth", () => {
         expect((result as Response).status).toBe(302);
         expect((result as Response).headers.get("location")).toBe("/dispatch");
       }
+
+      const recapResult = await guard(
+        createMockEvent({
+          path: "/dispatch/login?return=%2Fdispatch%2Frecaps%2Frecap_123",
+        }),
+      );
+      expect(recapResult).toBeInstanceOf(Response);
+      expect((recapResult as Response).status).toBe(302);
+      expect((recapResult as Response).headers.get("location")).toBe(
+        "/dispatch/recaps/recap_123",
+      );
+
+      const unsafeResult = await guard(
+        createMockEvent({
+          path: "/dispatch/login?return=https%3A%2F%2Fevil.example%2Fx",
+        }),
+      );
+      expect(unsafeResult).toBeInstanceOf(Response);
+      expect((unsafeResult as Response).status).toBe(302);
+      expect((unsafeResult as Response).headers.get("location")).toBe(
+        "/dispatch",
+      );
     });
 
     it("quietly falls back when auto dev account signup loses a duplicate-user race", async () => {
@@ -1475,6 +1497,104 @@ describe("server/auth", () => {
       expect(signInEmail).toHaveBeenCalledWith({
         body: { email: "user@example.com", password: "secret-password" },
       });
+    });
+
+    it("rejects register emails that Better Auth would reject before signup", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const result = await registerHandler(
+        createJsonPostEvent("/_agent-native/auth/register", {
+          email: "steve+1@builderio",
+          password: "secret-password",
+        }),
+      );
+
+      expect(result).toEqual({
+        error: "Enter a valid email address, like you@example.com.",
+      });
+      expect(signUpEmail).not.toHaveBeenCalled();
+    });
+
+    it("does not expose raw Better Auth email validation errors", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {
+        throw new Error("[body.email] Invalid input");
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "steve+1@builder.io",
+        password: "secret-password",
+      });
+      const result = await registerHandler(event);
+
+      expect(event.res.status).toBe(400);
+      expect(result).toEqual({
+        error: "Enter a valid email address, like you@example.com.",
+      });
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
     });
 
     it("accepts HEAD on the auth session endpoint", async () => {
@@ -3107,6 +3227,101 @@ describe("server/auth", () => {
       expect(setCookie).toContain("an_session_slides=");
     });
 
+    it("tracks a first-time Google OAuth session as a signup", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "plan");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      const hasBetterAuthUserEmail = vi.fn(async () => false);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        hasBetterAuthUserEmail,
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          name: "Google User",
+        },
+      });
+
+      expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
+      expect(trackSignupEvent).toHaveBeenCalledWith({
+        authProvider: "google",
+        authUserId: "google-user-1",
+        email: "user@gmail.com",
+        name: "Google User",
+      });
+    });
+
+    it("does not track Google OAuth signup for an existing legacy session email", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [{ exists: 1 }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      const hasBetterAuthUserEmail = vi.fn(async () => false);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        hasBetterAuthUserEmail,
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          name: "Google User",
+        },
+      });
+
+      expect(trackSignupEvent).not.toHaveBeenCalled();
+    });
+
     it("ignores first-party shared cookie domains and sets an isolated app session", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
@@ -3295,6 +3510,59 @@ describe("server/auth", () => {
       );
       expect(event.res.headers.get("Referrer-Policy")).toBe("no-referrer");
     });
+
+    it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          {
+            sessionToken: "token-1",
+            returnUrl: "/recaps/recap-abc",
+          },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      // Native app: the deep link still fires so the RN shell can capture the
+      // session and re-open the WebView.
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain("token=token-1");
+      // Mobile web: the deep link no-ops, so the fallback must return to the
+      // original page the visitor opened — never the bare app root.
+      expect(html).toContain('window.location.href="/recaps/recap-abc"');
+      expect(html).not.toContain('window.location.href="/"');
+    });
+
+    it("mobile callback fallback defaults to the app root when there is no return URL", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const response = await Promise.resolve(
+        oauthCallbackResponse(
+          createMockEvent({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            },
+            query: { state: "state-1" },
+          }),
+          "steve@example.com",
+          { sessionToken: "token-1" },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain("agentnative://oauth-complete");
+      expect(html).toContain('window.location.href="/"');
+    });
   });
 
   describe("getAppUrl", () => {
@@ -3330,6 +3598,15 @@ describe("server/auth", () => {
       const { getAppProductionUrl } = await import("./app-url.js");
 
       expect(getAppProductionUrl()).toBe("https://workspace.example.test");
+    });
+
+    it("ignores loopback APP_URL values in hosted production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_URL", "http://localhost:8094");
+      vi.stubEnv("URL", "https://clips.agent-native.com");
+      const { getAppProductionUrl } = await import("./app-url.js");
+
+      expect(getAppProductionUrl()).toBe("https://clips.agent-native.com");
     });
   });
 
@@ -3708,4 +3985,26 @@ function createMockEvent(opts?: {
     path: url,
     _cookies: opts?.cookies || {},
   };
+}
+
+function createJsonPostEvent(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): any {
+  const request = new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  const requestHeaders = Object.fromEntries(request.headers.entries());
+  const event = createMockEvent({ path, headers: requestHeaders });
+  event.req = request;
+  event.headers = request.headers;
+  event.node.req.method = "POST";
+  event.node.req.headers = requestHeaders;
+  return event;
 }

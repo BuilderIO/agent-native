@@ -133,6 +133,56 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(basename?.className).toContain("text-plan-code-text");
   });
 
+  it("renders subtle hover indicators on the first line of each annotated range", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: [
+              "const one = 1;",
+              "const two = 2;",
+              "const three = 3;",
+              "const four = 4;",
+            ].join("\n"),
+            annotations: [
+              {
+                lines: "2-3",
+                label: "Middle",
+                note: "This range has a visible marker.",
+              },
+              {
+                lines: "4",
+                label: "End",
+                note: "This single line has another marker.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const markers = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-annotated-code-marker]"),
+    );
+    expect(markers).toHaveLength(2);
+    expect(markers.map((marker) => marker.textContent)).toEqual(["", ""]);
+    expect(
+      container.querySelector(
+        '[data-code-line="2"] [data-annotated-code-marker="1"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      container.querySelector(
+        '[data-code-line="3"] [data-annotated-code-marker="1"]',
+      ),
+    ).toBeNull();
+    expect(markers[0]?.className).toContain("cursor-pointer");
+    expect(markers[0]?.hasAttribute("title")).toBe(false);
+  });
+
   it("anchors a multi-line annotation popover to the first line in the range", () => {
     act(() => {
       root.render(
@@ -325,6 +375,95 @@ describe("AnnotatedCodeBlock annotations", () => {
     expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
+  it("shows only the first plan-mode annotation by default when requested", () => {
+    setViewport(1200);
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{
+            codeAnnotationLayout: {
+              hoverSide: "left",
+              hoverFallbackSide: "right",
+              showByDefaultWhenRoom: true,
+              defaultVisibleAnnotations: "first",
+              marginSide: "auto",
+            },
+          }}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first note is visible in the margin.",
+              },
+              {
+                lines: "2",
+                label: "Exit",
+                note: "The second note still opens on hover.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ left: 360, top: 80, width: 500, height: 80 }));
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-code-line]"),
+    );
+    rows.forEach((row, index) => {
+      stubRect(row, rect({ left: 360, top: 100 + index * 22, height: 22 }));
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const anchor = container.querySelector(
+      "[data-annotation-inline-overlay-anchor]",
+    );
+    expect(anchor).toBeTruthy();
+    stubRect(anchor!, rect({ left: 850, top: 100, width: 0, height: 22 }));
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-annotation-inline-overlay]",
+    );
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toContain(
+      "The first note is visible in the margin.",
+    );
+    expect(overlay?.textContent).not.toContain(
+      "The second note still opens on hover.",
+    );
+
+    act(() => {
+      rows[1]!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+
+    const hoverCard = document.querySelector<HTMLElement>(
+      "[data-annotation-hover-card]",
+    );
+    expect(hoverCard).toBeTruthy();
+    expect(hoverCard?.textContent).toContain(
+      "The second note still opens on hover.",
+    );
+  });
+
   it("renders static annotation overlays when screenshot mode requests them", () => {
     act(() => {
       root.render(
@@ -441,6 +580,106 @@ describe("AnnotatedCodeBlock annotations", () => {
       );
     });
     expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+  });
+
+  it("dismisses the popover when the viewport layout changes", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
+  });
+
+  it("dismisses the popover when the user interacts outside it", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-annotations"
+          ctx={{}}
+          data={{
+            language: "ts",
+            code: ["const one = 1;", "const two = 2;"].join("\n"),
+            annotations: [
+              {
+                lines: "1",
+                label: "Entry",
+                note: "The first line is annotated.",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const codeBox = container.querySelector("section > div");
+    expect(codeBox).toBeTruthy();
+    stubRect(codeBox!, rect({ top: 80, height: 80 }));
+
+    const firstLine = container.querySelector<HTMLElement>(
+      '[data-code-line="1"]',
+    );
+    expect(firstLine).toBeTruthy();
+    stubRect(firstLine!, rect({ top: 100, height: 22 }));
+
+    act(() => {
+      firstLine!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      );
+    });
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeTruthy();
+
+    act(() => {
+      container.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+        }),
+      );
+    });
+
+    expect(document.querySelector("[data-annotation-hover-card]")).toBeNull();
   });
 
   it("keeps the popover open when the hover card itself scrolls", () => {

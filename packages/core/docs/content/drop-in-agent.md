@@ -27,39 +27,31 @@ You don't need to build agent-native from scratch. The agent chat, workspace tab
 
 All of these are exported from `@agent-native/core/client`.
 
+```an-diagram title="The mount model" summary="<AgentSidebar> wraps your existing layout. Your routes render in the main area; the agent panel mounts beside them. <AgentPanel> is the same panel without the wrapper."
+{
+  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Your app<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Agent panel<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
+  "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 ## The 80% case: `<AgentSidebar>` {#sidebar}
 
 The most common setup is a sidebar that opens from the right on any screen.
 Wrap your existing root layout with `<AgentSidebar>`; whatever you pass as
 children stays in the main app area. The agent chat is the side panel.
 
-```tsx
-// app/root.tsx
-import { Outlet } from "react-router";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
-
-export default function Root() {
-  return (
-    <AgentSidebar
-      emptyStateText="How can I help?"
-      suggestions={[
-        "Summarize my inbox",
-        "Draft a reply to the latest email",
-        "Show me yesterday's signup numbers",
-      ]}
-      dynamicSuggestions
-      defaultSidebarWidth={420}
-      position="right"
-    >
-      <header>
-        <AgentToggleButton />
-      </header>
-
-      <main>
-        <Outlet />
-      </main>
-    </AgentSidebar>
-  );
+```an-annotated-code title="Wrapping the root layout with <AgentSidebar>"
+{
+  "filename": "app/root.tsx",
+  "language": "tsx",
+  "code": "import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"How can I help?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}",
+  "annotations": [
+    { "lines": "6", "label": "Wrapper", "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area." },
+    { "lines": "8-12", "label": "Starter prompts", "note": "`suggestions` render as clickable chips on the empty chat." },
+    { "lines": "13", "label": "Context-aware chips", "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default." },
+    { "lines": "18-20", "label": "Toggle button", "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel." },
+    { "lines": "22-24", "label": "Your app", "note": "`<Outlet/>` (your routes) renders in the main area, untouched." }
+  ]
 }
 ```
 
@@ -204,6 +196,13 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 ```
 
 Type-safe arguments come from the zod schema in your `defineAction()`. See [Actions](/docs/actions) for the full action system.
+
+```an-callout
+{
+  "tone": "decision",
+  "body": "**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button (\"Send reply\"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder)."
+}
+```
 
 ## Selection + cursor awareness {#selection}
 

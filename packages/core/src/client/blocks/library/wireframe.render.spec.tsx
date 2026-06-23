@@ -45,6 +45,38 @@ function artboardStyle(html: string): string {
   return match[1];
 }
 
+/** Pull the inline `style` attribute of the scale-reservation wrapper. */
+function fitWrapperStyle(html: string): string {
+  const outerTag =
+    html.match(/<div[^>]*class="plan-kit-wireframe"[^>]*>/)?.[0] ?? "";
+  const outerEnd = html.indexOf(outerTag) + outerTag.length;
+  const rest = html.slice(Math.max(outerEnd, 0));
+  const innerTag = rest.match(/<div[^>]*style="([^"]*)"[^>]*>/)?.[0] ?? "";
+  return innerTag.match(/style="([^"]*)"/)?.[1] ?? "";
+}
+
+function roughScopeInnerHtml(html: string): string {
+  const marker = 'data-rough-scope="wireframe"';
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return "";
+  const tagEnd = html.indexOf(">", markerIndex);
+  if (tagEnd < 0) return "";
+
+  let depth = 1;
+  const tagRe = /<\/?div\b[^>]*>/g;
+  tagRe.lastIndex = tagEnd + 1;
+  for (let match = tagRe.exec(html); match; match = tagRe.exec(html)) {
+    const tag = match[0];
+    if (tag.startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) return html.slice(tagEnd + 1, match.index);
+    } else if (!tag.endsWith("/>")) {
+      depth += 1;
+    }
+  }
+  return "";
+}
+
 describe("wireframe auto-height frame", () => {
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
     const html = render({
@@ -81,6 +113,27 @@ describe("wireframe auto-height frame", () => {
     expect(style).toMatch(/width\s*:\s*900px/);
   });
 
+  it("keeps the unscaled auto-height wrapper in natural SSR flow", () => {
+    const html = render({
+      surface: "desktop",
+      html: "<div>Short mockup</div>",
+    });
+    const style = fitWrapperStyle(html);
+
+    expect(style).not.toMatch(/(^|;)\s*height\s*:/);
+  });
+
+  it("renders captions in static markup", () => {
+    const html = render({
+      surface: "desktop",
+      html: "<div>Mockup with caption</div>",
+      caption: "Review the main editor state",
+    });
+
+    expect(html).toContain("Review the main editor state");
+    expect(html).toContain("text-plan-muted");
+  });
+
   it("does not add decorative shadows around the artboard", () => {
     const html = render({
       surface: "browser",
@@ -89,6 +142,29 @@ describe("wireframe auto-height frame", () => {
     const style = artboardStyle(html);
 
     expect(style).not.toMatch(/box-shadow/i);
+  });
+
+  it("renders a contextual visual style toggle", () => {
+    const html = render({
+      surface: "browser",
+      html: "<div>Mockup with style control</div>",
+    });
+
+    expect(html).toContain('aria-label="Switch to clean visual style"');
+    expect(html).toContain(">Clean</span>");
+  });
+
+  it("keeps the visual style toggle outside the rough.js measurement scope", () => {
+    const html = render({
+      surface: "browser",
+      html: "<button>Authored mock button</button>",
+    });
+
+    const buttonMarker = 'data-wireframe-style-toggle="true"';
+    expect(html).toContain('data-rough-scope="wireframe"');
+    expect(html).toContain(buttonMarker);
+    expect(html).toContain('data-rough="none"');
+    expect(roughScopeInnerHtml(html)).not.toContain(buttonMarker);
   });
 
   it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {

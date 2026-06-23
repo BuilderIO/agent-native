@@ -425,6 +425,59 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("surfaces provider rate limits as terminal run errors", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "429 status code (no body)",
+            errorCode: "provider_rate_limited",
+            details: "429 status code (no body)",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rate-limit",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message:
+            "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+          details: "429 status code (no body)",
+          errorCode: "provider_rate_limited",
+          tabId: "tab-rate-limit",
+        },
+      }),
+    );
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message:
+              "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+            details: "429 status code (no body)",
+            errorCode: "provider_rate_limited",
+          },
+        },
+      },
+    });
+  });
+
   it("maps legacy missing_api_key SSE frames to credential run errors", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

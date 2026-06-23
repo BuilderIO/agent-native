@@ -40,9 +40,28 @@ The default backend spawns a locked-down local Node child process. That's bounde
 
 Keeping the contract narrow means a remote adapter inherits the same security posture. The parent process keeps ownership of everything secret-bearing: it builds the sandbox module, runs the localhost bridge (which holds the request context and applies host allowlists + SSRF guards), scrubs the env, and formats output. An adapter only receives an already-prepared, **non-secret** module source plus resource limits — it is responsible solely for _running_ it and capturing stdout/stderr/exit status.
 
+```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
+{
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>Parent process</strong><small class=\"diagram-muted\">builds module · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">local child · Docker · remote · durable</small></div></div>",
+  "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## The interface {#interface}
 
 The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (the contract), `index.ts` (selection: `getSandboxAdapter()` / `registerSandboxAdapter()`), and `local-child-process-adapter.ts` (the default). It is wired in-package by `run-code.ts`; a host plugs in a different backend through the `index.ts` registration helper (or, for a Docker backend, via the [blueprint](/docs/blueprint-installer) that edits these files directly).
+
+```an-file-tree title="The sandbox seam in core"
+{
+  "title": "packages/core/src/coding-tools/sandbox/",
+  "entries": [
+    { "path": "adapter.ts", "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "selection: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "the default backend — locked-down Node child process" },
+    { "path": "../run-code.ts", "note": "wires the seam; never changes when you swap backends" }
+  ]
+}
+```
 
 Every backend implements `SandboxAdapter`:
 

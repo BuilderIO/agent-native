@@ -1,5 +1,185 @@
 # @agent-native/core
 
+## 0.67.0
+
+### Minor Changes
+
+- 1b61a90: Add tab-scoped application-state helpers so multi-tab agents read the screen of the tab they were sent from.
+  - Server: `readAppStateForCurrentTab`, `writeAppStateForCurrentTab`, `appStateKeyForBrowserTab`, and `getCurrentRequestBrowserTabId` (from `@agent-native/core/application-state`). These resolve the requesting tab via `getRequestRunContext().browserTabId`, read the `key:<tabId>` value first, and fall back to the global key for CLI/external agents.
+  - Client: `getBrowserTabId` (from `@agent-native/core/client`), a stable per-tab id backed by sessionStorage.
+
+  The default app scaffold (`view-screen` action and `tab-id` helper) now uses these so newly generated apps are tab-correct by default.
+
+  Without tab scoping, `navigation` (and similar ambient UI state) was a single global key shared across browser tabs, so a chat in one tab could act on whatever clip/record another tab navigated to last.
+
+## 0.66.9
+
+### Patch Changes
+
+- 11a28e7: Track first-time Google OAuth signups and flush server-side signup tracking
+  before auth returns so low-volume events are delivered reliably from serverless
+  deployments.
+
+## 0.66.8
+
+### Patch Changes
+
+- f514c12: Add the Content app-backed skill and a `skills add content --mode local-files`
+  install path that writes Content local-file workspace defaults to
+  `agent-native.json`.
+- f514c12: Pass Codex CLI approval policy before the `exec` subcommand so local Code runs
+  work with current Codex CLI argument parsing.
+- f514c12: Allow `pnpm action <name> '{"arg":"value"}'` to pass a positional JSON object
+  to defineAction and package actions while preserving existing flag arguments.
+- f514c12: Show the onboarding setup prompt in the agent sidebar on normal deployed app surfaces so required Builder/BYOK setup is visible to users.
+- f514c12: Prefer inline Builder connect guidance for chat attachment upload recovery.
+
+## 0.66.7
+
+### Patch Changes
+
+- 3d7df7d: Normalize exhausted provider rate-limit errors in agent chat and keep raw 429
+  provider messages in diagnostics instead of the primary UI copy.
+- 3d7df7d: Dismiss code annotation hover cards on layout changes and outside interactions.
+
+## 0.66.6
+
+### Patch Changes
+
+- 337bcc5: Fix visual plan layout polish: compact question previews, mark wide-eligible tabs for diff-like content, align drag handles with wide blocks, and theme custom HTML iframes for dark mode.
+- 337bcc5: Move the sidebar Connect AI setup card above the composer and stack its actions.
+- 337bcc5: Keep the wireframe style toggle outside the Rough.js measurement scope so sketch mode no longer draws a ghost outline for the hidden Clean button.
+
+## 0.66.5
+
+### Patch Changes
+
+- c650d44: Fix `agent-native code` crashing with `Unknown engine: "codex-cli"` when the Codex CLI runner is selected via the `AGENT_ENGINE` environment variable. The Codex branch in `executeCodeAgentRun` now falls back to `AGENT_ENGINE` the same way `resolveExecutorEngine` already does, so `AGENT_ENGINE=codex-cli` routes to the Codex CLI runner instead of being handed to the LLM-provider engine resolver (which only knows the AI-SDK providers).
+
+## 0.66.4
+
+### Patch Changes
+
+- 54b2c33: Fix Google sign-in on mobile web dropping the post-login return URL. The OAuth
+  callback's mobile branch attempts the `agentnative://oauth-complete` deep link
+  (for the native app) but previously hardcoded its fallback to the app root, so
+  a signed-out visitor who opened e.g. a `/recaps/:id` link in a phone browser
+  got bounced to the homepage after authenticating instead of back to the page
+  they came from. The fallback now returns to the validated `returnUrl`; the
+  native-app deep link is unchanged.
+
+## 0.66.3
+
+### Patch Changes
+
+- 533afe1: Default organization activation now auto-creates unless explicitly disabled, and Builder setup copy stays focused on storage and AI credits.
+
+## 0.66.2
+
+### Patch Changes
+
+- 89d3852: Clarify in the docs how instructions, skills, and actions work together as the
+  core building blocks of Agent Native agents.
+- 89d3852: Use the Agent Native blue accent for auth verification and success states.
+- 89d3852: Show a friendly email validation message on the built-in auth page instead of exposing raw Better Auth schema errors.
+- 89d3852: Ignore loopback app URL env values when resolving hosted auth email links.
+- 89d3852: Shorten the default feedback popover placeholder.
+
+## 0.66.1
+
+### Patch Changes
+
+- 113abe7: Clarify in the docs how instructions, skills, and actions work together as the
+  core building blocks of Agent Native agents.
+- 113abe7: Shorten the default feedback popover placeholder.
+
+## 0.66.0
+
+### Minor Changes
+
+- bd0d8b5: Add an ACP (Agent Client Protocol) harness adapter so Agent-Native can act as an
+  ACP client and drive local coding agents — Gemini CLI, Claude Code, or any
+  ACP-compliant agent — through the existing `AgentHarness` substrate.
+
+  `createAcpHarnessAdapter({ command, args })` spawns the agent over stdio and
+  maps ACP `session/update` notifications, permission requests, and `fs/*` calls
+  onto harness events, approvals, and file-change events. Built-in presets
+  `acp:gemini` and `acp:claude-code` are registered by
+  `registerBuiltinAgentHarnesses()`, alongside a generic `acp` entry. The protocol
+  transport (`@zed-industries/agent-client-protocol`) loads lazily as an optional
+  dependency.
+
+## 0.65.0
+
+### Minor Changes
+
+- 2b8cfd0: Add an `@agent-native/core/embedding` export surface (`./embedding`,
+  `./embedding/react`, `./embedding/bridge`, `./embedding/agent`,
+  `./embedding/protocol`) that hosts the `EmbeddedApp` component and embed bridge.
+
+  The implementation moved here from the workspace-only `@agent-native/embedding`
+  package, which is not published to npm. Standalone scaffolds of templates that
+  embed apps (content, design, assets) previously rewrote their `workspace:*`
+  dependency on `@agent-native/embedding` to `latest`, which 404'd on install
+  because the package isn't published. Those templates now import the embed
+  surface from the published `@agent-native/core` instead, so
+  `create --standalone --template content` installs cleanly. The
+  `@agent-native/embedding` package remains as a thin re-export for backward
+  compatibility.
+
+## 0.64.1
+
+### Patch Changes
+
+- 13c202b: Pin `@tiptap/*` dependencies to an exact, fully-published version (3.27.1) instead of caret ranges. Tiptap extension packages exact-pin their `@tiptap/core` and `@tiptap/pm` peer dependencies, so a caret range let npm climb to the newest tiptap release and fail with `ETARGET No matching version found for @tiptap/extension-table@<x>` during the brief window when a new tiptap version is only partially published. Pinning keeps installs of `@agent-native/core` (and `@agent-native/skills`, which depends on it) reproducible and unaffected by upstream staggered publishes.
+
+## 0.64.0
+
+### Minor Changes
+
+- 9d5f12b: `create` now asks how you want to start (Full template / Chat / Headless) before
+  the template picker. Chat and Headless scaffold a single standalone app; Full
+  template continues into the workspace multi-select. Flag-driven paths
+  (`--template`, `--headless`, `--standalone`) skip the prompt and are unchanged.
+
+## 0.63.6
+
+### Patch Changes
+
+- 0105ab5: Fix a broken in-docs anchor in the "creating templates" guide: the headless on-ramp link now points to `/docs/getting-started#1-create-your-app` instead of the stale `#create-your-agent`, which no longer matches any heading on the Getting Started page.
+
+## 0.63.5
+
+### Patch Changes
+
+- 7c28a87: Fix CLI commands hanging indefinitely on success due to Node.js keep-alive and telemetry timers
+
+## 0.63.4
+
+### Patch Changes
+
+- 7d72d52: Restore subtle glowing hover indicators on annotated code ranges.
+- 7d72d52: Use fast shadcn tooltips and clearer Tabler icons for diagram style toggles.
+- 7d72d52: Preserve deep-link return targets through auth and federated SSO sign-in.
+
+## 0.63.3
+
+### Patch Changes
+
+- ad14341: Diagram primitives got a polish pass: `.diagram-pill`/badge/chip elements now hug
+  their label (`width: fit-content`) instead of stretching to fill a flex column,
+  and `.diagram-node`/`box`/`card`/`panel` carry sensible base padding so text never
+  touches the box edge when an author diagram omits its own padding.
+
+## 0.63.2
+
+### Patch Changes
+
+- d9e93a3: Add an explicit `codexCliAuth` opt-in for `ai-sdk-harness:codex` so trusted sandboxes can reuse local Codex CLI login, and document how it differs from Agent-Native Code/Desktop auth.
+- d9e93a3: Fix headless app onboarding so plain Node action discovery can load generated
+  TypeScript actions, and avoid Tailwind peer warnings for headless installs.
+- d9e93a3: Show the first code or diff annotation by default when Plan has room for margin notes, while keeping additional annotations available on hover. Add contextual controls for switching wireframe and diagram visuals between sketchy and clean styles.
+
 ## 0.63.1
 
 ### Patch Changes

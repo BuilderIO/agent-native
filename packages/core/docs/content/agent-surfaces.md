@@ -25,6 +25,13 @@ Those are stages, not separate products. A workflow can start as a headless
 agent with one action, appear in chat as a table or chart, and later become a
 full screen in an app without changing the operation the agent calls.
 
+```an-diagram title="The surface spectrum" summary="One action surface, four product shapes — each adds UI without changing the operation underneath."
+{
+  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, other agents</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Rich chat</strong><small class=\"diagram-muted\">composer, transcript, tool cards</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embedded sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">most UI</span><strong>Full application</strong><small class=\"diagram-muted\">durable screens, data, collaboration</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">same actions · same SQL · same agent loop</span></div>",
+  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+}
+```
+
 ## Headless agent {#headless}
 
 Use the headless path when no one needs to stare at a custom app screen while
@@ -102,6 +109,23 @@ One action is then callable as:
 - **A2A** — from another agent-native app or agent peer
 - **UI** — through `useActionQuery`, `useActionMutation`, or `callAction`
 - **Agent tool** — from the built-in chat loop
+
+```an-api title="Calling an action over HTTP"
+{
+  "method": "POST",
+  "path": "/_agent-native/actions/summarize-week",
+  "summary": "Invoke any action by name over HTTP",
+  "description": "Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.",
+  "request": {
+    "contentType": "application/json",
+    "example": "{ \"formId\": \"form_123\" }"
+  },
+  "responses": [
+    { "status": "200", "description": "The action's return value as JSON", "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }" },
+    { "status": "400", "description": "Input failed schema validation" }
+  ]
+}
+```
 
 This is not a no-database or stateless mode. The app-agent loop stores sessions,
 threads, runs, settings, credentials, application state, and share records in
@@ -271,8 +295,10 @@ export function SupportAgentChat() {
 Ready-made runtime helpers exist for OpenAI Agents, OpenAI Responses, the Claude
 Agent SDK, the Vercel AI SDK, and AG-UI, plus the normalized HTTP runtime above
 for any other agent (Mastra, Flue, Eve, LangGraph, or a custom service). ACP is
-not the default end-user app chat protocol, and Agent-Native does not currently
-claim A2UI support.
+not the end-user app chat or A2A transport, and Agent-Native does not currently
+claim A2UI support. ACP is supported in one specific place — driving a local
+coding agent (Gemini CLI, Claude Code, …) through the
+[harness layer](/docs/harness-agents#acp), not as the chat runtime here.
 
 [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
 is the canonical home for the event shapes, the runtime helpers, and `chatUI`
@@ -316,6 +342,13 @@ export function AppShell({ children }) {
       {children}
     </AgentNativeEmbedded>
   );
+}
+```
+
+```an-diagram title="How the sidecar bridges to a host app" summary="The plugin mounts Agent-Native routes server-side; the React sidecar streams page context in and host commands out."
+{
+  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Host app</strong><small class=\"diagram-muted\">your existing SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">route · selection</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">host commands</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native routes<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
+  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 

@@ -9,11 +9,25 @@ The defining idea behind agent-native is that the agent and the UI are **equal p
 
 There's a simple through-line. The agent **sees** what you're looking at, you **direct** it toward what you want, you can **embed** it anywhere, you can go fully **UI-light** when that's the better fit, and you can **co-edit** the same documents at the same time. Each of those is a page in this section.
 
+```an-diagram title="The day-to-day loop" summary="Five ways of working with a docked agent — each is a page in this section."
+{
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-light</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Co-edit</span><small class=\"diagram-muted\">live, side by side</small></div></div>",
+  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+}
+```
+
 ## It sees what you're looking at {#it-sees}
 
 The agent isn't blind to your screen. Open an email and it knows which thread. Select a chart and it knows which chart. Highlight a paragraph and it can act on just that range. That shared awareness is what lets you say "reply to this" or "summarize the selection" without spelling out the context every time.
 
 This works because the current navigation and selection live in `application_state` SQL, which the agent reads as part of its context. The agent can also drive that same state back — opening a view, selecting a row — so you watch it work in the real UI rather than in a transcript.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Shared awareness is two-way.** You and the agent both read and write `application_state`, so \"reply to this\" or \"summarize the selection\" just works — and when the agent navigates, the real UI moves with it."
+}
+```
 
 → [**Context Awareness**](/docs/context-awareness) — navigation state, view-screen, navigate commands, and how the agent stays in sync with your screen.
 

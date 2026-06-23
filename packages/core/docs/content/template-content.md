@@ -11,17 +11,21 @@ you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a
 page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" - same
 result whether you do it yourself or ask.
 
-<!-- screenshot:
-  app: content
-  view: /<doc-id>
-  shows: Workspace with sidebar tree (Q3 Roadmap favorited and expanded with Goals/Metrics/Risks, Engineering Wiki with On-call playbook + Architecture overview + Deployment guide, Personal section with Reading list and Ideas, Weekly sync — May 1) and the Q3 Roadmap document open in the editor with the agent sidebar
-  account: screenshot-account (page tree authored on this account; the doc body should NOT begin with the page title — the page chrome already renders it)
-  capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
--->
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+}
+```
 
-![Content workspace with the page tree, an open document, and the agent sidebar](/screenshots/content.png)
+When you open the app, you'll see a page tree next to the editor. The agent always knows which page you're viewing and what text you have selected, so document edits can stay grounded in the current page.
 
-When you open the app, you'll see a sidebar tree of pages on the left, the editor in the middle, and the agent in the sidebar on the right. The agent always knows which page you're viewing and what text you have selected.
+```an-diagram title="One document, many editors" summary="You and the agent both write through the same Yjs pipeline. SQL is the canonical store; local files and Notion are optional sync surfaces."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You type<br><small class=\"diagram-muted\">slash menu, toolbar</small></div><div class=\"diagram-node\">Agent edits<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, conflict-free merge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">canonical SQL store</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Local .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion pages<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
 
 ## What you can do with it
 
@@ -86,6 +90,21 @@ SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
 standalone repo layout, configuration, custom MDX components, local
 `extensions/` widgets, and production safety guide.
 
+To install the Content local-files skill into an existing repo:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+The installer copies the `content` skill for your coding agent and writes or
+updates `agent-native.json` with Content roots for `docs/`, `blog/`, `content/`,
+and `resources/`. When a local Content app, Agent Native Desktop, or trusted
+local bridge is running, agents should use Content actions such as
+`list-documents`, `get-document`, `edit-document`, `update-document`, and
+`share-local-file-document` instead of raw filesystem writes. Without that local
+bridge, the installed skill still gives the agent the repo-editing contract for
+safe Markdown/MDX edits.
+
 ## For developers
 
 The rest of this doc is for anyone forking the Content template or extending it.
@@ -101,50 +120,19 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8083` and create your first page. The agent panel is on the right — try asking it to "create a page called Onboarding and add three sub-pages under it".
+Open `http://localhost:8083` and create your first page. Then ask the agent to "create a page called Onboarding and add three sub-pages under it".
 
-### Key features (technical) {#key-features}
+### Key features {#key-features}
 
-### Hierarchical pages
+**Nested pages.** Documents form a draggable tree with favorites, icons, ordering, and page-level sharing.
 
-Documents nest infinitely via a `parent_id` column. The sidebar renders a draggable tree; children move with their parents and ordering uses an integer `position` field. See `app/components/sidebar/DocumentSidebar.tsx` and `app/components/sidebar/DocumentTreeItem.tsx`.
+**Rich MDX editor.** Tiptap powers headings, lists, tables, code blocks, images, links, slash commands, selection toolbars, and local React components.
 
-### Rich-text editor
+**Live collaboration.** Yjs keeps multiple editors and agent edits in sync without clobbering each other.
 
-The editor is built on Tiptap with a custom extension set. It supports headings, lists, tables, code blocks with syntax highlighting, images, and links. Implementation lives in `app/components/editor/DocumentEditor.tsx` and `app/components/editor/VisualEditor.tsx`, with custom nodes under `app/components/editor/extensions/` (`CodeBlockNode.tsx`, `ImageNode.ts`, `DragHandle.tsx`, `NotionExtensions.tsx`).
+**Search and comments.** Full-text search, anchored comments, version history, and restore flows are built into the document surface.
 
-Interactive surfaces include:
-
-- `BubbleToolbar.tsx` — formatting toolbar that appears over a selection
-- `SlashCommandMenu.tsx` — slash-command inserter for blocks
-- `LinkHoverPreview.tsx` — hover previews for inline links
-- `TableHoverControls.tsx` — add/remove table rows and columns
-- `EmojiPicker.tsx` — emoji picker for page icons
-
-### Collaborative editing
-
-Content is edited through Yjs CRDT so multiple users and the agent can type into the same document at once without clobbering each other. The agent's `edit-document` action writes through the same pipeline as a human keystroke, so changes appear live in every open editor. See [Real-time collaboration](/docs/real-time-collaboration) for the sync model.
-
-### Search
-
-Full-text search across titles and markdown content, powered by `actions/search-documents.ts`. The sidebar exposes a search box; the agent uses the same action via `pnpm action search-documents --query "..."`.
-
-### Favorites and icons
-
-Each document can be favorited (`is_favorite`) and given an emoji `icon`. The index route auto-opens your first favorite on load — see `app/routes/_app._index.tsx`.
-
-### Notion sync
-
-Documents can be linked to a Notion page and synced in either direction:
-
-- `connect-notion-status` — check whether a Notion integration is connected
-- `link-notion-page` — link a local doc to a Notion page
-- `pull-notion-page` — overwrite local content from Notion
-- `push-notion-page` — overwrite Notion content from local
-- `list-notion-links` — list all linked documents
-- `sync-notion-comments` — bidirectionally sync comment threads
-
-Sync state is tracked in the `document_sync_links` table (last synced time, conflict flag, last error). Markdown-to-Notion block conversion lives in `shared/notion-markdown.ts`. Conflict and status UI is in `app/components/editor/NotionConflictBanner.tsx` and `NotionSyncBar.tsx`. See the `notion-integration` skill for the full flow.
+**Sync surfaces.** Documents can sync with Notion or local Markdown/MDX folders, with SQL acting as the collaborative cache/history layer.
 
 ### Local file sync
 
@@ -268,6 +256,132 @@ Nine tables, all defined in `server/db/schema.ts`:
 - **`content_database_items`** — rows in an inline database, each linking a `database_id` to a `document_id`.
 - **`document_property_values`** — per-document property values (`property_id` → `value_json`).
 - **`document_shares`** — per-user and per-org grants created via `createSharesTable`.
+
+```an-schema title="Content data model" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+{
+  "entities": [
+    {
+      "id": "documents",
+      "name": "documents",
+      "note": "The page tree (ownable, markdown body)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "parent_id", "type": "id", "fk": "documents.id", "nullable": true, "note": "infinite nesting" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" },
+        { "name": "icon", "type": "string", "nullable": true },
+        { "name": "position", "type": "int", "note": "sibling ordering" },
+        { "name": "is_favorite", "type": "bool" },
+        { "name": "visibility", "type": "enum", "note": "private | org | public" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "document_versions",
+      "name": "document_versions",
+      "note": "Full title/content snapshots for version history",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" }
+      ]
+    },
+    {
+      "id": "document_comments",
+      "name": "document_comments",
+      "note": "Threaded comments with quoted-text anchors",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "thread_id", "type": "id" },
+        { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
+        { "name": "quoted_text", "type": "string", "nullable": true },
+        { "name": "resolved", "type": "bool" },
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "bidirectional Notion sync" }
+      ]
+    },
+    {
+      "id": "document_sync_links",
+      "name": "document_sync_links",
+      "note": "One row per Notion-linked document",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "notion_page_id", "type": "string" },
+        { "name": "conflict", "type": "bool" },
+        { "name": "content_hash", "type": "string" }
+      ]
+    },
+    {
+      "id": "content_databases",
+      "name": "content_databases",
+      "note": "Inline database objects attached to a document",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "view_config", "type": "json" }
+      ]
+    },
+    {
+      "id": "content_database_items",
+      "name": "content_database_items",
+      "note": "Rows in an inline database (each row is a document)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "database_id", "type": "id", "fk": "content_databases.id" },
+        { "name": "document_id", "type": "id", "fk": "documents.id" }
+      ]
+    },
+    {
+      "id": "document_property_definitions",
+      "name": "document_property_definitions",
+      "note": "Column definitions for inline databases",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "options", "type": "json", "nullable": true },
+        { "name": "position", "type": "int" }
+      ]
+    },
+    {
+      "id": "document_property_values",
+      "name": "document_property_values",
+      "note": "Per-document property values",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "property_id", "type": "id", "fk": "document_property_definitions.id" },
+        { "name": "value_json", "type": "json" }
+      ]
+    },
+    {
+      "id": "document_shares",
+      "name": "document_shares",
+      "note": "Per-user and per-org grants (createSharesTable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "principal", "type": "string" },
+        { "name": "role", "type": "enum", "note": "viewer | editor | admin" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
+    { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
+    { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "links to Notion" },
+    { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
+    { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
+    { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },
+    { "from": "documents", "to": "document_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
 
 Content is stored as markdown. The editor converts to and from the Tiptap JSON model in memory; the SQL row is always markdown so actions, search, and Notion sync can operate on a single canonical format.
 

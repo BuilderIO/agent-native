@@ -7,9 +7,21 @@ description: "An agent-native digital asset manager and cross-agent generation s
 
 Assets is an agent-native workspace for creating and managing brand-consistent media. It organizes uploads and generated results into libraries and folders, lets teams collect examples for blog heroes, diagrams, landing pages, product shots, videos, and logos, then routes generation through the agent chat so every asset can be reviewed and refined.
 
-![Assets library for brand media and generated output](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200)
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch brand</h1><span class='wf-pill accent'>Blog heroes</span><span class='wf-pill'>Product shots</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Create brand media</strong><div class='wf-box'>Three homepage hero options using the approved logo and product references.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web export</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Reference set</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo safe</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+}
+```
 
-When you open the app, you see your libraries and folders on the left, the assets in the selected library in the middle, and a chat composer for generating new media. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
+When you open the app, the selected library, prompt, references, and generated candidates stay in one workspace. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
+
+```an-diagram title="Generate, review, reuse" summary="References and prompts feed a generate-and-choose session; chosen assets land in a library and flow out to other apps via the picker or A2A."
+{
+  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, product shots, style</small></div><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">chat or Generate controls</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generation session</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">chosen, brand-consistent assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Slides · Design · Content</small></div></div></div>",
+  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
 
 ## When to pick it
 
@@ -34,7 +46,7 @@ Live demo: [assets.agent-native.com](https://assets.agent-native.com).
 
 ## Useful prompts
 
-- "Generate three blog hero options using the Acme product screenshots as references."
+- "Generate three blog hero options using the Acme product references."
 - "Create a square social image in the launch-campaign style."
 - "Find all approved assets for the onboarding redesign."
 - "Turn this uploaded diagram into a cleaner product explainer image."
@@ -117,6 +129,67 @@ Note: the SQL table names keep the legacy `image_*` prefix from when the app was
 | `image_generation_session_items` | Candidate assets within a session, each with a role and note                                                                                                                             |
 | `image_assets`                   | The asset record — media type, role, status, title/description/alt text, prompt, model, dimensions, MIME type, object/thumbnail keys, and lineage                                        |
 | `image_generation_runs`          | The generation audit log — prompt, compiled prompt, model, references, status, errors, and the `source` (`chat` / `ui` / `a2a`) that triggered it                                        |
+
+```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
+{
+  "entities": [
+    { "id": "library", "name": "image_libraries", "note": "Top-level ownable container", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "custom_instructions", "type": "text", "nullable": true },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "logo_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true },
+      { "name": "archived", "type": "boolean" }
+    ] },
+    { "id": "library_shares", "name": "image_library_shares", "note": "Framework shares table", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "role", "type": "text", "note": "viewer / editor / admin" }
+    ] },
+    { "id": "collections", "name": "image_collections", "note": "Style/category groupings", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "prompt_template", "type": "text", "nullable": true }
+    ] },
+    { "id": "folders", "name": "asset_folders", "note": "Nestable folders", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "parent_id", "type": "id", "fk": "asset_folders.id", "nullable": true }
+    ] },
+    { "id": "presets", "name": "image_generation_presets", "note": "Saved generation recipes", "fields": [
+      { "name": "media_type", "type": "text" },
+      { "name": "prompt_template", "type": "text" },
+      { "name": "model", "type": "text" }
+    ] },
+    { "id": "sessions", "name": "image_generation_sessions", "note": "Iterative generate-and-choose", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "status", "type": "text" },
+      { "name": "active_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true }
+    ] },
+    { "id": "session_items", "name": "image_generation_session_items", "note": "Candidate assets in a session", "fields": [
+      { "name": "session_id", "type": "id", "fk": "image_generation_sessions.id" },
+      { "name": "asset_id", "type": "id", "fk": "image_assets.id" },
+      { "name": "role", "type": "text" }
+    ] },
+    { "id": "assets", "name": "image_assets", "note": "The asset record", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "media_type", "type": "text", "note": "image / video" },
+      { "name": "status", "type": "text" },
+      { "name": "prompt", "type": "text", "nullable": true },
+      { "name": "object_key", "type": "text", "nullable": true }
+    ] },
+    { "id": "runs", "name": "image_generation_runs", "note": "Generation audit log", "fields": [
+      { "name": "model", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "note": "chat / ui / a2a" }
+    ] }
+  ],
+  "relations": [
+    { "from": "library", "to": "collections", "kind": "1-n" },
+    { "from": "library", "to": "folders", "kind": "1-n" },
+    { "from": "library", "to": "assets", "kind": "1-n" },
+    { "from": "sessions", "to": "session_items", "kind": "1-n" },
+    { "from": "library", "to": "library_shares", "kind": "1-n" }
+  ]
+}
+```
 
 ### Customizing it
 

@@ -23,6 +23,13 @@ beneath `runAgentLoop`. A harness is not an `AgentEngine` provider — it runs i
 own loop end to end, so Agent-Native drives it as a session, not as a single
 model call.
 
+```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+{
+  "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
+  "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## Which coding doc do I want? {#which-doc}
 
 | You want to…                                                               | Use                                          |
@@ -55,12 +62,97 @@ app that never uses a harness does not pay for it. Each adapter carries an
 error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
 lets you check first.
 
-Codex auth has two paths. The `ai-sdk-harness:codex` adapter loads the AI SDK
-Codex harness package and does not implement a separate Agent-Native OAuth flow.
-For Agent-Native Code or Desktop coding sessions, Agent-Native can use the
-local Codex CLI after the user runs `codex login`; that reuses whatever
-ChatGPT subscription or API-key auth the installed Codex CLI reports through
-`codex login status`.
+`registerBuiltinAgentHarnesses()` also registers the [ACP](#acp) harnesses
+(`acp`, `acp:gemini`, `acp:claude-code`).
+
+## ACP agents {#acp}
+
+Agent-Native can act as an [ACP](https://agentclientprotocol.com) (Agent Client
+Protocol) **client** and drive a local coding agent — Gemini CLI, Claude Code,
+or any ACP-compliant agent — through this same substrate. The agent runs as a
+local subprocess that speaks newline-delimited JSON-RPC over stdio; ACP's editor
+↔ agent model is exactly this shape.
+
+This adapter is scoped to **local coding**. The child process inherits the
+parent environment, so the agent reuses whatever local CLI login it already has
+(for example `gemini` or `claude` auth in the user's home dir). It is not a
+hosted or sandboxed transport, and it is not a chat/A2A transport — for those,
+see [Agent Surfaces](/docs/agent-surfaces).
+
+| Name              | Default command                                | Resumable\* |
+| ----------------- | ---------------------------------------------- | ----------- |
+| `acp`             | _(supply `command`/`args` via config)_         | yes         |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | yes         |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | yes         |
+
+\*Resume works when the agent advertises the `loadSession` capability and
+degrades to a fresh session otherwise.
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+
+// A built-in preset (command/args are overridable through the resolve config):
+const adapter = resolveAgentHarness("acp:gemini");
+
+// Or any ACP agent by command:
+const custom = resolveAgentHarness("acp", {
+  command: "gemini",
+  args: ["--experimental-acp"],
+});
+```
+
+The protocol transport (`@zed-industries/agent-client-protocol`) is an optional
+dependency loaded lazily through the `installPackage` hint, just like the AI SDK
+harnesses. The agent binary itself (`@google/gemini-cli`,
+`@zed-industries/claude-code-acp`, …) is a separate external CLI; the presets
+launch it through `npx` and the command/args stay overridable because agent ACP
+entry flags still evolve.
+
+`permissionMode` maps onto ACP `session/request_permission` using the tool-call
+kind the agent reports: reads always run, edits run under `allow-edits`, and
+everything risky prompts unless `allow-all`. Approvals surface as the normal
+`approval-request` events. The adapter serves `fs/read_text_file` and
+`fs/write_text_file` against the session workspace (refusing paths that escape
+it) and writes emit `file-change` events; terminal methods are not advertised,
+so the agent uses its own shell.
+
+## Codex auth: Code UI vs harness sandboxes {#codex-auth}
+
+There are two Codex surfaces, and they authenticate differently:
+
+- **Agent-Native Code / Desktop** runs `codex exec` on the user's machine. If
+  the user has run `codex login`, this local run reuses whatever ChatGPT
+  subscription or API-key auth the installed Codex CLI reports through
+  `codex login status`.
+- **`ai-sdk-harness:codex`** loads `@ai-sdk/harness-codex`, which drives Codex
+  inside the harness sandbox through `@openai/codex-sdk`. It does not silently
+  inherit the user's Desktop `~/.codex` login because the sandbox may be remote
+  or isolated. For trusted/private sandboxes, opt in with `codexCliAuth: true`;
+  Agent-Native copies the local Codex CLI auth file into the sandbox before the
+  harness starts. For hosted or shared sandboxes, configure API-key / gateway
+  auth instead.
+
+So if someone asks which package carries the Codex OAuth path: for local coding
+sessions, use `@agent-native/core` / Desktop plus the installed
+`@openai/codex` CLI and `codex login`. For sandboxed `ai-sdk-harness:codex`,
+use the explicit `codexCliAuth` opt-in when copying that login into the sandbox
+is acceptable.
+
+```ts
+const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
+  codexCliAuth: true,
+});
+```
+
+`codexCliAuth: true` reads `CODEX_HOME/auth.json` or `~/.codex/auth.json`. To
+point at a different local login, pass
+`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` or
+`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
 
 ## Register and resolve {#register-resolve}
 
@@ -77,8 +169,9 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` returns an `AgentHarnessAdapter`. The
 optional `config` is forwarded to the adapter factory — for the AI SDK adapters
 that maps to `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions`). Use `listAgentHarnesses()`
-to enumerate what is registered for a picker.
+`permissionMode`, `harnessOptions`, `agentOptions`, and the Codex-only
+`codexCliAuth`). Use `listAgentHarnesses()` to enumerate what is registered for
+a picker.
 
 ## Run a turn {#run-a-turn}
 
@@ -119,6 +212,13 @@ A harness owns long-lived native session state. Agent-Native persists it in SQL
 so a thread can survive across turns, processes, and deploys. The `resumeState`
 is **opaque** — Agent-Native stores it and hands it back, but never inspects or
 interprets it.
+
+```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+{
+  "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
+  "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
 
 ```ts
 import {

@@ -18,6 +18,13 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
 - **Same agent, same memory.** Whatever you tell it on Slack is remembered when you email it later. The web chat and external messages share one thread history.
 - For one-way in-app alerts (bell icon, webhooks) see [Notifications](/docs/notifications).
 
+```an-diagram title="Many channels, one agent" summary="Every platform fans into the same agent loop and the same SQL thread history — so a Slack DM and an email continue the same conversation."
+{
+  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">One agent loop</span><small class=\"diagram-muted\">same memory · same tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One SQL thread history<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
+  "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
 ## Set up Slack {#slack}
 
 ### What you'll need
@@ -50,6 +57,30 @@ Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with i
    Then under **Subscribe to bot events**, add `message.im` (for DMs) and optionally `app_mention` (for channel mentions). Save.
 
 7. Send your bot a DM in Slack. It should reply.
+
+### Optional: app unfurls
+
+Slack app unfurls let an app replace Slack's normal link preview with a richer
+preview. Clips uses this for Loom-style playable video previews.
+
+Add these extra bot scopes when your app needs unfurls:
+
+- `links:read` — lets Slack notify the app when registered domains are posted
+- `links:write` — lets the app replace Slack's default preview
+- `links.embed:write` — lets the app embed approved media/player URLs
+
+Then subscribe to the `link_shared` event and register your public app domains
+under **App Unfurl Domains**. For Clips-only playable previews, set the Slack
+Event Subscriptions Request URL to:
+
+```text
+https://your-clips.example.com/api/slack/unfurl
+```
+
+A Slack app has one Events API Request URL. If the same Slack app should handle
+both agent chat events and Clips unfurls, route Slack events through a small
+dispatcher that sends message events to `/_agent-native/integrations/slack/webhook`
+and `link_shared` events to the Clips unfurl handler.
 
 ### Tips
 
@@ -199,17 +230,36 @@ Inbound platform webhooks use a cross-platform SQL-queue pattern so they work on
 3. The processor endpoint runs in a **fresh function execution** with its own full timeout budget. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, posts the reply through the adapter, and marks the task `completed`.
 4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >5min and re-fires the processor. Capped at 3 attempts, then marked `failed`.
 
-```text
-Platform → /webhook → verify + parse → INSERT pending task ──► return 200
-                                                  │
-                                                  └─ fetch /process-task (fire-and-forget)
-                                                                │
-                                                  fresh exec ──► claim → agent loop → adapter.sendResponse → completed
-
-   (every 60s) retry job: sweep stuck tasks → re-fire /process-task (≤3 attempts)
+```an-diagram title="Inbound webhook lifecycle" summary="The webhook only verifies, enqueues, and returns 200. A fresh function execution drains the queue and runs the agent loop, with a 60s retry job as the safety net."
+{
+  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · email · etc.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT pending task</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">fresh execution · own timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
+  "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+}
 ```
 
 Inbound and outbound conversations live in the same SQL thread, so you can continue a Slack DM from the web UI or vice versa.
+
+```an-api
+{
+  "method": "POST",
+  "path": "/_agent-native/integrations/slack/webhook",
+  "summary": "Slack Events API inbound webhook",
+  "description": "Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.",
+  "auth": "HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`.",
+  "params": [
+    { "name": "X-Slack-Signature", "in": "header", "type": "string", "required": true, "description": "Slack request signature, verified before any processing." },
+    { "name": "X-Slack-Request-Timestamp", "in": "header", "type": "string", "required": true, "description": "Timestamp used in the signature base string." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"type\": \"event_callback\",\n  \"team_id\": \"T0123\",\n  \"api_app_id\": \"A0123\",\n  \"event\": {\n    \"type\": \"message\",\n    \"channel_type\": \"im\",\n    \"user\": \"U0123\",\n    \"text\": \"summarize last week's signups\"\n  }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "Acknowledged immediately. The agent loop runs in the separate /process-task execution. The first time a Request URL is saved, Slack POSTs a `url_verification` challenge and the adapter replies with the `challenge` value automatically.", "example": "{ \"ok\": true }" },
+    { "status": "401", "description": "Signature verification failed, or the team/app id is not in the production allowlist." }
+  ]
+}
+```
 
 #### Why this pattern (and not the platform-native shortcuts) {#why-this-pattern}
 

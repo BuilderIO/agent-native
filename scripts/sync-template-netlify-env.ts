@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 
 type TemplateSite = {
   name: string;
@@ -69,6 +70,12 @@ const PUBLIC_KEY_EXACT = new Set([
   "NEON_AUTH_BASE_URL",
 ]);
 const PUBLIC_KEY_PREFIXES = ["VITE_"];
+const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
+const TEMPLATE_PROD_URL_BY_NAME = new Map(
+  TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
+    (entry): entry is [string, string] => Boolean(entry[1]),
+  ),
+);
 
 function usage(): string {
   const names = TEMPLATE_SITES.map((site) => site.name).join(", ");
@@ -260,6 +267,37 @@ function redactedKeyList(keys: string[]): string {
   return keys.length > 0 ? keys.join(", ") : "(none)";
 }
 
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeProductionUrlEntry(
+  template: string,
+  context: string,
+  key: string,
+  value: string,
+): { value: string; normalized: boolean } {
+  if (
+    context !== "production" ||
+    !PRODUCTION_URL_KEYS.has(key) ||
+    !isLoopbackUrl(value)
+  ) {
+    return { value, normalized: false };
+  }
+
+  const prodUrl = TEMPLATE_PROD_URL_BY_NAME.get(template);
+  return prodUrl
+    ? { value: prodUrl, normalized: true }
+    : { value, normalized: false };
+}
+
 function netlifyEnvUrl(
   accountId: string,
   siteId: string,
@@ -427,9 +465,21 @@ async function main() {
     const blockedKeys = [...values.keys()]
       .filter((key) => BLOCKED_TEMPLATE_ENV_KEYS.has(key))
       .sort();
-    const entries = [...values.entries()].filter(
-      ([key, value]) => value !== "" && !BLOCKED_TEMPLATE_ENV_KEYS.has(key),
-    );
+    const normalizedKeys: string[] = [];
+    const entries = [...values.entries()]
+      .filter(
+        ([key, value]) => value !== "" && !BLOCKED_TEMPLATE_ENV_KEYS.has(key),
+      )
+      .map(([key, value]) => {
+        const normalized = normalizeProductionUrlEntry(
+          template,
+          options.context,
+          key,
+          value,
+        );
+        if (normalized.normalized) normalizedKeys.push(key);
+        return [key, normalized.value] as const;
+      });
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
@@ -441,6 +491,11 @@ async function main() {
     if (blockedKeys.length > 0) {
       console.log(
         `  skipped blocked hosted LLM key(s): ${blockedKeys.join(", ")}`,
+      );
+    }
+    if (normalizedKeys.length > 0) {
+      console.log(
+        `  normalized production URL key(s): ${normalizedKeys.sort().join(", ")}`,
       );
     }
 

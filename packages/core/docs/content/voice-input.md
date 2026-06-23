@@ -19,6 +19,13 @@ The composer's voice button records audio in the browser, then picks a provider:
 
 Provider choice is stored in application state under `voice-transcription-prefs` so the user can force `"auto"` (default — picks the best available provider), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"`, or `"browser"` in the sidebar settings.
 
+```an-diagram title="Voice transcription provider fallback" summary="The composer records audio, then walks server providers in order, dropping to the browser Web Speech API only when no server provider is available."
+{
+  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mic button<br><small class=\"diagram-muted\">records webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">default when Builder connected</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
+  "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
 The route is **same-origin only** — cross-site POSTs are rejected so an attacker can't burn transcription credits from an external page.
 
 ## Enabling Providers {#enabling-providers}
@@ -33,19 +40,33 @@ The user sets their own key via the agent sidebar settings UI. It's stored as a 
 
 Set `GEMINI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` as an environment variable or in the `settings` table. Every user's transcription hits the shared key.
 
-The route checks user-scope first, then falls back to the shared credential — so a power user with their own key can override the shared one.
-
-If no server provider is configured at all, the route returns a 400 the composer recognizes, and silently falls back to Web Speech.
+```an-callout
+{
+  "tone": "info",
+  "body": "**Credential resolution order:** the route checks the user's own encrypted secret first, then the shared deployment key. A power user with their own key always overrides the shared one. If neither exists, the route returns a 400 the composer recognizes and silently falls back to browser Web Speech."
+}
+```
 
 ## The route {#route}
 
-`POST /_agent-native/transcribe-voice`
-
-- **Body:** multipart form with an `audio` part (webm/opus by default) and optional `provider`.
-- **Response:** `{ text }` on success, `{ error }` on failure.
-- **Auth:** requires an active session (Better Auth cookie).
-- **Origin check:** same-origin only.
-- **Max size:** 25 MB.
+```an-api title="Voice transcription route"
+{
+  "method": "POST",
+  "path": "/_agent-native/transcribe-voice",
+  "summary": "Transcribe a recorded audio clip into prompt text",
+  "auth": "Active session (Better Auth cookie). Same-origin only.",
+  "description": "The composer POSTs the recorded clip here; the route resolves a provider and returns the transcribed text. You should not call this directly.",
+  "params": [
+    { "name": "audio", "in": "body", "type": "file", "required": true, "description": "The recorded clip, webm/opus by default. Max 25 MB." },
+    { "name": "provider", "in": "body", "type": "string", "required": false, "description": "Optional override, e.g. gemini, groq, openai, builder." }
+  ],
+  "request": { "contentType": "multipart/form-data" },
+  "responses": [
+    { "status": "200", "description": "Transcription succeeded", "example": "{ \"text\": \"reply to Sara that I'll be there by 3\" }" },
+    { "status": "400", "description": "No server provider configured — the composer recognizes this and falls back to Web Speech", "example": "{ \"error\": \"no_provider\" }" }
+  ]
+}
+```
 
 You don't need to call this directly — the composer does. If you're building a custom input surface, first reuse the shared composer/voice client pieces from `@agent-native/core/client`. Treat this route as the low-level transport boundary for custom helpers that need to send multipart audio.
 
