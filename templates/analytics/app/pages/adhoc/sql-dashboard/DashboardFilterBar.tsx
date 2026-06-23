@@ -224,7 +224,7 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="rounded-lg border border-border bg-card p-3"
+        className="group rounded-lg border border-border bg-card p-3"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-baseline gap-2">
@@ -235,7 +235,7 @@ export function DashboardFilterBar({
               auto-applied
             </span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
             {onSaveView && filtersActive && (
               <Button
                 variant="ghost"

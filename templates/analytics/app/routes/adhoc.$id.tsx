@@ -1,9 +1,22 @@
-import AdhocRouter from "@/pages/adhoc/AdhocRouter";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
-export function meta() {
-  return [{ title: "Dashboard — Analytics" }];
+// `/adhoc/:id` is the legacy dashboard URL. The canonical, user-facing URL is
+// now `/dashboards/:id`. Forward old links (bookmarks, deep links, query
+// params like `?id=` and `?config=`) to the canonical path so nothing breaks.
+function target({ request, params }: LoaderFunctionArgs): string {
+  const url = new URL(request.url);
+  const id = params.id ?? "";
+  return `/dashboards/${encodeURIComponent(id)}${url.search}${url.hash}`;
 }
 
-export default function AdhocRoute() {
-  return <AdhocRouter />;
+export function loader(args: LoaderFunctionArgs) {
+  throw redirect(target(args));
+}
+
+export function clientLoader(args: LoaderFunctionArgs) {
+  throw redirect(target(args));
+}
+
+export default function AdhocRedirectRoute() {
+  return null;
 }

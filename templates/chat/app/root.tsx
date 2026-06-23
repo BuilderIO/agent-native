@@ -14,6 +14,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
+import changelog from "../CHANGELOG.md?raw";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { TAB_ID } from "@/lib/tab-id";
 import { APP_TITLE } from "@/lib/app-config";
@@ -97,7 +98,12 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="chat"
+      >
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
         </CommandMenu.Group>

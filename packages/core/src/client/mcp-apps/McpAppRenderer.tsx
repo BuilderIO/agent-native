@@ -13,6 +13,7 @@ import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
 
 export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;
+export const MCP_APP_INITIALIZE_TIMEOUT_MS = 8000;
 const MIN_IFRAME_HEIGHT = 220;
 const VIEWPORT_MARGIN = 16;
 const SANDBOX_FLAGS = "allow-scripts allow-forms allow-popups";
@@ -46,6 +47,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     () => (resourceHtml ? injectCsp(resourceHtml, csp) : ""),
     [resourceHtml, csp],
   );
+  const externalOpenUrl = useMemo(() => openUrlFromMcpApp(app), [app]);
 
   useEffect(() => {
     desiredHeightRef.current = DEFAULT_MCP_APP_IFRAME_HEIGHT;
@@ -115,6 +117,11 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     if (!iframe?.contentWindow || !srcDoc || loadedSrcDoc !== srcDoc) return;
 
     let closed = false;
+    const initializeTimer = window.setTimeout(() => {
+      if (closed) return;
+      setReady(false);
+      setError("MCP App did not finish initializing.");
+    }, MCP_APP_INITIALIZE_TIMEOUT_MS);
     const bridge = new AppBridge(
       null,
       { name: "Agent Native", version: "1.0.0" },
@@ -144,7 +151,11 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     });
     bridge.addEventListener("initialized", () => {
       if (closed) return;
+      clearTimeout(initializeTimer);
       setReady(true);
+      // Clear any error the initialize timeout may have set before a slow app
+      // finished — otherwise the error overlay stays stuck over a working app.
+      setError(null);
       void bridge.sendToolInput({ arguments: app.toolInput });
       void bridge.sendToolResult(app.toolResult as CallToolResult);
     });
@@ -194,12 +205,14 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     setError(null);
     bridge.connect(transport).catch((err: any) => {
       if (!closed) {
+        clearTimeout(initializeTimer);
         setError(err?.message ?? "Failed to initialize MCP App.");
       }
     });
 
     return () => {
       closed = true;
+      clearTimeout(initializeTimer);
       setReady(false);
       void bridge
         .teardownResource({}, { timeout: 500 })
@@ -244,6 +257,17 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         <div className="agent-mcp-app__error">
           <IconAlertTriangle size={15} />
           <span>{error}</span>
+          {externalOpenUrl && (
+            <button
+              type="button"
+              className="agent-mcp-app__open"
+              onClick={() =>
+                window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
+              }
+            >
+              Open in new tab
+            </button>
+          )}
         </div>
       )}
       <iframe
@@ -279,6 +303,36 @@ function htmlFromResource(
   } catch {
     return "";
   }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function openUrlRecordValue(value: unknown): string | null {
+  const record = recordValue(value);
+  const webUrl = record?.webUrl;
+  return typeof webUrl === "string" && isSafeExternalUrl(webUrl)
+    ? webUrl
+    : null;
+}
+
+function openUrlFromMcpApp(app: AgentMcpAppPayload): string | null {
+  const result = recordValue(app.toolResult);
+  const meta = recordValue(result?._meta);
+  const fromMeta = openUrlRecordValue(meta?.["agent-native/openLink"]);
+  if (fromMeta) return fromMeta;
+
+  const structuredContent = recordValue(result?.structuredContent);
+  const fromStructured = openUrlRecordValue(structuredContent?.openLink);
+  if (fromStructured) return fromStructured;
+
+  const directUrl = structuredContent?.url ?? result?.url;
+  return typeof directUrl === "string" && isSafeExternalUrl(directUrl)
+    ? directUrl
+    : null;
 }
 
 export function supportedMcpAppPermissions(

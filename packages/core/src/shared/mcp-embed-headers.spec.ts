@@ -7,11 +7,13 @@ import {
 
 describe("MCP embed headers", () => {
   it("allows ChatGPT web-sandbox origins", () => {
-    const origin =
-      "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com";
-
-    expect(isChatGptMcpSandboxOrigin(origin)).toBe(true);
-    expect(isMcpEmbedCorsOrigin(origin)).toBe(true);
+    for (const origin of [
+      "https://web-sandbox.oaiusercontent.com",
+      "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
+    ]) {
+      expect(isChatGptMcpSandboxOrigin(origin)).toBe(true);
+      expect(isMcpEmbedCorsOrigin(origin)).toBe(true);
+    }
   });
 
   it("allows localhost origins for local MCP app QA", () => {
@@ -29,7 +31,6 @@ describe("MCP embed headers", () => {
     for (const origin of [
       "https://files.oaiusercontent.com",
       "https://example.oaiusercontent.com",
-      "https://web-sandbox.oaiusercontent.com",
       "https://web-sandbox.oaiusercontent.com.evil.example",
       "https://localhost:9310",
       "http://example.com",

@@ -21,6 +21,7 @@ import {
 } from "@agent-native/core/client";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
+import changelog from "../CHANGELOG.md?raw";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -258,7 +259,12 @@ function AppContent() {
       {standalonePublic ? null : <DbSyncSetup />}
       {standalonePublic ? null : <ClipsExtensionAuthBridge />}
       {standalonePublic ? null : (
-        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          changelog={changelog}
+          changelogKey="clips"
+        >
           <CommandMenu.Group heading="Actions">
             <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
           </CommandMenu.Group>

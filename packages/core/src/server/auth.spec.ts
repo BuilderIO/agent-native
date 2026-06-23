@@ -902,6 +902,24 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("lets the public health/warmup probe bypass auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/_agent-native/health" })),
+      ).resolves.toBeUndefined();
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -3525,10 +3543,40 @@ describe("server/auth", () => {
           returnUrl: "/dashboard",
         }),
       );
-      // Web flow returns a string body (h3 sets Location via setResponseHeader).
-      expect(typeof response === "string" || response === "").toBe(true);
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe("/dashboard");
       expect(event.res.status).toBe(302);
       expect(event.res.headers.get("Location")).toBe("/dashboard");
+    });
+
+    it("returns a native web redirect that drops callback query parameters", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/google/callback",
+        query: {
+          code: "oauth-code",
+          state: "signed-state",
+          scope: "email profile openid",
+          authuser: "1",
+        },
+      });
+
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          returnUrl: "/",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe("/");
+      expect((response as Response).headers.get("Location")).not.toContain(
+        "code=",
+      );
+      expect((response as Response).headers.get("Referrer-Policy")).toBe(
+        "no-referrer",
+      );
     });
 
     it("bridges hosted OAuth completion back to the local workspace gateway", async () => {
@@ -3542,12 +3590,42 @@ describe("server/auth", () => {
         }),
       );
 
-      expect(typeof response === "string" || response === "").toBe(true);
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe(
+        "http://127.0.0.1:8080/dispatch?_session=token-1",
+      );
       expect(event.res.status).toBe(302);
       expect(event.res.headers.get("Location")).toBe(
         "http://127.0.0.1:8080/dispatch?_session=token-1",
       );
-      expect(event.res.headers.get("Referrer-Policy")).toBe("no-referrer");
+      expect((response as Response).headers.get("Referrer-Policy")).toBe(
+        "no-referrer",
+      );
+    });
+
+    it("carries the session cookie staged on the event into the 302 redirect", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent();
+      // Simulate the framework session cookie staged earlier in the callback.
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=session-token; Path=/; HttpOnly; SameSite=Lax",
+      );
+
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", { returnUrl: "/" }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      // h3 hands a non-2xx web Response back without merging the staged
+      // Set-Cookie, so the redirect itself must carry it — otherwise the
+      // sign-in succeeds but the browser arrives back logged out.
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
+      expect(setCookie.join("\n")).toContain("an_session=session-token");
     });
 
     it("mobile callback deep-links to the native app but falls back to the return URL, not the homepage", async () => {

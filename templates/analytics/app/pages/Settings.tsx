@@ -1,13 +1,17 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router";
+import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const { auth } = useAuth();
 
   return (
     <div className="space-y-6 max-w-2xl">
+      <ChangelogSettingsCard markdown={changelog} />
+
       <Card className="bg-card border-border/50">
         <CardHeader>
           <CardTitle className="text-base">Account</CardTitle>

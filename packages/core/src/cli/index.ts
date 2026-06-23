@@ -827,6 +827,21 @@ switch (command) {
     break;
   }
 
+  case "changelog": {
+    // Author and roll up the app's user-facing changelog (changeset-style
+    // pending entry files → a dated CHANGELOG.md section).
+    import("./changelog.js")
+      .then(async (m) => {
+        const code = await m.runChangelog(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "--version":
   case "-v": {
     console.log(_version);
@@ -906,6 +921,10 @@ Usage:
                                 Pass a URL instead of a name for a generic
                                 research-and-integrate blueprint. --list to
                                 browse available blueprints.
+  agent-native changelog <cmd>  Author the app's user-facing changelog.
+                                cmds: add "<summary>" [--type added|fixed|...] |
+                                release | list. Pending entries live in
+                                changelog/; 'release' rolls them into CHANGELOG.md.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its

@@ -26,9 +26,12 @@ export function useNavigationState() {
         state.view = "overview";
       } else if (pathname === "/ask") {
         state.view = "ask";
-      } else if (pathname.startsWith("/adhoc/")) {
+      } else if (
+        pathname.startsWith("/dashboards/") ||
+        pathname.startsWith("/adhoc/")
+      ) {
         state.view = "adhoc";
-        const match = pathname.match(/\/adhoc\/(.+)/);
+        const match = pathname.match(/\/(?:adhoc|dashboards)\/(.+)/);
         if (match) {
           state.dashboardId = match[1];
           localStorage.setItem("last-dashboard-id", match[1]);
@@ -68,7 +71,7 @@ export function useNavigationState() {
     },
     getCommandPath: (cmd) => {
       if (cmd.view === "adhoc" && cmd.dashboardId)
-        return `/adhoc/${cmd.dashboardId}`;
+        return `/dashboards/${cmd.dashboardId}`;
       if (cmd.view === "analyses" && cmd.analysisId)
         return `/analyses/${cmd.analysisId}`;
       if (cmd.view === "analyses") return "/analyses";

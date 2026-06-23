@@ -236,7 +236,7 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-all hover:bg-sidebar-accent hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={`${label} settings`}
             >
               <IconSettings className="h-3.5 w-3.5" />
@@ -734,7 +734,7 @@ function SortableDashboardItem({
     visibility: Visibility,
   ) => Promise<void>;
 }) {
-  const href = `/adhoc/${d.id}`;
+  const href = `/dashboards/${d.id}`;
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
@@ -1337,7 +1337,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
 
   const activeDashboardId = useMemo(() => {
-    const match = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
     if (!match?.[1]) return null;
     return new URLSearchParams(location.search).get("id") || match[1];
   }, [location.pathname, location.search]);
@@ -1830,7 +1830,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [sidebarWidth],
   );
 
-  const isAdhocActive = location.pathname.startsWith("/adhoc");
+  const isAdhocActive =
+    location.pathname.startsWith("/adhoc") ||
+    location.pathname.startsWith("/dashboards");
 
   return (
     <div
@@ -1945,227 +1947,233 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </Link>
 
           {/* Dashboards section */}
-          <div
-            className={cn(
-              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
-              isAdhocActive
-                ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <button
-              type="button"
-              onClick={toggleDashOpen}
-              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
-              aria-expanded={dashOpen}
+          <div className="group/section space-y-1">
+            <div
+              className={cn(
+                "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                isAdhocActive
+                  ? "text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50",
+              )}
             >
-              <IconChartBar className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Dashboards</span>
-            </button>
-            <SidebarSectionSettingsPopover
-              label="Dashboards"
-              sortMode={dashboardSortMode}
-              onSortModeChange={setDashboardSortMode}
-              sharedOnly={dashFilter === "org"}
-              onSharedOnlyChange={(checked) =>
-                setDashFilter(checked ? "org" : "all")
-              }
-            />
-            <button
-              type="button"
-              onClick={toggleDashOpen}
-              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-              aria-label={
-                dashOpen ? "Collapse dashboards" : "Expand dashboards"
-              }
-            >
-              <IconChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 transition-transform",
-                  !dashOpen && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-
-          {dashOpen && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDashboardDragEnd}
-            >
-              <SortableContext
-                items={displayedDashboards.map((d) => d.id)}
-                strategy={verticalListSortingStrategy}
+              <button
+                type="button"
+                onClick={toggleDashOpen}
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                aria-expanded={dashOpen}
               >
-                <div className="ml-4 min-w-0 space-y-0.5">
-                  {displayedDashboards.map((d) => (
-                    <SortableDashboardItem
-                      key={d.id}
-                      d={d}
-                      isActive={activeDashboardId === d.id}
-                      location={location}
-                      favoriteIds={favoriteIds}
-                      onToggleFavorite={toggleFavorite}
-                      onDelete={handleDashboardDelete}
-                      onRename={handleDashboardRename}
-                      onArchive={handleDashboardArchive}
-                      onSetVisibility={handleDashboardSetVisibility}
-                      onPrefetch={prefetchDashboard}
-                      views={allViewsMap[d.id]}
-                    />
-                  ))}
-                  {filteredDashboards.length > SIDEBAR_PREVIEW_COUNT && (
-                    <button
-                      onClick={() => setDashShowAll(!dashShowAll)}
-                      className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                    >
-                      {dashShowAll
-                        ? "Show less"
-                        : `Show ${filteredDashboards.length - SIDEBAR_PREVIEW_COUNT} more`}
-                    </button>
+                <IconChartBar className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Dashboards</span>
+              </button>
+              <SidebarSectionSettingsPopover
+                label="Dashboards"
+                sortMode={dashboardSortMode}
+                onSortModeChange={setDashboardSortMode}
+                sharedOnly={dashFilter === "org"}
+                onSharedOnlyChange={(checked) =>
+                  setDashFilter(checked ? "org" : "all")
+                }
+              />
+              <button
+                type="button"
+                onClick={toggleDashOpen}
+                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                aria-label={
+                  dashOpen ? "Collapse dashboards" : "Expand dashboards"
+                }
+              >
+                <IconChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 transition-transform",
+                    !dashOpen && "-rotate-90",
                   )}
-                  {sqlDashboardsLoading &&
-                    sqlDashboards.length === 0 &&
-                    Array.from({ length: 3 }).map((_, i) => (
-                      <div
-                        key={`sql-skeleton-${i}`}
-                        className="flex items-center gap-2 px-3 py-1"
-                      >
-                        <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
-                        <Skeleton
-                          className="h-3 rounded"
-                          style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                        />
-                      </div>
+                />
+              </button>
+            </div>
+
+            {dashOpen && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDashboardDragEnd}
+              >
+                <SortableContext
+                  items={displayedDashboards.map((d) => d.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="ml-4 min-w-0 space-y-0.5">
+                    {displayedDashboards.map((d) => (
+                      <SortableDashboardItem
+                        key={d.id}
+                        d={d}
+                        isActive={activeDashboardId === d.id}
+                        location={location}
+                        favoriteIds={favoriteIds}
+                        onToggleFavorite={toggleFavorite}
+                        onDelete={handleDashboardDelete}
+                        onRename={handleDashboardRename}
+                        onArchive={handleDashboardArchive}
+                        onSetVisibility={handleDashboardSetVisibility}
+                        onPrefetch={prefetchDashboard}
+                        views={allViewsMap[d.id]}
+                      />
                     ))}
-                  <NewDashboardDialog />
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+                    {filteredDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                      <button
+                        onClick={() => setDashShowAll(!dashShowAll)}
+                        className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                      >
+                        {dashShowAll
+                          ? "Show less"
+                          : `Show ${filteredDashboards.length - SIDEBAR_PREVIEW_COUNT} more`}
+                      </button>
+                    )}
+                    {sqlDashboardsLoading &&
+                      sqlDashboards.length === 0 &&
+                      Array.from({ length: 3 }).map((_, i) => (
+                        <div
+                          key={`sql-skeleton-${i}`}
+                          className="flex items-center gap-2 px-3 py-1"
+                        >
+                          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+                          <Skeleton
+                            className="h-3 rounded"
+                            style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                          />
+                        </div>
+                      ))}
+                    <NewDashboardDialog />
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
 
           {/* Analyses section */}
-          <div
-            className={cn(
-              "group/section flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
-              location.pathname.startsWith("/analyses")
-                ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <button
-              type="button"
-              onClick={toggleAnalysesOpen}
-              className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
-              aria-expanded={analysesOpen}
+          <div className="group/section space-y-1">
+            <div
+              className={cn(
+                "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                location.pathname.startsWith("/analyses")
+                  ? "text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50",
+              )}
             >
-              <IconReportAnalytics className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Analyses</span>
-            </button>
-            <SidebarSectionSettingsPopover
-              label="Analyses"
-              sortMode={analysisSortMode}
-              onSortModeChange={setAnalysisSortMode}
-              sharedOnly={analysisFilter === "org"}
-              onSharedOnlyChange={(checked) =>
-                setAnalysisFilter(checked ? "org" : "all")
-              }
-              showHidden={analysisHiddenFilter === "hidden"}
-              onShowHiddenChange={(checked) =>
-                setAnalysisHiddenFilter(checked ? "hidden" : "visible")
-              }
-            />
-            <button
-              type="button"
-              onClick={toggleAnalysesOpen}
-              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-              aria-label={
-                analysesOpen ? "Collapse analyses" : "Expand analyses"
-              }
-            >
-              <IconChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 transition-transform",
-                  !analysesOpen && "-rotate-90",
-                )}
-              />
-            </button>
-          </div>
-
-          {analysesOpen && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleAnalysisDragEnd}
-            >
-              <SortableContext
-                items={displayedAnalyses.map((a) => a.id)}
-                strategy={verticalListSortingStrategy}
+              <button
+                type="button"
+                onClick={toggleAnalysesOpen}
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                aria-expanded={analysesOpen}
               >
-                <div className="ml-4 min-w-0 space-y-0.5">
-                  {displayedAnalyses.map((a) => (
-                    <SortableRow
-                      key={a.id}
-                      id={a.id}
-                      favoriteKey={`analysis:${a.id}`}
-                      name={a.name}
-                      href={`/analyses/${a.id}`}
-                      isActive={location.pathname === `/analyses/${a.id}`}
-                      favoriteIds={favoriteIds}
-                      onToggleFavorite={toggleFavorite}
-                      onDelete={() => handleAnalysisDelete(a)}
-                      onRename={(name) => handleAnalysisRename(a, name)}
-                      hidden={analysisHiddenFilter === "hidden"}
-                      onHide={
-                        analysisHiddenFilter === "hidden"
-                          ? undefined
-                          : () => handleAnalysisHide(a)
-                      }
-                      onUnhide={
-                        analysisHiddenFilter === "hidden"
-                          ? () => handleAnalysisUnhide(a)
-                          : undefined
-                      }
-                      visibility={a.visibility}
-                      onSetVisibility={(v) => handleAnalysisSetVisibility(a, v)}
-                      onPrefetch={() => prefetchAnalysis(a.id)}
-                    />
-                  ))}
-                  {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
-                    <button
-                      onClick={() => setAnalysesShowAll(!analysesShowAll)}
-                      className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                    >
-                      {analysesShowAll
-                        ? "Show less"
-                        : `Show ${filteredAnalyses.length - SIDEBAR_PREVIEW_COUNT} more`}
-                    </button>
+                <IconReportAnalytics className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Analyses</span>
+              </button>
+              <SidebarSectionSettingsPopover
+                label="Analyses"
+                sortMode={analysisSortMode}
+                onSortModeChange={setAnalysisSortMode}
+                sharedOnly={analysisFilter === "org"}
+                onSharedOnlyChange={(checked) =>
+                  setAnalysisFilter(checked ? "org" : "all")
+                }
+                showHidden={analysisHiddenFilter === "hidden"}
+                onShowHiddenChange={(checked) =>
+                  setAnalysisHiddenFilter(checked ? "hidden" : "visible")
+                }
+              />
+              <button
+                type="button"
+                onClick={toggleAnalysesOpen}
+                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                aria-label={
+                  analysesOpen ? "Collapse analyses" : "Expand analyses"
+                }
+              >
+                <IconChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 transition-transform",
+                    !analysesOpen && "-rotate-90",
                   )}
-                  {analysesLoading &&
-                    sortedAnalyses.length === 0 &&
-                    Array.from({ length: 3 }).map((_, i) => (
-                      <div
-                        key={`analysis-skeleton-${i}`}
-                        className="flex items-center gap-2 px-3 py-1"
-                      >
-                        <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
-                        <Skeleton
-                          className="h-3 rounded"
-                          style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                        />
-                      </div>
+                />
+              </button>
+            </div>
+
+            {analysesOpen && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleAnalysisDragEnd}
+              >
+                <SortableContext
+                  items={displayedAnalyses.map((a) => a.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="ml-4 min-w-0 space-y-0.5">
+                    {displayedAnalyses.map((a) => (
+                      <SortableRow
+                        key={a.id}
+                        id={a.id}
+                        favoriteKey={`analysis:${a.id}`}
+                        name={a.name}
+                        href={`/analyses/${a.id}`}
+                        isActive={location.pathname === `/analyses/${a.id}`}
+                        favoriteIds={favoriteIds}
+                        onToggleFavorite={toggleFavorite}
+                        onDelete={() => handleAnalysisDelete(a)}
+                        onRename={(name) => handleAnalysisRename(a, name)}
+                        hidden={analysisHiddenFilter === "hidden"}
+                        onHide={
+                          analysisHiddenFilter === "hidden"
+                            ? undefined
+                            : () => handleAnalysisHide(a)
+                        }
+                        onUnhide={
+                          analysisHiddenFilter === "hidden"
+                            ? () => handleAnalysisUnhide(a)
+                            : undefined
+                        }
+                        visibility={a.visibility}
+                        onSetVisibility={(v) =>
+                          handleAnalysisSetVisibility(a, v)
+                        }
+                        onPrefetch={() => prefetchAnalysis(a.id)}
+                      />
                     ))}
-                  {!analysesLoading && sortedAnalyses.length === 0 && (
-                    <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                      No analyses yet
-                    </p>
-                  )}
-                  <NewAnalysisDialog />
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+                    {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
+                      <button
+                        onClick={() => setAnalysesShowAll(!analysesShowAll)}
+                        className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                      >
+                        {analysesShowAll
+                          ? "Show less"
+                          : `Show ${filteredAnalyses.length - SIDEBAR_PREVIEW_COUNT} more`}
+                      </button>
+                    )}
+                    {analysesLoading &&
+                      sortedAnalyses.length === 0 &&
+                      Array.from({ length: 3 }).map((_, i) => (
+                        <div
+                          key={`analysis-skeleton-${i}`}
+                          className="flex items-center gap-2 px-3 py-1"
+                        >
+                          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+                          <Skeleton
+                            className="h-3 rounded"
+                            style={{ width: `${60 + ((i * 17) % 30)}%` }}
+                          />
+                        </div>
+                      ))}
+                    {!analysesLoading && sortedAnalyses.length === 0 && (
+                      <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                        No analyses yet
+                      </p>
+                    )}
+                    <NewAnalysisDialog />
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
         </nav>
 
         <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">

@@ -7936,6 +7936,7 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   authUrl.searchParams.set("framework", "agent-native");
   authUrl.searchParams.set("signupSource", "agent-native");
   authUrl.searchParams.set("agentNativeFlow", "desktop_code");
+  authUrl.searchParams.set("agentNativeApp", "agent-native-desktop");
   authUrl.searchParams.set(
     "agentNativeConnectSource",
     "desktop_code_provider_settings",

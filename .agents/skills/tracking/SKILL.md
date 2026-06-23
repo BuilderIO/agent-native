@@ -31,7 +31,11 @@ Fire an analytics event.
 ```ts
 import { track } from "@agent-native/core/tracking";
 
-track("meal.logged", { mealName: "Salad", calories: 350 }, { userId: "user@example.com" });
+track(
+  "meal.logged",
+  { mealName: "Salad", calories: 350 },
+  { userId: "user@example.com" },
+);
 ```
 
 ### `identify(userId, traits?)`
@@ -73,13 +77,13 @@ Flush all providers (call before process exit).
 
 Set the env var and the provider auto-registers at startup. No SDK dependencies -- all providers use raw HTTP.
 
-| Provider   | Env vars                                                  |
-| ---------- | --------------------------------------------------------- |
-| PostHog    | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`) |
-| Mixpanel   | `MIXPANEL_TOKEN`                                          |
-| Amplitude  | `AMPLITUDE_API_KEY`                                       |
+| Provider               | Env vars                                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`)                                                    |
+| Mixpanel               | `MIXPANEL_TOKEN`                                                                                                                                   |
+| Amplitude              | `AMPLITUDE_API_KEY`                                                                                                                                |
 | Agent Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
-| Webhook    | `TRACKING_WEBHOOK_URL` (required), `TRACKING_WEBHOOK_AUTH` (optional, sent as `Authorization` header) |
+| Webhook                | `TRACKING_WEBHOOK_URL` (required), `TRACKING_WEBHOOK_AUTH` (optional, sent as `Authorization` header)                                              |
 
 Multiple providers can be active simultaneously. All receive every event.
 
@@ -106,10 +110,35 @@ Every browser-side `trackEvent()` POST to the Agent Native Analytics `/track` en
 
 These fields land in the `analytics_events.anonymous_id`, `analytics_events.session_id`, and `analytics_events.user_id` columns in the analytics template. Storage access is wrapped in try/catch — private-browsing / blocked-storage clients silently degrade to NULL rather than crashing the page.
 
+### Referral / viral attribution (first-touch)
+
+`configureTracking()` also captures an anonymous visitor's **first-touch** referral context once, on first page load, and persists it across the signup boundary so the server-side `signup` event records where the user came from. This powers virality metrics for every template (Clips share links, Plans public pages, etc.).
+
+**Share-link params** (set by whatever generates the link; read client-side only):
+
+- `ref` — referral source bucket, e.g. `clip_share`, `plan_share`
+- `via` — the referrer's stable user id (the clip/plan owner)
+- `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`
+
+**Client persistence** (first-write-wins — an existing value is never overwritten):
+
+- `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
+- Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).
+- `getFirstTouchAttribution()` (from `@agent-native/core/client`) returns the parsed object or `null`.
+
+**Signup event enrichment** (server-side, from the `an_ft` cookie on the signup/OAuth-callback request, derived in `packages/core/src/server/attribution.ts`):
+
+- `referral_source` — `ref` if present, else derived: `/share/…` → `clip_share`; a plan public path (`/p/`, `/plan/`, `/share-plan/`) → `plan_share`; a non-empty external referring host → `external`; otherwise `direct`.
+- `referrer_user` (= `via`), `referral_medium` (= `utm_medium`), `referral_campaign` (= `utm_campaign`)
+- `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` (raw passthrough)
+- `first_touch_path` (= `landing_path`), `landing_referrer`
+
+Attribution parsing is fully defensive and never blocks signup — a missing/malformed cookie falls back to `referral_source: "direct"`.
+
 Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
-- `signup` from Better Auth user creation, with `auth_provider` and `auth_user_id`
+- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 
@@ -121,7 +150,10 @@ For new lifecycle events, call `track()` server-side when the server is the sour
 interface TrackingProvider {
   name: string;
   track(event: TrackingEvent): void | Promise<void>;
-  identify?(userId: string, traits?: Record<string, unknown>): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
   flush?(): void | Promise<void>;
 }
 
@@ -142,11 +174,11 @@ interface TrackingEvent {
 
 ## Key Files
 
-| File                                           | Purpose                                     |
-| ---------------------------------------------- | ------------------------------------------- |
-| `packages/core/src/tracking/registry.ts`       | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()` |
-| `packages/core/src/tracking/providers.ts`      | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
-| `packages/core/src/tracking/types.ts`          | `TrackingEvent` and `TrackingProvider` interfaces |
+| File                                      | Purpose                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/tracking/registry.ts`  | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()`                                            |
+| `packages/core/src/tracking/providers.ts` | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
+| `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
 
 ## Related Skills
 

@@ -521,6 +521,7 @@ describe("runShot — playwright not available", () => {
       }),
     };
     const fakeContext = {
+      addInitScript: vi.fn(async () => {}),
       route: vi.fn(),
       newPage: vi.fn(async () => fakePage),
     };

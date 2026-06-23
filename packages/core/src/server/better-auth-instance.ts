@@ -23,6 +23,7 @@ import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -72,23 +73,41 @@ export async function trackSignupEvent({
   authUserId,
   email,
   name,
+  attribution,
 }: {
   authProvider: string;
   authUserId?: string;
   email: string;
   name?: string | null;
+  /**
+   * First-touch referral attribution derived from the visitor's `an_ft`
+   * cookie (see `server/attribution.ts`). Snake_case keys such as
+   * `referral_source`, `referrer_user`, and the UTM passthrough are merged
+   * into the `signup` event so we can measure where new users came from.
+   * `undefined` values are dropped; a missing object is a clean no-op.
+   */
+  attribution?: Record<string, string | undefined>;
 }): Promise<void> {
   identify(email, {
     email,
     name: name ?? undefined,
     authUserId,
   });
+  const cleanAttribution: Record<string, string> = {};
+  if (attribution) {
+    for (const [key, value] of Object.entries(attribution)) {
+      if (typeof value === "string" && value.length > 0) {
+        cleanAttribution[key] = value;
+      }
+    }
+  }
   track(
     "signup",
     {
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
       ...(authUserId ? { auth_user_id: authUserId } : {}),
+      ...cleanAttribution,
     },
     { userId: email },
   );
@@ -929,22 +948,47 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: {
-            id?: string;
-            email?: string;
-            name?: string | null;
-          }) => {
+          after: async (
+            user: {
+              id?: string;
+              email?: string;
+              name?: string | null;
+            },
+            // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
+            // It carries the originating request's headers (and on OAuth
+            // signups the callback request's headers), which is where the
+            // browser's `an_ft` first-touch cookie rides in.
+            context?: {
+              headers?: Headers | null;
+              request?: { headers?: Headers | null } | null;
+            } | null,
+          ) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
+            // Derive first-touch referral attribution from the request's
+            // cookie header. Never let attribution parsing throw or block
+            // signup — on any error fall back to `direct`.
+            let attribution: Record<string, string> | undefined;
+            try {
+              const cookieHeader =
+                context?.headers?.get("cookie") ??
+                context?.request?.headers?.get("cookie") ??
+                null;
+              attribution = signupAttributionFromCookieHeader(cookieHeader);
+            } catch (err) {
+              console.error("[auth] failed to derive signup attribution", err);
+              attribution = undefined;
+            }
             await trackSignupEvent({
               authProvider: "better-auth",
               authUserId: user.id,
               email,
               name: user.name,
+              attribution,
             });
             try {
               await acceptPendingInvitationsForEmail(email);

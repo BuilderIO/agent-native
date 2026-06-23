@@ -26,8 +26,10 @@ import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   AppearancePicker,
   callAction,
+  ChangelogSettingsCard,
   type AppearancePresetId,
 } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -150,6 +152,8 @@ export default function Settings() {
           Configure your calendar and integrations.
         </p>
       </div>
+
+      <ChangelogSettingsCard markdown={changelog} />
 
       {/* Google Calendar Connection */}
       <Card>

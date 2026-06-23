@@ -326,7 +326,7 @@ export default function ExplorerDashboardPage() {
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/adhoc/explorer");
+      navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't archive dashboard",
@@ -657,7 +657,7 @@ export default function ExplorerDashboardPage() {
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/adhoc/explorer");
+                        navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error
@@ -717,7 +717,7 @@ export default function ExplorerDashboardPage() {
                   onRemove={() => removeChart(chart.id)}
                   onToggleWidth={() => toggleWidth(chart.id)}
                   onEdit={() =>
-                    navigate(`/adhoc/explorer?config=${chart.configId}`)
+                    navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
                 />

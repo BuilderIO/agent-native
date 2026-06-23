@@ -135,12 +135,15 @@ no labels or copy. The renderer drops borders, sketch, and color into the
 skeleton register automatically. Never escape to a `custom-html` document block
 to fake a loader.
 
-**Editing an existing mockup.** To change one element, text, or color in an
-existing html mockup, call `update-visual-plan`
-with `contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
+**Editing an existing mockup.** In hosted mode, to change one element, text, or
+color in an existing html mockup, do not regenerate the frame — call
+`update-visual-plan` with
+`contentPatches: [{ op: "patch-wireframe-html", blockId, edits: [{ find,
 replace }] }]`. Each `find` is a unique snippet of the current html (read it
 first with `get-visual-plan`); set `all: true` on an edit to replace every
-occurrence. The result is re-sanitized.
+occurrence. The result is re-sanitized. In local-files privacy mode, do not call
+hosted Plan tools; edit the local MDX source directly and rerun the local
+check/serve or verify command for `<plan-dir>`.
 
 **Treat the wireframe border as part of the visible design.** Always wrap HTML
 wireframe content in a root container with real inner padding before drawing

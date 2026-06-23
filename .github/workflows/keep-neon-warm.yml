@@ -1,0 +1,38 @@
+name: Keep Neon DBs warm
+
+# Pings every first-party app's /_agent-native/health endpoint on a short
+# interval so their scale-to-zero serverless databases (Neon) never suspend.
+# A warm Neon compute turns the "insanely slow first load" cold-start into a
+# normal request. The app list is read from packages/shared-app-config so new
+# apps are covered automatically.
+#
+# Scheduled workflows only run on the default branch, so this takes effect once
+# merged to main. Use the manual trigger to warm on demand.
+
+on:
+  schedule:
+    # Every 3 minutes. Neon's default autosuspend is ~5 min idle, so a 3-min
+    # cadence leaves margin for GitHub's scheduled-workflow jitter (runs can be
+    # delayed several minutes near the top of the hour) — a delayed 5-min ping
+    # could let the compute suspend, but a delayed 3-min one almost never does.
+    - cron: "*/3 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-neon-warm
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Ping app health endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ping /_agent-native/health for every app
+        run: node scripts/keep-warm.mjs

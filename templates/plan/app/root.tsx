@@ -22,6 +22,7 @@ import {
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
+import changelog from "../CHANGELOG.md?raw";
 import { Toaster } from "@/components/ui/sonner";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { TAB_ID } from "@/lib/tab-id";
@@ -106,7 +107,12 @@ function AppContent() {
   );
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="plan"
+      >
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => go("/")}>Ask Plan</CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/plans")}>

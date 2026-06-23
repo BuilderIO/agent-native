@@ -147,6 +147,13 @@ instructions, and application state.
   `packages/shared-app-config/templates.ts` plus mirrored CLI/docs surfaces.
   Hidden templates must not appear in public catalogs unless they are explicitly
   unhidden first.
+- When you ship a user-facing change to a template app (new capability, visible
+  improvement, or behavior-affecting fix), record it from that app with
+  `agent-native changelog add "<one user-facing sentence>" --type <added|improved|fixed>`.
+  This writes a changeset-style pending entry under `changelog/`; `changelog
+release` rolls pending entries into the app's `CHANGELOG.md`, which renders in
+  the command menu (Cmd+K → "What's new") and settings. Skip refactors, tooling,
+  and tests. See the `changelog` skill.
 
 ## Extensions
 
@@ -194,6 +201,7 @@ Read the relevant skill before making changes in that area:
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
 - `automations`, `recurring-jobs`, `integration-webhooks` for background work.
 - `frontend-design`, `shadcn-ui` for interface work.
+- `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
 - `extensions` for sandboxed mini-apps.
 - `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
   `external-agents`, and template-specific skills as needed.

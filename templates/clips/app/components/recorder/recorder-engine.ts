@@ -452,6 +452,17 @@ export class RecorderEngine {
     return this.previewStream;
   }
 
+  /**
+   * The composited screen+camera canvas stream that actually gets recorded
+   * (screen with the camera bubble drawn in), or `null` for screen-only /
+   * camera-only modes where the visible preview already matches the recording.
+   * Used to grab a thumbnail that includes the presenter's camera — the raw
+   * preview stream in screen+camera mode is screen-only and has no face.
+   */
+  getCompositeStream(): MediaStream | null {
+    return this.cameraComposite?.stream ?? null;
+  }
+
   getElapsedMs(): number {
     if (this.startedAtMs === null) return 0;
     const now = performance.now();

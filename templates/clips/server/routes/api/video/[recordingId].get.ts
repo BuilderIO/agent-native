@@ -49,6 +49,7 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
+  captureRouteError,
   getSession,
   runWithRequestContext,
   signShortLivedToken,
@@ -404,7 +405,56 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, upstream.status);
           return { error: upstream.error };
         }
-        return providerResponse(upstream);
+        // The provider answered, but with a server error (e.g. the CDN asset is
+        // broken and returns 5xx). Don't proxy an opaque upstream error — and
+        // don't risk reconstructing a Response from it, which previously threw
+        // and surfaced as an unhandled 500 on every request. Capture it so the
+        // broken asset is diagnosable, and return a clean 502.
+        if (upstream.status >= 500) {
+          captureRouteError(
+            new Error(
+              `Storage provider returned ${upstream.status} for recording media`,
+            ),
+            {
+              route: "api/video",
+              tags: {
+                mediaPath: "provider-proxy",
+                upstreamStatus: String(upstream.status),
+              },
+              extra: { recordingId },
+            },
+          );
+          setResponseStatus(event, 502);
+          setResponseHeader(
+            event,
+            "Cache-Control",
+            "private, max-age=0, no-store",
+          );
+          return {
+            error: "The recording's media could not be loaded from storage.",
+            upstreamStatus: upstream.status,
+          };
+        }
+        try {
+          return providerResponse(upstream);
+        } catch (err) {
+          // Reconstructing the proxied Response should not happen, but if it
+          // does, fail cleanly instead of as an unhandled 500.
+          captureRouteError(err, {
+            route: "api/video",
+            tags: { mediaPath: "provider-proxy-response" },
+            extra: { recordingId, upstreamStatus: String(upstream.status) },
+          });
+          setResponseStatus(event, 502);
+          setResponseHeader(
+            event,
+            "Cache-Control",
+            "private, max-age=0, no-store",
+          );
+          return {
+            error: "The recording's media could not be loaded from storage.",
+          };
+        }
       }
       const mimeType =
         typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";

@@ -5,6 +5,7 @@ import {
   resolveBuilderWaitlistFormTargetForRequest,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
+  runDbHealthProbe,
   AVATAR_RASTER_MIME,
 } from "./core-routes-plugin.js";
 import {
@@ -321,5 +322,31 @@ describe("AVATAR_RASTER_MIME", () => {
 
   it("rejects a plain data:image/ prefix with no subtype", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
+  });
+});
+
+describe("runDbHealthProbe", () => {
+  it("reports db:true when SELECT 1 succeeds", async () => {
+    let ran: string | undefined;
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran = sql;
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toBe("SELECT 1");
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(true);
+    expect(result.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("stays live with db:false when the query throws (no DB / unreachable)", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(false);
   });
 });

@@ -1473,6 +1473,22 @@ async function showRegionGuidesForRecording(wantsScreen: boolean) {
   });
 }
 
+// Frame the chosen screen region with a live border so the user can see exactly
+// what's being captured throughout the countdown and recording. The overlay is
+// capture-excluded and draws its stroke outside the captured pixels, so it never
+// lands in the video. Torn down with the rest of the recording chrome on stop.
+async function showRegionRecordBorder(region: RegionCaptureRect | null) {
+  if (!region) return;
+  await invoke("show_region_record_border", {
+    x: region.x,
+    y: region.y,
+    width: region.width,
+    height: region.height,
+  }).catch((err) => {
+    console.warn("[clips-recorder] show_region_record_border failed:", err);
+  });
+}
+
 async function runRecordingCountdown(wantsScreen: boolean, audioCue: AudioCue) {
   const countdownEvent = waitForCountdownEvent(
     COUNTDOWN_EVENT_TIMEOUT_MS,
@@ -1566,6 +1582,10 @@ async function startNativeFullscreenRecording(
 
     if (params.source === "region") {
       captureRegion = await selectRegionForRecording();
+      // Frame the selected area now so it stays visible through the countdown
+      // and the whole recording. hide_recording_chrome / hide_overlays tear it
+      // down on stop, cancel, and the error paths below.
+      await showRegionRecordBorder(captureRegion);
     }
 
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
