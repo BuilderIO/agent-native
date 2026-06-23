@@ -417,7 +417,9 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = chooseMimeType();
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    videoBitsPerSecond: 4_000_000,
+    // Crisp 1080p capture — matches the web/desktop recorders. Files upload
+    // directly (no client-side shrink), so we favor sharpness over a budget.
+    videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });
 

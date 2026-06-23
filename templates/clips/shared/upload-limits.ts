@@ -11,8 +11,11 @@
  * `desktop/src-tauri/src/native_screen.rs` (same env var, same default).
  */
 
-/** Default maximum upload size: 256 MB. */
-export const DEFAULT_MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
+/** Default maximum upload size: 2 GB. The upload provider streams large files
+ * directly, so this is a generous safety ceiling rather than a hard product
+ * limit. It mainly bounds how long a high-bitrate (crisp 1080p) recording can
+ * run before it must be split — ~34 min at the 8 Mbps capture default. */
+export const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** Env var that overrides the upload ceiling, in bytes. */
 export const MAX_UPLOAD_BYTES_ENV = "CLIPS_MAX_UPLOAD_BYTES";
