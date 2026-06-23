@@ -303,13 +303,17 @@ function BlockFieldShell({
         onDropBefore(event.dataTransfer.getData("text/block-field-id") || null);
       }}
     >
-      <div className="flex items-center gap-1 px-2 py-1.5">
+      {/* Header + content share a common left edge (pl-2). The grip sits in the
+          left gutter — flush at the section edge — so it lines up with the
+          per-block drag handles that float left of the editor content, instead
+          of being pushed further right than them (Capacities-style alignment). */}
+      <div className="flex items-center gap-0.5 py-1.5 pr-2 pl-1">
         {canEdit ? (
           <span
             role="button"
             aria-label={`Reorder ${property.definition.name}`}
             draggable
-            className="cursor-grab text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+            className="shrink-0 cursor-grab text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
             onDragStart={(event) => {
               event.dataTransfer.setData(
                 "text/block-field-id",
@@ -327,7 +331,7 @@ function BlockFieldShell({
           type="button"
           aria-expanded={open}
           aria-label={`Toggle ${property.definition.name}`}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm font-medium text-foreground hover:bg-muted/50"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-0.5 pr-1 text-left text-sm font-medium text-foreground hover:bg-muted/50"
           onClick={() => setOpen((value) => !value)}
         >
           <IconChevronRight
@@ -339,7 +343,7 @@ function BlockFieldShell({
           <span className="truncate">{property.definition.name}</span>
         </button>
       </div>
-      {open ? <div className="px-2 pb-3">{children}</div> : null}
+      {open ? <div className="pb-3 pl-2 pr-2">{children}</div> : null}
     </section>
   );
 }

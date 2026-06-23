@@ -137,6 +137,7 @@ import {
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -2323,14 +2324,38 @@ function DatabaseItemPreview({
               />
             ) : null}
             <div className="pt-6">
-              <VisualEditor
-                key={document.id}
-                documentId={document.id}
-                content={localContent}
-                onChange={handleContentChange}
-                ydoc={null}
-                editable={canEdit}
-              />
+              {(() => {
+                // The peek's primary "Content" Blocks field is the document body.
+                // No collab in the peek (ydoc=null), so it's a plain rich-text
+                // editor saving through the preview document save path.
+                const primaryEditor = (
+                  <VisualEditor
+                    key={document.id}
+                    documentId={document.id}
+                    content={localContent}
+                    onChange={handleContentChange}
+                    ydoc={null}
+                    editable={canEdit}
+                  />
+                );
+
+                // Render the peek body through the SAME component the full page
+                // uses so ALL Blocks fields (Content + any others) appear with
+                // identical loading/empty/solo/multi behavior — including the
+                // empty state (no editable body when there are zero Blocks
+                // fields). Only database rows have Blocks fields.
+                if (document.databaseMembership) {
+                  return (
+                    <DocumentBlockFields
+                      documentId={document.id}
+                      canEdit={canEdit}
+                      primaryEditor={primaryEditor}
+                    />
+                  );
+                }
+
+                return primaryEditor;
+              })()}
             </div>
           </div>
         </div>

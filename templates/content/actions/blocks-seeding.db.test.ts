@@ -8,6 +8,11 @@ import { and, eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
+import {
+  countWords,
+  formatWordCount,
+  isPrimaryBlocksField,
+} from "../shared/properties.js";
 
 // A unique on-disk SQLite file in the OS temp dir, removed after the run. Kept
 // out of the repo working tree and isolated from the process-wide getDbExec
@@ -412,5 +417,117 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       .from(schema.documentBlockFieldContents)
       .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
     expect(remaining).toHaveLength(0);
+  });
+});
+
+describe("primary Blocks value reflects the body, never the title (finding: word count)", () => {
+  it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    // A brand-new row page: has a TITLE but an EMPTY body. The primary "Content"
+    // Blocks field is backed by documents.content — it must NOT leak the title.
+    const db = getDb();
+    const rowDocumentId = `rowdoc_wc_${databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: `doc_${databaseId}`,
+      title: "Test page",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_wc_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const properties = await propertyUtils.listPropertiesForDatabase(
+      databaseId,
+      rowDocument,
+    );
+    const primary = properties.find(
+      (p: any) =>
+        p.definition.type === "blocks" &&
+        isPrimaryBlocksField(p.definition.options),
+    );
+
+    // The primary Blocks value is the (empty) body, never the "Test page" title.
+    expect(primary?.value).toBe("");
+    expect(countWords(primary?.value)).toBe(0);
+    expect(formatWordCount(primary?.value)).toBe("Empty");
+    expect(primary?.value).not.toContain("Test");
+  });
+
+  it("typing N words in the body surfaces N words — still excluding the title", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    const db = getDb();
+    const rowDocumentId = `rowdoc_wc2_${databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: `doc_${databaseId}`,
+      title: "Five word title goes here",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_wc2_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Write three words to the body (primary → document body).
+    await propertyUtils.writePrimaryBlocksContent({
+      documentId: rowDocumentId,
+      content: "one two three",
+      now,
+    });
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const properties = await propertyUtils.listPropertiesForDatabase(
+      databaseId,
+      rowDocument,
+    );
+    const primary = properties.find(
+      (p: any) => p.definition.id === primaryId,
+    );
+
+    // Word count reflects ONLY the 3 body words — not the 5-word title.
+    expect(primary?.value).toBe("one two three");
+    expect(countWords(primary?.value)).toBe(3);
+    expect(formatWordCount(primary?.value)).toBe("3 words");
   });
 });
