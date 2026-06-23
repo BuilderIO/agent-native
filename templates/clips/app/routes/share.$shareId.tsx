@@ -24,6 +24,7 @@ import {
   appPath,
   useSession,
   AgentPanel,
+  getBrowserTabId,
 } from "@agent-native/core/client";
 import {
   VideoPlayer,
@@ -354,17 +355,22 @@ export default function ShareRoute() {
   // clip instead of falling back to a generic library view.
   useEffect(() => {
     if (!session || !recording?.id) return;
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "share",
-        shareId: recording.id,
-        recordingId: recording.id,
-        path: `/share/${recording.id}`,
-      }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "share",
+          shareId: recording.id,
+          recordingId: recording.id,
+          path: `/share/${recording.id}`,
+        }),
+      },
+    ).catch(() => {});
   }, [session, recording?.id]);
 
   useEffect(() => {
@@ -869,6 +875,7 @@ export default function ShareRoute() {
                   "List follow-up actions",
                   "Draft questions for the author",
                 ]}
+                browserTabId={getBrowserTabId()}
               />
             ) : (
               <PublicAgentEmptyState />

@@ -11,7 +11,11 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar, isEmbedAuthActive } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  isEmbedAuthActive,
+  getBrowserTabId,
+} from "@agent-native/core/client";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +105,7 @@ export function Layout({ children }: LayoutProps) {
             "Add a mobile version of this",
           ]}
           scope={designScope}
+          browserTabId={getBrowserTabId()}
         >
           <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
             {mobileSidebarOpen && (

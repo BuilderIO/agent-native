@@ -18,6 +18,7 @@ import {
   ShareButton,
   appBasePath,
   agentNativePath,
+  getBrowserTabId,
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
@@ -734,24 +735,29 @@ export default function LibraryPage() {
   }, [activeTab, libraryBoardAssets]);
 
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        "x-request-source": "assets-ui",
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-request-source": "assets-ui",
+        },
+        body: JSON.stringify({
+          view: "library",
+          libraryId,
+          activeTab,
+          assetViewMode,
+          assetScope,
+          folderId: activeFolderId,
+          mediaFilter,
+          search,
+          selectedAssetIds: [...selectedAssetIds],
+        }),
       },
-      body: JSON.stringify({
-        view: "library",
-        libraryId,
-        activeTab,
-        assetViewMode,
-        assetScope,
-        folderId: activeFolderId,
-        mediaFilter,
-        search,
-        selectedAssetIds: [...selectedAssetIds],
-      }),
-    }).catch(() => {});
+    ).catch(() => {});
   }, [
     activeFolderId,
     activeTab,

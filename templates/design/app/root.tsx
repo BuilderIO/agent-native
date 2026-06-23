@@ -10,6 +10,7 @@ import {
   useCommandMenuShortcut,
   useDbSync,
   getThemeInitScript,
+  getBrowserTabId,
   configureTracking,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -66,14 +67,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files", "design-variants"],
-    ignoreSource: TAB_ID,
+    ignoreSource: getBrowserTabId(),
   });
   return null;
 }

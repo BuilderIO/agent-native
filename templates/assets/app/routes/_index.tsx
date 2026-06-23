@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import {
   AgentChatSurface,
+  getBrowserTabId,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
-import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE =
   "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
@@ -46,7 +46,7 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        browserTabId={TAB_ID}
+        browserTabId={getBrowserTabId()}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
