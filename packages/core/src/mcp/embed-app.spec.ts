@@ -104,6 +104,18 @@ describe("embedApp", () => {
     expect(html).toContain(
       "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
     );
+    // Standards-track MCP Apps hosts (Codex, Cursor, the SDK App fallback, and
+    // our own renderer) connect through the postMessage `ui/*` bridge rather
+    // than ChatGPT's `window.openai` global. They render the resource in a
+    // strict opaque-origin sandbox where self-navigation tears the host bridge
+    // down and shows a permanent / flashing loading state, so they must
+    // transplant the app document like Claude does.
+    expect(html).toContain("function isNativeMcpAppsBridgeHost()");
+    expect(html).toContain("return !!app && !openAiBridge;");
+    expect(html).toContain("isNativeMcpAppsBridgeHost() ||");
+    expect(html).toContain(
+      'message.method === "ui/notifications/host-context-changed"',
+    );
     expect(html).toContain("if (shouldTransplantAppDocument())");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");

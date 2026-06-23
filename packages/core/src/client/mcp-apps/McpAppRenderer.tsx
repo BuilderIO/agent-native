@@ -153,6 +153,9 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       if (closed) return;
       clearTimeout(initializeTimer);
       setReady(true);
+      // Clear any error the initialize timeout may have set before a slow app
+      // finished — otherwise the error overlay stays stuck over a working app.
+      setError(null);
       void bridge.sendToolInput({ arguments: app.toolInput });
       void bridge.sendToolResult(app.toolResult as CallToolResult);
     });

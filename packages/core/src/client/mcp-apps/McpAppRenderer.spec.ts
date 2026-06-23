@@ -139,7 +139,7 @@ function mcpAppPayload({
     serverId: "plan",
     toolName: "open_app",
     originalToolName: "open_app",
-    resourceUri: "ui://plan/open_app/shell-v44",
+    resourceUri: "ui://plan/open_app/shell-v45",
     toolInput: { embed: true },
     toolResult: {
       structuredContent: {
@@ -147,7 +147,7 @@ function mcpAppPayload({
       },
     },
     resource: {
-      uri: "ui://plan/open_app/shell-v44",
+      uri: "ui://plan/open_app/shell-v45",
       mimeType: "text/html;profile=mcp-app",
       text: resourceHtml,
     },
