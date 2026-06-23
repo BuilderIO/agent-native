@@ -98,6 +98,11 @@ async function handleGoogleSignInCallback(
     const { sessionToken } = await createOAuthSession(event, email, {
       hasProductionSession,
       desktop,
+      trackSignup: {
+        authProvider: "google",
+        authUserId: typeof user.id === "string" ? user.id : undefined,
+        name: typeof user.name === "string" ? user.name : undefined,
+      },
     });
 
     if (flowId && sessionToken) {

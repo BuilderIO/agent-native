@@ -307,6 +307,8 @@ export interface BlockReadProps<TData> {
   summary?: string;
   /** Injected app capabilities. */
   ctx: BlockRenderContext;
+  /** Tighten embedded visuals in dense contexts such as tabs and question cards. */
+  compactVisuals?: boolean;
 }
 
 /** Props passed to a block's editor (custom or schema-generated). */

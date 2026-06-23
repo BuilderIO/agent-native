@@ -170,3 +170,29 @@ registerRequiredSecret({
   kind: "api-key",
   required: false,
 });
+
+// ── Slack unfurl app credentials ─────────────────────────────────────
+// Slack Events API requests are signed with one deploy-level Slack app.
+// These optional workspace secrets surface the required values in Settings.
+
+registerRequiredSecret({
+  key: "SLACK_SIGNING_SECRET",
+  label: "Slack Signing Secret",
+  description:
+    "Signing secret for the Slack app that sends link_shared events to Clips.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_BOT_TOKEN",
+  label: "Slack Bot Token",
+  description:
+    "Bot user OAuth token for the Slack app that posts Clips link unfurls.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});

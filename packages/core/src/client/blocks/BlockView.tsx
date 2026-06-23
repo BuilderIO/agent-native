@@ -36,6 +36,7 @@ export function BlockView({
   editable = true,
   onChange,
   ctx,
+  compactVisuals,
 }: {
   spec: BlockSpec<any>;
   block: { id: string; title?: string; summary?: string; data: unknown };
@@ -46,6 +47,7 @@ export function BlockView({
   /** Commit a new `data` value for the block. */
   onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
+  compactVisuals?: boolean;
 }) {
   const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
@@ -56,6 +58,7 @@ export function BlockView({
       title={block.title}
       summary={block.summary}
       ctx={ctx}
+      compactVisuals={compactVisuals}
     />
   );
 

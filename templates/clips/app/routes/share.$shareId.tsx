@@ -10,6 +10,7 @@ import { useLoaderData, useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
+  IconArrowLeft,
   IconDownload,
   IconDots,
   IconExternalLink,
@@ -22,6 +23,7 @@ import {
   appBasePath,
   appPath,
   useSession,
+  AgentPanel,
 } from "@agent-native/core/client";
 import {
   VideoPlayer,
@@ -61,6 +63,11 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom";
+import {
+  buildClipsShareMeta,
+  clipsSharePageTitle,
+  displayRecordingTitle,
+} from "../../shared/share-meta";
 
 type SharePageMetaRecording = {
   id: string;
@@ -77,24 +84,9 @@ type SharePageMetaRecording = {
 type SharePageLoaderData = {
   recording: SharePageMetaRecording | null;
   agentContextUrl: string | null;
+  origin: string | null;
+  shareUrl: string | null;
 };
-
-const CLIPS_DEFAULT_TITLE = "Untitled recording";
-
-function hasGeneratedTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
-}
-
-function pageTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title)
-    ? `${title!.trim()} · Clips`
-    : "Clip recording · Clips";
-}
-
-function displayRecordingTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
-}
 
 function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
@@ -127,18 +119,16 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-function metaDescription(recording: SharePageMetaRecording | null): string {
-  const description = recording?.description?.trim();
-  if (description) return description.slice(0, 160);
-  if (hasGeneratedTitle(recording?.title)) {
-    return `Watch "${recording!.title.trim()}" on Clips.`;
-  }
-  return "Watch this screen recording on Clips.";
-}
-
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.shareId;
-  if (!id) return { recording: null, agentContextUrl: null };
+  const requestUrl = new URL(request.url);
+  if (!id)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   const [rec] = await getDb()
     .select({
@@ -158,12 +148,24 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  if (!rec) return { recording: null, agentContextUrl: null };
+  if (!rec)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   if (rec.visibility !== "public") {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return { recording: null, agentContextUrl: null };
+    if (!access)
+      return {
+        recording: null,
+        agentContextUrl: null,
+        origin: requestUrl.origin,
+        shareUrl: null,
+      };
   }
 
   const recording: SharePageMetaRecording = {
@@ -189,10 +191,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
+    origin: requestUrl.origin,
+    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: new URL(request.url).origin,
+            origin: requestUrl.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -202,26 +206,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const recording = data?.recording ?? null;
-  const title = pageTitle(recording?.title);
-  const description = metaDescription(recording);
-  const image =
-    recording?.animatedThumbnailUrl || recording?.thumbnailUrl || undefined;
-
-  return [
-    { title },
-    { name: "description", content: description },
-    { property: "og:title", content: title },
-    { property: "og:description", content: description },
-    { property: "og:type", content: "video.other" },
-    ...(image ? [{ property: "og:image", content: image }] : []),
-    {
-      name: "twitter:card",
-      content: image ? "summary_large_image" : "summary",
-    },
-    { name: "twitter:title", content: title },
-    { name: "twitter:description", content: description },
-  ];
+  return buildClipsShareMeta({
+    recording: data?.recording ?? null,
+    origin: data?.origin ?? null,
+    shareUrl: data?.shareUrl ?? null,
+  });
 };
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
@@ -356,8 +345,27 @@ export default function ShareRoute() {
 
   useEffect(() => {
     if (!recording) return;
-    document.title = pageTitle(recording.title);
+    document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
+
+  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
+  // agent mounted in the side panel has no navigation context. Write it
+  // explicitly for signed-in viewers so view-screen grounds the chat to this
+  // clip instead of falling back to a generic library view.
+  useEffect(() => {
+    if (!session || !recording?.id) return;
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        view: "share",
+        shareId: recording.id,
+        recordingId: recording.id,
+        path: `/share/${recording.id}`,
+      }),
+    }).catch(() => {});
+  }, [session, recording?.id]);
 
   useEffect(() => {
     if (!recording) {
@@ -641,6 +649,16 @@ export default function ShareRoute() {
       {agentDiscovery}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+          {session ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("/")}
+              aria-label="Back to home"
+            >
+              <IconArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : null}
           <div className="min-w-0 flex-1">
             {showTitleSkeleton ? (
               <Skeleton
@@ -663,7 +681,7 @@ export default function ShareRoute() {
                   <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
                 </a>
               </Button>
-            ) : (
+            ) : session ? null : (
               <Button variant="ghost" size="sm" asChild>
                 <a href={appPath("/")} className="gap-1.5">
                   Try Clips
@@ -839,9 +857,22 @@ export default function ShareRoute() {
           </TabsList>
           <TabsContent
             value="agent"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
-            <PublicAgentEmptyState />
+            {sessionLoading ? null : session ? (
+              <AgentPanel
+                emptyStateText="Ask about this clip…"
+                dynamicSuggestions={false}
+                suggestions={[
+                  "Summarize this clip",
+                  "Find the key moments",
+                  "List follow-up actions",
+                  "Draft questions for the author",
+                ]}
+              />
+            ) : (
+              <PublicAgentEmptyState />
+            )}
           </TabsContent>
           <TabsContent
             value="transcript"

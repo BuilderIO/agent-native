@@ -1322,15 +1322,7 @@ export class RecorderEngine {
 
   private buildCombinedStream(): MediaStream {
     if (this.opts.mode === "screen") {
-      const combined = new MediaStream();
-      for (const t of this.displayStream!.getVideoTracks())
-        combined.addTrack(t);
-      const audio = this.buildMixedAudioTrack([
-        this.micStream,
-        this.displayStream,
-      ]);
-      if (audio) combined.addTrack(audio);
-      return combined;
+      return this.buildDisplayRecordingStream();
     }
 
     // Camera-only: camera video + mic.
@@ -1342,9 +1334,9 @@ export class RecorderEngine {
       return combined;
     }
 
-    // Screen + camera: selected-window capture does not include our separate
-    // DOM bubble, so the saved recording must composite the camera feed into
-    // the video stream before MediaRecorder sees it.
+    // Screen + camera: display capture does not reliably include our separate
+    // DOM bubble once the user records another app/window, so the saved
+    // recording must composite the camera feed before MediaRecorder sees it.
     this.cameraComposite?.cleanup();
     this.cameraComposite = createCameraCompositeStream({
       displayStream: this.displayStream!,
@@ -1354,6 +1346,19 @@ export class RecorderEngine {
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
       combined.addTrack(t);
+    const audio = this.buildMixedAudioTrack([
+      this.micStream,
+      this.displayStream,
+    ]);
+    if (audio) combined.addTrack(audio);
+    return combined;
+  }
+
+  private buildDisplayRecordingStream(): MediaStream {
+    const combined = new MediaStream();
+    for (const track of this.displayStream!.getVideoTracks()) {
+      combined.addTrack(track);
+    }
     const audio = this.buildMixedAudioTrack([
       this.micStream,
       this.displayStream,

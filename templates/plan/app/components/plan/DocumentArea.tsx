@@ -192,6 +192,7 @@ function PlanBlockViewInner({
           } as PlanBlock)
         }
         ctx={blockRegistry.ctx}
+        compactVisuals={compactVisuals}
       />
     );
     // In INLINE / CONTAINER edit mode the auto-editor / custom Edit often renders
@@ -670,8 +671,14 @@ function TabsBlock({
   const orientation =
     block.data.orientation === "vertical" ? "vertical" : "horizontal";
   const vertical = orientation === "vertical";
+  const wideLayout = tabsBlockUsesWideLayout(block);
   return (
-    <section className="plan-block" data-block-id={block.id}>
+    <section
+      className="plan-block"
+      data-block-id={block.id}
+      data-tabs-orientation={orientation}
+      data-wide-layout-block={wideLayout ? "" : undefined}
+    >
       {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
         className={cn(
@@ -755,6 +762,32 @@ function TabsBlock({
       </div>
     </section>
   );
+}
+
+function tabsBlockUsesWideLayout(
+  block: Extract<PlanBlock, { type: "tabs" }>,
+): boolean {
+  return (
+    block.data.orientation === "vertical" ||
+    block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
+  );
+}
+
+function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
+  return blocks.some(blockContainsDiffLike);
+}
+
+function blockContainsDiffLike(block: PlanBlock): boolean {
+  if (block.type === "diff" || block.type === "annotated-code") return true;
+  if (block.type === "tabs") {
+    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
+  }
+  if (block.type === "columns") {
+    return block.data.columns.some((column) =>
+      blocksContainDiffLike(column.blocks),
+    );
+  }
+  return false;
 }
 
 function CustomHtmlBlock({
