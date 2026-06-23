@@ -257,8 +257,8 @@ export default function SqlDashboardPage() {
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
   const [hiddenBy, setHiddenBy] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
-    "private" | "org" | "public"
-  >("private");
+    "private" | "org" | "public" | null
+  >(null);
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
     null,
@@ -428,7 +428,7 @@ export default function SqlDashboardPage() {
     setArchivedAt(null);
     setHiddenAt(null);
     setHiddenBy(null);
-    setDashboardVisibility("private");
+    setDashboardVisibility(null);
     setDashboardOwner(null);
     setDashboardUpdatedAt(null);
     setResourceAccess(null);
@@ -439,11 +439,17 @@ export default function SqlDashboardPage() {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
     if (fetched && fetched.id !== dashboardId) return;
+    const fetchedVisibility =
+      fetched?.visibility === "private" ||
+      fetched?.visibility === "org" ||
+      fetched?.visibility === "public"
+        ? fetched.visibility
+        : null;
     setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setHiddenBy(fetched?.hiddenBy ?? null);
-    setDashboardVisibility(fetched?.visibility ?? "private");
+    setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setResourceAccess(
@@ -1171,30 +1177,32 @@ export default function SqlDashboardPage() {
             {dashboardOwner.split("@")[0]}
           </span>
         )}
-        <span
-          className={`flex items-center gap-1.5 font-medium ${
-            dashboardVisibility === "public"
-              ? "text-green-600"
-              : dashboardVisibility === "org"
-                ? "text-blue-600"
-                : "text-yellow-600"
-          }`}
-        >
+        {dashboardVisibility ? (
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
+            className={`flex items-center gap-1.5 font-medium ${
               dashboardVisibility === "public"
-                ? "bg-green-500"
+                ? "text-green-600"
                 : dashboardVisibility === "org"
-                  ? "bg-blue-500"
-                  : "bg-yellow-500"
+                  ? "text-blue-600"
+                  : "text-yellow-600"
             }`}
-          />
-          {dashboardVisibility === "public"
-            ? "Public"
-            : dashboardVisibility === "org"
-              ? "Shared with org"
-              : "Private"}
-        </span>
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                dashboardVisibility === "public"
+                  ? "bg-green-500"
+                  : dashboardVisibility === "org"
+                    ? "bg-blue-500"
+                    : "bg-yellow-500"
+              }`}
+            />
+            {dashboardVisibility === "public"
+              ? "Public"
+              : dashboardVisibility === "org"
+                ? "Shared with org"
+                : "Private"}
+          </span>
+        ) : null}
       </div>
 
       {/* Description (click to edit) */}
