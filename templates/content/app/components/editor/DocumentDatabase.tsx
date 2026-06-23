@@ -142,6 +142,7 @@ import {
   createPreviewDocumentSaveController,
   type PreviewDocumentSaveController,
 } from "./previewDocumentSaveController";
+import { enqueuePreviewSave } from "./previewSaveLane";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -2020,8 +2021,13 @@ function DatabaseItemPreview({
   // The document id the controller's pending payload belongs to. Set at EDIT
   // time (not save time) so a flush triggered by a row-switch writes the
   // previous row's pending edit to the PREVIOUS document — not the row we just
-  // switched to. Seeded to the initial row.
+  // switched to. The controller reads it via resolveTargetId at DISPATCH time
+  // and binds it to that save, so a rebase after dispatch can't retarget it.
+  // Seeded to the initial row.
   const saveTargetIdRef = useRef(item.document.id);
+  // Doc ids that have been deleted in this peek's lifetime. A pending save must
+  // never resurrect a deleted document, so dispatch is suppressed for these.
+  const deletedIdsRef = useRef<Set<string>>(new Set());
   const saveControllerRef = useRef<PreviewDocumentSaveController | null>(null);
   if (saveControllerRef.current === null) {
     saveControllerRef.current = createPreviewDocumentSaveController({
@@ -2029,11 +2035,18 @@ function DatabaseItemPreview({
         title: item.document.title,
         content: item.document.content,
       },
-      save: (payload) =>
+      resolveTargetId: () => saveTargetIdRef.current,
+      enqueue: (documentId, run) => enqueuePreviewSave(documentId, run),
+      save: (documentId, payload) =>
         new Promise((resolve, reject) => {
+          // A just-deleted doc must not be re-dispatched (resurrection guard).
+          if (deletedIdsRef.current.has(documentId)) {
+            resolve(undefined);
+            return;
+          }
           updateDocumentRef.current.mutate(
             {
-              id: saveTargetIdRef.current,
+              id: documentId,
               title: payload.title,
               content: payload.content,
             },
@@ -2065,9 +2078,11 @@ function DatabaseItemPreview({
     setLocalContent(nextContent);
     setLocalIcon(nextIcon);
     // Adopting a fresh server/row baseline must NOT silently discard a pending
-    // edit: flush whatever the previous row had in flight first (to the PREVIOUS
-    // target id still held in the ref), then rebase the target + baseline to the
-    // current row.
+    // edit. flush() now DISPATCHES the OLD row's trailing save SYNCHRONOUSLY,
+    // bound to the PREVIOUS target id still held in the ref, BEFORE we rebase —
+    // so the write is committed-to on the old id's lane before the next line
+    // points the ref at the new row. Only then do we rebase the target + adopt
+    // the new row's baseline. (Order matters: rebase must come AFTER flush.)
     const controller = saveControllerRef.current;
     if (controller) {
       void controller.flush();
@@ -2168,7 +2183,10 @@ function DatabaseItemPreview({
   async function deletePreviewRow() {
     // Cancel (do NOT flush) before any row switch/close: we're deleting this
     // document, so a pending save must not resurrect it. Rebase pending onto the
-    // last-saved baseline so the row-switch reset effect's flush is a no-op.
+    // last-saved baseline so the row-switch reset effect's flush is a no-op, and
+    // record the id so any save already enqueued on its lane is a no-op too
+    // (the controller's save impl skips deleted ids).
+    deletedIdsRef.current.add(item.document.id);
     const controller = saveControllerRef.current;
     if (controller) {
       controller.cancel();

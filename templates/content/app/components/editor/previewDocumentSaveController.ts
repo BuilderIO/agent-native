@@ -21,12 +21,28 @@
 //    a save.
 //
 // SINGLE-FLIGHT + TRAILING (lost-update safety): the server write is
-// unconditional (last request to the DB wins), so we guarantee write order ==
-// issue order by never having two saves in flight at once. While a save is in
-// flight, edits coalesce into one `pending` payload; when it settles, exactly one
-// trailing save fires for the LATEST payload if it still differs. flush() awaits
-// the in-flight save and then sends the final payload, so the last value at the
-// DB is deterministically the latest content the user typed.
+// unconditional (last request to the DB wins). While a save is in flight, edits
+// coalesce into one `pending` payload; when it settles, exactly one trailing
+// save fires for the LATEST payload if it still differs.
+//
+// SYNCHRONOUS FINAL DISPATCH + PER-DOC ORDERING (async-flush-vs-sync-teardown
+// race fix): the peek's ONE controller services MANY document ids over its life
+// — the row switches and the controller is told to target a different id. A
+// flush triggered by that switch must persist the OLD row's trailing edit to the
+// OLD id, and the write must be DISPATCHED before the caller rebases the target
+// / tears down / navigates (call sites invoke flush() fire-and-forget). The old
+// flush() DEFERRED the trailing save behind awaiting the in-flight save, so the
+// deferred save dispatched AFTER the rebase — lost, or retargeted to the new
+// row. Now:
+//   - Every dispatch binds the target document id at the MOMENT of dispatch (via
+//     `resolveTargetId()`), so the id can never drift to a row switched-to later.
+//   - flush() dispatches the final save SYNCHRONOUSLY (it does not await the
+//     in-flight save first), bound to the id captured right then.
+//   - All dispatches (debounced and flush) go through a per-doc-id serialization
+//     lane (`enqueuePreviewSave`) so writes for the SAME id commit in issue order
+//     (latest payload final) and writes for DIFFERENT ids are independent. This
+//     replaces the await-the-in-flight-save ordering guarantee with an
+//     enqueue-order one that does not require deferring dispatch.
 
 export interface PreviewDocumentPayload {
   title: string;
@@ -40,8 +56,12 @@ export interface PreviewDocumentSaveController {
   changeContent(content: string): void;
   /**
    * Persist the latest dirty payload now (row-switch / unmount / close /
-   * Open-page). Resolves after any in-flight save AND the resulting trailing save
-   * have settled, so the final DB value is the latest content.
+   * Open-page). The final save is DISPATCHED SYNCHRONOUSLY before this returns,
+   * bound to the document id resolved at this moment — so a fire-and-forget
+   * caller can rebase / tear down / navigate immediately and the trailing edit
+   * still lands on the correct (old) document. The returned promise resolves
+   * once that final save (and any prior in-flight save it ordered behind on the
+   * per-doc lane) has settled.
    */
   flush(): Promise<void>;
   /** Cancel any pending debounce without flushing. */
@@ -64,7 +84,26 @@ function payloadsEqual(a: PreviewDocumentPayload, b: PreviewDocumentPayload) {
 
 export function createPreviewDocumentSaveController(args: {
   initial: PreviewDocumentPayload;
-  save: (payload: PreviewDocumentPayload) => Promise<unknown>;
+  /**
+   * Persist `payload` to `documentId`. The id is passed explicitly (resolved at
+   * DISPATCH time, see `resolveTargetId`) rather than read from a caller closure
+   * at write time, so a save can never be retargeted to a row switched-to after
+   * it was issued.
+   */
+  save: (documentId: string, payload: PreviewDocumentPayload) => Promise<unknown>;
+  /**
+   * The document id the current pending payload belongs to, read SYNCHRONOUSLY
+   * at the moment a save is dispatched. The caller sets the target at edit time
+   * and again on row-switch; binding it at dispatch (not in the save closure)
+   * is what guarantees the trailing edit commits to the OLD row.
+   */
+  resolveTargetId: () => string;
+  /**
+   * Enqueue `run` on the per-document-id serialization lane. Saves for the same
+   * id commit in enqueue order (latest payload final); different ids are
+   * independent. Injected so the lane can be substituted in tests.
+   */
+  enqueue: (documentId: string, run: () => Promise<unknown>) => Promise<void>;
   onSaved?: (payload: PreviewDocumentPayload) => void;
   onError?: (error: unknown) => void;
   debounceMs?: number;
@@ -79,10 +118,16 @@ export function createPreviewDocumentSaveController(args: {
   let pending: PreviewDocumentPayload = { ...args.initial };
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  // The single in-flight save, or null when idle. Edits made while this is set
-  // do NOT start a new save; they update `pending` and a trailing save fires
-  // when this settles. This is what makes server write order == issue order.
+  // The single in-flight save, or null when idle. A debounced edit made while
+  // this is set does NOT start a new save; it updates `pending` and a trailing
+  // save fires when this settles. Combined with the per-doc lane, server write
+  // order == issue order for a given document id.
   let inFlight: Promise<void> | null = null;
+  // The (targetId, payload) the in-flight save is persisting, or null when idle.
+  // flush() uses this to avoid issuing a redundant duplicate save when the save
+  // already in flight ALREADY covers the latest pending payload for this id.
+  let inFlightTarget: { id: string; payload: PreviewDocumentPayload } | null =
+    null;
 
   function clearTimer() {
     if (timer !== null) {
@@ -91,33 +136,51 @@ export function createPreviewDocumentSaveController(args: {
     }
   }
 
-  // Start exactly one save if one isn't already running and there is dirty
-  // content. When it settles SUCCESSFULLY, kick the next trailing save so the
-  // latest pending payload always ends up as the final DB write — one at a time.
-  function kick() {
-    if (inFlight !== null) return; // single-flight: never overlap saves.
-    if (payloadsEqual(pending, lastSaved)) return; // nothing dirty.
-
-    const attempted: PreviewDocumentPayload = { ...pending };
-    const promise = Promise.resolve(args.save(attempted))
+  // Issue exactly one save for `attempted` bound to `targetId`, routed through
+  // that id's serialization lane. The enqueue is synchronous, so by the time
+  // this returns the write is committed-to on the lane. On success the baseline
+  // advances to `attempted` (only what we actually persisted is ever marked
+  // clean); a failure leaves it dirty for the next edit/flush. `inFlight` tracks
+  // THIS save so a later trailing dispatch cannot overlap it, and is cleared on
+  // settle only if it is still this same save (a flush may have superseded it).
+  function issueSave(
+    targetId: string,
+    attempted: PreviewDocumentPayload,
+  ): Promise<void> {
+    let promise: Promise<void>;
+    promise = args
+      .enqueue(targetId, () => args.save(targetId, attempted))
       .then(() => {
-        // Mark clean ONLY after the save actually succeeds.
         lastSaved = attempted;
-        inFlight = null;
+        if (inFlight === promise) {
+          inFlight = null;
+          inFlightTarget = null;
+        }
         args.onSaved?.(attempted);
         // A trailing edit may have landed while this save was in flight. Issue
-        // exactly one more save for the LATEST payload. Bounded: stops once
-        // pending === lastSaved.
-        kick();
+        // exactly one more for the LATEST payload. Bounded: stops once quiescent.
+        dispatch();
       })
       .catch((error) => {
-        // A failed save never records its value as clean, so the content stays
-        // dirty and retries on the NEXT change/flush — no tight retry storm here.
-        inFlight = null;
+        if (inFlight === promise) {
+          inFlight = null;
+          inFlightTarget = null;
+        }
         args.onError?.(error);
       });
-
     inFlight = promise;
+    inFlightTarget = { id: targetId, payload: attempted };
+    return promise;
+  }
+
+  // Debounce/trailing dispatch: single-flight guarded. Binds the target id at
+  // the MOMENT of dispatch, so a row-switch that rebases the caller's target
+  // immediately after cannot retarget this save. Returns the save promise, or
+  // null if a save is already in flight or nothing is dirty.
+  function dispatch(): Promise<void> | null {
+    if (inFlight !== null) return null; // single-flight: never overlap saves.
+    if (payloadsEqual(pending, lastSaved)) return null; // nothing dirty.
+    return issueSave(args.resolveTargetId(), { ...pending });
   }
 
   function schedule() {
@@ -125,7 +188,7 @@ export function createPreviewDocumentSaveController(args: {
     if (payloadsEqual(pending, lastSaved)) return;
     timer = setTimeoutFn(() => {
       timer = null;
-      kick();
+      dispatch();
     }, debounceMs);
   }
 
@@ -138,21 +201,39 @@ export function createPreviewDocumentSaveController(args: {
       pending = { ...pending, content };
       schedule();
     },
-    async flush() {
+    flush() {
       clearTimer();
-      // 1) Wait out any in-flight save so we never overlap it (single-flight)
-      //    and so its successful trailing kick has fired.
-      while (inFlight !== null) {
-        await inFlight;
+      // Nothing dirty: no-op, no double-save of clean content. If a save is
+      // still settling, return it so the caller can await full quiescence.
+      if (payloadsEqual(pending, lastSaved)) {
+        return inFlight ?? Promise.resolve();
       }
-      // 2) If the latest payload still isn't persisted (a trailing edit, or the
-      //    in-flight save failed), send exactly one final save and await it. This
-      //    is what makes the last value at the DB deterministically the latest
-      //    content. flush is best-effort; a failed save stays dirty.
-      if (!payloadsEqual(pending, lastSaved)) {
-        kick();
-        if (inFlight !== null) await inFlight;
+      // Already covered: the in-flight save is for THIS id and THIS exact
+      // payload, so issuing another would be a redundant duplicate write. Just
+      // await it instead of double-saving. (The id must match too — a save for a
+      // DIFFERENT id does not cover this pending payload.)
+      const targetId = args.resolveTargetId();
+      if (
+        inFlight !== null &&
+        inFlightTarget !== null &&
+        inFlightTarget.id === targetId &&
+        payloadsEqual(inFlightTarget.payload, pending)
+      ) {
+        return inFlight;
       }
+      // SYNCHRONOUS final dispatch. We do NOT await the in-flight save first:
+      // the whole point is that the final write must be DISPATCHED before the
+      // caller rebases / tears down / navigates (call sites invoke flush()
+      // fire-and-forget). We capture the target id and the latest payload RIGHT
+      // NOW and issue the final save immediately — even if another save for this
+      // id is already in flight. The per-doc lane serializes it AFTER that
+      // in-flight save, so the latest payload still commits last for the id;
+      // binding the id here (not in a deferred .then) guarantees it lands on the
+      // OLD row even if a row-switch rebases the caller's target on the very next
+      // line. issueSave sets `inFlight` to this save, so the prior in-flight
+      // save's trailing dispatch sees single-flight and will not double-send.
+      // flush is best-effort: a failed save stays dirty for the next edit/flush.
+      return issueSave(targetId, { ...pending });
     },
     cancel() {
       clearTimer();
