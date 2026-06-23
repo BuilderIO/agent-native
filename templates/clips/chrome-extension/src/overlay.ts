@@ -214,7 +214,11 @@ function initToolbar(): void {
 
   const time = document.createElement("div");
   time.className = "toolbar-v-time";
-  time.textContent = "0:00";
+  const dot = document.createElement("span");
+  dot.className = "toolbar-v-dot";
+  const clock = document.createElement("span");
+  clock.textContent = "0:00";
+  time.append(dot, clock);
 
   const pauseBtn = makeBtn("toolbar-v-pause", "Pause", ICONS.pause, () => {
     if (state.phase === "paused") send("CLIPS_OVERLAY_RESUME");
@@ -253,7 +257,7 @@ function initToolbar(): void {
     const elapsed = paused
       ? state.baseElapsedMs
       : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
-    time.textContent = formatDuration(elapsed);
+    clock.textContent = formatDuration(elapsed);
   };
 
   window.setInterval(render, 250);
