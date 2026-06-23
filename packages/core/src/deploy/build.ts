@@ -898,6 +898,7 @@ async function buildCloudflarePages() {
     "fsevents",
     "dotenv",
     "@anthropic-ai/sdk",
+    "@sentry/node",
   ];
   const stubDir = path.join(tmpDir, "node_modules");
   for (const mod of stubModules) {

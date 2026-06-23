@@ -6,6 +6,8 @@ Name: Agent-Native Clips
 
 Chrome Web Store item ID: `baoipacpchggcdigagnajakiidcgcffn`
 
+Chrome Web Store URL: `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`
+
 Summary: Start Clips recordings from Chrome with optional redacted console and network diagnostics.
 
 Category: Productivity
@@ -61,7 +63,8 @@ approved and there is a stable public URL.
 
 - `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` reveals the Chrome option beside
   Clips desktop prompts.
-- `VITE_CLIPS_CHROME_EXTENSION_URL=<chrome-web-store-url>` powers the install
-  links.
+- `VITE_CLIPS_CHROME_EXTENSION_URL` overrides the default install URL
+  (`https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`)
+  if a deployment uses a different listing.
 - Leave both unset while submitting the draft so production continues to send
   users directly to the desktop app.

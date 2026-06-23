@@ -570,6 +570,35 @@ describe("Vite CSS build defaults", () => {
   });
 });
 
+describe("Vite SSR stubs", () => {
+  it("exports common browser-only names from the generated stub module", async () => {
+    const plugins = (defineConfig({ ssrStubs: ["yjs"] }).plugins ?? [])
+      .flat()
+      .filter(Boolean) as any[];
+    const plugin = plugins.find(
+      (entry) => entry?.name === "agent-native-ssr-stub-heavy-libs",
+    );
+
+    expect(plugin).toBeDefined();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: true })).toBe(
+      "\0agent-native-ssr-stub",
+    );
+    expect(
+      await plugin.resolveId("react", undefined, { ssr: true }),
+    ).toBeNull();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: false })).toBeNull();
+
+    const code = await plugin.load("\0agent-native-ssr-stub");
+    expect(code).toContain("export const Doc = stub;");
+    expect(code).toContain("export const Map = stub;");
+    expect(code).toContain("export const encodeStateVector = stub;");
+    expect(code).toContain("export const encodeStateAsUpdate = stub;");
+    expect(code).toContain("export const mergeUpdates = stub;");
+    expect(code).toContain("export const EditorContent = stub;");
+    expect(code).toContain("export const format = stub;");
+  });
+});
+
 describe("local-core dev aliases and router dedupe", () => {
   it("dedupes react-router when the app depends on react-router", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));

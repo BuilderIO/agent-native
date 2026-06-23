@@ -4,7 +4,8 @@ function isTruthy(value: unknown): boolean {
 }
 
 const chromeExtensionUrl =
-  import.meta.env.VITE_CLIPS_CHROME_EXTENSION_URL?.trim() ?? "";
+  import.meta.env.VITE_CLIPS_CHROME_EXTENSION_URL?.trim() ??
+  "https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn";
 
 export const clipsChromeExtensionEnabled = isTruthy(
   import.meta.env.VITE_CLIPS_CHROME_EXTENSION_ENABLED,
