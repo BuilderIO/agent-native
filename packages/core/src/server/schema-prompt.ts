@@ -8,7 +8,7 @@
  * (SQLite), cached briefly to keep latency down but never hard-coded.
  *
  * The block also:
- *   - points at the db-query / db-exec / db-patch / db-schema tools for runtime access
+ *   - points at the enabled db-* tools for runtime access
  *   - lists Postgres column descriptions (`COMMENT ON COLUMN ...`) if present
  *   - explains the current user/org data scoping so the agent doesn't re-filter
  *     by hand (which would be redundant and easy to get wrong)
@@ -19,6 +19,10 @@ import {
   isPostgres,
   type DbExec,
 } from "../db/client.js";
+import {
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
 
 interface ColumnSchema {
   name: string;
@@ -248,7 +252,9 @@ function formatTable(table: TableSchema): string {
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
-  /** If true, mention db-query/db-exec/db-patch/db-schema as available tools. */
+  /** Controls which raw db-* tools are available to the agent. */
+  databaseTools?: DatabaseToolsOption;
+  /** @deprecated Use databaseTools instead. */
   hasRawDbTools?: boolean;
 }): Promise<string> {
   let tables: TableSchema[];
@@ -314,8 +320,15 @@ export async function loadSchemaPromptBlock(opts: {
     }
   }
 
+  const databaseToolsMode =
+    opts.databaseTools === undefined && opts.hasRawDbTools !== undefined
+      ? normalizeDatabaseToolsMode(opts.hasRawDbTools)
+      : normalizeDatabaseToolsMode(opts.databaseTools);
+  const hasRawDbTools = databaseToolsMode !== "off";
+  const hasRawDbWriteTools = databaseToolsMode === "write";
+
   // Tooling references.
-  if (opts.hasRawDbTools) {
+  if (hasRawDbTools) {
     lines.push("## SQL tools");
     lines.push(
       "- `db-schema` — refresh the full schema with indexes and foreign keys",
@@ -323,23 +336,31 @@ export async function loadSchemaPromptBlock(opts: {
     lines.push(
       "- `db-query` — run a SELECT (read-only; results already filtered to the current user/org)",
     );
-    lines.push(
-      "- `db-exec` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, pass `statements` so they run in one transaction instead of separate tool calls. Schema changes are blocked.",
-    );
-    lines.push(
-      "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
-    );
+    if (hasRawDbWriteTools) {
+      lines.push(
+        "- `db-exec` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, pass `statements` so they run in one transaction instead of separate tool calls. Schema changes are blocked.",
+      );
+      lines.push(
+        "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
+      );
+    }
     lines.push("");
     lines.push("### When to pick which SQL tool");
-    lines.push(
-      "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
-    );
-    lines.push(
-      '- Insert/update several rows as one logical operation → `db-exec` with `statements: \'[{"sql":"...","args":[...]}]\'` so the batch commits or rolls back together.',
-    );
-    lines.push(
-      "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",
-    );
+    if (hasRawDbWriteTools) {
+      lines.push(
+        "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
+      );
+      lines.push(
+        '- Insert/update several rows as one logical operation → `db-exec` with `statements: \'[{"sql":"...","args":[...]}]\'` so the batch commits or rolls back together.',
+      );
+      lines.push(
+        "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",
+      );
+    } else {
+      lines.push(
+        "- Read data and inspect shape → `db-query` / `db-schema`. Raw SQL write tools are not available on this surface.",
+      );
+    }
     lines.push(
       "- A template-specific action exists for the table (`edit-document`, `update-slide`, etc.) → use that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither.",
     );

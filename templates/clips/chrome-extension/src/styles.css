@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --background: #ffffff;
   --foreground: hsl(220 10% 10%);
   --card: #ffffff;
@@ -21,6 +21,21 @@
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   color: var(--foreground);
   background: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: hsl(222 18% 8%);
+    --foreground: hsl(210 20% 96%);
+    --card: hsl(222 18% 9%);
+    --primary: hsl(210 20% 96%);
+    --primary-foreground: hsl(222 18% 8%);
+    --muted: hsl(222 14% 16%);
+    --muted-foreground: hsl(216 10% 68%);
+    --border: hsl(222 12% 22%);
+    --ring: hsl(216 10% 72%);
+    --danger: hsl(6 88% 70%);
+  }
 }
 
 * {
@@ -339,6 +354,63 @@ input[type="checkbox"][role="switch"]:checked::before {
   gap: 12px;
   border-top: 1px solid var(--border);
   padding: 16px 20px 20px;
+}
+
+.active-content {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+}
+
+.active-content[hidden] {
+  display: none;
+}
+
+.recording-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #e11d48;
+  box-shadow: 0 0 0 6px rgba(225, 29, 72, 0.12);
+}
+
+.icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.icon-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+}
+
+.recording-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 10px;
+}
+
+.active-content[hidden] ~ .recording-actions {
+  display: none;
+}
+
+.active-content:not([hidden]) ~ .hint {
+  display: none;
 }
 
 .hint {

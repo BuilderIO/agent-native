@@ -18,9 +18,14 @@ import {
   SHARED_RULE_15,
   type PromptExamples,
 } from "./shared-rules.js";
+import {
+  hasDatabaseReadTools,
+  type DatabaseToolsOption,
+} from "../../scripts/db/tool-mode.js";
 
 export interface FrameworkCoreCompactPromptOptions {
-  databaseTools?: boolean;
+  databaseTools?: DatabaseToolsOption;
+  extensionTools?: boolean;
 }
 
 /**
@@ -32,7 +37,7 @@ export function buildFrameworkCoreCompact(
   examples?: PromptExamples,
   options?: FrameworkCoreCompactPromptOptions,
 ): string {
-  const hasDatabaseTools = options?.databaseTools !== false;
+  const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);
   const dataRule = hasDatabaseTools
     ? "All app state is in a SQL database. Use the available database tools. Call `db-schema` to see the full schema when needed."
     : "All app state is in a SQL database. Use typed app actions for data access; raw database tools are not available on this surface.";
@@ -62,7 +67,7 @@ Bring a senior engineer's judgment, arrived at through attention not premature c
 5. **Screen refresh is automatic** — The framework auto-refreshes after mutating tool calls. Only call \`refresh-screen\` when you mutated data via a path the framework can't detect.
 6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
 7. **Security** — ${securityRule}
-${sharedRule8(examples, { databaseTools: hasDatabaseTools })}
+${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
 ${SHARED_RULE_10}
 **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for compact real data and let chat render it instead of markdown tables.

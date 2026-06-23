@@ -9,6 +9,10 @@ import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
+  type DatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
+import {
   getH3App,
   markDefaultPluginProvided,
   trackPluginInit,
@@ -1288,16 +1292,24 @@ function createDataWidgetActionEntries(): Record<string, ActionEntry> {
  * `pnpm action db-query ...` — but in production there is no bash, so these
  * must be registered as native tools for the agent to reach the app DB at all.
  */
-async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
+async function createDbScriptEntries(
+  mode: DatabaseToolsMode = "write",
+): Promise<Record<string, ActionEntry>> {
   try {
-    const [schemaMod, queryMod, execMod, patchMod] = await Promise.all([
+    if (mode === "off") return {};
+    const [schemaMod, queryMod] = await Promise.all([
       import("../scripts/db/schema.js"),
       import("../scripts/db/query.js"),
-      import("../scripts/db/exec.js"),
-      import("../scripts/db/patch.js"),
     ]);
+    const [execMod, patchMod] =
+      mode === "write"
+        ? await Promise.all([
+            import("../scripts/db/exec.js"),
+            import("../scripts/db/patch.js"),
+          ])
+        : [null, null];
 
-    return {
+    const entries: Record<string, ActionEntry> = {
       "db-schema": wrapCliScript(
         {
           description:
@@ -1350,15 +1362,18 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         queryMod.default,
         { readOnly: true },
       ),
-      "db-exec": wrapCliScript(
+    };
+
+    if (execMod && patchMod) {
+      entries["db-exec"] = wrapCliScript(
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: dbExecToolParameters(),
         },
         execMod.default,
-      ),
-      "db-patch": wrapCliScript(
+      );
+      entries["db-patch"] = wrapCliScript(
         {
           description:
             "Surgical patch on a large text/JSON column in the app's SQL database. Two modes: (1) text find/replace via `find`/`replace`/`edits` — best for small edits to documents, slide HTML, etc. (2) structural JSON ops via `json-ops` — STRONGLY PREFERRED when the column is JSON (dashboard configs, form schemas, slide decks) because it avoids all the brace/quote/comma surgery that text find/replace requires. Use `json-ops` to set/remove values at a JSON Pointer path, or to move/insert array items — e.g. reorder dashboard panels, add a filter, rename a field. Targets exactly one row (narrow `where` by primary key). Same per-user/org scoping as db-exec.",
@@ -1409,8 +1424,10 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
           },
         },
         patchMod.default,
-      ),
-    };
+      );
+    }
+
+    return entries;
   } catch {
     return {};
   }
@@ -2672,13 +2689,24 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
-   * Expose raw SQL/native database tools (`db-query`, `db-exec`, `db-patch`,
-   * `db-schema`) to the app agent. Defaults to true for backwards-compatible
-   * agent/UI parity. Set to false for chat-first apps that want agents to use
-   * typed actions only while still rendering rich data widgets from action
-   * results.
+   * Expose raw SQL/native database tools to the app agent.
+   *
+   * Defaults to `"write"` (also `true`) for backwards-compatible agent/UI
+   * parity: `db-schema`, `db-query`, `db-exec`, and `db-patch` are available
+   * and writes remain scoped to the current user/org. Set to `"read"` to keep
+   * `db-schema`/`db-query` for inspection while routing writes through typed
+   * app actions. Set to `"off"` (also `false`) for chat-first apps that want
+   * agents to use typed actions only.
    */
-  databaseTools?: boolean;
+  databaseTools?: DatabaseToolsOption;
+  /**
+   * Expose framework extension management actions (`create-extension`,
+   * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
+   * true. Set to false for apps that do not want the LLM to create or manage
+   * sandboxed extension mini-apps, even though the core extension routes may
+   * still be mounted for other surfaces.
+   */
+  extensionTools?: boolean;
   /**
    * Optional A2A-only deterministic response path. Runs after inbound A2A text
    * and user context are resolved, but before an agent engine/model is loaded.
@@ -2970,7 +2998,7 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
  */
 function buildFrameworkPrompts(
   examples?: PromptExamples,
-  options?: { databaseTools?: boolean },
+  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
 ): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
@@ -2984,6 +3012,65 @@ function buildFrameworkPrompts(
   // This prevents the ~1.5KB block from appearing on every request forever.
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
+  const extensionToolsEnabled = options?.extensionTools !== false;
+  const planModeArtifactList = extensionToolsEnabled
+    ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
+    : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
+  const planModeBlockedTools = extensionToolsEnabled
+    ? "`create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+    : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
+  const extensionConnectBuilderGuard = extensionToolsEnabled
+    ? "If the request matches the Extensions section above, use `create-extension` or `update-extension` instead — do NOT route it to `connect-builder`."
+    : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
+  const extensionInstructionsFull = extensionToolsEnabled
+    ? `### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
+
+In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
+
+Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
+
+If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
+
+In Act mode, when in doubt — if the request mentions creating an extension, widget, dashboard, calculator, or asks for a new small interactive utility — choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
+
+Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
+
+For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. If the user wants a shared extension removed only from their view, use \`hide-extension\` — do not query or mutate the legacy \`tools\` table directly.
+
+### Extensions vs. Code Changes — Pick the Right Path
+
+Route by what the request changes, not how it is phrased. Extensions render in their own sandboxed iframe and CANNOT change the host app's nav, restyle existing components, or replace built-in views.
+
+<routing>
+| The request is for…                                              | Path                          |
+| ---------------------------------------------------------------- | ----------------------------- |
+| A new self-contained surface (widget, dashboard, calculator, viewer, list, tracker) | \`create-extension\` — ships instantly, no PR |
+| Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
+| The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
+| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`create-extension\` (prefer the instant path) |
+</routing>
+
+Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+    : `### Extensions Disabled
+
+Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
+  const extensionInstructionsCompact = extensionToolsEnabled
+    ? `### Extensions (Mini-Apps) — Use \`create-extension\`
+
+In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+
+Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
+
+If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
+
+For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
+
+### Extensions vs. Code Changes — Pick the Right Path
+
+If the user wants a **new self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
+    : `### Extensions Disabled
+
+Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
 
   const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
 

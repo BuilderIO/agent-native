@@ -57,6 +57,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   password, no expiry hit, and no archive/trash marker. Private, org-only,
   passworded, expired, or unfinished clips should fall back to normal link
   metadata and require opening Clips.
+- Slack installs should go through the Clips Settings OAuth flow
+  (`connect-slack`, `/api/slack/oauth/callback`) so each Slack workspace gets
+  its own encrypted bot token in `app_secrets`. `SLACK_BOT_TOKEN` is only a
+  legacy single-workspace fallback and must remain behind the team allowlist.
 - Browser recordings can include redacted browser diagnostics captured during
   the recording session. `save-browser-diagnostics` is UI/internal and stores
   bounded console logs plus fetch/XHR method, URL path/query keys, status, and

@@ -2029,7 +2029,7 @@ export default function RecordRoute() {
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}

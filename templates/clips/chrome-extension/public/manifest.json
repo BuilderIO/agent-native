@@ -18,7 +18,18 @@
     "32": "icons/icon-32.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["activeTab", "debugger", "storage"],
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "offscreen",
+    "storage",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "https://clips.agent-native.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "externally_connectable": {
     "matches": [
       "https://clips.agent-native.com/*",
