@@ -284,10 +284,9 @@ export function PreRecordPanel({
     [mics],
   );
 
-  // Fall back to "default" only once we have a populated device list that
-  // genuinely excludes the selection. An empty list means "not enumerated yet
-  // / no permission" — NOT "the device is gone" — so we must keep the value;
-  // resetting on an empty list wipes a restored preference before devices load.
+  // Reset to "default" only once a populated list genuinely excludes the saved
+  // device — an empty list means "not enumerated yet", and resetting then would
+  // wipe a restored preference before devices load.
   useEffect(() => {
     if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
     if (mics.length > 0 && !mics.some((mic) => mic.deviceId === micId)) {
@@ -295,10 +294,8 @@ export function PreRecordPanel({
     }
   }, [micId, mics]);
 
-  // Mirror the mic guard for cameras: a remembered camera that isn't present
-  // (different machine, unplugged) must fall back to "default" so we never pass
-  // a stale `deviceId: { exact }` to getUserMedia. These resets are NOT
-  // persisted — losing a device temporarily shouldn't erase the saved choice.
+  // Same guard for cameras. Not persisted, so a temporarily missing device
+  // doesn't erase the saved choice.
   useEffect(() => {
     if (cameraId === "default" || cameraId === NO_CAMERA_DEVICE_ID) return;
     if (
@@ -309,8 +306,17 @@ export function PreRecordPanel({
     }
   }, [cameraId, cameras]);
 
-  // Persist only deliberate user picks (not the programmatic resets above), so
-  // an unavailable device on load can't clobber the stored preference.
+  // Camera-only mode needs a camera — coerce a restored "off" sentinel to
+  // "default" so Start doesn't forward it as an exact deviceId (covers the
+  // ?mode=camera deep-link/restore path the mode buttons already handle).
+  useEffect(() => {
+    if (mode === "camera" && cameraId === NO_CAMERA_DEVICE_ID) {
+      setCameraId("default");
+    }
+  }, [mode, cameraId]);
+
+  // Persist deliberate picks only (not the resets above), so an unavailable
+  // device on load can't clobber the stored preference.
   const chooseMode = useCallback((value: RecordingMode) => {
     setMode(value);
     saveRecorderPreferences({ mode: value });
