@@ -349,7 +349,6 @@ const dynamicLocalComponentDirs = (() => {
 const cloudflareSsrStubs =
   process.env.NITRO_PRESET === "cloudflare_pages"
     ? [
-        "@sentry/node",
         "@assistant-ui/react",
         "@tiptap/core",
         "@tiptap/extension-blockquote",
