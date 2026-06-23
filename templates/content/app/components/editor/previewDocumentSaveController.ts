@@ -87,6 +87,12 @@ export interface PreviewDocumentSaveController {
   readonly hasPendingTimer: boolean;
   /** Whether a save() call is currently outstanding (in flight). */
   readonly isSaving: boolean;
+  /**
+   * Whether this controller has confirmed at least one local save since creation.
+   * Until the server query echoes that payload, clean local state is newer than
+   * stale item/document props and must be preserved on quick preview reopens.
+   */
+  readonly hasSavedLocally: boolean;
 }
 
 function payloadsEqual(a: PreviewDocumentPayload, b: PreviewDocumentPayload) {
@@ -120,6 +126,7 @@ export function createPreviewDocumentSaveController(args: {
   let lastSaved: PreviewDocumentPayload = { ...args.initial };
   let pending: PreviewDocumentPayload = { ...args.initial };
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let hasSavedLocally = false;
 
   // The single in-flight save, or null when idle. A debounced edit made while
   // this is set does NOT start a new save; it updates `pending` and a trailing
@@ -147,6 +154,7 @@ export function createPreviewDocumentSaveController(args: {
     const promise = Promise.resolve(args.save(documentId, attempted))
       .then(() => {
         lastSaved = attempted;
+        hasSavedLocally = true;
         inFlight = null;
         args.onSaved?.(attempted);
         // A trailing edit may have landed while this save was in flight. Issue
@@ -204,6 +212,7 @@ export function createPreviewDocumentSaveController(args: {
       clearTimer();
       lastSaved = { ...payload };
       pending = { ...payload };
+      hasSavedLocally = false;
     },
     get lastSaved() {
       return { ...lastSaved };
@@ -216,6 +225,9 @@ export function createPreviewDocumentSaveController(args: {
     },
     get isSaving() {
       return inFlight !== null;
+    },
+    get hasSavedLocally() {
+      return hasSavedLocally;
     },
   };
 

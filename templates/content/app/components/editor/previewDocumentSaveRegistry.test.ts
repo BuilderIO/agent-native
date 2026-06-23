@@ -91,6 +91,43 @@ describe("previewDocumentSaveRegistry", () => {
     expect(peekPreviewDocumentSaveController(id)).toBeUndefined();
   });
 
+  it("keeps a dirty controller after a failed release flush so reopen can retry", async () => {
+    const id = "doc-1";
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValue(undefined);
+    const controller = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
+
+    controller.changeContent("draft");
+    releasePreviewDocumentSaveController(id);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(activePreviewControllerCount()).toBe(1);
+    expect(peekPreviewDocumentSaveController(id)).toBe(controller);
+    expect(controller.pending).toEqual({ title: "T0", content: "draft" });
+    expect(controller.lastSaved).toEqual(initial);
+
+    const reopened = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
+    expect(reopened).toBe(controller);
+
+    releasePreviewDocumentSaveController(id);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(id, {
+      title: "T0",
+      content: "draft",
+    });
+    expect(activePreviewControllerCount()).toBe(0);
+  });
+
   it("a flush during release still persists the latest dirty payload bound to the old doc id", async () => {
     const id = "doc-old";
     const saved: Array<{ id: string; content: string }> = [];

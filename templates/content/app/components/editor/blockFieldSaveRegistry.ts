@@ -95,6 +95,10 @@ function ensureEntry(
   return entry;
 }
 
+function controllerIsDirty(controller: BlockFieldSaveController): boolean {
+  return controller.pending !== controller.lastSaved;
+}
+
 /**
  * Release one reference to the controller for `key`. When the last reference is
  * released we flush-then-evict: flush the latest dirty content so a debounce
@@ -116,6 +120,10 @@ export function releaseBlockFieldSaveController(key: string): void {
     // Evict only if it is the SAME entry, still unreferenced, and still marked
     // for eviction (a reopen would have flipped `evicting` off / refCount up).
     if (current === entry && current.refCount === 0 && current.evicting) {
+      if (controllerIsDirty(current.controller)) {
+        current.evicting = false;
+        return;
+      }
       registry.delete(key);
       // Drop the per-key save-impl ref alongside the controller. It is only
       // cleared on test reset otherwise, so without this it accumulates one

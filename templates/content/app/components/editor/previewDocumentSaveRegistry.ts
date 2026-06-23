@@ -48,6 +48,17 @@ interface Entry {
 
 const registry = new Map<string, Entry>();
 
+function payloadsEqual(
+  a: PreviewDocumentSaveController["pending"],
+  b: PreviewDocumentSaveController["pending"],
+) {
+  return a.title === b.title && a.content === b.content;
+}
+
+function controllerIsDirty(controller: PreviewDocumentSaveController): boolean {
+  return !payloadsEqual(controller.pending, controller.lastSaved);
+}
+
 /**
  * Acquire the controller for `documentId`, creating it once via `factory`.
  * Increments the ref-count and cancels any in-progress eviction so a reopen
@@ -98,6 +109,10 @@ export function releasePreviewDocumentSaveController(documentId: string): void {
     // Evict only if it is the SAME entry, still unreferenced, and still marked
     // for eviction (a reopen would have flipped `evicting` off / refCount up).
     if (current === entry && current.refCount === 0 && current.evicting) {
+      if (controllerIsDirty(current.controller)) {
+        current.evicting = false;
+        return;
+      }
       registry.delete(documentId);
     }
   };

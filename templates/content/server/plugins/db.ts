@@ -1,6 +1,18 @@
 import { runMigrations } from "@agent-native/core/db";
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 
+function scheduleBlocksRepairRetry(attempt = 1): void {
+  const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
+  const timeout = setTimeout(() => {
+    repairUnseededBlocksFields().catch(() => {
+      if (attempt < 5) scheduleBlocksRepairRetry(attempt + 1);
+    });
+  }, delayMs);
+  if (typeof timeout === "object" && "unref" in timeout) {
+    timeout.unref();
+  }
+}
+
 const runContentMigrations = runMigrations(
   [
     {
@@ -524,7 +536,8 @@ export default async function contentDatabasePlugin(
   try {
     await repairUnseededBlocksFields();
   } catch {
-    // Swallow — the next mutating, access-checked seeding call (or the next
-    // boot) will reconcile. A repair error must not block server startup.
+    // Retry in-process so a transient boot-time repair failure does not leave
+    // legacy databases without their primary Blocks field until a full reboot.
+    scheduleBlocksRepairRetry();
   }
 }
