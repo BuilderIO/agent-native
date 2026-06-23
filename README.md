@@ -21,18 +21,6 @@ export default defineAction({
 - **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
 - **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 
-## Agents and UIs, Fully Connected
-
-The agent and the UI are equal citizens of one system. Every action works both ways: click it or ask for it.
-
-![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
-
-- **Everything syncs**: One database, one state. Changes from either side show up instantly on the other.
-- **Real-time multiplayer**: Humans and agents edit the same document together, with the agent as a first-class peer.
-- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
-- **Agents call agents**: Tag another agent from any app and they coordinate over A2A.
-- **Self-improving**: The agent can add features, fix bugs, and refine the UI over time.
-
 ## Templates
 
 Start with a full featured template. Each one is a complete, 100% free and open-source SaaS app: cloneable, not scaffolded, except you own the code and can customize everything.
@@ -111,6 +99,18 @@ Connect analytics data sources, prompt for real charts, and build reusable dashb
 </table>
 
 View the full template gallery at **[agent-native.com/templates](https://agent-native.com/templates)**.
+
+## Agents and UIs, Fully Connected
+
+The agent and the UI are equal citizens of one system. Every action works both ways: click it or ask for it.
+
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
+
+- **Everything syncs**: One database, one state. Changes from either side show up instantly on the other.
+- **Real-time multiplayer**: Humans and agents edit the same document together, with the agent as a first-class peer.
+- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Agents call agents**: Tag another agent from any app and they coordinate over A2A.
+- **Self-improving**: The agent can add features, fix bugs, and refine the UI over time.
 
 ## Try it with a skill
 
