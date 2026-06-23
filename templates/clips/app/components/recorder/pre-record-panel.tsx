@@ -284,9 +284,13 @@ export function PreRecordPanel({
     [mics],
   );
 
+  // Fall back to "default" only once we have a populated device list that
+  // genuinely excludes the selection. An empty list means "not enumerated yet
+  // / no permission" — NOT "the device is gone" — so we must keep the value;
+  // resetting on an empty list wipes a restored preference before devices load.
   useEffect(() => {
     if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
-    if (!mics.some((mic) => mic.deviceId === micId)) {
+    if (mics.length > 0 && !mics.some((mic) => mic.deviceId === micId)) {
       setMicId("default");
     }
   }, [micId, mics]);
@@ -297,7 +301,10 @@ export function PreRecordPanel({
   // persisted — losing a device temporarily shouldn't erase the saved choice.
   useEffect(() => {
     if (cameraId === "default" || cameraId === NO_CAMERA_DEVICE_ID) return;
-    if (!cameras.some((camera) => camera.deviceId === cameraId)) {
+    if (
+      cameras.length > 0 &&
+      !cameras.some((camera) => camera.deviceId === cameraId)
+    ) {
       setCameraId("default");
     }
   }, [cameraId, cameras]);
