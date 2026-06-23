@@ -103,6 +103,34 @@ function formatYValue(
   return value.toLocaleString();
 }
 
+/**
+ * Format a single metric value for display. Coerces Postgres numeric/bigint
+ * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
+ * number so the formatter applies — SQLite returns JS numbers, so this only
+ * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
+ * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
+ * string falls through unformatted.
+ */
+export function formatMetricValue(
+  raw: unknown,
+  formatter?: "number" | "currency" | "percent",
+  valueLabels?: Record<string, string>,
+): string {
+  const valueLabel = valueLabels?.[String(raw)];
+  if (valueLabel !== undefined) return valueLabel;
+  const numericRaw =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" &&
+          raw.trim() !== "" &&
+          Number.isFinite(Number(raw))
+        ? Number(raw)
+        : null;
+  return numericRaw !== null
+    ? formatYValue(numericRaw, formatter)
+    : String(raw ?? "-");
+}
+
 function parsePrometheusSeriesLabel(label: string): {
   metric: string;
   labels: Record<string, string>;
@@ -647,12 +675,11 @@ function MetricRenderer({
   } else {
     raw = row[valueCol];
   }
-  const valueLabel = panel.config?.valueLabels?.[String(raw)];
-  const value =
-    valueLabel ??
-    (typeof raw === "number"
-      ? formatYValue(raw, panel.config?.yFormatter)
-      : String(raw ?? "-"));
+  const value = formatMetricValue(
+    raw,
+    panel.config?.yFormatter,
+    panel.config?.valueLabels,
+  );
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
