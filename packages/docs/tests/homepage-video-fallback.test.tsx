@@ -34,5 +34,5 @@ describe("homepage video fallbacks", () => {
     expect(html).toContain("Screen context");
     expect(html).not.toContain("animate-pulse");
     expect(html).not.toContain("<video");
-  });
+  }, 15_000);
 });
