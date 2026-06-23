@@ -100,7 +100,7 @@ export default defineAction({
         dashboardId: existingInstall.id,
         name: existingInstall.name,
         alreadyInstalled: true,
-        urlPath: `/adhoc/${existingInstall.id}`,
+        urlPath: `/dashboards/${existingInstall.id}`,
         deepLink: buildDeepLink({
           app: "analytics",
           view: "adhoc",
@@ -144,7 +144,7 @@ export default defineAction({
         name: dashboard.title,
         alreadyInstalled: false,
         overwritten: !!existing,
-        urlPath: `/adhoc/${dashboardId}`,
+        urlPath: `/dashboards/${dashboardId}`,
         deepLink: buildDeepLink({
           app: "analytics",
           view: "adhoc",

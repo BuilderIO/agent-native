@@ -60,7 +60,7 @@ function demoDashboardPath(dashboardId: string): string {
   const params = new URLSearchParams({
     tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
   });
-  return `/adhoc/${dashboardId}?${params.toString()}`;
+  return `/dashboards/${dashboardId}?${params.toString()}`;
 }
 
 function nowIso(): string {

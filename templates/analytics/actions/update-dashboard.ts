@@ -488,7 +488,7 @@ export default defineAction({
             ? args.config.name
             : args.dashboardId,
         config: args.config,
-        urlPath: `/adhoc/${args.dashboardId}`,
+        urlPath: `/dashboards/${args.dashboardId}`,
         deepLink: buildDeepLink({
           app: "analytics",
           view: "adhoc",
@@ -531,7 +531,7 @@ export default defineAction({
       dashboardId: args.dashboardId,
       name: typeof root.name === "string" ? root.name : args.dashboardId,
       config: root,
-      urlPath: `/adhoc/${args.dashboardId}`,
+      urlPath: `/dashboards/${args.dashboardId}`,
       deepLink: buildDeepLink({
         app: "analytics",
         view: "adhoc",
