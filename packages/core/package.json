@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.70.1",
+  "version": "0.70.2",
   "type": "module",
   "engines": {
     "node": ">=22"

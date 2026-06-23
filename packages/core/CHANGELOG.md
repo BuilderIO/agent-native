@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.70.2
+
+### Patch Changes
+
+- 2d36525: Add a sync helper for keeping Builder Agent Native Starter's standalone manifest aligned with the chat template scaffold output.
+
 ## 0.70.1
 
 ### Patch Changes
