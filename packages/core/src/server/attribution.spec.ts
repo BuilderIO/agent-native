@@ -69,7 +69,9 @@ describe("readFirstTouchAttribution", () => {
       extra: "ignored",
       landing_path: "/p/abc",
     });
-    const parsed = readFirstTouchAttribution(`an_ft=${encodeURIComponent(raw)}`);
+    const parsed = readFirstTouchAttribution(
+      `an_ft=${encodeURIComponent(raw)}`,
+    );
     expect(parsed?.ref).toHaveLength(120);
     expect(parsed?.via).toBeUndefined();
     expect((parsed as Record<string, unknown>)?.extra).toBeUndefined();
@@ -116,9 +118,9 @@ describe("deriveReferralSource", () => {
   it("nothing derives direct", () => {
     expect(deriveReferralSource(null)).toBe("direct");
     expect(deriveReferralSource({})).toBe("direct");
-    expect(deriveReferralSource({ landing_path: "/", landing_referrer: "" })).toBe(
-      "direct",
-    );
+    expect(
+      deriveReferralSource({ landing_path: "/", landing_referrer: "" }),
+    ).toBe("direct");
   });
 });
 
@@ -151,13 +153,13 @@ describe("deriveSignupAttribution", () => {
   });
 
   it("defaults to direct with no input and omits undefined fields", () => {
-    expect(deriveSignupAttribution(null)).toEqual({ referral_source: "direct" });
+    expect(deriveSignupAttribution(null)).toEqual({
+      referral_source: "direct",
+    });
   });
 
   it("derives clip_share from a /share/ landing and keeps the path", () => {
-    expect(
-      deriveSignupAttribution({ landing_path: "/share/clip-1" }),
-    ).toEqual({
+    expect(deriveSignupAttribution({ landing_path: "/share/clip-1" })).toEqual({
       referral_source: "clip_share",
       first_touch_path: "/share/clip-1",
     });

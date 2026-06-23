@@ -643,10 +643,12 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  getFirstTouchAttribution,
   setSentryUser,
   captureError,
   captureClientException,
   type ClientCaptureContext,
+  type FirstTouchAttribution,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {

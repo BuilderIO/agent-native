@@ -53,6 +53,14 @@ const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
 
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
+const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
+const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
+const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
+// 30-minute idle timeout matches GA4 / Mixpanel defaults — a tab left open
+// overnight starts a new session in the morning rather than stretching one
+// session over multiple visits.
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 // First-touch referral attribution (viral attribution). Captured once on the
 // visitor's first page load and persisted across the signup boundary so the
 // server-side `signup` event can record where the user came from. First-write
@@ -90,13 +98,6 @@ export interface FirstTouchAttribution {
   landing_referrer?: string;
   landed_at?: string;
 }
-const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
-const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
-const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
-// 30-minute idle timeout matches GA4 / Mixpanel defaults — a tab left open
-// overnight starts a new session in the morning rather than stretching one
-// session over multiple visits.
-const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 function generateVisitorId(): string {
   try {
@@ -298,9 +299,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
   const landingPath = truncateFirstTouchField(window.location.pathname);
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
-    typeof document !== "undefined"
-      ? scrubReferrerHost(document.referrer)
-      : "";
+    typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
   if (landingReferrer) attribution.landing_referrer = landingReferrer;
   attribution.landed_at = new Date().toISOString();
   return attribution;
@@ -712,6 +711,7 @@ export function configureTracking(options: {
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
+    captureFirstTouchAttribution();
     installLlmConnectionRefresh();
     installPageviewTracking();
   }
