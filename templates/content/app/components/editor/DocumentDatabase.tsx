@@ -138,6 +138,10 @@ import {
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentBlockFields } from "./DocumentBlockFields";
+import {
+  createPreviewDocumentSaveController,
+  type PreviewDocumentSaveController,
+} from "./previewDocumentSaveController";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -2002,12 +2006,56 @@ function DatabaseItemPreview({
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
-  const lastSavedRef = useRef({
-    title: item.document.title,
-    content: item.document.content,
-  });
+
+  // The peek's primary title+body save runs through a flush-on-release controller
+  // so a pending debounced edit is PERSISTED — not dropped — when the row
+  // switches, the editor unmounts, or the sheet closes / Open-page navigates.
+  // (Mirrors the additional Blocks fields' flush-on-release controller.) Always
+  // saves the LATEST controller pending payload, never a stale render closure.
+  const updateDocumentRef = useRef(updateDocument);
+  updateDocumentRef.current = updateDocument;
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  // The document id the controller's pending payload belongs to. Set at EDIT
+  // time (not save time) so a flush triggered by a row-switch writes the
+  // previous row's pending edit to the PREVIOUS document — not the row we just
+  // switched to. Seeded to the initial row.
+  const saveTargetIdRef = useRef(item.document.id);
+  const saveControllerRef = useRef<PreviewDocumentSaveController | null>(null);
+  if (saveControllerRef.current === null) {
+    saveControllerRef.current = createPreviewDocumentSaveController({
+      initial: {
+        title: item.document.title,
+        content: item.document.content,
+      },
+      save: (payload) =>
+        new Promise((resolve, reject) => {
+          updateDocumentRef.current.mutate(
+            {
+              id: saveTargetIdRef.current,
+              title: payload.title,
+              content: payload.content,
+            },
+            { onSuccess: () => resolve(undefined), onError: reject },
+          );
+        }),
+      onSaved: () => {
+        void queryClientRef.current.invalidateQueries({
+          queryKey: ["action", "get-content-database"],
+        });
+        void queryClientRef.current.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+      onError: (err) => {
+        toast.error("Failed to save page preview", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      },
+    });
+  }
 
   useEffect(() => {
     const nextTitle = document?.title ?? item.document.title;
@@ -2016,10 +2064,15 @@ function DatabaseItemPreview({
     setLocalTitle(nextTitle);
     setLocalContent(nextContent);
     setLocalIcon(nextIcon);
-    lastSavedRef.current = { title: nextTitle, content: nextContent };
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
+    // Adopting a fresh server/row baseline must NOT silently discard a pending
+    // edit: flush whatever the previous row had in flight first (to the PREVIOUS
+    // target id still held in the ref), then rebase the target + baseline to the
+    // current row.
+    const controller = saveControllerRef.current;
+    if (controller) {
+      void controller.flush();
+      saveTargetIdRef.current = item.document.id;
+      controller.mark({ title: nextTitle, content: nextContent });
     }
   }, [
     document?.id,
@@ -2033,8 +2086,12 @@ function DatabaseItemPreview({
   ]);
 
   useEffect(() => {
+    const controller = saveControllerRef.current;
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      // Sheet close / Open-page navigate / unmount: FLUSH (don't drop) the
+      // pending payload. flush() issues the save synchronously before teardown,
+      // so the write is dispatched before any navigation completes.
+      if (controller) void controller.flush();
     };
   }, []);
 
@@ -2050,48 +2107,18 @@ function DatabaseItemPreview({
     return () => cancelAnimationFrame(frame);
   }, [canEdit, document, focusTitle, isLoading, onTitleFocused]);
 
-  function savePreviewDocument(next: { title: string; content: string }) {
-    if (!canEdit || !document) return;
-    if (
-      next.title === lastSavedRef.current.title &&
-      next.content === lastSavedRef.current.content
-    ) {
-      return;
-    }
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      updateDocument.mutate(
-        { id: document.id, title: next.title, content: next.content },
-        {
-          onSuccess: () => {
-            lastSavedRef.current = next;
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-content-database"],
-            });
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "list-documents"],
-            });
-          },
-          onError: (err) => {
-            toast.error("Failed to save page preview", {
-              description:
-                err instanceof Error ? err.message : "Something went wrong",
-            });
-          },
-        },
-      );
-    }, 450);
-  }
-
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
-    savePreviewDocument({ title: nextTitle, content: localContent });
+    if (!canEdit || !document) return;
+    saveTargetIdRef.current = document.id;
+    saveControllerRef.current?.changeTitle(nextTitle);
   }
 
   function handleContentChange(nextContent: string) {
     setLocalContent(nextContent);
-    savePreviewDocument({ title: localTitle, content: nextContent });
+    if (!canEdit || !document) return;
+    saveTargetIdRef.current = document.id;
+    saveControllerRef.current?.changeContent(nextContent);
   }
 
   function handleIconChange(nextIcon: string | null) {
@@ -2139,6 +2166,15 @@ function DatabaseItemPreview({
   }
 
   async function deletePreviewRow() {
+    // Cancel (do NOT flush) before any row switch/close: we're deleting this
+    // document, so a pending save must not resurrect it. Rebase pending onto the
+    // last-saved baseline so the row-switch reset effect's flush is a no-op.
+    const controller = saveControllerRef.current;
+    if (controller) {
+      controller.cancel();
+      controller.mark(controller.lastSaved);
+    }
+
     const nextPreviewItem = nextItem ?? previousItem;
     if (nextPreviewItem) {
       onPreviewItem?.(nextPreviewItem);
@@ -2147,10 +2183,6 @@ function DatabaseItemPreview({
     }
 
     try {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
       await deleteDocument.mutateAsync({ id: item.document.id });
       await queryClient.invalidateQueries({
         queryKey: [
