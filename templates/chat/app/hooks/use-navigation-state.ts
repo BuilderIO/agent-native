@@ -18,9 +18,8 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname, search }) => {
-      const params = new URLSearchParams(search);
-      const threadId = params.get("thread")?.trim();
+    getNavigationState: ({ pathname }) => {
+      const threadId = threadIdFromPath(pathname);
       return {
         view: viewForPath(pathname),
         path: appPath(pathname),
@@ -30,7 +29,10 @@ export function useNavigationState() {
     getCommandPath: (command) =>
       routerPath(command.path || pathForCommand(command)),
     onNavigate: (_command, path) => {
-      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+      if (
+        isChatPath(location.pathname) &&
+        !isChatPath(pathnameFromPath(path))
+      ) {
         markAgentChatHomeHandoff("chat");
       }
     },
@@ -41,7 +43,19 @@ function pathnameFromPath(path: string): string {
   return path.split(/[?#]/, 1)[0] || "/";
 }
 
+function threadIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return match[1] || null;
+  }
+}
+
 function viewForPath(pathname: string): string {
+  if (isChatPath(pathname)) return "chat";
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
@@ -73,7 +87,7 @@ function pathForCommand(command: any): string {
   if (path !== "/") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/?thread=${encodeURIComponent(threadId)}` : "/";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
 }
 
 function routerPath(path: string): string {
@@ -84,4 +98,8 @@ function routerPath(path: string): string {
     return path.slice(basePath.length) || "/";
   }
   return path;
+}
+
+function isChatPath(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/chat/");
 }

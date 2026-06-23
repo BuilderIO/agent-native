@@ -100,13 +100,19 @@ function persistedActiveThreadId() {
   }
 }
 
-function threadIdFromSearch(search: string) {
-  const value = new URLSearchParams(search).get("thread")?.trim();
-  return value || null;
+function threadIdFromPath(pathname: string) {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return match[1] || null;
+  }
 }
 
 function chatThreadPath(threadId: string) {
-  return `/?thread=${encodeURIComponent(threadId)}`;
+  return `/chat/${encodeURIComponent(threadId)}`;
 }
 
 function AssetsChatsSection() {
@@ -276,7 +282,7 @@ function AssetsChatsSection() {
         {visibleThreads.map((thread) => {
           const isActive =
             thread.id ===
-            (threadIdFromSearch(location.search) ?? activeThreadId);
+            (threadIdFromPath(location.pathname) ?? activeThreadId);
           const isRenaming = thread.id === renamingThreadId;
           return (
             <div
@@ -382,7 +388,8 @@ function AssetsChatsSection() {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isCreateRoute = location.pathname === "/";
+  const isCreateRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const { data: auditAdmin } = useActionQuery("is-audit-admin", {}, {
     refetchInterval: 30_000,
   } as any) as { data: { allowed?: boolean } | undefined };
@@ -468,7 +475,7 @@ export function Sidebar() {
             const Icon = item.icon;
             const isActive =
               item.href === "/"
-                ? location.pathname === "/"
+                ? isCreateRoute
                 : item.href === "/brand-kits"
                   ? location.pathname === "/brand-kits" ||
                     location.pathname.startsWith("/brand-kits/") ||

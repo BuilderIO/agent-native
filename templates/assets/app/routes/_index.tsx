@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 import {
   AgentChatSurface,
   getBrowserTabId,
@@ -24,7 +25,14 @@ export function meta() {
   ];
 }
 
+function chatThreadPath(threadId: string | null) {
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+}
+
 export default function CreatePage() {
+  const { threadId } = useParams();
+  const navigate = useNavigate();
+
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -46,7 +54,11 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync
+        threadUrlSync={{
+          routeThreadId: threadId ?? null,
+          getPath: chatThreadPath,
+          navigate,
+        }}
         browserTabId={getBrowserTabId()}
         showHeader={false}
         showTabBar={false}

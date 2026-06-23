@@ -35,6 +35,7 @@ const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
 function routeOwnsToolbar(pathname: string): boolean {
   return (
     pathname === "/" ||
+    pathname.startsWith("/chat/") ||
     pathname === "/database" ||
     pathname.startsWith("/extensions")
   );
@@ -45,7 +46,8 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const isChatRoute = location.pathname === "/";
+  const isChatRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "chat",
     activePath: location.pathname,
@@ -151,7 +153,6 @@ export function Layout({ children }: LayoutProps) {
             position="right"
             chatViewTransition
             storageKey="chat"
-            threadUrlSync
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}

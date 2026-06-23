@@ -21,12 +21,15 @@ function optionalLibraryTab(params: URLSearchParams) {
     : undefined;
 }
 
-function optionalThreadId(params: URLSearchParams) {
-  return optionalParam(params, "thread");
-}
-
 function navigationFromPath(pathname: string, search = "") {
   const params = new URLSearchParams(search);
+  const chat = pathname.match(/^\/chat\/([^/]+)/);
+  if (chat) {
+    return {
+      view: "create",
+      threadId: decodePathParam(chat[1]),
+    };
+  }
   // The "library" view is the brand-kit detail page (route /brand-kits/:id).
   // Keep the internal view key stable for the agent/MCP contract.
   const library = pathname.match(/^\/brand-kits\/([^/]+)/);
@@ -44,7 +47,6 @@ function navigationFromPath(pathname: string, search = "") {
   if (pathname === "/") {
     return {
       view: "create",
-      threadId: optionalThreadId(params),
     };
   }
   // The "picker" view is the image Library browser (route /library).
@@ -102,12 +104,10 @@ function pathFromCommand(command: any): string | null {
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
   if (command.view === "create") {
-    const params = new URLSearchParams();
     if (typeof command.threadId === "string" && command.threadId.trim()) {
-      params.set("thread", command.threadId.trim());
+      return `/chat/${encodeURIComponent(command.threadId.trim())}`;
     }
-    const query = params.toString();
-    return query ? `/?${query}` : "/";
+    return "/";
   }
   if (command.view === "picker") {
     const params = new URLSearchParams();
@@ -146,7 +146,10 @@ export function useNavigationState() {
       navigationFromPath(pathname, search),
     getCommandPath: (command) => pathFromCommand(command),
     onNavigate: (_command, path) => {
-      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+      if (
+        isCreatePath(location.pathname) &&
+        !isCreatePath(pathnameFromPath(path))
+      ) {
         markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
       }
     },
@@ -155,4 +158,16 @@ export function useNavigationState() {
 
 function pathnameFromPath(path: string): string {
   return path.split(/[?#]/, 1)[0] || "/";
+}
+
+function decodePathParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isCreatePath(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/chat/");
 }

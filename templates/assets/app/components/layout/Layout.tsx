@@ -36,7 +36,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const isCreateRoute = location.pathname === "/";
+  const isCreateRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -122,7 +123,6 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         chatViewTransition
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
