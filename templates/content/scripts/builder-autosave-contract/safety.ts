@@ -111,6 +111,12 @@ export class MutableModel {
       );
     }
     this.model = model;
+    // Freeze: `readonly` is TS-only. Without this, a caller could mint a token
+    // for a test model and then reassign `.model` to a production model at
+    // runtime (the mutator trusts `.model` after `.is()`). Freezing makes the
+    // vetted payload immutable, so the model gate that passed at mint time is
+    // binding.
+    Object.freeze(this);
   }
   static is(value: unknown): value is MutableModel {
     return (
@@ -173,6 +179,9 @@ export class MutableTarget {
     this.model = model;
     this.entryId = entryId;
     this.name = name;
+    // Freeze so the vetted (model, entryId) payload cannot be repointed at
+    // production content after the registry minted the token. See MutableModel.
+    Object.freeze(this);
   }
 
   /** Runtime check used by client mutators to reject forged/plain objects. */

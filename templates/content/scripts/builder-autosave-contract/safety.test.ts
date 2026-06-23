@@ -102,6 +102,21 @@ describe("token minting surface is closed (no public bypass)", () => {
     forgedTarget.entryId = "production-entry";
     expect(MutableTarget.is(forgedTarget)).toBe(false);
   });
+
+  it("freezes minted tokens so a vetted token cannot be repointed at production", () => {
+    const model = assertModelAllowedForLive(TEST_MODEL, []);
+    expect(() => {
+      (model as unknown as { model: string }).model = "blog-article";
+    }).toThrow(TypeError);
+    expect(model.model).toBe(TEST_MODEL);
+
+    const reg = new ThrowawayRegistry();
+    const target = reg.register(model, "entry-z", makeThrowawayName());
+    expect(() => {
+      (target as unknown as { entryId: string }).entryId = "production-entry";
+    }).toThrow(TypeError);
+    expect(target.model).toBe(TEST_MODEL);
+  });
 });
 
 describe("ThrowawayRegistry chokepoint", () => {
