@@ -400,49 +400,6 @@ svg {
   color: var(--fg);
 }
 
-.mic-wave {
-  min-width: 0;
-  height: auto;
-  flex: 1 1 auto;
-  align-self: stretch;
-  margin: 0 4px;
-  background: linear-gradient(
-    90deg,
-    transparent 0,
-    rgba(34, 197, 94, 0.85) 18%,
-    rgba(34, 197, 94, 0.85) 72%,
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 12%,
-    #000 88%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 12%,
-    #000 88%,
-    transparent 100%
-  );
-  clip-path: polygon(
-    0 54%,
-    10% 72%,
-    20% 50%,
-    31% 37%,
-    42% 48%,
-    100% 48%,
-    100% 58%,
-    42% 58%,
-    31% 49%,
-    20% 62%,
-    10% 80%,
-    0 62%
-  );
-}
-
 .primary,
 .secondary-action {
   min-height: 44px;
