@@ -405,7 +405,15 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`);
+      // The `recording-blob-*` fallback only exists for local/dev recordings
+      // (production uses provider storage), and `readAppState` THROWS when there
+      // is no authenticated identity in context. An anonymous viewer of a public
+      // clip therefore has no blob to read anyway — swallow the missing-context
+      // error and fall through to the provider media URL instead of surfacing an
+      // unhandled 500 ("Could not start playback. Try again." in the player).
+      const blob = await readAppState(`recording-blob-${recordingId}`).catch(
+        () => null,
+      );
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 
