@@ -49,6 +49,7 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
+  captureRouteError,
   getSession,
   runWithRequestContext,
   signShortLivedToken,
@@ -61,6 +62,13 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
+import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+
+// Message shared by every "the inline blob can't be served" branch below.
+// The bytes still exist in application_state — they just need to be moved to a
+// real storage provider (see the recover-sql-blob recovery path).
+const STORAGE_REHOST_REQUIRED_MESSAGE =
+  "This recording's media is too large to stream from temporary storage and needs to be reconnected to a storage provider.";
 
 interface RecordingRow {
   expiresAt?: string | null;
@@ -375,7 +383,34 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`);
+      // Legacy SQL fallback: older finalize-recording runs (before storage was
+      // required in production) stashed a clip's bytes inline in
+      // application_state under `recording-blob-:id` and pointed video_url at
+      // this route. For large clips that base64 value can exceed V8's max
+      // string length or the function's memory, so even reading it throws —
+      // which surfaced as an unhandled 500 on every request (including range).
+      // Fail with a clear, observable error instead. The bytes are still in the
+      // DB; recovery is to rehost them to a configured storage provider.
+      let blob: Record<string, unknown> | null = null;
+      try {
+        blob = await readAppState(`recording-blob-${recordingId}`);
+      } catch (err) {
+        captureRouteError(err, {
+          route: "api/video",
+          tags: { mediaPath: "sql-blob-read" },
+          extra: { recordingId },
+        });
+        setResponseStatus(event, 503);
+        setResponseHeader(
+          event,
+          "Cache-Control",
+          "private, max-age=0, no-store",
+        );
+        return {
+          error: STORAGE_REHOST_REQUIRED_MESSAGE,
+          needsStorageRehost: true,
+        };
+      }
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 
@@ -408,7 +443,54 @@ export default defineEventHandler(async (event: H3Event) => {
       }
       const mimeType =
         typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";
-      const bytes = Buffer.from(b64, "base64");
+
+      // Guard before allocating: (b64.length * 3 / 4) approximates the decoded
+      // byte count. A value past the upload ceiling can't be materialized
+      // safely in a serverless function, so refuse it rather than risk an OOM.
+      const approxBytes = Math.floor((b64.length * 3) / 4);
+      if (approxBytes > MAX_UPLOAD_BYTES) {
+        captureRouteError(
+          new Error(
+            `Inline recording blob too large to serve (~${approxBytes} bytes > ${MAX_UPLOAD_BYTES})`,
+          ),
+          {
+            route: "api/video",
+            tags: { mediaPath: "sql-blob-oversize" },
+            extra: { recordingId, approxBytes, maxBytes: MAX_UPLOAD_BYTES },
+          },
+        );
+        setResponseStatus(event, 413);
+        setResponseHeader(
+          event,
+          "Cache-Control",
+          "private, max-age=0, no-store",
+        );
+        return {
+          error: STORAGE_REHOST_REQUIRED_MESSAGE,
+          needsStorageRehost: true,
+        };
+      }
+
+      let bytes: Buffer;
+      try {
+        bytes = Buffer.from(b64, "base64");
+      } catch (err) {
+        captureRouteError(err, {
+          route: "api/video",
+          tags: { mediaPath: "sql-blob-decode" },
+          extra: { recordingId, base64Length: b64.length },
+        });
+        setResponseStatus(event, 503);
+        setResponseHeader(
+          event,
+          "Cache-Control",
+          "private, max-age=0, no-store",
+        );
+        return {
+          error: STORAGE_REHOST_REQUIRED_MESSAGE,
+          needsStorageRehost: true,
+        };
+      }
       const total = bytes.byteLength;
 
       setResponseHeader(event, "Content-Type", mimeType);

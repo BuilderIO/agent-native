@@ -1238,9 +1238,49 @@ describe("recap screenshot capture", () => {
     };
     return {
       page,
+      context,
       importPlaywright: async () => ({ chromium }),
     };
   }
+
+  it("injects a string __name shim before navigating so esbuild/tsx keepNames payloads don't throw", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { context, page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+        },
+        importPlaywright,
+      );
+
+      // The shim must be a raw string (so esbuild never rewrites it) that
+      // defines globalThis.__name — the helper esbuild's keepNames references.
+      const shimCall = context.addInitScript.mock.calls.find(
+        ([arg]: [unknown]) => typeof arg === "string" && arg.includes("__name"),
+      );
+      expect(shimCall).toBeDefined();
+      expect(typeof shimCall![0]).toBe("string");
+      expect(String(shimCall![0])).toContain("globalThis.__name");
+
+      // It must run before the page is created/navigated so the shim is in
+      // place for every init script and page.evaluate payload.
+      const shimOrder = context.addInitScript.mock.invocationCallOrder[0];
+      const navOrder = page.goto.mock.invocationCallOrder[0];
+      expect(shimOrder).toBeLessThan(navOrder);
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
 
   it("retries oversized screenshots at CSS-pixel scale", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));

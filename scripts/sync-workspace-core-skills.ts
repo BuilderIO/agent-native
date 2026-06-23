@@ -45,6 +45,7 @@ const workspaceSkillIncludes = [
   "authentication",
   "automations",
   "capture-learnings",
+  "changelog",
   "client-methods",
   "client-side-routing",
   "composable-mini-apps",

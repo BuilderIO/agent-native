@@ -151,7 +151,7 @@ instructions, and application state.
   improvement, or behavior-affecting fix), record it from that app with
   `agent-native changelog add "<one user-facing sentence>" --type <added|improved|fixed>`.
   This writes a changeset-style pending entry under `changelog/`; `changelog
-  release` rolls pending entries into the app's `CHANGELOG.md`, which renders in
+release` rolls pending entries into the app's `CHANGELOG.md`, which renders in
   the command menu (Cmd+K → "What's new") and settings. Skip refactors, tooling,
   and tests. See the `changelog` skill.
 
