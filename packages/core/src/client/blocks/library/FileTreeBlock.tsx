@@ -119,6 +119,10 @@ interface FolderNode {
   /** Full slash path of the folder, used as a stable key. */
   path: string;
   children: TreeNode[];
+  /** Present when the folder was authored as an explicit directory entry (a
+   * `path` ending in `/`), carrying its note/metadata + flat `entries` index. */
+  entry?: FileTreeEntry;
+  index?: number;
 }
 
 type TreeNode = FolderNode | FileLeaf;
@@ -136,6 +140,10 @@ interface FolderBuild {
   files: FileLeaf[];
   /** Insertion order of child names (folders + files) for stable rendering. */
   order: string[];
+  /** Set when an explicit directory entry (trailing slash) targets this folder,
+   * carrying its note/metadata + flat `entries` index. */
+  entry?: FileTreeEntry;
+  index?: number;
 }
 
 function makeFolder(name: string, path: string): FolderBuild {
@@ -154,8 +162,15 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
   entries.forEach((entry, index) => {
     const segments = entry.path.split("/").filter(Boolean);
     if (segments.length === 0) return;
-    const fileName = segments[segments.length - 1] as string;
-    const folderSegments = segments.slice(0, -1);
+
+    // A trailing slash marks a DIRECTORY entry: every segment is a folder and
+    // the entry's note/metadata attaches to the deepest folder (the last segment
+    // does NOT become a file leaf). Because folders are keyed by name, this also
+    // merges with any folder the sibling file paths already implied — so
+    // `packages/shared/` and `packages/shared/src/…` collapse onto one `shared`
+    // folder instead of a duplicate folder + file pair.
+    const isDir = /\/\s*$/.test(entry.path);
+    const folderSegments = isDir ? segments : segments.slice(0, -1);
 
     let cursor = root;
     let prefix = "";
@@ -170,6 +185,17 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
       cursor = next;
     }
 
+    if (isDir) {
+      // Attach metadata to the deepest folder (first declaration wins, so an
+      // explicit note isn't clobbered by a later bare prefix re-declaration).
+      if (!cursor.entry) {
+        cursor.entry = entry;
+        cursor.index = index;
+      }
+      return;
+    }
+
+    const fileName = segments[segments.length - 1] as string;
     cursor.files.push({
       kind: "file",
       name: fileName,
@@ -191,6 +217,8 @@ function buildTree(entries: FileTreeEntry[]): TreeNode[] {
           name: child.name,
           path: child.path,
           children: materialize(child),
+          entry: child.entry,
+          index: child.index,
         });
       } else {
         const file = folder.files[Number(key.slice(2))];
@@ -212,7 +240,16 @@ function compactFolderNode(folder: FolderNode): FolderNode {
   let path = folder.path;
   let children = folder.children;
 
-  while (children.length === 1 && children[0]?.kind === "folder") {
+  // Collapse single-child folder chains (a/b/c) into one row — but never across
+  // a folder that carries its own directory note, so an explicitly authored
+  // directory (e.g. `packages/shared/` with a note) keeps its own row instead of
+  // being folded into its parent or child and losing the note.
+  while (
+    !folder.entry &&
+    children.length === 1 &&
+    children[0]?.kind === "folder" &&
+    !children[0].entry
+  ) {
     const child = children[0];
     names.push(child.name);
     path = child.path;
@@ -223,6 +260,8 @@ function compactFolderNode(folder: FolderNode): FolderNode {
     kind: "folder",
     name: names.join("/"),
     path,
+    entry: folder.entry,
+    index: folder.index,
     children: compactTree(children),
   };
 }
@@ -353,30 +392,49 @@ export function FileTreeRead({
     const indent = depth * INDENT_STEP;
     if (node.kind === "folder") {
       const collapsed = collapsedFolders[node.path] ?? false;
+      // An explicit directory entry (trailing-slash path) can be a leaf folder
+      // with no children — e.g. `apps/mail/`. It still renders as a folder, just
+      // without a toggle chevron. Its authored note shows inline like a file's.
+      const expandable = node.children.length > 0;
+      const note = node.entry?.note?.trim();
+      const open = expandable && !collapsed;
       return (
         <div key={`d:${node.path}`}>
           <button
             type="button"
             data-plan-interactive
-            aria-expanded={!collapsed}
-            onClick={() => toggleFolder(node.path)}
+            disabled={!expandable}
+            aria-expanded={expandable ? !collapsed : undefined}
+            onClick={expandable ? () => toggleFolder(node.path) : undefined}
             style={{ paddingLeft: indent + 8 }}
-            className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors hover:bg-accent/40"
+            className={cn(
+              "flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
+              expandable ? "hover:bg-accent/40" : "cursor-default",
+            )}
           >
-            <IconChevronRight
-              className={cn(
-                "size-3.5 shrink-0 text-plan-muted transition-transform",
-                !collapsed && "rotate-90",
-              )}
-            />
-            {collapsed ? (
-              <IconFolder className="size-4 shrink-0 text-plan-muted" />
+            {expandable ? (
+              <IconChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-plan-muted transition-transform",
+                  !collapsed && "rotate-90",
+                )}
+              />
             ) : (
+              <span className="size-3.5 shrink-0" aria-hidden />
+            )}
+            {open ? (
               <IconFolderOpen className="size-4 shrink-0 text-plan-muted" />
+            ) : (
+              <IconFolder className="size-4 shrink-0 text-plan-muted" />
             )}
             <span className="min-w-0 truncate font-medium text-plan-text">
               {node.name}
             </span>
+            {note && (
+              <span className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted">
+                {note}
+              </span>
+            )}
           </button>
         </div>
       );
