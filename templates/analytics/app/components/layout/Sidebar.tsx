@@ -734,7 +734,7 @@ function SortableDashboardItem({
     visibility: Visibility,
   ) => Promise<void>;
 }) {
-  const href = `/adhoc/${d.id}`;
+  const href = `/dashboards/${d.id}`;
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
@@ -1337,7 +1337,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
 
   const activeDashboardId = useMemo(() => {
-    const match = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
     if (!match?.[1]) return null;
     return new URLSearchParams(location.search).get("id") || match[1];
   }, [location.pathname, location.search]);
@@ -1830,7 +1830,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [sidebarWidth],
   );
 
-  const isAdhocActive = location.pathname.startsWith("/adhoc");
+  const isAdhocActive =
+    location.pathname.startsWith("/adhoc") ||
+    location.pathname.startsWith("/dashboards");
 
   return (
     <div
