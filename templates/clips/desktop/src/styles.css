@@ -2592,6 +2592,9 @@ body[data-clips-route="recording-pill"] #root {
   .toolbar-v-action {
     transition: none;
   }
+  .toolbar-v-disk-indicator-critical {
+    animation: none;
+  }
 }
 
 /* ------------------------------------------------------------------------- */

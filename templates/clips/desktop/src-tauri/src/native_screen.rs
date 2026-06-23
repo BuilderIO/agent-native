@@ -740,7 +740,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         // (error contains "finalize failed"). Transient stop_capture /
         // remove_recording_output errors also return Err but don't prove the moov
         // was never written — they should remain retryable.
-        let is_definitive = stop_err.contains("finalize failed");
+        // "finalization callback failed" is unique to the delegate path;
+        // "recording finalize failed" also appears on remove_recording_output errors.
+        let is_definitive = stop_err.contains("finalization callback failed");
         if is_definitive && mp4_has_moov(&saved.file_path) == Some(false) {
             saved.corrupt = true;
             eprintln!(
@@ -845,14 +847,14 @@ pub async fn native_fullscreen_recording_stop_and_save(
         }
     }
     // Only treat the file as permanently unrecoverable when the SCK delegate
-    // explicitly called recording_did_fail (error string contains "finalize failed").
-    // Transient stop_capture / remove_recording_output errors return Err too, but
-    // they don't prove the moov was never written — deleting the file there would
-    // risk silent data loss on a still-valid clip.
+    // explicitly called recording_did_fail (error contains "finalization callback failed",
+    // the unique prefix used by the delegate path). Transient stop_capture /
+    // remove_recording_output errors use "recording finalize failed" and should
+    // remain retryable — deleting on those would risk silent data loss.
     let is_definitive_finalize_error = stop_outcome
         .as_ref()
         .err()
-        .map(|e| e.contains("finalize failed"))
+        .map(|e| e.contains("finalization callback failed"))
         .unwrap_or(false);
     if is_definitive_finalize_error {
         if mp4_has_moov(&session.path) == Some(false) {
@@ -2336,7 +2338,9 @@ fn stop_native_recording(
 
             if let Some(Err(err)) = &finalize_outcome {
                 eprintln!("[clips-tray] SCK finalize failed: {err}");
-                return Err(format!("ScreenCaptureKit recording finalize failed: {err}"));
+                // Use a unique prefix so callers can distinguish the SCK delegate
+                // reporting failure (recording_did_fail) from teardown API errors.
+                return Err(format!("ScreenCaptureKit finalization callback failed: {err}"));
             }
             if waited_for_finalize && finalize_outcome.is_none() {
                 eprintln!(
