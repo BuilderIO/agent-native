@@ -144,7 +144,7 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
-4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; and set the Request URL to `https://your-clips.example.com/api/slack/unfurl`. Configure `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Clips deployment.
+4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; set the Request URL to `https://your-clips.example.com/api/slack/unfurl`; and add the OAuth redirect URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`, then connect workspaces from Clips Settings.
 
 ### Host your own Clips server
 
@@ -187,8 +187,8 @@ tray app at your deployment.
 
 5. **Connect optional integrations.** Google Calendar powers the Meetings tab,
    `GEMINI_API_KEY` or Builder.io Connect powers transcript cleanup and titles,
-   `GROQ_API_KEY` can provide speech-to-text fallback, and Slack credentials
-   enable playable Slack unfurls.
+   `GROQ_API_KEY` can provide speech-to-text fallback, and the Slack OAuth
+   connection in Settings enables playable Slack unfurls.
 
 For local development, run the web app with `pnpm dev` and point the desktop
 tray app at `http://localhost:8094`.

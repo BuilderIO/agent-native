@@ -1,5 +1,34 @@
 # @agent-native/core
 
+## 0.68.0
+
+### Minor Changes
+
+- a623ab6: Ship a generated source corpus with the core package and expose source-search so agents can inspect version-matched core and template patterns from installed apps.
+
+### Patch Changes
+
+- a623ab6: Add configurable agent tool controls for database and extension surfaces. `databaseTools` now accepts `"write"` (default), `"read"`, and `"off"` in addition to booleans, and `extensionTools: false` removes framework extension-management tools and prompt guidance.
+- a623ab6: Surface extension runtime errors that occur before the iframe error toast mounts.
+- a623ab6: Collapse question-form and visual-questions inputs after copying or sending answers to the agent, with an edit affordance to reopen them.
+- a623ab6: Reduce Sentry noise from expected agent-chat quota/rate-limit failures, auth-card recovery, and oversized document attachment validation.
+- a623ab6: Hide development-only skill files from runtime source-search results and direct corpus reads.
+- a623ab6: Improve PR Visual Recap coverage for agent-native PRs: trusted fork authors run through the fork-safe workflow automatically, trusted public same-repo instruction edits no longer false-skip, PR heads are fetched before diffing, and unhealthy Plan routes stop before the agent runs.
+
+## 0.67.1
+
+### Patch Changes
+
+- 7ceb907: Allow native/desktop IDE clients (Cursor, VS Code) to complete the remote MCP
+  OAuth flow. The Dynamic Client Registration endpoint previously rejected any
+  `redirect_uris` that were not `https://` or `http://localhost`, so IDEs that
+  register a private-use URI scheme callback (e.g. `cursor://…`, `vscode://…`,
+  permitted by RFC 8252 §7.1) failed at registration with
+  `invalid_client_metadata` and never obtained a token. Registration now also
+  accepts private-use schemes while still requiring PKCE and rejecting
+  script/file-capable schemes (`javascript:`, `data:`, `file:`, `blob:`,
+  `vbscript:`, `about:`), fragments, and embedded credentials.
+
 ## 0.67.0
 
 ### Minor Changes

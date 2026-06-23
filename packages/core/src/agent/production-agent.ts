@@ -72,6 +72,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  getFrontmatterValue,
+  parseFrontmatter,
+} from "../resources/metadata.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
@@ -1283,7 +1287,13 @@ function escapeReferenceAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
-async function resolveSkillReferenceContent(
+function isRuntimeVisibleSkillContent(content: string): boolean {
+  const frontmatter = parseFrontmatter(content);
+  const scope = getFrontmatterValue(frontmatter, "scope")?.trim().toLowerCase();
+  return scope !== "dev";
+}
+
+export async function resolveSkillReferenceContent(
   ref: AgentChatReference,
 ): Promise<string | null> {
   if (!ref.path && !ref.name) return null;
@@ -1305,17 +1315,21 @@ async function resolveSkillReferenceContent(
       const full = await resourceGet(effective.effectiveResource.id, {
         ...resourceOptions,
       });
-      return full?.content ?? null;
+      if (!full?.content || !isRuntimeVisibleSkillContent(full.content)) {
+        return null;
+      }
+      return full.content;
     } catch {
       return null;
     }
   }
 
   try {
-    const { loadAgentsBundle } = await import("../server/agents-bundle.js");
+    const { loadAgentsBundle, getRuntimeSkills } =
+      await import("../server/agents-bundle.js");
     const bundle = await loadAgentsBundle();
-    const normalizedPath = ref.path.replace(/\/+$/g, "");
-    const skill = Object.values(bundle.skills).find((candidate) => {
+    const normalizedPath = ref.path?.replace(/\/+$/g, "");
+    const skill = getRuntimeSkills(bundle).find((candidate) => {
       const skillPath = candidate.dir.replace(/\/+$/g, "");
       return (
         candidate.meta.name === ref.name ||
@@ -2559,6 +2573,8 @@ export async function runAgentLoop(opts: {
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
             sendToolInputActivity(toolName);
+          } else if (event.type === "gateway-heartbeat") {
+            send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
           } else if (event.type === "tool-call-error") {

@@ -1,6 +1,6 @@
 ---
 name: agent-native-docs
-description: "How to look up version-matched Agent Native framework docs in node_modules. Use before coding against @agent-native/core APIs or advanced features."
+description: "How to look up version-matched Agent Native framework docs and source in node_modules. Use before coding against @agent-native/core APIs or advanced features."
 ---
 
 # Agent Native Docs Lookup
@@ -8,16 +8,20 @@ description: "How to look up version-matched Agent Native framework docs in node
 ## Rule
 
 Before implementing non-trivial Agent Native functionality, read the
-version-matched docs installed with `@agent-native/core`.
+version-matched docs installed with `@agent-native/core`. When implementation
+examples or template patterns matter, inspect the packaged source corpus too.
 
 ## How
 
 1. Start from the generated app root.
 2. Search with `pnpm action docs-search --query "<feature>"`.
 3. Read a specific page with `pnpm action docs-search --slug <slug>`.
-4. If the action runner is unavailable, search
+4. Search source examples with `pnpm action source-search --query "<pattern>"`
+   or read a file with `pnpm action source-search --path <path>`.
+5. If the action runner is unavailable, search
    `node_modules/@agent-native/core/docs` directly with `rg`.
-5. For app-specific rules, also read the app's own `AGENTS.md` and any relevant
+   Search `node_modules/@agent-native/core/corpus` for source examples.
+6. For app-specific rules, also read the app's own `AGENTS.md` and any relevant
    `.agents/skills/<name>/SKILL.md`.
 
 ## Useful Slugs

@@ -187,10 +187,32 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
-  key: "SLACK_BOT_TOKEN",
-  label: "Slack Bot Token",
+  key: "SLACK_CLIENT_ID",
+  label: "Slack Client ID",
   description:
-    "Bot user OAuth token for the Slack app that posts Clips link unfurls.",
+    "OAuth client id for Agent-Native Clips for Slack. Used to let Slack workspaces install the Clips unfurl app.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_CLIENT_SECRET",
+  label: "Slack Client Secret",
+  description:
+    "OAuth client secret matching SLACK_CLIENT_ID. Required for Clips to exchange Slack install codes for bot tokens.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_BOT_TOKEN",
+  label: "Slack Bot Token (legacy)",
+  description:
+    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Slack OAuth connect flow.",
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",

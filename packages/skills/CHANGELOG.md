@@ -1,5 +1,26 @@
 # @agent-native/skills
 
+## 0.2.54
+
+### Patch Changes
+
+- a623ab6: Refresh bundled workspace skill guidance for source-search and runtime/dev skill scope.
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+  - @agent-native/core@0.68.0
+
+## 0.2.53
+
+### Patch Changes
+
+- Updated dependencies [7ceb907]
+  - @agent-native/core@0.67.1
+
 ## 0.2.52
 
 ### Patch Changes

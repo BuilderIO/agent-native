@@ -64,12 +64,17 @@ The CSV includes headers derived from field labels. Array values (multiselect) a
 
 Each response is stored in the `responses` SQL table:
 
-| Column        | Type | Description                          |
-| ------------- | ---- | ------------------------------------ |
-| `id`          | text | Unique response ID                   |
-| `formId`      | text | Foreign key to the form              |
-| `data`        | text | JSON string of field ID -> value map |
-| `submittedAt` | text | ISO timestamp                        |
+| Column           | Type | Description                          |
+| ---------------- | ---- | ------------------------------------ |
+| `id`             | text | Unique response ID                   |
+| `formId`         | text | Foreign key to the form              |
+| `data`           | text | JSON string of field ID -> value map |
+| `submittedAt`    | text | ISO timestamp                        |
+| `ip`             | text | Submitter IP when available          |
+| `submitterEmail` | text | Submitter email hint when known      |
+
+`submitterEmail` may come from the logged-in Forms session or from trusted
+feedback clients that pass the logged-in user email as submission metadata.
 
 The `data` JSON maps field IDs to values:
 

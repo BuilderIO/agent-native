@@ -77,7 +77,11 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import type {
+  CalendarEvent,
+  CalendarEventDraft,
+  UpdateEventScope,
+} from "@shared/api";
 import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
@@ -131,6 +135,16 @@ function fallbackDraftRange(fallbackDate: Date) {
   const end = new Date(start);
   end.setHours(10, 0, 0, 0);
   return { start, end };
+}
+
+function isRecurringCalendarEvent(event: CalendarEvent): boolean {
+  return Boolean(event.recurringEventId || event.recurrence?.length);
+}
+
+function updateScopePayload(scope: UpdateEventScope | undefined): {
+  scope?: UpdateEventScope;
+} {
+  return scope ? { scope } : {};
 }
 
 function addMinutesToDateTimeParts(
@@ -879,24 +893,32 @@ export default function CalendarView() {
       newDate.getDate(),
     );
 
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const isRecurring = isRecurringCalendarEvent(event);
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+      recurrenceScope: isRecurring,
+    });
+    if (!guestNotification) return;
+
+    const undoScope = guestNotification.scope;
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
         start: oldStartISO,
         end: oldEndISO,
         sendUpdates: "none",
+        ...updateScopePayload(undoScope),
       });
     };
-    const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    };
-    const guestNotification = await promptGuestNotification({
-      event,
-      action: "update",
-      updates,
-    });
-    if (!guestNotification) return;
+    const toastId = toast.loading(
+      isRecurring ? "Updating recurring event..." : "Moving event...",
+    );
 
     updateEvent.mutate(
       {
@@ -907,11 +929,12 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast("Event moved", {
+          toast.success("Event moved", {
+            id: toastId,
             action: { label: "Undo", onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to move event"),
+        onError: () => toast.error("Failed to move event", { id: toastId }),
       },
     );
   }
@@ -946,24 +969,32 @@ export default function CalendarView() {
 
     const oldStartISO = event.start;
     const oldEndISO = event.end;
+    const updates = {
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const isRecurring = isRecurringCalendarEvent(event);
+    const guestNotification = await promptGuestNotification({
+      event,
+      action: "update",
+      updates,
+      recurrenceScope: isRecurring,
+    });
+    if (!guestNotification) return;
+
+    const undoScope = guestNotification.scope;
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
         start: oldStartISO,
         end: oldEndISO,
         sendUpdates: "none",
+        ...updateScopePayload(undoScope),
       });
     };
-    const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    };
-    const guestNotification = await promptGuestNotification({
-      event,
-      action: "update",
-      updates,
-    });
-    if (!guestNotification) return;
+    const toastId = toast.loading(
+      isRecurring ? "Updating recurring event..." : "Updating event...",
+    );
 
     updateEvent.mutate(
       {
@@ -974,11 +1005,12 @@ export default function CalendarView() {
       {
         onSuccess: () => {
           setUndoAction(undo);
-          toast("Event updated", {
+          toast.success("Event updated", {
+            id: toastId,
             action: { label: "Undo", onClick: undo },
           });
         },
-        onError: () => toast.error("Failed to update event"),
+        onError: () => toast.error("Failed to update event", { id: toastId }),
       },
     );
   }

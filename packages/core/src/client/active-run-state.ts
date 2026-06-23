@@ -35,3 +35,19 @@ export function clearActiveRun(): void {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch {}
 }
+
+/** Resume reconnect SSE after the last seen event (0 = replay from the start). */
+export function resolveReconnectAfterSeq(
+  threadId: string,
+  runId: string,
+): number {
+  const stored = getActiveRun();
+  if (
+    stored?.threadId === threadId &&
+    stored?.runId === runId &&
+    Number.isFinite(stored.lastSeq)
+  ) {
+    return stored.lastSeq + 1;
+  }
+  return 0;
+}

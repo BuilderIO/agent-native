@@ -144,6 +144,28 @@ function mapColor(event: any): Pick<CalendarEvent, "color" | "colorId"> {
   };
 }
 
+function mapAttendees(event: any): CalendarEvent["attendees"] {
+  return event.attendees?.map((attendee: any) => ({
+    email: attendee.email,
+    displayName: attendee.displayName || undefined,
+    photoUrl: attendee.photoUrl || undefined,
+    comment: attendee.comment || undefined,
+    responseStatus: attendee.responseStatus || undefined,
+    organizer: attendee.organizer || undefined,
+    self: attendee.self || undefined,
+  }));
+}
+
+function mapOrganizer(event: any): CalendarEvent["organizer"] {
+  return event.organizer
+    ? {
+        email: event.organizer.email,
+        displayName: event.organizer.displayName || undefined,
+        self: event.organizer.self || undefined,
+      }
+    : undefined;
+}
+
 function buildDateRange(event: CalendarEvent | Partial<CalendarEvent>) {
   return {
     start: event.allDay
@@ -642,15 +664,7 @@ export async function listEvents(
             transparency: event.transparency || undefined,
             ...mapColor(event),
             eventType: event.eventType || "default",
-            attendees: event.attendees?.map((a: any) => ({
-              email: a.email,
-              displayName: a.displayName || undefined,
-              photoUrl: a.photoUrl || undefined,
-              comment: a.comment || undefined,
-              responseStatus: a.responseStatus || undefined,
-              organizer: a.organizer || undefined,
-              self: a.self || undefined,
-            })),
+            attendees: mapAttendees(event),
             ...mapReminders(event),
             recurrence: event.recurrence || undefined,
             recurringEventId: event.recurringEventId || undefined,
@@ -683,13 +697,7 @@ export async function listEvents(
             focusTimeProperties: event.focusTimeProperties || undefined,
             workingLocationProperties:
               event.workingLocationProperties || undefined,
-            organizer: event.organizer
-              ? {
-                  email: event.organizer.email,
-                  displayName: event.organizer.displayName || undefined,
-                  self: event.organizer.self || undefined,
-                }
-              : undefined,
+            organizer: mapOrganizer(event),
             createdAt: event.created || new Date().toISOString(),
             updatedAt: event.updated || new Date().toISOString(),
           };
@@ -852,6 +860,8 @@ export async function listOverlayEvents(
           eventType: event.eventType || "default",
           accountEmail: undefined,
           overlayEmail,
+          attendees: mapAttendees(event),
+          organizer: mapOrganizer(event),
           createdAt: event.created || new Date().toISOString(),
           updatedAt: event.updated || new Date().toISOString(),
         }));
@@ -905,15 +915,7 @@ export async function getEvent(
     transparency: event.transparency || undefined,
     ...mapColor(event),
     eventType: event.eventType || "default",
-    attendees: event.attendees?.map((a: any) => ({
-      email: a.email,
-      displayName: a.displayName || undefined,
-      photoUrl: a.photoUrl || undefined,
-      comment: a.comment || undefined,
-      responseStatus: a.responseStatus || undefined,
-      organizer: a.organizer || undefined,
-      self: a.self || undefined,
-    })),
+    attendees: mapAttendees(event),
     ...mapReminders(event),
     recurrence: event.recurrence || undefined,
     recurringEventId: event.recurringEventId || undefined,
@@ -925,13 +927,7 @@ export async function getEvent(
     outOfOfficeProperties: event.outOfOfficeProperties || undefined,
     focusTimeProperties: event.focusTimeProperties || undefined,
     workingLocationProperties: event.workingLocationProperties || undefined,
-    organizer: event.organizer
-      ? {
-          email: event.organizer.email,
-          displayName: event.organizer.displayName || undefined,
-          self: event.organizer.self || undefined,
-        }
-      : undefined,
+    organizer: mapOrganizer(event),
     createdAt: event.created || new Date().toISOString(),
     updatedAt: event.updated || new Date().toISOString(),
   };

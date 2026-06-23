@@ -1084,6 +1084,31 @@ function BuilderContent({
 // Results content (responses table)
 // ---------------------------------------------------------------------------
 
+function responseValueAsString(val: unknown): string {
+  if (val === undefined || val === null) return "";
+  if (Array.isArray(val)) return val.join(", ");
+  return String(val);
+}
+
+function compareResponseValues(a: unknown, b: unknown): number {
+  const aText = responseValueAsString(a);
+  const bText = responseValueAsString(b);
+  const aEmpty = !aText;
+  const bEmpty = !bText;
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  const aNum = Number(aText);
+  const bNum = Number(bText);
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) return aNum - bNum;
+
+  return aText.localeCompare(bText, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
@@ -1096,63 +1121,59 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir("asc");
+      setSortDir(key === "_submitted" ? "desc" : "asc");
     }
   }
 
   const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
   const total = data?.total ?? 0;
+  const hasSubmitterEmail = allResponses.some((r: any) =>
+    responseValueAsString(r.submitterEmail).trim(),
+  );
+  const responseTableMinWidth =
+    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
 
   const filtered = search.trim()
     ? allResponses.filter((r: any) => {
-        const needle = search.toLowerCase();
+        const needle = search.trim().toLowerCase();
+        if (
+          responseValueAsString(r.submitterEmail).toLowerCase().includes(needle)
+        ) {
+          return true;
+        }
         return fields.some((f) => {
-          const val = r.data[f.id];
-          if (val == null) return false;
-          const str = Array.isArray(val) ? val.join(" ") : String(val);
-          return str.toLowerCase().includes(needle);
+          return responseValueAsString(r.data[f.id])
+            .toLowerCase()
+            .includes(needle);
         });
       })
     : allResponses;
 
   const responses = [...filtered].sort((a, b) => {
-    let av: string | number;
-    let bv: string | number;
+    let cmp: number;
     if (sortKey === "_submitted") {
-      av = new Date(a.submittedAt).getTime();
-      bv = new Date(b.submittedAt).getTime();
+      cmp =
+        new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime();
+    } else if (sortKey === "_email") {
+      cmp = compareResponseValues(a.submitterEmail, b.submitterEmail);
     } else {
-      const aVal = a.data[sortKey];
-      const bVal = b.data[sortKey];
-      av =
-        aVal == null
-          ? ""
-          : Array.isArray(aVal)
-            ? aVal.join(", ")
-            : String(aVal);
-      bv =
-        bVal == null
-          ? ""
-          : Array.isArray(bVal)
-            ? bVal.join(", ")
-            : String(bVal);
+      cmp = compareResponseValues(a.data[sortKey], b.data[sortKey]);
     }
-    if (av < bv) return sortDir === "asc" ? -1 : 1;
-    if (av > bv) return sortDir === "asc" ? 1 : -1;
-    return 0;
+    return sortDir === "asc" ? cmp : -cmp;
   });
 
   function exportCsv() {
     if (!fields.length || !responses.length) return;
-    const headers = ["Submitted At", ...fields.map((f) => f.label)];
+    const headers = [
+      "Submitted At",
+      ...(hasSubmitterEmail ? ["Submitter Email"] : []),
+      ...fields.map((f) => f.label),
+    ];
     const rows = responses.map((r) => [
       r.submittedAt,
-      ...fields.map((f) => {
-        const val = r.data[f.id];
-        if (Array.isArray(val)) return val.join(", ");
-        return String(val ?? "");
-      }),
+      ...(hasSubmitterEmail ? [responseValueAsString(r.submitterEmail)] : []),
+      ...fields.map((f) => responseValueAsString(r.data[f.id])),
     ]);
 
     const csv = [headers, ...rows]
@@ -1217,7 +1238,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
     );
   }
 
-  if (responses.length === 0) {
+  if (allResponses.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 py-20">
         <h3 className="font-medium mb-1">No responses yet</h3>
@@ -1264,8 +1285,19 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
         </div>
       </div>
       <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
-        <div className="w-max min-w-full">
-          <table className="min-w-full text-sm whitespace-nowrap">
+        <div className="min-w-full">
+          <table
+            className="min-w-full table-fixed text-sm"
+            style={{ minWidth: responseTableMinWidth }}
+          >
+            <colgroup>
+              <col className="w-16" />
+              <col className="w-40" />
+              {hasSubmitterEmail ? <col className="w-56" /> : null}
+              {fields.map((f) => (
+                <col key={f.id} className="w-80" />
+              ))}
+            </colgroup>
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th
@@ -1285,11 +1317,24 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     onClick={() => toggleSort("_submitted")}
                   />
                 </th>
+                {hasSubmitterEmail && (
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    <ResultsSortableHeader
+                      label="Email"
+                      active={sortKey === "_email"}
+                      dir={sortDir}
+                      onClick={() => toggleSort("_email")}
+                    />
+                  </th>
+                )}
                 {fields.map((f) => (
                   <th
                     key={f.id}
                     scope="col"
-                    className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     <ResultsSortableHeader
                       label={f.label}
@@ -1305,7 +1350,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               {responses.length === 0 && (
                 <tr>
                   <td
-                    colSpan={2 + fields.length}
+                    colSpan={2 + (hasSubmitterEmail ? 1 : 0) + fields.length}
                     className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
                     No responses match your search.
@@ -1323,20 +1368,18 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                   </td>
+                  {hasSubmitterEmail && (
+                    <td className="px-4 py-3 align-top text-xs text-muted-foreground whitespace-normal break-words">
+                      {responseValueAsString(response.submitterEmail) || "-"}
+                    </td>
+                  )}
                   {fields.map((f) => {
                     const val = response.data[f.id];
-                    let display: string;
-                    if (val === undefined || val === null) {
-                      display = "-";
-                    } else if (Array.isArray(val)) {
-                      display = val.join(", ");
-                    } else {
-                      display = String(val);
-                    }
+                    const display = responseValueAsString(val) || "-";
                     return (
                       <td
                         key={f.id}
-                        className="min-w-40 max-w-[220px] truncate px-4 py-2.5 text-xs"
+                        className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                         title={display}
                       >
                         {display}

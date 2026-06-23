@@ -3,6 +3,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconClipboardText,
+  IconPencil,
   IconPlus,
   IconSend,
   IconTrash,
@@ -26,6 +27,7 @@ import {
   type QuestionMode,
   type VisualQuestionsData,
 } from "./question-form.config.js";
+import { writeClipboardText } from "../../clipboard.js";
 
 /**
  * Shared `question-form` and `visual-questions` blocks. A respondent-facing
@@ -65,6 +67,12 @@ type QuestionFormSubmitCtx = BlockRenderContext & {
  */
 type QuestionAnswer = { text?: string; selected?: string[] };
 type QuestionAnswers = Record<string, QuestionAnswer>;
+type QuestionFormHandoffMode = "copy" | "submit";
+type QuestionFormHandoff = {
+  mode: QuestionFormHandoffMode;
+  answered: number;
+  total: number;
+};
 
 function isAnswered(
   question: QuestionFormQuestion,
@@ -305,12 +313,25 @@ function SubmitMenu({
   ctx,
   onSubmit,
   buildSummary,
+  onHandoff,
 }: {
   ctx: BlockRenderContext;
   onSubmit?: (summary: string) => void;
   buildSummary: () => string;
+  onHandoff: (mode: QuestionFormHandoffMode) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const handleCopy = () => {
+    void writeClipboardText(buildSummary()).then((copied) => {
+      if (copied) onHandoff("copy");
+      setOpen(false);
+    });
+  };
+  const handleSubmit = () => {
+    onSubmit?.(buildSummary());
+    onHandoff("submit");
+    setOpen(false);
+  };
   const trigger = (
     <button
       type="button"
@@ -330,10 +351,7 @@ function SubmitMenu({
       <button
         type="button"
         data-plan-interactive
-        onClick={() => {
-          void navigator.clipboard.writeText(buildSummary());
-          setOpen(false);
-        }}
+        onClick={handleCopy}
         className="grid grid-cols-[auto_1fr] items-start gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
       >
         <IconClipboardText className="mt-0.5 size-4" />
@@ -348,10 +366,7 @@ function SubmitMenu({
         type="button"
         data-plan-interactive
         disabled={!onSubmit}
-        onClick={() => {
-          onSubmit?.(buildSummary());
-          setOpen(false);
-        }}
+        onClick={handleSubmit}
         className="grid grid-cols-[auto_1fr] items-start gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
         <IconSend className="mt-0.5 size-4" />
@@ -383,11 +398,52 @@ function SubmitMenu({
       type="button"
       data-plan-interactive
       disabled={!onSubmit}
-      onClick={() => onSubmit?.(buildSummary())}
+      onClick={handleSubmit}
       className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
     >
       Send to agent
     </button>
+  );
+}
+
+function QuestionFormHandoffSummary({
+  handoff,
+  onEdit,
+}: {
+  handoff: QuestionFormHandoff;
+  onEdit: () => void;
+}) {
+  const copied = handoff.mode === "copy";
+  return (
+    <div className="mt-7 rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <IconCheck className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-base font-semibold leading-6 text-foreground">
+              {copied
+                ? "Answers copied for your agent"
+                : "Answers sent to the inline agent"}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {handoff.answered}/{handoff.total} answered. Reopen this block if
+              you need to change anything.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          data-plan-interactive
+          onClick={onEdit}
+          className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <IconPencil className="size-4" />
+          Edit answers
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -400,13 +456,20 @@ function QuestionFormReadInner({
 }: BlockReadProps<QuestionFormData>) {
   const questions = data.questions;
   const [answers, setAnswers] = useState<QuestionAnswers>({});
+  const [handoff, setHandoff] = useState<QuestionFormHandoff | null>(null);
+  const [showQuestionsAfterHandoff, setShowQuestionsAfterHandoff] =
+    useState(false);
   const submitCtx = ctx as QuestionFormSubmitCtx;
 
   useEffect(() => {
     setAnswers({});
+    setHandoff(null);
+    setShowQuestionsAfterHandoff(false);
   }, [blockId]);
 
   const setAnswer = (questionId: string, next: QuestionAnswer) => {
+    setHandoff(null);
+    setShowQuestionsAfterHandoff(false);
     setAnswers((current) => ({ ...current, [questionId]: next }));
   };
 
@@ -415,6 +478,10 @@ function QuestionFormReadInner({
   ).length;
   const buildSummary = () =>
     summarizeAnswers(blockId, title, questions, answers);
+  const markHandoff = (mode: QuestionFormHandoffMode) => {
+    setHandoff({ mode, answered, total: questions.length });
+    setShowQuestionsAfterHandoff(false);
+  };
 
   return (
     <section
@@ -426,31 +493,41 @@ function QuestionFormReadInner({
           {title}
         </h2>
       )}
-      <div className="mt-7 grid gap-8">
-        {questions.map((question, index) => (
-          <QuestionView
-            key={question.id}
-            question={question}
-            index={index}
-            answer={answers[question.id]}
-            blockId={blockId}
-            ctx={ctx}
-            onAnswer={(next) => setAnswer(question.id, next)}
-          />
-        ))}
-      </div>
-      <div className="sticky bottom-0 z-10 mt-10 flex items-center justify-between gap-4 border-t border-border bg-background py-4">
-        <p className="text-sm font-semibold text-muted-foreground">
-          {answered}/{questions.length} answered
-        </p>
-        <div data-plan-interactive>
-          <SubmitMenu
-            ctx={ctx}
-            onSubmit={submitCtx.onQuestionFormSubmit}
-            buildSummary={buildSummary}
-          />
-        </div>
-      </div>
+      {handoff && !showQuestionsAfterHandoff ? (
+        <QuestionFormHandoffSummary
+          handoff={handoff}
+          onEdit={() => setShowQuestionsAfterHandoff(true)}
+        />
+      ) : (
+        <>
+          <div className="mt-7 grid gap-8">
+            {questions.map((question, index) => (
+              <QuestionView
+                key={question.id}
+                question={question}
+                index={index}
+                answer={answers[question.id]}
+                blockId={blockId}
+                ctx={ctx}
+                onAnswer={(next) => setAnswer(question.id, next)}
+              />
+            ))}
+          </div>
+          <div className="sticky bottom-0 z-10 mt-10 flex items-center justify-between gap-4 border-t border-border bg-background py-4">
+            <p className="text-sm font-semibold text-muted-foreground">
+              {answered}/{questions.length} answered
+            </p>
+            <div data-plan-interactive>
+              <SubmitMenu
+                ctx={ctx}
+                onSubmit={submitCtx.onQuestionFormSubmit}
+                buildSummary={buildSummary}
+                onHandoff={markHandoff}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
 }

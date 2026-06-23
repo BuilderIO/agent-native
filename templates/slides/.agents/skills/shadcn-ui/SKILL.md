@@ -4,6 +4,7 @@ description: >-
   Use when adding, updating, debugging, styling, or composing shadcn/ui
   components, forms, dialogs, menus, charts, sidebars, themes, registries, or
   any project with a components.json file.
+scope: dev
 source: https://ui.shadcn.com/docs/skills
 metadata:
   internal: true

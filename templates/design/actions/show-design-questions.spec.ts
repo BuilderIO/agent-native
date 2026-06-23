@@ -68,9 +68,18 @@ describe("show-design-questions", () => {
           "Pick what matters. Use Other for specifics, or let the agent decide.",
         skipLabel: "Decide for me",
         submitLabel: "Continue",
-        questions: expect.arrayContaining([
-          expect.objectContaining({ id: "form_factor" }),
-        ]),
+        questions: [
+          expect.objectContaining({
+            id: "form_factor",
+            includeExplore: false,
+            includeDecide: false,
+          }),
+          expect.objectContaining({
+            id: "features",
+            includeExplore: false,
+            includeDecide: false,
+          }),
+        ],
       },
     );
     expect(result).toMatchObject({
