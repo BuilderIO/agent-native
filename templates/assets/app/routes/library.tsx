@@ -8,6 +8,7 @@ import {
   agentNativePath,
   appPath,
   getEmbedAuthToken,
+  isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
@@ -532,16 +533,18 @@ function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
         }) || false,
       )
         .catch(() => false)
-        .then(() =>
-          Promise.resolve(
+        .then((contextOk) => {
+          return Promise.resolve(
             sendMcpAppHostMessage({
               message,
               context: JSON.stringify(context, null, 2),
               content: chatContent,
               structuredContent: context,
             }) || false,
-          ).catch(() => false),
-        );
+          )
+            .catch(() => false)
+            .then((chatOk) => contextOk || chatOk);
+        });
     });
 }
 
@@ -661,6 +664,9 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 export default function AssetPicker() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const mcpChatBridgeActive =
+    searchParams.get("__an_mcp_chat_bridge") === "1" ||
+    isEmbedMcpChatBridgeActive();
   const urlHostConfig = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     return {
@@ -926,12 +932,28 @@ export default function AssetPicker() {
     [],
   );
 
+  const postEmbeddedSelectionMessage = useCallback(
+    (
+      name: "chooseAsset" | "chooseImage",
+      payload: ReturnType<typeof assetPayload>,
+    ) => {
+      try {
+        return bridgeRef.current?.postMessage(name, payload) ?? false;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
-      bridgeRef.current?.postMessage("chooseAsset", payload);
-      if (payload.mediaType === "image") {
-        bridgeRef.current?.postMessage("chooseImage", payload);
+      if (!mcpChatBridgeActive) {
+        postEmbeddedSelectionMessage("chooseAsset", payload);
+        if (payload.mediaType === "image") {
+          postEmbeddedSelectionMessage("chooseImage", payload);
+        }
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {

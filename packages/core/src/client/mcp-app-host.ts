@@ -438,6 +438,10 @@ function postJsonRpcNotification(method: string, params?: unknown): void {
   }
 }
 
+function waitForHostLifecycleTurn(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
 function postJsonRpcRequest(
   method: string,
   params?: unknown,
@@ -484,6 +488,8 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       });
       updateSnapshotFromInitialize(result);
       postJsonRpcNotification("ui/notifications/initialized", {});
+      await waitForHostLifecycleTurn();
+      await waitForHostLifecycleTurn();
       return true;
     })().catch(() => {
       // Reset so the next call retries the handshake. Otherwise one timed-out

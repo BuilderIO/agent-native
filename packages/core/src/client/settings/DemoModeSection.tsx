@@ -33,7 +33,9 @@ export function DemoModeSection() {
   const { data } = useQuery({
     queryKey: ["agent-native", "demo-mode"],
     queryFn: async () => {
-      const res = await fetch(DEMO_STATUS_URL, { credentials: "include" });
+      const res = await fetch(DEMO_STATUS_URL, {
+        credentials: "same-origin",
+      });
       if (!res.ok) return null;
       return (await res.json()) as DemoStatus | null;
     },

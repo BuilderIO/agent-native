@@ -59,6 +59,16 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
+function shouldRetryOpaqueParentPostMessage(error: unknown): boolean {
+  const message =
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+  return /\borigin\b[^.]*\(?['"]?null['"]?\)?/i.test(message);
+}
+
 function resolveParentOrigin(win: Window, explicit?: string): string | null {
   if (explicit) return explicit;
   const referrerOrigin = embeddedAppOrigin(win.document?.referrer ?? "");
@@ -74,7 +84,14 @@ function postToParent(
   const target = parent ?? (win.parent === win ? null : win.parent);
   if (!parentOrigin) return false;
   if (!target) return false;
-  target.postMessage(envelope, parentOrigin);
+  try {
+    target.postMessage(envelope, parentOrigin);
+  } catch (error) {
+    if (parentOrigin === "*" || !shouldRetryOpaqueParentPostMessage(error)) {
+      throw error;
+    }
+    target.postMessage(envelope, "*");
+  }
   return true;
 }
 

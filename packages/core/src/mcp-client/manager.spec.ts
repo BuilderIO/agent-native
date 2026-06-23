@@ -32,6 +32,8 @@ const fakeClients: FakeClient[] = [];
 const httpCallHeaders: Array<Record<string, string>> = [];
 const originalFetch = globalThis.fetch;
 const originalOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
+const originalConnectTimeout =
+  process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split(".");
@@ -179,6 +181,7 @@ describe("McpClientManager", () => {
     fakeClients.length = 0;
     httpCallHeaders.length = 0;
     delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
       "https://directory.example.com";
     globalThis.fetch = vi.fn(async (_input, init) => {
@@ -213,6 +216,12 @@ describe("McpClientManager", () => {
       delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
     } else {
       process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = originalOrgDirectoryUrl;
+    }
+    if (originalConnectTimeout === undefined) {
+      delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS =
+        originalConnectTimeout;
     }
   });
 
@@ -603,6 +612,47 @@ describe("McpClientManager", () => {
       expect(status.errors.broken).not.toContain("invalid_union");
     } finally {
       FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("times out stalled MCP handshakes so startup can continue", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS = "25";
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      if (transport.key === "http https://stalled.example.com/mcp") {
+        await new Promise(() => {
+          // Intentionally never resolves.
+        });
+      }
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      serverFixtures["good-bin"] = {
+        tools: [{ name: "ok" }],
+        callImpl: () => ({ content: [] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          stalled: { type: "http", url: "https://stalled.example.com/mcp" },
+          good: { command: "good-bin" },
+        },
+      });
+      const start = mgr.start();
+      await vi.advanceTimersByTimeAsync(25);
+      await start;
+
+      expect(mgr.connectedServers).toEqual(["good"]);
+      expect(mgr.getStatus().errors.stalled).toBe(
+        "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.",
+      );
+      expect(
+        (fakeClients[0]?.getTransport() as FakeHttp | undefined)?.closed,
+      ).toBe(true);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+      vi.useRealTimers();
     }
   });
 

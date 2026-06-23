@@ -62,6 +62,8 @@ describe("embedApp", () => {
     expect(html).toContain('appParam === "chatgpt"');
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
+    expect(html).toContain("function isCurrentFrameUrl(src)");
+    expect(html).toContain("if (isCurrentFrameUrl(src))");
     expect(html).toContain("window.location.replace(src)");
     expect(html).toContain(
       "return !!openAiBridge || !!app || isChatGptSandboxHost();",
@@ -130,6 +132,9 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
     expect(html).toContain("refreshExpiredEmbedSession");
+    expect(html).toContain("let connectPromise = null;");
+    expect(html).toContain("if (connectPromise) return await connectPromise;");
+    expect(html).toContain("await nativeApp.connect();");
     expect(html).toContain(
       "if (response.status === 401 && isEmbedStartUrl(src))",
     );

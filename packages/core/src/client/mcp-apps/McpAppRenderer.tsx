@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AppBridge,
   PostMessageTransport,
@@ -10,12 +17,15 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { agentNativePath } from "../api-path.js";
+import { sendToAgentChat, type AgentChatRequestMode } from "../agent-chat.js";
 import { cn } from "../utils.js";
 
 export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;
 const MIN_IFRAME_HEIGHT = 220;
 const VIEWPORT_MARGIN = 16;
 const SANDBOX_FLAGS = "allow-scripts allow-forms allow-popups";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export interface McpAppRendererProps {
   app: AgentMcpAppPayload;
@@ -28,10 +38,23 @@ type ResourceUiMeta = {
   prefersBorder?: boolean;
 };
 
+type McpContentPart = {
+  type?: unknown;
+  text?: unknown;
+  data?: unknown;
+  mimeType?: unknown;
+  url?: unknown;
+};
+
+type McpAppModelContext = {
+  content?: unknown;
+  structuredContent?: unknown;
+};
+
 export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
-  const [loadedSrcDoc, setLoadedSrcDoc] = useState<string | null>(null);
+  const modelContextRef = useRef<McpAppModelContext | null>(null);
   const [height, setHeight] = useState(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -55,9 +78,9 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         availableMcpAppHeight(iframeRef.current),
       ),
     );
-    setLoadedSrcDoc(null);
     setReady(false);
     setError(null);
+    modelContextRef.current = null;
   }, [srcDoc]);
 
   const applyHeight = useCallback((desiredHeight?: number) => {
@@ -124,9 +147,9 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     return () => window.removeEventListener("message", listener);
   }, [srcDoc]);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow || !srcDoc || loadedSrcDoc !== srcDoc) return;
+    if (!iframe?.contentWindow || !srcDoc) return;
 
     let closed = false;
     const bridge = new AppBridge(
@@ -197,15 +220,31 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     bridge.onlistresources = async () => ({ resources: [] });
     bridge.onlistresourcetemplates = async () => ({ resourceTemplates: [] });
     bridge.ondownloadfile = async () => ({ isError: true });
-    bridge.onmessage = async () => ({ isError: true });
-    bridge.onupdatemodelcontext = async () => ({});
+    bridge.onmessage = async (params) => {
+      const message = messageTextFromMcpUiMessage(params);
+      if (!message.trim()) return { isError: true };
+      const mode = requestModeFromMcpUiMessage(params);
+      sendToAgentChat({
+        message,
+        context: contextTextFromMcpModelContext(modelContextRef.current),
+        images: imageDataUrlsFromMcpContent(params.content),
+        submit: true,
+        openSidebar: true,
+        ...(mode ? { mode } : {}),
+      });
+      return {};
+    };
+    bridge.onupdatemodelcontext = async (params) => {
+      modelContextRef.current = params as McpAppModelContext;
+      return {};
+    };
 
     const transport = new PostMessageTransport(
       iframe.contentWindow,
       iframe.contentWindow,
     );
     setError(null);
-    bridge.connect(transport).catch((err: any) => {
+    void bridge.connect(transport).catch((err: any) => {
       if (!closed) {
         setError(err?.message ?? "Failed to initialize MCP App.");
       }
@@ -213,6 +252,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
 
     return () => {
       closed = true;
+      modelContextRef.current = null;
       void bridge
         .teardownResource({}, { timeout: 500 })
         .catch(() => undefined)
@@ -220,14 +260,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
           void (bridge as any).close?.().catch?.(() => undefined);
         });
     };
-  }, [
-    app,
-    applyHeight,
-    loadedSrcDoc,
-    srcDoc,
-    supportedPermissions,
-    uiMeta.csp,
-  ]);
+  }, [app, applyHeight, srcDoc, supportedPermissions, uiMeta.csp]);
 
   if (!resourceHtml) {
     return (
@@ -265,10 +298,81 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         sandbox={SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
         style={{ height }}
-        onLoad={() => setLoadedSrcDoc(srcDoc)}
       />
     </div>
   );
+}
+
+function messageTextFromMcpUiMessage(params: { content?: unknown }): string {
+  return textPartsFromMcpContent(params.content).join("\n\n").trim();
+}
+
+function requestModeFromMcpUiMessage(
+  params: unknown,
+): AgentChatRequestMode | undefined {
+  const record =
+    params && typeof params === "object" && !Array.isArray(params)
+      ? (params as { mode?: unknown; requestMode?: unknown })
+      : {};
+  const mode = record.requestMode ?? record.mode;
+  return mode === "act" || mode === "plan" ? mode : undefined;
+}
+
+function contextTextFromMcpModelContext(
+  context: McpAppModelContext | null,
+): string | undefined {
+  if (!context) return undefined;
+  const parts = textPartsFromMcpContent(context.content);
+  if (context.structuredContent !== undefined) {
+    parts.push(JSON.stringify(context.structuredContent, null, 2));
+  }
+  const text = parts.join("\n\n").trim();
+  return text || undefined;
+}
+
+function textPartsFromMcpContent(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  return content
+    .map((part): string | null => {
+      const record = contentPartRecord(part);
+      if (
+        !record ||
+        record.type !== "text" ||
+        typeof record.text !== "string"
+      ) {
+        return null;
+      }
+      const text = record.text.trim();
+      return text || null;
+    })
+    .filter((text): text is string => Boolean(text));
+}
+
+function imageDataUrlsFromMcpContent(content: unknown): string[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images = content
+    .map((part): string | null => {
+      const record = contentPartRecord(part);
+      if (!record || record.type !== "image") return null;
+      if (typeof record.url === "string" && record.url.trim()) {
+        return record.url;
+      }
+      if (typeof record.data !== "string" || !record.data.trim()) return null;
+      const mimeType =
+        typeof record.mimeType === "string" &&
+        record.mimeType.startsWith("image/")
+          ? record.mimeType
+          : "image/png";
+      return `data:${mimeType};base64,${record.data}`;
+    })
+    .filter((image): image is string => Boolean(image));
+  return images.length ? images : undefined;
+}
+
+function contentPartRecord(part: unknown): McpContentPart | null {
+  return part && typeof part === "object" && !Array.isArray(part)
+    ? (part as McpContentPart)
+    : null;
 }
 
 function resourceUiMeta(app: AgentMcpAppPayload): ResourceUiMeta {
