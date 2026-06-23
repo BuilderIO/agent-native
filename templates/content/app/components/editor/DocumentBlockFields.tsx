@@ -351,7 +351,9 @@ function BlockFieldShell({
           <span className="truncate">{property.definition.name}</span>
         </button>
       </div>
-      {open ? <div className="pb-3 pl-6 pr-2">{children}</div> : null}
+      {open ? (
+        <div className="block-field-content pb-3 pl-6 pr-2">{children}</div>
+      ) : null}
     </section>
   );
 }
