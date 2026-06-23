@@ -58,6 +58,39 @@ describe("blockFieldSaveController", () => {
     expect(c.lastSaved).toBe("typed");
   });
 
+  it("tracks hasSavedLocally: false initially, true after a save resolves, cleared by mark()", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = createBlockFieldSaveController({ initialContent: "", save });
+    // Fresh controller has not originated any local save yet.
+    expect(c.hasSavedLocally).toBe(false);
+
+    c.change("typed");
+    vi.advanceTimersByTime(500);
+    await vi.runAllTicks();
+    // A confirmed local save flips it true — lastSaved is now content we
+    // originated that the server may not have echoed yet.
+    expect(c.lastSaved).toBe("typed");
+    expect(c.hasSavedLocally).toBe(true);
+
+    // Adopting server content as the new baseline clears it: server is no longer
+    // "behind" this controller.
+    c.mark("server value");
+    expect(c.hasSavedLocally).toBe(false);
+  });
+
+  it("a FAILED save does not set hasSavedLocally", async () => {
+    const onError = vi.fn();
+    const save = vi.fn().mockRejectedValue(new Error("network"));
+    const c = createBlockFieldSaveController({ initialContent: "", save, onError });
+
+    c.change("typed");
+    vi.advanceTimersByTime(500);
+    await vi.runAllTicks();
+    // The save rejected, so the value stayed dirty and nothing was confirmed.
+    expect(c.hasSavedLocally).toBe(false);
+    expect(c.lastSaved).toBe("");
+  });
+
   it("does NOT mark clean when the save fails, so the value stays dirty and retries", async () => {
     const onError = vi.fn();
     const save = vi

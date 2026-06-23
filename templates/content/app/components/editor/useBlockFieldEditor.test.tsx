@@ -36,20 +36,23 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     initialContent,
     save,
     onReady,
+    onContent,
   }: {
     documentId: string;
     propertyId: string;
     initialContent: string;
     save: (req: SaveCall) => Promise<unknown>;
     onReady: (onChange: (markdown: string) => void) => void;
+    onContent?: (content: string) => void;
   }) {
-    const { onChange } = useBlockFieldEditor({
+    const { content, onChange } = useBlockFieldEditor({
       documentId,
       propertyId,
       initialContent,
       save,
     });
     onReady(onChange);
+    onContent?.(content);
     return null;
   }
 
@@ -399,5 +402,205 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       vi.useRealTimers();
       __resetBlockFieldSaveRegistry();
     }
+  });
+
+  // Fix #3: after a save succeeds, a remount BEFORE the server query refetches
+  // must show the SAVED content, not the stale `initialContent` (the older server
+  // props). The controller's lastSaved is authoritative until the server echoes.
+  it("remount before the server query updates shows the SAVED content, not stale initialContent", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve();
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    const onContent = (c: string) => {
+      seenContent = c;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Mount with empty server content, type + let the debounce fire and the save
+    // RESOLVE so the controller's lastSaved advances to "saved value".
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    act(() => onChange("saved value"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls[calls.length - 1]).toEqual({
+      documentId: "doc",
+      propertyId: "field",
+      value: "saved value",
+    });
+
+    // REMOUNT while the server query has NOT yet refetched — initialContent is
+    // still the STALE empty string. The editor must seed from the controller's
+    // lastSaved ("saved value"), and must NOT adopt the stale "".
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(seenContent).toBe("saved value");
+    // The stale "" was never adopted (no spurious save of "" either).
+    expect(calls.every((c) => c.value === "saved value")).toBe(true);
+  });
+
+  // Fix #3 non-regression (a): a GENUINELY newer server value is still adopted
+  // when the field is clean (e.g. an agent edited the field server-side).
+  it("a genuinely newer server value is still adopted when the field is clean", async () => {
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve();
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    const onContent = (c: string) => {
+      seenContent = c;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Mount clean with server content "v1" (no local edits, no local save).
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "v1",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(seenContent).toBe("v1");
+
+    // The server value changes externally to "v2 from agent" — the field is clean
+    // and never saved locally, so this newer value is adopted into the editor.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "v2 from agent",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(seenContent).toBe("v2 from agent");
+    // Adopting a server value must not trigger a save.
+    expect(calls).toHaveLength(0);
+  });
+
+  // Fix #3 non-regression (b): dirty local edits survive a remount (never
+  // clobbered by initialContent), and seed from the controller's pending.
+  it("dirty local edits survive remount (seeded from pending, never clobbered)", async () => {
+    vi.useFakeTimers();
+    const save = (_req: SaveCall) => Promise.resolve();
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    const onContent = (c: string) => {
+      seenContent = c;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    // Mount, type a dirty edit, but do NOT let the debounce fire (still dirty,
+    // pending !== lastSaved).
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    act(() => onChange("dirty edit in progress"));
+
+    // REMOUNT (collapse→reopen) while still dirty and with stale server props.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          save,
+          onReady: ready,
+          onContent,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The dirty edit is preserved (seeded from the controller's pending), not
+    // reset to the server base.
+    expect(seenContent).toBe("dirty edit in progress");
   });
 });

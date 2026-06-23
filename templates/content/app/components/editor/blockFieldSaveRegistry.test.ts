@@ -118,6 +118,51 @@ describe("blockFieldSaveRegistry", () => {
     expect(peekBlockFieldSaveController(key)).toBe(second);
   });
 
+  it("evicting a controller also removes its saveImpls entry; re-acquire rebuilds it and saves work", async () => {
+    const key = "doc:field";
+    const saved: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved.push(value);
+      return Promise.resolve();
+    };
+
+    const first = acquireBlockFieldSaveController(key, factoryFor(key));
+    first.change("first content");
+
+    // Release → flush-then-evict; settle the microtasks so the entry evicts.
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(activeControllerCount()).toBe(0);
+    expect(saved).toContain("first content");
+
+    // The impl ref must have been dropped on eviction. blockFieldSaveImplRef
+    // recreates it lazily; a never-registered ref rejects when invoked, proving
+    // the prior impl closure did NOT survive (no stale closure leaks across
+    // eviction).
+    const freshRef = blockFieldSaveImplRef(key);
+    await expect(freshRef.current("anything")).rejects.toThrow(
+      /No save impl registered/,
+    );
+
+    // Re-acquire the SAME key after eviction: a brand-new controller is created
+    // and wired through a freshly rebuilt impl ref. Re-register an impl (as a new
+    // mount would) and confirm saves flow to it cleanly.
+    const saved2: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved2.push(value);
+      return Promise.resolve();
+    };
+    const second = acquireBlockFieldSaveController(key, factoryFor(key));
+    expect(second).not.toBe(first);
+    expect(activeControllerCount()).toBe(1);
+
+    second.change("second content");
+    await second.flush();
+    expect(saved2).toEqual(["second content"]);
+    // The rebuilt controller did NOT write through the old impl.
+    expect(saved).toEqual(["first content"]);
+  });
+
   it("different keys are fully independent (no shared state or stalls)", async () => {
     const k1 = "doc:f1";
     const k2 = "doc:f2";

@@ -421,27 +421,55 @@ export function useBlockFieldEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // Initialize the displayed value from the shared controller's LATEST pending if
-  // a live controller already exists with unsaved/never-confirmed content (a
-  // remount mid-edit must show the true latest text the user typed, not stale
-  // server data), else from the server value. Computed once for this mount.
+  // Seed the displayed value for this mount. Precedence (controller's freshest
+  // known content wins over a stale `initialContent`, server props win only when
+  // genuinely newer):
+  //   1. dirty controller (`pending !== lastSaved`) → show `pending` (the true
+  //      latest text the user typed; never clobber an in-progress edit).
+  //   2. clean controller that has saved locally (`hasSavedLocally`) but whose
+  //      `lastSaved` differs from `initialContent` → show `lastSaved`. The server
+  //      query hasn't refetched the just-saved value yet, so `initialContent` is
+  //      STALE (older than what we persisted); showing it would flash pre-save
+  //      content and base the next edit on stale text.
+  //   3. otherwise → `initialContent`. Covers no controller yet, a controller
+  //      already in sync with the server, and a clean controller that never saved
+  //      locally (so server props are authoritative / possibly newer external).
   const [content, setContent] = useState(() => {
     const existing = peekBlockFieldSaveController(key);
-    if (existing && existing.pending !== existing.lastSaved) {
-      return existing.pending;
+    if (existing) {
+      if (existing.pending !== existing.lastSaved) {
+        return existing.pending;
+      }
+      if (existing.hasSavedLocally && existing.lastSaved !== initialContent) {
+        return existing.lastSaved;
+      }
     }
     return initialContent;
   });
 
-  // Adopt fresh server content when it diverges from the last value we CONFIRMED
-  // saved (e.g. an agent edit) and the user hasn't typed something newer. The
-  // controller is acquired in the [key] effect above, which runs before this one.
+  // Adopt fresh server content when it is a GENUINELY newer external update (e.g.
+  // an agent edit) — not when it is merely stale server props lagging a local
+  // save. The controller is acquired in the [key] effect above, which runs first.
+  //
+  // Adopt only when ALL hold:
+  //   - server content diverges from what we last confirmed saved
+  //     (`initialContent !== lastSaved`), AND
+  //   - the field is clean — the user hasn't typed something newer
+  //     (`pending === lastSaved`; never clobber a dirty local edit), AND
+  //   - the controller has NOT just saved locally (`!hasSavedLocally`). If it
+  //     HAS, its `lastSaved` is content we originated that the server query
+  //     hasn't refetched yet, so `initialContent` is STALE (older than
+  //     `lastSaved`) — adopting it would regress to pre-save content. We wait for
+  //     the server to catch up; once it echoes `lastSaved`, this condition is
+  //     simply false. `mark()` below clears `hasSavedLocally`, so a later genuine
+  //     external edit is adopted normally.
   useEffect(() => {
     const controller = controllerRef.current;
     if (!controller) return;
     if (
       initialContent !== controller.lastSaved &&
-      controller.pending === controller.lastSaved
+      controller.pending === controller.lastSaved &&
+      !controller.hasSavedLocally
     ) {
       setContent(initialContent);
       controller.mark(initialContent);

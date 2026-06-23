@@ -48,6 +48,16 @@ export interface BlockFieldSaveController {
   readonly hasPendingTimer: boolean;
   /** Whether a save() call is currently outstanding (in flight). */
   readonly isSaving: boolean;
+  /**
+   * Whether this controller has CONFIRMED at least one local save (a save()
+   * resolved) since it was created. Once true, `lastSaved` is content this
+   * controller itself originated and persisted — so a server value that still
+   * differs from `lastSaved` is STALE (the server query hasn't refetched the
+   * just-saved value yet), not a genuinely newer external edit. Used by the
+   * remount seed/adopt path to avoid showing pre-save content. `mark()` (adopting
+   * fresh server content) clears it, since after a mark the baseline IS server.
+   */
+  readonly hasSavedLocally: boolean;
 }
 
 export function createBlockFieldSaveController(args: {
@@ -65,6 +75,9 @@ export function createBlockFieldSaveController(args: {
   let lastSaved = args.initialContent;
   let pending = args.initialContent;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // Becomes true once a local save() resolves; cleared when mark() adopts a
+  // server value as the new baseline. See `hasSavedLocally` doc above.
+  let hasSavedLocally = false;
 
   // The single in-flight save, or null when idle. Edits made while this is set
   // do NOT start a new save; they update `pending` and a trailing save fires
@@ -90,6 +103,7 @@ export function createBlockFieldSaveController(args: {
       .then(() => {
         // Mark clean ONLY after the save actually succeeds.
         lastSaved = attempted;
+        hasSavedLocally = true;
         inFlight = null;
         // A trailing edit may have landed while this save was in flight. Issue
         // exactly one more save for the LATEST pending content. Bounded: stops
@@ -143,6 +157,9 @@ export function createBlockFieldSaveController(args: {
       clearTimer();
       lastSaved = content;
       pending = content;
+      // The baseline is now server-provided content, not a local save the server
+      // hasn't echoed — so server props are no longer "behind" this controller.
+      hasSavedLocally = false;
     },
     get lastSaved() {
       return lastSaved;
@@ -155,6 +172,9 @@ export function createBlockFieldSaveController(args: {
     },
     get isSaving() {
       return inFlight !== null;
+    },
+    get hasSavedLocally() {
+      return hasSavedLocally;
     },
   };
 }

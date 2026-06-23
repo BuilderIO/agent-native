@@ -121,6 +121,14 @@ export function releaseBlockFieldSaveController(key: string): void {
       current.evicting
     ) {
       registry.delete(key);
+      // Drop the per-key save-impl ref alongside the controller. It is only
+      // cleared on test reset otherwise, so without this it accumulates one
+      // entry per key for the lifetime of the page. A subsequent re-acquire of
+      // the same key recreates a fresh impl ref via blockFieldSaveImplRef (the
+      // hook writes its current impl every render before the acquire effect), so
+      // there is no stale closure. Only delete here — never while refCount > 0
+      // or a reopen is pending — because the live factory closes over this ref.
+      saveImpls.delete(key);
     }
   };
   // flush() resolves after any in-flight save AND the trailing save have
