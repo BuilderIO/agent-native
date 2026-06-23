@@ -7,6 +7,13 @@ type ExtensionSettings = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
+};
+
+type InputDevice = {
+  deviceId: string;
+  label: string;
 };
 
 type PopupStartResponse = {
@@ -67,6 +74,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
+  videoDeviceId: "",
+  audioDeviceId: "",
 };
 
 const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
@@ -167,6 +176,37 @@ async function loadFeedbackSchema(
   return pending;
 }
 
+// Enumerate the user's input devices for the camera/mic pickers. Labels only
+// populate after camera/mic permission is granted (the extension's permission
+// onboarding page handles that), so fall back to a generic label otherwise.
+async function enumerateInputDevices(): Promise<{
+  cameras: InputDevice[];
+  microphones: InputDevice[];
+}> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras: InputDevice[] = [];
+    const microphones: InputDevice[] = [];
+    for (const device of devices) {
+      if (!device.deviceId) continue;
+      if (device.kind === "videoinput") {
+        cameras.push({
+          deviceId: device.deviceId,
+          label: device.label.trim() || `Camera ${cameras.length + 1}`,
+        });
+      } else if (device.kind === "audioinput") {
+        microphones.push({
+          deviceId: device.deviceId,
+          label: device.label.trim() || `Microphone ${microphones.length + 1}`,
+        });
+      }
+    }
+    return { cameras, microphones };
+  } catch {
+    return { cameras: [], microphones: [] };
+  }
+}
+
 function readSettings(): Promise<ExtensionSettings> {
   return new Promise((resolve) => {
     chrome.storage.sync.get(DEFAULT_SETTINGS, (value) => {
@@ -188,6 +228,14 @@ function readSettings(): Promise<ExtensionSettings> {
           typeof value.includeDeveloperLogs === "boolean"
             ? value.includeDeveloperLogs
             : DEFAULT_SETTINGS.includeDeveloperLogs,
+        videoDeviceId:
+          typeof value.videoDeviceId === "string"
+            ? value.videoDeviceId
+            : DEFAULT_SETTINGS.videoDeviceId,
+        audioDeviceId:
+          typeof value.audioDeviceId === "string"
+            ? value.audioDeviceId
+            : DEFAULT_SETTINGS.audioDeviceId,
       });
     });
   });
