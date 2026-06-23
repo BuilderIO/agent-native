@@ -288,6 +288,12 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
                         "clips:disk-space-warning",
                         serde_json::json!({ "freeMb": free_mb }),
                     );
+                } else {
+                    // Space is adequate — clear any previous warning in the UI.
+                    let _ = app.emit(
+                        "clips:disk-space-ok",
+                        serde_json::json!({ "freeMb": free_mb }),
+                    );
                 }
             }
         }
@@ -2074,6 +2080,20 @@ fn start_screencapture_recording(
         "[clips-tray] starting screencapture (fallback) recording -> {}",
         path.display()
     );
+    if let Some(free) = free_disk_bytes(path.parent().unwrap_or(&path)) {
+        if free < DISK_SPACE_BLOCK_BYTES {
+            return Err(format!(
+                "Not enough disk space to record. Free up at least {} and try again (currently {} free).",
+                format_mb(DISK_SPACE_BLOCK_BYTES),
+                format_mb(free)
+            ));
+        } else if free < DISK_SPACE_WARN_BYTES {
+            eprintln!(
+                "[clips-tray] low disk space at recording start: {} free — recording may fail if space runs out",
+                format_mb(free)
+            );
+        }
+    }
     let (backend, w, h) = start_screencapture_backend_at(
         app,
         &path,
@@ -2082,7 +2102,7 @@ fn start_screencapture_recording(
         capture_region,
     )?;
     let (fallback_width, fallback_height) = primary_monitor_size(app);
-    Ok(new_fullscreen_session(
+    let mut session = new_fullscreen_session(
         backend,
         path,
         QUICKTIME_RECORDING_MIME_TYPE,
@@ -2100,7 +2120,9 @@ fn start_screencapture_recording(
             target_display_id,
             capture_region,
         },
-    ))
+    );
+    session.disk_monitor_stop = Some(spawn_disk_monitor(app.clone(), session.path.clone()));
+    Ok(session)
 }
 
 /// Build a fresh `NativeFullscreenSession` around a freshly-started

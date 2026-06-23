@@ -112,6 +112,11 @@ export function Toolbar() {
         setDiskSpaceLevel("critical");
       }),
     );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-ok", () => {
+        setDiskSpaceLevel("ok");
+      }),
+    );
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
