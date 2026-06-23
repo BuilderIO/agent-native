@@ -80,6 +80,16 @@
       "autoPort": true
     },
     {
+      "name": "plan-localdir",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-localdir.db PLAN_LOCAL_DIR=/Users/steve/Projects/builder/agent-native/framework/plans pnpm --filter plan exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "chat-smoke",
       "runtimeExecutable": "bash",
       "runtimeArgs": [

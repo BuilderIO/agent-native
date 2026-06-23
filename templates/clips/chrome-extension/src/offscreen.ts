@@ -40,7 +40,8 @@ type SimpleMessage = {
     | "CLIPS_OFFSCREEN_RESUME"
     | "CLIPS_OFFSCREEN_STOP"
     | "CLIPS_OFFSCREEN_CANCEL"
-    | "CLIPS_OFFSCREEN_RESTART";
+    | "CLIPS_OFFSCREEN_RESTART"
+    | "CLIPS_OFFSCREEN_START_NOW";
   sessionId: string;
 };
 
@@ -477,14 +478,17 @@ async function begin(message: BeginMessage): Promise<{
     void finalizeStop(recording);
   });
 
-  recorder.start(2000);
-  reportStatus(recording.sessionId, "recording", {
-    recordingId: recording.recordingId,
-    width: recording.dimensions.width,
-    height: recording.dimensions.height,
-    hasAudio: recording.hasAudio,
-    hasCamera: recording.hasCamera,
-  });
+  // Run the pre-roll countdown here (reliable) then start the recorder. The
+  // worker is told "recording" via reportStatus once it actually starts.
+  const delay = Math.max(0, message.startDelayMs ?? 0);
+  if (delay > 0) {
+    recording.startTimer = setTimeout(() => {
+      recording.startTimer = null;
+      startRecorderNow(recording);
+    }, delay);
+  } else {
+    startRecorderNow(recording);
+  }
 
   return {
     ok: true,
@@ -493,6 +497,26 @@ async function begin(message: BeginMessage): Promise<{
     hasAudio: recording.hasAudio,
     hasCamera: recording.hasCamera,
   };
+}
+
+function startRecorderNow(recording: ActiveRecording): void {
+  if (recording.cancelled) return;
+  try {
+    recording.recorder.start(2000);
+    recording.startedAtMs = Date.now();
+    reportStatus(recording.sessionId, "recording", {
+      recordingId: recording.recordingId,
+      width: recording.dimensions.width,
+      height: recording.dimensions.height,
+      hasAudio: recording.hasAudio,
+      hasCamera: recording.hasCamera,
+    });
+  } catch (err) {
+    reportStatus(recording.sessionId, "error", {
+      recordingId: recording.recordingId,
+      error: err instanceof Error ? err.message : "Could not start recording.",
+    });
+  }
 }
 
 async function finalizeStop(recording: ActiveRecording): Promise<void> {
@@ -585,6 +609,16 @@ async function stop(
   if (!recording || recording.sessionId !== message.sessionId) {
     throw new Error("No active Clips recording was found.");
   }
+  if (recording.startTimer !== null) {
+    // Stopped during the pre-roll, before the recorder ever started: there is
+    // nothing to save, so discard instead of hanging on `stopped`.
+    clearTimeout(recording.startTimer);
+    recording.startTimer = null;
+    recording.cancelled = true;
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
+    return { ok: true, result: { ok: true, status: "cancelled" } };
+  }
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
   return { ok: true, result: await recording.stopped };
 }
@@ -593,12 +627,31 @@ function cancel(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
+    if (recording.startTimer !== null) {
+      clearTimeout(recording.startTimer);
+      recording.startTimer = null;
+    }
     if (recording.recorder.state !== "inactive") recording.recorder.stop();
     cleanup(recording);
     activeRecording = null;
   } else if (prepared && prepared.sessionId === message.sessionId) {
     stopPreparedStreams();
     disposePrepared();
+  }
+  return { ok: true };
+}
+
+// Skip the remaining pre-roll: start the recorder right now.
+function startNow(message: SimpleMessage): { ok: boolean } {
+  const recording = activeRecording;
+  if (
+    recording &&
+    recording.sessionId === message.sessionId &&
+    recording.startTimer !== null
+  ) {
+    clearTimeout(recording.startTimer);
+    recording.startTimer = null;
+    startRecorderNow(recording);
   }
   return { ok: true };
 }
@@ -671,6 +724,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     case "CLIPS_OFFSCREEN_RESTART":
       task = restart(message as SimpleMessage);
+      break;
+    case "CLIPS_OFFSCREEN_START_NOW":
+      task = Promise.resolve(startNow(message as SimpleMessage));
       break;
     default:
       return false;

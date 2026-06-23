@@ -148,7 +148,7 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
 }
 
 /** Slack Block Kit message */
-function buildSlackPayload(submission: SubmissionPayload) {
+export function buildSlackPayload(submission: SubmissionPayload) {
   const fieldLines = submission.fields
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {

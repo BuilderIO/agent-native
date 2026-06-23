@@ -127,7 +127,7 @@ export default defineAction({
 
       const seedConfig = cloneDashboardConfig(entry);
       const seedPanels = Array.isArray(seedConfig.panels)
-        ? (seedConfig.panels as Array<Record<string, unknown>>)
+        ? (seedConfig.panels as unknown as Array<Record<string, unknown>>)
         : [];
 
       const addedPanelIds: string[] = [];

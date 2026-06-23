@@ -40,6 +40,10 @@ const ICONS = {
   cameraOff: icon(
     '<path d="M2 2l20 20"/><path d="M7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12"/><path d="M22 8l-6 4 6 4V8z" opacity="0.5"/>',
   ),
+  cancel: icon('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>'),
+  skipForward: icon(
+    '<path d="M6 5l10 7-10 7z" fill="currentColor" stroke="none"/><rect x="16" y="5" width="3" height="14" rx="1" fill="currentColor" stroke="none"/>',
+  ),
 };
 
 function send(type: string, extra: Record<string, unknown> = {}): void {
@@ -90,18 +94,41 @@ async function initBubble(): Promise<void> {
 /* ------------------------------------------------------------- countdown --- */
 
 // The countdown only *visualizes* the worker's clock (state.countdownEndsAtMs).
-// The worker owns the real timer and starts the recorder, so this never needs to
-// signal "done" — which is what lets recording work on pages where no overlay
-// can be injected at all.
+// The worker owns the real timer and starts the recorder, so this never *needs*
+// to signal "done" — which is what lets recording work on pages where no overlay
+// can be injected at all. The skip button is the one exception: it explicitly
+// asks the worker to start now (CLIPS_OVERLAY_COUNTDOWN_DONE → beginNow), which
+// is idempotent and harmless if the timer also fires.
 function initCountdown(): void {
   const wrap = document.createElement("div");
   wrap.className = "countdown";
+
+  const controls = document.createElement("div");
+  controls.className = "countdown-controls";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "countdown-control countdown-control-cancel";
+  cancelBtn.setAttribute("aria-label", "Cancel recording");
+  cancelBtn.innerHTML = ICONS.cancel;
+  cancelBtn.addEventListener("click", () => send("CLIPS_OVERLAY_CANCEL"));
+
   const number = document.createElement("div");
   number.className = "countdown-number";
+
+  const skipBtn = document.createElement("button");
+  skipBtn.type = "button";
+  skipBtn.className = "countdown-control countdown-control-skip";
+  skipBtn.setAttribute("aria-label", "Skip countdown and start recording now");
+  skipBtn.innerHTML = ICONS.skipForward;
+  skipBtn.addEventListener("click", () => send("CLIPS_OVERLAY_COUNTDOWN_DONE"));
+
+  controls.append(cancelBtn, number, skipBtn);
+
   const hint = document.createElement("div");
   hint.className = "countdown-hint";
   hint.textContent = "Get ready…";
-  wrap.append(number, hint);
+  wrap.append(controls, hint);
   root.appendChild(wrap);
 
   let lastShown = "";

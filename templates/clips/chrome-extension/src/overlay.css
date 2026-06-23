@@ -79,7 +79,50 @@ body {
   backdrop-filter: blur(2px);
 }
 
+.countdown-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 8vmin, 72px);
+}
+
+.countdown-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: clamp(56px, 9vmin, 76px);
+  height: clamp(56px, 9vmin, 76px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.countdown-control:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.countdown-control:active {
+  transform: scale(0.94);
+}
+
+.countdown-control svg {
+  width: clamp(26px, 4vmin, 32px);
+  height: clamp(26px, 4vmin, 32px);
+}
+
 .countdown-number {
+  min-width: clamp(120px, 26vmin, 280px);
+  text-align: center;
   font-size: clamp(96px, 22vmin, 240px);
   font-weight: 700;
   color: #fff;

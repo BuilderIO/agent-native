@@ -212,12 +212,6 @@ let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
 let overlayShowsBubble = false;
 let countdownEndsAtMs = 0;
-let countdownTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingBegin: {
-  sessionId: string;
-  recordingId: string;
-  uploadUrl: string;
-} | null = null;
 
 function desiredParts(): OverlayPart[] {
   // We deliberately do NOT inject the control toolbar on the page: anything over
@@ -255,20 +249,7 @@ function overlayStateForBroadcast(): {
 // recording would silently never begin on those pages.
 const COUNTDOWN_SECONDS = 3;
 
-function scheduleCountdown(seconds: number = COUNTDOWN_SECONDS): void {
-  if (countdownTimer !== null) clearTimeout(countdownTimer);
-  countdownEndsAtMs = nowMs() + seconds * 1000;
-  countdownTimer = setTimeout(() => {
-    countdownTimer = null;
-    void beginNow();
-  }, seconds * 1000);
-}
-
 function clearCountdownTimer(): void {
-  if (countdownTimer !== null) {
-    clearTimeout(countdownTimer);
-    countdownTimer = null;
-  }
   countdownEndsAtMs = 0;
 }
 
@@ -306,7 +287,6 @@ function persistOverlay(): Promise<void> {
       baseEpochMs: overlayBaseEpochMs,
       showsBubble: overlayShowsBubble,
       countdownEndsAtMs,
-      pendingBegin,
     },
   }).catch(() => undefined);
 }
@@ -327,7 +307,6 @@ async function restoreRuntimeState(): Promise<void> {
         baseEpochMs?: number;
         showsBubble?: boolean;
         countdownEndsAtMs?: number;
-        pendingBegin?: typeof pendingBegin;
       }
     | undefined;
   if (rt && typeof rt.phase === "string" && overlayPhase === "idle") {
@@ -339,18 +318,18 @@ async function restoreRuntimeState(): Promise<void> {
     overlayShowsBubble = Boolean(rt.showsBubble);
     countdownEndsAtMs =
       typeof rt.countdownEndsAtMs === "number" ? rt.countdownEndsAtMs : 0;
-    pendingBegin = rt.pendingBegin ?? null;
   }
 
   if (overlayPhase !== "idle" && activeNativeRecording) {
-    // Recording survived a worker restart — restore immediate-stop mode and, if
-    // we were mid-countdown, resume (or fire) the start that the lost setTimeout
-    // would have done.
+    // Recording survived a worker restart. The offscreen document owns the
+    // recorder + pre-roll timer, so it kept running; just restore immediate-stop
+    // mode. If the pre-roll already elapsed, assume the offscreen started the
+    // recorder so the icon click does Stop (not Discard).
     setActionPopup("");
-    if (overlayPhase === "countdown" && pendingBegin) {
-      const remaining = countdownEndsAtMs - nowMs();
-      if (remaining <= 0) void beginNow();
-      else scheduleCountdown(Math.ceil(remaining / 1000));
+    if (overlayPhase === "countdown" && countdownEndsAtMs > 0 && nowMs() >= countdownEndsAtMs) {
+      overlayPhase = "recording";
+      overlayBaseEpochMs = countdownEndsAtMs;
+      countdownEndsAtMs = 0;
     }
   }
 }
@@ -430,7 +409,6 @@ function resetOverlay(): void {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = 0;
   overlayShowsBubble = false;
-  pendingBegin = null;
   clearCountdownTimer();
   setRecordingFlag(false);
   // Bring back the toolbar popup now that we're idle again.
@@ -613,14 +591,32 @@ function originOf(raw: string | null | undefined): string | null {
   }
 }
 
+// Auth lives in chrome.storage.local (not .session) so the user stays signed in
+// across extension reloads and browser restarts. It is the user's own session
+// token — treated like a cookie — and is cleared on sign-out or when invalid.
+function localStorageSet(value: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(value, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+function localStorageGet(keys: string[]): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (value) => resolve(value ?? {}));
+  });
+}
+
 async function saveAuthSession(auth: StoredAuth): Promise<void> {
-  await sessionStorageSet({ clipsAuth: auth });
+  await localStorageSet({ clipsAuth: auth });
 }
 
 async function readAuthSession(
   settings: ExtensionSettings,
 ): Promise<StoredAuth | null> {
-  const stored = await sessionStorageGet(["clipsAuth"]);
+  const stored = await localStorageGet(["clipsAuth"]);
   const auth = stored.clipsAuth as Partial<StoredAuth> | undefined;
   if (
     !auth ||
@@ -952,13 +948,29 @@ async function armRecording(args: {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
   overlayShowsBubble = mode === "camera" || settings.includeCamera;
-  pendingBegin = { sessionId, recordingId: created.id, uploadUrl };
+  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
   setRecordingFlag(true);
-  // The worker owns the countdown clock, so the recorder starts even if no
-  // overlay can be injected (e.g. chrome:// pages).
-  scheduleCountdown();
   // Clicking the icon now stops & saves immediately instead of opening the popup.
   setActionPopup("");
+
+  // Hand the recorder its targets plus the pre-roll delay. The offscreen document
+  // (a reliable context, unlike the suspendable worker) owns the countdown timer
+  // and reports "recording" back when the recorder actually starts — that status
+  // flip (markRecordingStarted) advances our phase, so recording begins even on
+  // pages where no overlay can be injected (chrome://, the New Tab page, etc.).
+  try {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_BEGIN",
+      sessionId,
+      recordingId: created.id,
+      uploadUrl,
+      hasCamera: mode === "camera" || settings.includeCamera,
+      startDelayMs: COUNTDOWN_SECONDS * 1000,
+    });
+  } catch (err) {
+    await cancelRecording();
+    throw err;
+  }
   await saveActiveNativeRecording();
 
   // Browser-tab diagnostics still attach to the launch tab only.
@@ -974,34 +986,12 @@ async function armRecording(args: {
   return { ok: true, sessionId, recordingId: created.id, native: true };
 }
 
-// Promote from countdown to recording — start the MediaRecorder. Driven by the
-// worker's countdown timer (and, defensively, by a CLIPS_OVERLAY_COUNTDOWN_DONE
-// message if one still arrives). Idempotent: only the first call while in the
-// countdown phase does anything.
-async function beginNow() {
-  if (overlayPhase !== "countdown" || !pendingBegin) return { ok: true };
+// Called when the offscreen recorder reports it actually started (after its
+// pre-roll countdown). Advances phase countdown -> recording and starts the
+// on-page timer. Idempotent.
+async function markRecordingStarted() {
+  if (overlayPhase !== "countdown") return;
   clearCountdownTimer();
-  const begin = pendingBegin;
-  pendingBegin = null;
-  const hasCamera = activeNativeRecording
-    ? activeNativeRecording.captureSurface === "camera" ||
-      activeNativeRecording.includeCamera
-    : false;
-  try {
-    await sendOffscreenMessage({
-      type: "CLIPS_OFFSCREEN_BEGIN",
-      sessionId: begin.sessionId,
-      recordingId: begin.recordingId,
-      uploadUrl: begin.uploadUrl,
-      hasCamera,
-    });
-  } catch (err) {
-    await cancelRecording();
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Could not start recording.",
-    };
-  }
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1015,6 +1005,18 @@ async function beginNow() {
   }
   await broadcastMount();
   broadcastOverlayState();
+}
+
+// Skip the pre-roll: tell the offscreen recorder to start immediately. It will
+// report "recording", which flips our phase via markRecordingStarted.
+async function handleOverlaySkip() {
+  if (overlayPhase !== "countdown" || !activeNativeRecording) {
+    return { ok: true };
+  }
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_START_NOW",
+    sessionId: activeNativeRecording.sessionId,
+  }).catch(() => undefined);
   return { ok: true };
 }
 
@@ -1070,12 +1072,19 @@ async function handleOverlayRestart() {
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
-  pendingBegin = {
+  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
+  recording.status = "recording";
+  // Re-arm the recorder on the same (re-homed) source streams with a fresh
+  // pre-roll. The offscreen reports "recording" when it restarts.
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_BEGIN",
     sessionId: recording.sessionId,
     recordingId: recording.recordingId,
     uploadUrl: recording.uploadUrl,
-  };
-  recording.status = "recording";
+    hasCamera:
+      recording.captureSurface === "camera" || recording.includeCamera,
+    startDelayMs: COUNTDOWN_SECONDS * 1000,
+  }).catch(() => undefined);
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
@@ -1714,6 +1723,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
       }
       void saveActiveNativeRecording();
+      // The offscreen recorder finished its pre-roll and actually started —
+      // advance from countdown to recording (the reliable phase flip).
+      if (status.status === "recording" && overlayPhase === "countdown") {
+        void markRecordingStarted();
+      }
       if (status.status === "error") {
         void (async () => {
           resetOverlay();
@@ -1779,8 +1793,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         message as { settings?: Partial<ExtensionSettings> },
       );
       break;
-    case "CLIPS_OVERLAY_COUNTDOWN_DONE":
-      task = beginNow();
+    case "CLIPS_OVERLAY_SKIP":
+      task = handleOverlaySkip();
       break;
     case "CLIPS_OVERLAY_PAUSE":
       task = Promise.resolve(handleOverlayPause());

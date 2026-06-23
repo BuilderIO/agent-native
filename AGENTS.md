@@ -187,6 +187,9 @@ Read the relevant skill before making changes in that area:
 - `storing-data`, `portability`, `security`, `sharing` for data work.
 - `performance` for keeping lists, reads, and page loads fast — column
   projection, indexing hot-path queries, and avoiding round-trip waterfalls.
+- `reliable-mutations` for writing data so it persists under the hosted run
+  budget — one atomic call, never loop many small writes, verify and report
+  proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.

@@ -203,7 +203,7 @@ function readStoredAuth(
   settings: ExtensionSettings,
 ): Promise<StoredAuth | null> {
   return new Promise((resolve) => {
-    chrome.storage.session.get("clipsAuth", (value) => {
+    chrome.storage.local.get("clipsAuth", (value) => {
       const auth = value.clipsAuth as Partial<StoredAuth> | undefined;
       if (
         auth &&
