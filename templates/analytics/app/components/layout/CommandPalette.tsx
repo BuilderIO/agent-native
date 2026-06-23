@@ -294,7 +294,9 @@ export function CommandPalette() {
               {visibleExplorerDashboards.map((d) => (
                 <CommandItem
                   key={`ed-${d.id}`}
-                  onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
+                  onSelect={() =>
+                    go(`/dashboards/explorer-dashboard?id=${d.id}`)
+                  }
                   keywords={commandPaletteKeywords(
                     d.name,
                     "explorer dashboard",
@@ -322,7 +324,7 @@ export function CommandPalette() {
               {visibleSqlDashboards.map((d) => (
                 <CommandItem
                   key={`sql-${d.id}`}
-                  onSelect={() => go(`/adhoc/${d.id}`)}
+                  onSelect={() => go(`/dashboards/${d.id}`)}
                   keywords={commandPaletteKeywords(
                     d.name,
                     "sql dashboard",
@@ -371,7 +373,7 @@ export function CommandPalette() {
             {dashboards.map((d) => (
               <CommandItem
                 key={`dash-${d.id}`}
-                onSelect={() => go(`/adhoc/${d.id}`)}
+                onSelect={() => go(`/dashboards/${d.id}`)}
                 keywords={commandPaletteKeywords(d.name, "dashboard")}
               >
                 <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -439,7 +441,7 @@ export function CommandPalette() {
               {savedCharts.map((c) => (
                 <CommandItem
                   key={`chart-${c.id}`}
-                  onSelect={() => go(`/adhoc/explorer?config=${c.id}`)}
+                  onSelect={() => go(`/dashboards/explorer?config=${c.id}`)}
                   keywords={commandPaletteKeywords(
                     c.name,
                     "saved chart",
