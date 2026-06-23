@@ -63,8 +63,6 @@ export function useNavigationState() {
         state.view = "catalog";
       } else if (pathname === "/settings") {
         state.view = "settings";
-      } else if (pathname === "/about") {
-        state.view = "about";
       }
 
       return state;
@@ -84,7 +82,6 @@ export function useNavigationState() {
       if (cmd.view === "ask") return "/ask";
       if (cmd.view === "settings") return "/settings";
       if (cmd.view === "overview") return "/overview";
-      if (cmd.view === "about") return "/about";
       return "/";
     },
     onNavigate: (_command, path) => {

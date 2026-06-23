@@ -102,7 +102,10 @@ function pageLabelFromUrl(pageUrl: string): string {
   }
   if (label.length > 80) label = `${label.slice(0, 79)}…`;
   // Escape Slack mrkdwn link-text control characters.
-  return label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return label
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +142,9 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
   if (submission.pageUrl) {
     const appLabel = appLabelFromUrl(submission.pageUrl);
     if (appLabel) lines.push(`App: ${appLabel}`);
-    lines.push(`Page: <${submission.pageUrl}|${pageLabelFromUrl(submission.pageUrl)}>`);
+    lines.push(
+      `Page: <${submission.pageUrl}|${pageLabelFromUrl(submission.pageUrl)}>`,
+    );
   }
   if (submission.clientSurface) {
     lines.push(`Source: ${clientSurfaceLabel(submission.clientSurface)}`);

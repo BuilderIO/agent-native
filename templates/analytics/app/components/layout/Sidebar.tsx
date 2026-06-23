@@ -16,7 +16,6 @@ import {
   IconChevronDown,
   IconSun,
   IconMoon,
-  IconInfoCircle,
   IconTrash,
   IconDots,
   IconLoader2,
@@ -146,7 +145,6 @@ import { CSS } from "@dnd-kit/utilities";
 const bottomItems = [
   { icon: IconUsers, label: "Team", href: "/team" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
-  { icon: IconInfoCircle, label: "About", href: "/about" },
 ];
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {

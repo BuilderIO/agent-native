@@ -3,9 +3,30 @@ import {
   AgentChatSurface,
   getBrowserTabId,
   markAgentChatHomeHandoff,
+  sendToAgentChat,
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+
+// Empty-state starters. Clicking one prefills the composer (without sending) so
+// the user can finish the thought instead of staring at a chip that does
+// nothing. `submit: false` = prefill only; `openSidebar: false` keeps focus on
+// the page-level Create surface.
+const CHAT_STARTERS = [
+  {
+    key: "image",
+    Icon: IconPhoto,
+    label: "image",
+    prompt: "Create an image of ",
+  },
+  {
+    key: "video",
+    Icon: IconVideo,
+    label: "video",
+    prompt: "Create a video of ",
+  },
+  { key: "refine", Icon: IconSparkles, label: "refine", prompt: "Refine " },
+] as const;
 
 const SEO_TITLE =
   "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
@@ -63,19 +84,23 @@ export default function CreatePage() {
               Start with a hero image, product reveal, reference edit, or a
               direction you want to explore.
             </p>
-            <div className="assets-create-chat-pill-row" aria-hidden="true">
-              <span>
-                <IconPhoto className="size-3.5" />
-                image
-              </span>
-              <span>
-                <IconVideo className="size-3.5" />
-                video
-              </span>
-              <span>
-                <IconSparkles className="size-3.5" />
-                refine
-              </span>
+            <div className="assets-create-chat-pill-row">
+              {CHAT_STARTERS.map(({ key, Icon, label, prompt }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() =>
+                    sendToAgentChat({
+                      message: prompt,
+                      submit: false,
+                      openSidebar: false,
+                    })
+                  }
+                >
+                  <Icon className="size-3.5" />
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         }

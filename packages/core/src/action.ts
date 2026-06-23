@@ -908,6 +908,94 @@ function zodDefToJsonSchema(def: any): any {
 // Runtime validation wrapper
 // ---------------------------------------------------------------------------
 
+const NO_COERCE = Symbol("no-coerce");
+
+/**
+ * Coerce a single stringified value to one of the JSON-schema types the field
+ * expects. Returns NO_COERCE when nothing safe applies, so the caller leaves
+ * the original value untouched and the normal validation error still surfaces.
+ */
+function coerceStringToSchemaType(raw: string, types: string[]): unknown {
+  const trimmed = raw.trim();
+  if (types.includes("boolean")) {
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+  }
+  if (
+    (types.includes("array") &&
+      trimmed.startsWith("[") &&
+      trimmed.endsWith("]")) ||
+    (types.includes("object") &&
+      trimmed.startsWith("{") &&
+      trimmed.endsWith("}"))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (types.includes("array") && Array.isArray(parsed)) return parsed;
+      if (
+        types.includes("object") &&
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed;
+      }
+    } catch {
+      // fall through — leave the original so validation reports the real error
+    }
+  }
+  if (
+    (types.includes("number") || types.includes("integer")) &&
+    trimmed !== "" &&
+    Number.isFinite(Number(trimmed))
+  ) {
+    const n = Number(trimmed);
+    if (types.includes("number") || Number.isInteger(n)) return n;
+  }
+  return NO_COERCE;
+}
+
+/**
+ * Defensively coerce gateway-stringified tool arguments to the types the schema
+ * expects. Some model gateways (notably Builder's Gemini-backed gateway) hand
+ * back structured tool-call arguments as JSON strings — an array param arrives
+ * as `"[{...}]"`, a boolean as `"true"`. Standard Schema (zod) `validate` does
+ * not coerce, so these fail validation and the agent thrashes retrying shapes
+ * (and can hang). We only touch a string value when the schema expects a
+ * non-string type and the string parses cleanly to it; anything ambiguous
+ * (schema also allows string) or unparseable is left as-is. Operates on
+ * top-level properties only — once an array/object param is parsed, its nested
+ * members are already native and validate normally.
+ */
+function coerceGatewayStringifiedArgs(
+  args: unknown,
+  parameters?: ActionTool["parameters"],
+): unknown {
+  const properties = parameters?.properties as
+    | Record<string, { type?: string | string[] }>
+    | undefined;
+  if (!properties) return args;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  let out: Record<string, unknown> | null = null;
+  for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
+    if (typeof raw !== "string") continue;
+    const spec = properties[key];
+    if (!spec) continue;
+    const types = Array.isArray(spec.type)
+      ? spec.type
+      : spec.type
+        ? [spec.type]
+        : [];
+    // No declared type, or the field legitimately accepts a string → leave it.
+    if (types.length === 0 || types.includes("string")) continue;
+    const coerced = coerceStringToSchemaType(raw, types);
+    if (coerced === NO_COERCE) continue;
+    if (!out) out = { ...(args as Record<string, unknown>) };
+    out[key] = coerced;
+  }
+  return out ?? args;
+}
+
 /**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
@@ -919,6 +1007,7 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
+    args = coerceGatewayStringifiedArgs(args, toolParameters);
     const result = await schema["~standard"].validate(args);
     if (result.issues) {
       // Split issues into "missing required field" vs other validation errors

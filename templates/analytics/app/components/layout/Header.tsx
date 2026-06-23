@@ -18,7 +18,6 @@ const pageTitles: Record<string, string> = {
   "/dashboards/explorer": "Explorer",
   "/team": "Team",
   "/settings": "Settings",
-  "/about": "About",
 };
 
 function resolveTitle(pathname: string): ReactNode {
