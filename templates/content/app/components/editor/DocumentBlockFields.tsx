@@ -13,8 +13,16 @@ import {
 } from "@shared/properties";
 import type { DocumentProperty } from "@shared/api";
 import { VisualEditor } from "./VisualEditor";
-import { createBlockFieldSaveController } from "./blockFieldSaveController";
-import { enqueueFieldSave } from "./blockFieldSaveLane";
+import {
+  createBlockFieldSaveController,
+  type BlockFieldSaveController,
+} from "./blockFieldSaveController";
+import {
+  acquireBlockFieldSaveController,
+  blockFieldSaveImplRef,
+  peekBlockFieldSaveController,
+  releaseBlockFieldSaveController,
+} from "./blockFieldSaveRegistry";
 
 interface DocumentBlockFieldsProps {
   documentId: string;
@@ -365,53 +373,72 @@ export function useBlockFieldEditor({
     value: string;
   }) => Promise<unknown>;
 }): { content: string; onChange: (markdown: string) => void } {
-  const [content, setContent] = useState(initialContent);
+  const key = `${documentId}:${propertyId}`;
 
-  // The save closure reads the implementation via a ref so the controller is
-  // created once and never tears down its pending flush.
-  const saveImplRef = useRef(save);
-  saveImplRef.current = save;
-  // The save TARGET is read through a ref too, so the controller never captures
-  // a documentId/propertyId that could go stale within a single mount.
-  const targetRef = useRef({ documentId, propertyId });
-  targetRef.current = { documentId, propertyId };
+  // The shared controller calls the freshest save impl through a per-key ref. The
+  // save TARGET (documentId:propertyId) is fixed by the key; only the function
+  // identity changes per mount, never the field it writes to.
+  const implRef = blockFieldSaveImplRef(key);
+  implRef.current = (value: string) => save({ documentId, propertyId, value });
 
-  const controllerRef = useRef<ReturnType<
-    typeof createBlockFieldSaveController
-  > | null>(null);
-  if (!controllerRef.current) {
-    controllerRef.current = createBlockFieldSaveController({
+  // Build (but do not yet ref-count) the controller factory for this key. The
+  // formal acquire/release happens in the effect below; we only need the factory
+  // here so the first acquire can create the instance.
+  const factory = () =>
+    createBlockFieldSaveController({
       initialContent,
-      // Route the actual server write through a per-field-key serialization lane
-      // shared across ALL controller instances for this field. The controller's
-      // own single-flight only orders saves WITHIN this instance; the lane orders
-      // them ACROSS instances (collapse→unmount-flush vs. a fresh remount's
-      // save), so an older in-flight flush can never commit after a newer edit
-      // for the same field. The key is read through `targetRef` so it matches
-      // the field this save is actually routed to.
-      save: (value) => {
-        const { documentId: docId, propertyId: propId } = targetRef.current;
-        return enqueueFieldSave(`${docId}:${propId}`, () =>
-          saveImplRef.current({
-            documentId: docId,
-            propertyId: propId,
-            value,
-          }),
-        );
-      },
+      // Single-flight + trailing WITHIN this one shared controller now orders
+      // saves across ALL editor instances for the key (there is only ever one
+      // controller per key), so no cross-instance serialization lane is needed.
+      save: (value) => implRef.current(value),
       onError: (error) =>
         console.error("Failed to save Blocks field content", {
-          documentId: targetRef.current.documentId,
-          propertyId: targetRef.current.propertyId,
+          documentId,
+          propertyId,
           error,
         }),
     });
-  }
-  const controller = controllerRef.current;
+
+  // Acquire the ONE shared controller for this field key, and release it on
+  // unmount / key change. Across ANY mount/unmount/collapse/reopen interleaving
+  // there is exactly one controller per key — one pending value, one in-flight
+  // save — so an older save can never overwrite a newer one for the same field,
+  // even when an old instance's unmount-flush overlaps a new instance's edit.
+  // Release flush-then-evicts: the latest dirty content still persists to THIS
+  // field, and a quick reopen before the flush settles re-acquires the SAME
+  // controller (no competing instance).
+  //
+  // `factory`/`implRef` are intentionally not effect deps: the impl ref is updated
+  // every render, and the identity key forces a remount for a DIFFERENT key, so
+  // within one mount the key is stable and we acquire exactly once.
+  const controllerRef = useRef<BlockFieldSaveController | null>(null);
+  useEffect(() => {
+    controllerRef.current = acquireBlockFieldSaveController(key, factory);
+    return () => {
+      controllerRef.current = null;
+      releaseBlockFieldSaveController(key);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  // Initialize the displayed value from the shared controller's LATEST pending if
+  // a live controller already exists with unsaved/never-confirmed content (a
+  // remount mid-edit must show the true latest text the user typed, not stale
+  // server data), else from the server value. Computed once for this mount.
+  const [content, setContent] = useState(() => {
+    const existing = peekBlockFieldSaveController(key);
+    if (existing && existing.pending !== existing.lastSaved) {
+      return existing.pending;
+    }
+    return initialContent;
+  });
 
   // Adopt fresh server content when it diverges from the last value we CONFIRMED
-  // saved (e.g. an agent edit) and the user hasn't typed something newer.
+  // saved (e.g. an agent edit) and the user hasn't typed something newer. The
+  // controller is acquired in the [key] effect above, which runs before this one.
   useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
     if (
       initialContent !== controller.lastSaved &&
       controller.pending === controller.lastSaved
@@ -422,22 +449,11 @@ export function useBlockFieldEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
-  // On unmount (navigating away, switching solo/multi, or a fresh mount forced
-  // by the identity key) or collapse (the shell unmounts children), flush the
-  // latest dirty content so a debounce that hadn't fired yet is not dropped —
-  // and so it persists to THIS (the old) field before teardown.
-  useEffect(() => {
-    return () => {
-      // Fire-and-forget: flush() is async (it awaits any in-flight save before
-      // sending the final pending content), but a React cleanup must return void.
-      void controller.flush();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function onChange(markdown: string) {
     setContent(markdown);
-    controller.change(markdown);
+    // The controller is acquired in the mount effect; user edits only arrive
+    // after mount, so it is present. Guard defensively regardless.
+    controllerRef.current?.change(markdown);
   }
 
   return { content, onChange };
