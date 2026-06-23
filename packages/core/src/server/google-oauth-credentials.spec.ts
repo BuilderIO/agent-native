@@ -1,16 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 describe("resolveGoogleSignInCredentials", () => {
+  const originalEnv = { ...process.env };
+
   afterEach(() => {
-    vi.unstubAllEnvs();
+    process.env = { ...originalEnv };
   });
 
-  it("prefers identity-only Google sign-in credentials", () => {
-    vi.stubEnv("GOOGLE_SIGN_IN_CLIENT_ID", "sign-in-client");
-    vi.stubEnv("GOOGLE_SIGN_IN_CLIENT_SECRET", "sign-in-secret");
-    vi.stubEnv("GOOGLE_CLIENT_ID", "product-client");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "product-secret");
+  it("prefers the dedicated sign-in Google OAuth client", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
 
     expect(resolveGoogleSignInCredentials()).toEqual({
       clientId: "sign-in-client",
@@ -18,20 +20,27 @@ describe("resolveGoogleSignInCredentials", () => {
     });
   });
 
-  it("falls back to the legacy Google client credentials", () => {
-    vi.stubEnv("GOOGLE_CLIENT_ID", "product-client");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "product-secret");
+  it("falls back to the legacy Google client pair", () => {
+    delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+    delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+    process.env.GOOGLE_CLIENT_ID = "legacy-client";
+    process.env.GOOGLE_CLIENT_SECRET = "legacy-secret";
 
     expect(resolveGoogleSignInCredentials()).toEqual({
-      clientId: "product-client",
-      clientSecret: "product-secret",
+      clientId: "legacy-client",
+      clientSecret: "legacy-secret",
     });
   });
 
-  it("requires a complete credential pair", () => {
-    vi.stubEnv("GOOGLE_SIGN_IN_CLIENT_ID", "sign-in-client");
-    vi.stubEnv("GOOGLE_CLIENT_ID", "product-client");
+  it("does not mix an incomplete sign-in pair with a provider secret", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
 
-    expect(resolveGoogleSignInCredentials()).toBeNull();
+    expect(resolveGoogleSignInCredentials()).toEqual({
+      clientId: "provider-client",
+      clientSecret: "provider-secret",
+    });
   });
 });

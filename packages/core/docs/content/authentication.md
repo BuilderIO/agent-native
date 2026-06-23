@@ -104,6 +104,11 @@ Set environment variables to enable social login. Better Auth auto-detects them:
 
 ```bash
 # Google OAuth
+GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
+GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
+
+# Backwards-compatible fallback, and provider OAuth credentials for templates
+# that connect to Google APIs such as Gmail or Calendar.
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
 
@@ -113,6 +118,13 @@ GITHUB_CLIENT_SECRET=your-client-secret
 ```
 
 Templates that use `createGoogleAuthPlugin()` show a "Sign in with Google" page. The Google OAuth callback handles mobile deep linking for native apps automatically.
+
+Prefer `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` for normal
+app login. That client should request only identity scopes. Keep
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` for product integrations that need
+Google API scopes, or as the legacy fallback when a deploy has not been split
+yet. Mail and Calendar-style apps should use their own provider OAuth clients so
+high-scope consent screens do not affect generic app sign-in.
 
 ### OAuth State Signing {#oauth-state-secret}
 
@@ -309,8 +321,10 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `AGENT_NATIVE_WORKSPACE`                | `1` runs in workspace mode — one shared session realm across workspace apps                                                                  |
 | `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set with `COOKIE_DOMAIN` to share one auth database across first-party subdomains                                                            |
 | `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes (see [Security — OAuth State Signing](/docs/security#oauth-state))                              |
-| `GOOGLE_CLIENT_ID`                      | Enable Google OAuth                                                                                                                          |
-| `GOOGLE_CLIENT_SECRET`                  | Google OAuth secret                                                                                                                          |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | Preferred low-scope Google OAuth client ID for app login                                                                                     |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Preferred low-scope Google OAuth secret for app login                                                                                        |
+| `GOOGLE_CLIENT_ID`                      | Legacy Google login fallback, and provider OAuth client ID for Google API integrations                                                       |
+| `GOOGLE_CLIENT_SECRET`                  | Legacy Google login fallback, and provider OAuth secret for Google API integrations                                                          |
 | `GITHUB_CLIENT_ID`                      | Enable GitHub OAuth                                                                                                                          |
 | `GITHUB_CLIENT_SECRET`                  | GitHub OAuth secret                                                                                                                          |
 | `ACCESS_TOKEN`                          | Static bearer fallback for MCP/connect clients; not browser auth                                                                             |
