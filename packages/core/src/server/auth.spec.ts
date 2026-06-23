@@ -3604,9 +3604,9 @@ describe("server/auth", () => {
       // h3 hands a non-2xx web Response back without merging the staged
       // Set-Cookie, so the redirect itself must carry it — otherwise the
       // sign-in succeeds but the browser arrives back logged out.
-      const setCookie =
-        (response as Response).headers.getSetCookie?.() ??
-        [(response as Response).headers.get("set-cookie") ?? ""];
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
       expect(setCookie.join("\n")).toContain("an_session=session-token");
     });
 
