@@ -4,6 +4,7 @@
 // functions directly — the seam where review findings 1, 4, 5, and 7 live.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -507,10 +508,14 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     });
 
     // Write three words to the body (primary → document body).
-    await propertyUtils.writePrimaryBlocksContent({
-      documentId: rowDocumentId,
-      content: "one two three",
-      now,
+    // writePrimaryBlocksContent now asserts editor access on the document, so
+    // run it in the owner's request context (assertAccess reads currentAccess()).
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await propertyUtils.writePrimaryBlocksContent({
+        documentId: rowDocumentId,
+        content: "one two three",
+        now,
+      });
     });
 
     const [rowDocument] = await db
