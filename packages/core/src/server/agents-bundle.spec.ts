@@ -6,7 +6,9 @@ import {
   readAgentsBundleFromFs,
   parseSkillFrontmatter,
   generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
   getRuntimeSkills,
+  getDevelopmentSkills,
   normalizeSkillScope,
   __resetAgentsBundleCache,
   type AgentsBundle,
@@ -163,6 +165,20 @@ describe("getRuntimeSkills", () => {
   });
 });
 
+describe("getDevelopmentSkills", () => {
+  it("excludes scope: runtime and includes dev/both", () => {
+    const bundle = bundleWith([
+      skill("r", "runtime"),
+      skill("b", "both"),
+      skill("d", "dev"),
+    ]);
+    const names = getDevelopmentSkills(bundle)
+      .map((s) => s.meta.name)
+      .sort();
+    expect(names).toEqual(["b", "d"]);
+  });
+});
+
 describe("generateSkillsPromptBlock scope filtering", () => {
   it("omits scope: dev skills from the prompt block", () => {
     const bundle = bundleWith([
@@ -177,6 +193,20 @@ describe("generateSkillsPromptBlock scope filtering", () => {
   it("returns empty string when every skill is dev-scoped", () => {
     const bundle = bundleWith([skill("dev-one", "dev")]);
     expect(generateSkillsPromptBlock(bundle)).toBe("");
+  });
+});
+
+describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
+  it("omits scope: runtime skills from the coding-agent prompt block", () => {
+    const bundle = bundleWith([
+      skill("runtime-one", "runtime"),
+      skill("dev-one", "dev"),
+      skill("shared-one", "both"),
+    ]);
+    const block = generateDevelopmentSkillsPromptBlock(bundle);
+    expect(block).toContain("dev-one");
+    expect(block).toContain("shared-one");
+    expect(block).not.toContain("runtime-one");
   });
 });
 

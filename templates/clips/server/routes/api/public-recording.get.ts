@@ -15,10 +15,13 @@
 
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   getRequestURL,
   setResponseHeader,
   setResponseStatus,
+  setCookie,
+  type H3Event,
 } from "h3";
 import { asc, eq } from "drizzle-orm";
 import { getSession, signShortLivedToken } from "@agent-native/core/server";
@@ -43,6 +46,75 @@ function appBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
   const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   return base ? `/${base}` : "";
+}
+
+const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
+const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
+
+function protectedMediaCookieName(recordingId: string): string {
+  return `${PROTECTED_MEDIA_COOKIE_PREFIX}${recordingId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
+function protectedMediaCookiePath(recordingId: string): string {
+  return appPath(`/api/video/${encodeURIComponent(recordingId)}`);
+}
+
+function isHttpsRequest(event: H3Event): boolean {
+  try {
+    const xfProto = getHeader(event, "x-forwarded-proto");
+    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
+      return true;
+    }
+    const requestUrl = getRequestURL(event);
+    if (requestUrl.protocol === "https:") return true;
+    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    if (appUrl.startsWith("https://")) return true;
+  } catch {
+    // keep plain-http dev behavior if request metadata is unavailable
+  }
+  return false;
+}
+
+function setProtectedMediaAccessCookie(
+  event: H3Event,
+  recordingId: string,
+): string {
+  const token = signShortLivedToken({
+    resourceId: recordingId,
+    ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+  });
+  const secure = isHttpsRequest(event);
+  setCookie(event, protectedMediaCookieName(recordingId), token, {
+    httpOnly: true,
+    sameSite: secure ? "none" : "lax",
+    secure,
+    ...(secure ? { partitioned: true } : {}),
+    path: protectedMediaCookiePath(recordingId),
+    maxAge: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+  });
+  return token;
+}
+
+function appendQueryParam(url: string, key: string, value: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+function isLocalVideoRoute(value: string): boolean {
+  try {
+    const parsed = new URL(value, "http://local.test");
+    return /(?:^|\/)api\/video\/[^/]+$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function addProtectedMediaTokenFallback(
+  videoUrl: string | null,
+  token: string | null,
+): string | null {
+  if (!videoUrl || !token || !isLocalVideoRoute(videoUrl)) return videoUrl;
+  return appendQueryParam(videoUrl, "t", token);
 }
 
 export default defineEventHandler(async (event) => {
@@ -87,11 +159,13 @@ export default defineEventHandler(async (event) => {
   }
 
   // Password check
+  let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!password || !verifySharePassword(password, rec.password)) {
       setResponseStatus(event, 401);
       return { error: "Password required", passwordRequired: true };
     }
+    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
   }
 
   const [transcript] = await db
@@ -148,19 +222,26 @@ export default defineEventHandler(async (event) => {
   //   2. Keep all Loom imports behind the same-origin `/api/video/:id` access
   //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
   //      Loom rows proxy their stored provider URL from the server.
-  //   3. For password-protected recordings, mint a short-lived HMAC token
-  //      bound to this recording id and pass it via `?t=<token>` instead of
-  //      the plaintext password. Sticking the password in the URL leaks it
-  //      into browser history, CDN logs, and the Referer header on outbound
-  //      requests. The downstream `/api/video/:id` route accepts either
-  //      `?t=<token>` (preferred) or `?password=<pw>` (legacy fallback) so
-  //      old share pages keep working during rollout. (audit 11 F-07)
-  //      Non-Loom provider URLs (R2/S3/Builder) are left untouched; those are
-  //      already signed.
+  //   3. For password-protected public recordings, the password check above
+  //      mints a signed media grant cookie scoped to `/api/video/:id`. We also
+  //      append the same 6-hour token as a fallback for browsers/embeds that
+  //      cannot use the cookie immediately. Sticking the plaintext password in
+  //      the URL leaks it into browser history, CDN logs, and Referer headers.
+  //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
+  //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
+  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      proxy on public pages so CORS, Range support, and fragile signed URLs
+  //      fail in one server-controlled place instead of as opaque <video>
+  //      errors in the browser.
   const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
-    addPasswordToken: true,
+    addPasswordToken: false,
     appPath,
+    proxyRemoteMedia: true,
   });
+  const playbackVideoUrl = addProtectedMediaTokenFallback(
+    resolvedVideoUrl,
+    protectedMediaToken,
+  );
 
   const canExposeAgentContext =
     rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
@@ -190,7 +271,7 @@ export default defineEventHandler(async (event) => {
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
       editsJson: rec.editsJson,
-      videoUrl: resolvedVideoUrl,
+      videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       width: rec.width,
       height: rec.height,

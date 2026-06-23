@@ -2018,18 +2018,22 @@ const AssistantChatInner = forwardRef<
     // is about to hit "Refresh chat" — that's the "Reload UI required"
     // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
-      captureError(new Error("agent-chat:auth_error_card_stuck"), {
-        tags: {
-          context: "agent-native-chat",
-          errorCode: "auth_error_card",
-          sessionAvailable: String(authSessionAvailable),
-          sessionExpired: String(!!authError.sessionExpired),
-        },
-        extra: {
-          threadId: threadId ?? null,
-          tabId: tabId ?? null,
-        },
-      });
+      void (async () => {
+        const hasSession = await checkAuthSession();
+        if (hasSession) return;
+        captureError(new Error("agent-chat:auth_error_card_stuck"), {
+          tags: {
+            context: "agent-native-chat",
+            errorCode: "auth_error_card",
+            sessionAvailable: String(authSessionAvailable),
+            sessionExpired: String(!!authError.sessionExpired),
+          },
+          extra: {
+            threadId: threadId ?? null,
+            tabId: tabId ?? null,
+          },
+        });
+      })();
     }, 3000);
     const handler = () => void checkAuthSession();
     const timer = window.setTimeout(handler, 250);
@@ -2822,7 +2826,15 @@ const AssistantChatInner = forwardRef<
     !isRestoring &&
     !isReconnecting &&
     !authError;
-  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+  const centeredRestoringState =
+    centerComposerWhenEmpty &&
+    messages.length === 0 &&
+    !hasActiveChatWork &&
+    isRestoring &&
+    !isReconnecting &&
+    !authError;
+  const centeredEmptyState =
+    centerComposerWhenEmpty && (isFreshEmptyChat || centeredRestoringState);
   const showEmptyState =
     messages.length === 0 && !isReconnecting && !hasActiveChatWork;
   const showComposerSlot =
@@ -3014,6 +3026,23 @@ const AssistantChatInner = forwardRef<
                           Refresh chat
                         </button>
                       </div>
+                    </div>
+                  ) : isRestoring && centeredRestoringState ? (
+                    <div
+                      className={cn(
+                        "agent-empty-state",
+                        emptyStateDisplay === "hidden"
+                          ? "sr-only"
+                          : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                      )}
+                      aria-busy="true"
+                    >
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                        <IconMessage className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <p className="sr-only">
+                        {emptyStateText ?? "Loading chat..."}
+                      </p>
                     </div>
                   ) : isRestoring ? (
                     <div className="flex flex-col gap-3 p-4">

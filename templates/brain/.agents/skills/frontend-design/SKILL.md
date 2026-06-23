@@ -6,6 +6,7 @@ description: >-
   applications (websites, landing pages, dashboards, React components,
   HTML/CSS layouts, or when styling/beautifying any web UI). Generates
   creative, polished UI that avoids generic AI aesthetics.
+scope: dev
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
 metadata:

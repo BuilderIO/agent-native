@@ -43,24 +43,13 @@ Start from a complete, production-grade SaaS app — cloneable, not scaffolded. 
 <tr>
 <td width="33%" align="center" valign="top">
 
-**Mail**
+**Clips**
 
-<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
-**Agent-Native Mail, Superhuman**
+**Agent-Native Loom**
 
-Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Calendar**
-
-<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
-
-**Agent-Native Google Calendar, Calendly**
-
-Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -74,8 +63,30 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 Install `/visual-plan` and `/visual-recap` so your coding agent can plan before it builds and recap changes after they land — high-level code reviews with diagrams, wireframes, annotations, and review links.
 
 </td>
+<td width="33%" align="center" valign="top">
+
+**Mail**
+
+<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
+
+**Agent-Native Mail, Superhuman**
+
+Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
+
+</td>
 </tr>
 <tr>
+<td width="33%" align="center" valign="top">
+
+**Calendar**
+
+<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
+
+**Agent-Native Google Calendar, Calendly**
+
+Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+
+</td>
 <td width="33%" align="center" valign="top">
 
 **Content**
@@ -98,6 +109,8 @@ Write and organize content with an agent that knows your brand and publishing wo
 Generate and edit React-based presentations via prompt or point-and-click.
 
 </td>
+</tr>
+<tr>
 <td width="33%" align="center" valign="top">
 
 **Video**
@@ -109,8 +122,6 @@ Generate and edit React-based presentations via prompt or point-and-click.
 Create and edit Remotion video compositions with agent assistance.
 
 </td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Analytics**
@@ -120,17 +131,6 @@ Create and edit Remotion video compositions with agent assistance.
 **Agent-Native Amplitude, Mixpanel**
 
 Connect analytics data sources, prompt for real charts, and build reusable dashboards. Shared workspace connections can provide provider credentials, while Analytics still owns metrics, source-of-truth choices, and saved analyses.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Clips**
-
-<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800" alt="Clips template" width="100%" /></a>
-
-**Agent-Native Loom**
-
-Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
 </td>
 <td width="33%" align="center" valign="top">

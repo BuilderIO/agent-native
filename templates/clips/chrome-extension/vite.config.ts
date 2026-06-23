@@ -6,6 +6,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root,
+  base: "./",
   publicDir: "public",
   build: {
     outDir: "dist",
@@ -14,6 +15,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(root, "src/background.ts"),
+        offscreen: resolve(root, "src/offscreen.html"),
         popup: resolve(root, "src/popup.html"),
         options: resolve(root, "src/options.html"),
       },

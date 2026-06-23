@@ -3,6 +3,7 @@ name: composable-mini-apps
 description: >-
   Build many focused workspace apps that compose through agent discovery and
   A2A. Use when designing headless mini-apps or cross-app workflows.
+scope: dev
 ---
 
 # Composable Mini-Apps

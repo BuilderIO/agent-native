@@ -132,6 +132,13 @@ pnpm action db-patch --table documents --column content \
   --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
+The production agent chat plugin enables raw database writes by default
+(`databaseTools: "write"`) so agents can fix app-owned data without waiting on a
+new typed action. Those writes are scoped to the authenticated user/org. Set
+`databaseTools: "read"` to keep `db-schema` / `db-query` inspection only, or
+`databaseTools: "off"` / `false` to require typed app actions for all data
+access.
+
 ## Agent chat bridge {#agent-chat-bridge}
 
 The UI never calls an LLM directly. When a user clicks "Generate chart" or "Write summary", the UI sends a message to the agent via `postMessage`. The agent does the work — with full conversation history, skills, instructions, and the ability to iterate.

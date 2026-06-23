@@ -1,16 +1,19 @@
-name: PR Visual Recap (fork, label-gated)
+name: PR Visual Recap (fork, trusted + label-gated)
 
-# Label-gated fork-safe variant of pr-visual-recap.yml.
+# Fork-safe variant of pr-visual-recap.yml.
 #
 # PURPOSE: Fork PRs cannot run the main workflow (pull_request runs without
 # secrets, so publishing fails cleanly and is skipped). This workflow lets a
-# MAINTAINER opt specific fork PRs in by applying the `recap` label after
-# reviewing the diff for prompt-injection-shaped content.
+# trusted same-org author get a recap automatically, and lets a MAINTAINER opt
+# an outside fork PR in by applying the `recap` label after reviewing the diff
+# for prompt-injection-shaped content.
 #
 # SECURITY MODEL:
 #   - Trigger: pull_request_target (has access to base-repo secrets).
-#   - Gate condition: PR is from a fork AND the `recap` label is present.
-#     Non-fork PRs are excluded — the main workflow covers them.
+#   - Gate condition: PR is from a fork AND either the author association is
+#     trusted (`OWNER`, `MEMBER`, or `COLLABORATOR`) OR this event is a fresh
+#     `recap` label application. Non-fork PRs are excluded — the main workflow
+#     covers them.
 #   - NO fork code is checked out or executed. We checkout only the BASE
 #     repository at the base ref. The diff is obtained by fetching the fork
 #     head ref as a remote ref (safe — fetching commits is not executing them)
@@ -19,14 +22,15 @@ name: PR Visual Recap (fork, label-gated)
 #     never executed. Mitigations: secret-scan (fail-closed), sensitive-path
 #     gate, and the prompt explicitly marks diff content as untrusted data.
 #   - To refresh after new fork commits, a maintainer must review the updated
-#     diff, then remove/reapply the `recap` label. A rerun only reuses the
-#     original event payload/SHA and is appropriate for transient failures on
-#     the same reviewed commit.
+#     diff, then remove/reapply the `recap` label, unless the PR author has a
+#     trusted author association. A rerun only reuses the original event
+#     payload/SHA and is appropriate for transient failures on the same reviewed
+#     commit.
 #   - Concurrency: per-PR, cancel-in-progress (mirror of main workflow).
 
 on:
   pull_request_target:
-    types: [labeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
 permissions:
   contents: read
@@ -79,10 +83,18 @@ jobs:
               reasons.push('not a fork PR — handled by pr-visual-recap.yml');
             }
 
-            // The `recap` label is the maintainer's explicit consent gate.
+            // Trusted same-org fork authors can run automatically. Outside
+            // contributors need a fresh `recap` label event for this head SHA;
+            // a stale label left on the PR is not enough after a new push.
+            const association = (pr && pr.author_association || '').toUpperCase();
+            const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const isTrustedAuthor = trustedAssociations.includes(association);
+            const eventLabel = context.payload.label && context.payload.label.name;
             const labels = (pr && pr.labels || []).map((l) => l.name);
-            if (!labels.includes('recap')) {
-              reasons.push('recap label not present — maintainer must apply it to opt in');
+            const hasRecapLabel = labels.includes('recap');
+            const freshRecapLabel = context.payload.action === 'labeled' && eventLabel === 'recap' && hasRecapLabel;
+            if (!isTrustedAuthor && !freshRecapLabel) {
+              reasons.push('external fork PR requires a maintainer to apply the recap label to the current head SHA');
             }
 
             if (pr && pr.draft) reasons.push('draft PR');
@@ -158,9 +170,10 @@ jobs:
               core.notice(`Fork visual recap skipped: ${reasons.join('; ')}`);
             }
 
-            // When skipping, upsert a sticky recap comment — same pattern as
-            // the main workflow gate.
-            if (!run && pr) {
+            // When skipping a fork PR, upsert a sticky recap comment — same
+            // pattern as the main workflow gate. Same-repo PRs are handled by
+            // pr-visual-recap.yml and must not get a fork skip comment.
+            if (!run && pr && isFork) {
               try {
                 const MARKER = '<!-- pr-visual-recap -->';
                 const { data: comments } = await github.rest.issues.listComments({
@@ -388,7 +401,7 @@ jobs:
       # Fail CLOSED: any scanner error treats the diff as suppressed.
       - name: Secret scan
         id: scan
-        if: steps.diff.outputs.tiny != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
         run: |
           set -uo pipefail
           if ! SCAN_JSON="$($RECAP_CLI recap scan --diff recap.diff --mode "$VISUAL_RECAP_SECRET_SCAN")"; then
@@ -405,6 +418,7 @@ jobs:
 
       - name: Read previous plan id
         id: prev
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -413,7 +427,7 @@ jobs:
 
       - name: Fetch plan block reference
         id: block_reference
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         run: |
           set -uo pipefail
@@ -435,7 +449,7 @@ jobs:
       # that the diff is attacker-controlled untrusted text, not instructions.
       - name: Build recap prompt
         id: prompt
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
@@ -448,7 +462,7 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
-        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -477,7 +491,7 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
-        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -511,7 +525,7 @@ jobs:
 
       - name: Publish recap source
         id: publish
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
@@ -530,7 +544,7 @@ jobs:
 
       - name: Read plan URL
         id: url
-        if: steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         run: |
           set -uo pipefail
           PLAN_URL=""
@@ -597,7 +611,7 @@ jobs:
 
       - name: Summarize agent failure
         id: agent_summary
-        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.url.outputs.ok != 'true' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}

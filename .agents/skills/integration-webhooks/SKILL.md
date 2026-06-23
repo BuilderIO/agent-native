@@ -5,6 +5,7 @@ description: >-
   Telegram, WhatsApp, email, etc.) on serverless hosts. Use when adding a new
   integration adapter, debugging dropped messages, or wiring long-running agent
   work into a webhook handler.
+scope: dev
 metadata:
   internal: true
 ---

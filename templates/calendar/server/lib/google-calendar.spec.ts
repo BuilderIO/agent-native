@@ -48,6 +48,7 @@ import {
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   listEvents,
+  listOverlayEvents,
   rsvpEvent,
   updateEvent,
 } from "./google-calendar";
@@ -228,6 +229,65 @@ describe("calendar event listing", () => {
         pageToken: "page-2",
       }),
     );
+  });
+
+  it("preserves attendee details for overlay calendars", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "overlay-1",
+          summary: "Design critique",
+          start: { dateTime: "2026-02-05T17:00:00Z" },
+          end: { dateTime: "2026-02-05T17:30:00Z" },
+          attendees: [
+            {
+              email: "host@example.com",
+              displayName: "Host Person",
+              organizer: true,
+              responseStatus: "accepted",
+            },
+            {
+              email: "guest@example.com",
+              displayName: "Guest Person",
+              responseStatus: "needsAction",
+            },
+          ],
+          organizer: {
+            email: "host@example.com",
+            displayName: "Host Person",
+          },
+        },
+      ],
+    });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["host@example.com"],
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "overlay-host@example.com-overlay-1",
+      overlayEmail: "host@example.com",
+      attendees: [
+        {
+          email: "host@example.com",
+          displayName: "Host Person",
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          displayName: "Guest Person",
+          responseStatus: "needsAction",
+        },
+      ],
+      organizer: {
+        email: "host@example.com",
+        displayName: "Host Person",
+      },
+    });
   });
 });
 

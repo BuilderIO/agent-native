@@ -5,6 +5,7 @@ description: >-
   (dashboards, documents, forms, decks, etc.). Use when making a resource
   table ownable, wiring list/read/update access checks, or dropping the
   standard share dialog into a template.
+scope: dev
 metadata:
   internal: true
 ---

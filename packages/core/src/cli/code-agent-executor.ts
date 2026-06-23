@@ -44,7 +44,7 @@ import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
 import {
   readAgentsBundleFromFs,
-  generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
 import {
   isReasoningEffort,
@@ -1544,7 +1544,7 @@ export async function buildCodeAgentSystemPrompt(
   }
 
   const repoInstructionsBlock = buildRepoInstructionsBlock(agentsMdContent);
-  const skillsBlock = generateSkillsPromptBlock(bundle);
+  const skillsBlock = generateDevelopmentSkillsPromptBlock(bundle);
 
   return codeAgentSystemPrompt(
     cwd,

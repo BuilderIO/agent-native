@@ -69,7 +69,10 @@ export function StorageSetupCard({
     setConnecting(true);
     setErr(null);
 
-    openBuilderConnectPopup({ source: "clips_storage_setup_card" });
+    openBuilderConnectPopup({
+      source: "clips_file_upload_storage_setup_card",
+      flow: "file_upload",
+    });
 
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;

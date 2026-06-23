@@ -4,6 +4,7 @@ description: >-
   Server-side analytics tracking with pluggable providers. Use when adding
   analytics events, registering custom tracking providers, or configuring
   built-in providers (PostHog, Mixpanel, Amplitude, Webhook).
+scope: dev
 metadata:
   internal: true
 ---

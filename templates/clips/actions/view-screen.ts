@@ -140,8 +140,6 @@ async function fetchLibrary(folderId?: string) {
   ];
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
-  } else {
-    conditions.push(isNull(schema.recordings.folderId));
   }
   const rows = await db
     .select()
@@ -437,7 +435,7 @@ export default defineAction({
     )) as NavigationState | null;
     const playerState = await readAppState("player-state");
     const editorDraft = await readAppState("editor-draft");
-    const selection = await readAppState("selection");
+    const selection = await readAppStateForCurrentTab("selection");
     const organizationId = await getActiveOrganizationId();
     const recordIntent = await readAppState("record-intent");
     const recordingSetup = await readAppState("recording-setup");

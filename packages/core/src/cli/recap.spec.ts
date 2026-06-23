@@ -1714,6 +1714,43 @@ describe("recap gate decision", () => {
     expect(result.reasons.join(" ")).toContain(".claude/settings.json");
   });
 
+  it("allows trusted public same-repo authors to edit agent instructions as reviewable content", () => {
+    const result = evaluateRecapGate(
+      ok({
+        repository: "BuilderIO/agent-native",
+        repositoryPrivate: false,
+        pr: {
+          number: 7,
+          draft: false,
+          author_association: "MEMBER",
+          head: { repo: { full_name: "BuilderIO/agent-native" } },
+          user: { login: "octocat", type: "User" },
+        },
+        changedFiles: ["packages/core/docs/AGENTS.md"],
+      }),
+    );
+    expect(result.run).toBe(true);
+  });
+
+  it("keeps the sensitive-path guard for untrusted public same-repo authors", () => {
+    const result = evaluateRecapGate(
+      ok({
+        repository: "BuilderIO/agent-native",
+        repositoryPrivate: false,
+        pr: {
+          number: 7,
+          draft: false,
+          author_association: "NONE",
+          head: { repo: { full_name: "BuilderIO/agent-native" } },
+          user: { login: "octocat", type: "User" },
+        },
+        changedFiles: ["packages/core/docs/AGENTS.md"],
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons.join(" ")).toContain("packages/core/docs/AGENTS.md");
+  });
+
   it("truncates the listed recap-control hits to 3 with an ellipsis", () => {
     const result = evaluateRecapGate(
       ok({
@@ -1978,6 +2015,15 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Fetch pull request head");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'git fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--head refs/recap/pr-head");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("isTrustedAuthor");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "steps.route_health.outputs.unhealthy != 'true'",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "--source-type pull-request",
     );
@@ -2511,6 +2557,10 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("secret scan failed");
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
+    expect(content).toContain("isTrustedAuthor");
+    expect(content).toContain("Fetch pull request head");
+    expect(content).toContain("--head refs/recap/pr-head");
+    expect(content).toContain("steps.route_health.outputs.unhealthy != 'true'");
     // Concurrency group to cancel stale runs.
     expect(content).toContain("concurrency:");
     expect(content).toContain("cancel-in-progress: true");
@@ -2883,6 +2933,17 @@ describe("reusable vs copy workflow step-sequence parity", () => {
 
   it("fork workflow fetches blocks, then authors source, then publishes deterministically", () => {
     const content = fs.readFileSync(forkFile, "utf8");
+    expect(content).toContain(
+      "types: [opened, synchronize, reopened, ready_for_review, labeled]",
+    );
+    expect(content).toContain("const trustedAssociations = [");
+    expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");
+    expect(content).toContain("freshRecapLabel");
+    expect(content).toContain(
+      "external fork PR requires a maintainer to apply the recap label to the current head SHA",
+    );
+    expect(content).toContain("if (!run && pr && isFork)");
+    expect(content).toContain("steps.route_health.outputs.unhealthy != 'true'");
     expect(content).toContain("Fetch plan block reference");
     expect(content).toContain(
       'recap block-reference --app-url "$PLAN_RECAP_APP_URL" --out recap-blocks.md',

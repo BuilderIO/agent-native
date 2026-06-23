@@ -10,6 +10,10 @@ import type { ActionTool } from "../../agent/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
 import { dbExecToolParameters } from "../db/tool-schemas.js";
+import {
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../db/tool-mode.js";
 import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
@@ -62,27 +66,58 @@ function wrapCliScript(
   };
 }
 
+function blockedDatabaseActionFromBash(
+  command: string,
+  databaseToolsMode: ReturnType<typeof normalizeDatabaseToolsMode>,
+): string | null {
+  if (databaseToolsMode === "write") return null;
+
+  const actionMatch = command
+    .toLowerCase()
+    .match(/\b(?:pnpm|npm|yarn|bun)(?:\s+\S+){0,4}\s+action\s+(db-[a-z-]+)\b/);
+  const actionName = actionMatch?.[1];
+  if (!actionName) return null;
+
+  if (databaseToolsMode === "off" && actionName.startsWith("db-")) {
+    return `Error: raw database tools are disabled for this app (blocked ${actionName}).`;
+  }
+
+  if (
+    databaseToolsMode === "read" &&
+    (actionName === "db-exec" || actionName === "db-patch")
+  ) {
+    return `Error: raw database write tools are disabled for this app (blocked ${actionName}).`;
+  }
+
+  return null;
+}
+
 /**
  * Creates the dev-mode script registry with shared bash/read/edit/write
  * coding tools and database tools. Call this and merge with your app's registry
  * when NODE_ENV !== "production".
  */
 export async function createDevScriptRegistry(
-  options: { legacyAliases?: boolean; databaseTools?: boolean } = {},
+  options: {
+    legacyAliases?: boolean;
+    databaseTools?: DatabaseToolsOption;
+  } = {},
 ): Promise<Record<string, ActionEntry>> {
   // Lazy-import DB scripts to avoid requiring libsql in non-DB apps
   let dbEntries: Record<string, ActionEntry> = {};
-  if (options.databaseTools !== false) {
+  const databaseToolsMode = normalizeDatabaseToolsMode(options.databaseTools);
+  const databaseWriteToolsEnabled = databaseToolsMode === "write";
+  if (databaseToolsMode !== "off") {
     try {
       // Dynamic imports — these are part of @agent-native/core
-      const [dbSchema, dbQuery, dbExec, dbPatch, dbCheckScoping] =
-        await Promise.all([
-          import("../db/schema.js"),
-          import("../db/query.js"),
-          import("../db/exec.js"),
-          import("../db/patch.js"),
-          import("../db/check-scoping.js"),
-        ]);
+      const [dbSchema, dbQuery, dbCheckScoping] = await Promise.all([
+        import("../db/schema.js"),
+        import("../db/query.js"),
+        import("../db/check-scoping.js"),
+      ]);
+      const [dbExec, dbPatch] = databaseWriteToolsEnabled
+        ? await Promise.all([import("../db/exec.js"), import("../db/patch.js")])
+        : [null, null];
 
       dbEntries = {
         "db-schema": wrapCliScript(
@@ -133,15 +168,42 @@ export async function createDevScriptRegistry(
           dbQuery.default,
           { readOnly: true },
         ),
-        "db-exec": wrapCliScript(
+        "db-check-scoping": wrapCliScript(
+          {
+            description:
+              "Validate that all template tables have owner_email and org_id columns for data scoping",
+            parameters: {
+              type: "object",
+              properties: {
+                "require-org": {
+                  type: "string",
+                  description:
+                    'Set to "true" to also require org_id columns (for multi-org apps)',
+                  enum: ["true", "false"],
+                },
+                format: {
+                  type: "string",
+                  description:
+                    'Output format: "json" or "text" (default: text)',
+                  enum: ["json", "text"],
+                },
+              },
+            },
+          },
+          dbCheckScoping.default,
+          { readOnly: true },
+        ),
+      };
+      if (dbExec && dbPatch) {
+        dbEntries["db-exec"] = wrapCliScript(
           {
             description:
               "Execute app-database write SQL (INSERT, UPDATE, DELETE, REPLACE). For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code.",
             parameters: dbExecToolParameters(),
           },
           dbExec.default,
-        ),
-        "db-patch": wrapCliScript(
+        );
+        dbEntries["db-patch"] = wrapCliScript(
           {
             description:
               "Surgical search-and-replace on a text column in a SQL table. Prefer over `db-exec UPDATE` for large text fields (documents, slides, dashboards, JSON blobs) where you only need to change a small slice — avoids re-sending the full column value. Targets exactly one row at a time (narrow --where by primary key). If a template-specific action exists for the table (e.g. `edit-document`, `update-slide`), use that instead — it will also push live updates to open collaborative editors.",
@@ -195,33 +257,8 @@ export async function createDevScriptRegistry(
             },
           },
           dbPatch.default,
-        ),
-        "db-check-scoping": wrapCliScript(
-          {
-            description:
-              "Validate that all template tables have owner_email and org_id columns for data scoping",
-            parameters: {
-              type: "object",
-              properties: {
-                "require-org": {
-                  type: "string",
-                  description:
-                    'Set to "true" to also require org_id columns (for multi-org apps)',
-                  enum: ["true", "false"],
-                },
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "text" (default: text)',
-                  enum: ["json", "text"],
-                },
-              },
-            },
-          },
-          dbCheckScoping.default,
-          { readOnly: true },
-        ),
-      };
+        );
+      }
     } catch {
       // DB scripts not available (no libsql) — skip silently
     }
@@ -230,6 +267,8 @@ export async function createDevScriptRegistry(
   const codingEntries = createCodingToolRegistry({
     cwd: process.cwd(),
     bashThrowsOnNonZero: true,
+    beforeBash: ({ command }) =>
+      blockedDatabaseActionFromBash(command, databaseToolsMode),
   });
   const legacyEntries: Record<string, ActionEntry> = options.legacyAliases
     ? {

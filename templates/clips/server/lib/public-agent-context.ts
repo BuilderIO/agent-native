@@ -50,6 +50,16 @@ export type PublicAgentAccessResult =
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 
+export class RecordingMediaFetchError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode = 502,
+  ) {
+    super(message);
+    this.name = "RecordingMediaFetchError";
+  }
+}
+
 export function getServerAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
   const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
@@ -478,6 +488,22 @@ function pickSourceMimeType(
   return actual ?? fallback;
 }
 
+function statusCodeForMediaFetchError(err: unknown): number {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) return 403;
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) return 504;
+  return 502;
+}
+
+function messageForMediaFetchError(err: unknown): string {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) {
+    return "Recording media URL is blocked by server safety policy.";
+  }
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) {
+    return "Recording media fetch timed out.";
+  }
+  return "Recording media could not be fetched.";
+}
+
 export async function loadRecordingMediaBytes(
   recording: PublicAgentRecording,
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
@@ -525,17 +551,26 @@ export async function loadRecordingMediaBytes(
     resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
   }
 
-  const response = isAppRelativeUrl
-    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
-    : await ssrfSafeFetch(
-        resolvedVideoUrl,
-        { signal: AbortSignal.timeout(30_000) },
-        { maxRedirects: 3 },
-      );
+  let response: Response;
+  try {
+    response = isAppRelativeUrl
+      ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+      : await ssrfSafeFetch(
+          resolvedVideoUrl,
+          { signal: AbortSignal.timeout(30_000) },
+          { maxRedirects: 3 },
+        );
+  } catch (err) {
+    throw new RecordingMediaFetchError(
+      messageForMediaFetchError(err),
+      statusCodeForMediaFetchError(err),
+    );
+  }
 
   if (!response.ok) {
-    throw new Error(
-      `Failed to fetch videoUrl: HTTP ${response.status} ${response.statusText}`,
+    throw new RecordingMediaFetchError(
+      `Recording media fetch failed: HTTP ${response.status} ${response.statusText}`,
+      response.status,
     );
   }
 
