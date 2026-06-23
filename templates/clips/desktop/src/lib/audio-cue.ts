@@ -14,6 +14,8 @@
  */
 
 export interface AudioCue {
+  /** Play the cue during the countdown once recording is about one second out. */
+  playCountdownCue(): Promise<void>;
   /**
    * Play the cue (bounded by a timeout) and wait a short settle so the tone
    * sits just before capture rather than inside the recording. Safe to await
@@ -36,6 +38,7 @@ function wait(ms: number): Promise<void> {
 
 /** A cue that does nothing — used when Web Audio is unavailable. */
 const noopAudioCue: AudioCue = {
+  async playCountdownCue() {},
   async playBeforeCapture() {},
   cleanup() {},
 };
@@ -141,6 +144,7 @@ export function createAudioCue(): AudioCue {
     idleTimer = window.setTimeout(cleanup, CUE_IDLE_CLEANUP_MS);
 
     return {
+      playCountdownCue: play,
       playBeforeCapture: () => playBeforeCapture(play, cleanup),
       cleanup,
     };

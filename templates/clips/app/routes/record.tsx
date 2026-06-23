@@ -43,6 +43,10 @@ import {
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
 import {
+  createCountdownAudioCue,
+  type CountdownAudioCue,
+} from "@/lib/countdown-audio-cue";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -785,6 +789,7 @@ export default function RecordRoute() {
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
+  const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
   // Stable ref to doStop so engine callbacks created during startFlow always
   // call the latest version (avoids stale-closure problems with useCallback deps).
@@ -890,6 +895,8 @@ export default function RecordRoute() {
       startSessionRef.current = session;
       const isStale = () => startSessionRef.current !== session;
 
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = createCountdownAudioCue();
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
@@ -1105,6 +1112,8 @@ export default function RecordRoute() {
         } catch {
           // ignore
         }
+        countdownAudioCueRef.current?.cleanup();
+        countdownAudioCueRef.current = null;
         pendingRef.current = null;
         engineRef.current = null;
         if (pickerDismissed) {
@@ -1545,6 +1554,8 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current =
         extensionCapture && !extensionCapture.developerLogsEnabled
@@ -1570,6 +1581,8 @@ export default function RecordRoute() {
       browserDiagnosticsRef.current = null;
       const message =
         err instanceof Error ? err.message : "Could not start recorder";
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       setError(message);
       setUiState("error");
       showRecordingErrorToast(message);
@@ -1755,6 +1768,8 @@ export default function RecordRoute() {
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
+    countdownAudioCueRef.current?.cleanup();
+    countdownAudioCueRef.current = null;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
@@ -1789,6 +1804,10 @@ export default function RecordRoute() {
     pendingRef.current = null;
     engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
+
+  const playCountdownAudioCue = useCallback(() => {
+    void countdownAudioCueRef.current?.play();
+  }, []);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -2034,6 +2053,7 @@ export default function RecordRoute() {
       {uiState === "countdown" && (
         <CountdownOverlay
           seconds={3}
+          onOneSecond={playCountdownAudioCue}
           onComplete={onCountdownComplete}
           onCancel={doCancel}
         />
