@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -412,6 +414,18 @@ describe("PlanContentRenderer recap changed files", () => {
     });
 
     expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("sizes wide recap blocks from the document container, not the viewport", () => {
+    const css = readFileSync(join(process.cwd(), "app/global.css"), "utf8");
+
+    expect(css).toContain("@container plan-doc (min-width: 64rem)");
+    expect(css).toContain(
+      "--plan-wide-component-width: min(1560px, calc(100cqw - 5rem));",
+    );
+    expect(css).not.toContain(
+      "--plan-wide-component-width: min(1560px, calc(100vw - 5rem));",
+    );
   });
 
   it("scrolls inline recap file rows to matching wide diff blocks", () => {

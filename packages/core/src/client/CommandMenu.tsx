@@ -101,6 +101,7 @@ interface CommandItemProps {
   children: ReactNode;
   keywords?: string[];
   className?: string;
+  deferSelect?: boolean;
 }
 
 function CommandItem({
@@ -108,12 +109,19 @@ function CommandItem({
   children,
   keywords: _keywords,
   className,
+  deferSelect = true,
 }: CommandItemProps) {
   const { onOpenChange, containerRef, setSelectedIndex } =
     useCommandMenuContext();
   const itemRef = useRef<HTMLDivElement>(null);
 
   const handleSelect = () => {
+    if (!deferSelect) {
+      onSelect();
+      onOpenChange(false);
+      return;
+    }
+
     onOpenChange(false);
     // Small delay to let dialog close animation start
     setTimeout(onSelect, 50);
@@ -207,6 +215,7 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
           key={doc.href}
           onSelect={() => openDocsHref(doc.href)}
           keywords={[doc.title, doc.description ?? "", ...(doc.keywords ?? [])]}
+          deferSelect={false}
           className="items-start py-2"
         >
           <IconBook2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />

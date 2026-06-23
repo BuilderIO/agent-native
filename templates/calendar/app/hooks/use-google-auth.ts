@@ -192,16 +192,26 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
       const flowId =
         globalThis.crypto?.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
-      const endpoint = startOptions.addAccount
-        ? "/_agent-native/google/add-account/auth-url"
-        : "/_agent-native/google/auth-url";
-      const redirectUri = encodeURIComponent(
-        oauthRedirectUri("/_agent-native/google/callback"),
-      );
-      window.open(
-        `${window.location.origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-        "_blank",
-      );
+      const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
+      const params = new URLSearchParams({
+        redirect_uri: redirectUri,
+        desktop: "1",
+        flow_id: flowId,
+      });
+      let popup: Window | null = null;
+      const reportError = (issue: DesktopAuthIssue) => {
+        clearPoll();
+        setIsPending(false);
+        onError?.(issue);
+      };
+      const openAuthUrl = (url: string) => {
+        if (popup && !popup.closed) {
+          popup.location.href = url;
+          return true;
+        }
+        popup = window.open(url, "_blank");
+        return !!popup;
+      };
 
       const startedAt = Date.now();
       const finish = async (result: DesktopAuthResult = {}) => {
@@ -209,6 +219,51 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         setIsPending(false);
         await onSuccess?.(result);
       };
+
+      if (startOptions.addAccount) {
+        popup = window.open("about:blank", "_blank");
+        void (async () => {
+          try {
+            const { url } = await fetchJson<{ url: string }>(
+              agentNativePath(
+                `/_agent-native/google/add-account/auth-url?${params.toString()}`,
+              ),
+              { credentials: "include" },
+            );
+            if (!openAuthUrl(url)) {
+              reportError({
+                code: "popup_blocked",
+                message:
+                  "Calendar could not open Google sign-in. Allow popups and try again.",
+              });
+            }
+          } catch (err) {
+            popup?.close();
+            reportError({
+              code: "desktop_auth_start_failed",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Could not start Google sign-in.",
+            });
+          }
+        })();
+      } else {
+        params.set("redirect", "1");
+        const opened = openAuthUrl(
+          `${window.location.origin}${agentNativePath(
+            "/_agent-native/google/auth-url",
+          )}?${params.toString()}`,
+        );
+        if (!opened) {
+          reportError({
+            code: "popup_blocked",
+            message:
+              "Calendar could not open Google sign-in. Allow popups and try again.",
+          });
+          return true;
+        }
+      }
 
       pollRef.current = setInterval(async () => {
         try {
@@ -260,8 +315,11 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         }
 
         if (Date.now() - startedAt > timeoutMs) {
-          clearPoll();
-          setIsPending(false);
+          reportError({
+            code: "desktop_auth_timeout",
+            message:
+              "Google sign-in timed out. Finish sign-in in the browser or try again.",
+          });
         }
       }, 1500);
 
