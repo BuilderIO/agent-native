@@ -100,4 +100,65 @@ describe("blockFieldSaveController", () => {
     expect(c.pending).toBe("agent edit");
     expect(save).not.toHaveBeenCalled();
   });
+
+  it("ignores a stale earlier save that resolves AFTER a newer save (lost-update guard)", async () => {
+    // Save A is slow; save B is issued later and resolves first. When A finally
+    // resolves it must NOT overwrite B's newer value.
+    const resolvers: Array<() => void> = [];
+    const save = vi.fn(
+      (content: string) =>
+        new Promise<void>((resolve) => {
+          resolvers.push(() => resolve());
+          void content;
+        }),
+    );
+    const c = createBlockFieldSaveController({ initialContent: "", save });
+
+    // A: type "old", let the debounce fire (in flight, unresolved).
+    c.change("old");
+    vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenNthCalledWith(1, "old");
+
+    // B: type "new", let its debounce fire too (also in flight).
+    c.change("new");
+    vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenNthCalledWith(2, "new");
+
+    // B (the newer save) resolves first.
+    resolvers[1]();
+    await vi.runAllTicks();
+    expect(c.lastSaved).toBe("new");
+
+    // A (the stale older save) resolves last — must be ignored.
+    resolvers[0]();
+    await vi.runAllTicks();
+    expect(c.lastSaved).toBe("new");
+  });
+
+  it("flush persists the LATEST content even with an earlier save in flight", async () => {
+    const resolvers: Array<() => void> = [];
+    const save = vi.fn(
+      () => new Promise<void>((resolve) => resolvers.push(() => resolve())),
+    );
+    const c = createBlockFieldSaveController({ initialContent: "", save });
+
+    // First edit fires a debounced save that is still in flight.
+    c.change("first");
+    vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenNthCalledWith(1, "first");
+
+    // User types more, then unmount-flushes before the debounce fires.
+    c.change("second");
+    c.flush();
+    expect(save).toHaveBeenNthCalledWith(2, "second");
+
+    // The earlier (stale) save resolves first, then the flush save resolves.
+    resolvers[0]();
+    await vi.runAllTicks();
+    resolvers[1]();
+    await vi.runAllTicks();
+
+    // Deterministically the latest content wins, regardless of resolve order.
+    expect(c.lastSaved).toBe("second");
+  });
 });

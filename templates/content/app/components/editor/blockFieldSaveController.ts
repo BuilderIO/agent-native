@@ -10,6 +10,12 @@
 //    collapse so a debounce that has not fired yet is not dropped (finding 3).
 //  - mark() adopts fresh server content as the new confirmed baseline (e.g. an
 //    agent edit) without scheduling a save.
+//  - Every save carries a monotonic sequence number. Only the result of the
+//    LATEST issued save is allowed to win: a slower earlier save (A) that
+//    resolves after a newer save (B) is ignored, so a stale write can never
+//    overwrite newer content (lost-update guard). flush() supersedes any
+//    in-flight save by issuing the latest content as the newest sequence, so the
+//    final persisted value is deterministically the latest content.
 
 export interface BlockFieldSaveController {
   /** Record a user edit. Schedules a debounced save when the value is dirty. */
@@ -43,6 +49,11 @@ export function createBlockFieldSaveController(args: {
   let lastSaved = args.initialContent;
   let pending = args.initialContent;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // Monotonic id assigned to each issued save; the most recent one to be issued.
+  let issuedSeq = 0;
+  // The highest sequence whose result has already been applied (committed or
+  // failed). A save older than this is stale and must not touch lastSaved.
+  let settledSeq = 0;
 
   function clearTimer() {
     if (timer !== null) {
@@ -53,16 +64,25 @@ export function createBlockFieldSaveController(args: {
 
   function persist(content: string) {
     if (content === lastSaved) return;
-    // Capture the attempted value so a flush mid-flight does not re-submit it.
+    // Capture the attempted value so a flush mid-flight does not re-submit it,
+    // and a sequence so a slower earlier save can never overwrite a newer one.
     const attempted = content;
+    const seq = ++issuedSeq;
     void Promise.resolve(args.save(attempted))
       .then(() => {
+        // Ignore a stale save that resolved after a newer save was issued — its
+        // value is older than what the user has since committed.
+        if (seq < settledSeq) return;
+        settledSeq = seq;
         // Mark clean ONLY after the save actually succeeds.
         lastSaved = attempted;
       })
       .catch((error) => {
-        // Leave lastSaved behind so the value stays dirty and retries on the
-        // next edit or flush; never record a failed save as clean.
+        // A failed save never records its value as clean, so the content stays
+        // dirty and retries on the next edit or flush (finding 6). Still advance
+        // settledSeq so an even-older save can't later "win", but only if this is
+        // not itself already superseded.
+        if (seq >= settledSeq) settledSeq = seq;
         args.onError?.(error);
       });
   }

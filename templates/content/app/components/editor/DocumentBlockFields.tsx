@@ -6,8 +6,10 @@ import { useReorderDocumentProperty } from "@/hooks/use-document-properties";
 import { useSetDocumentProperty } from "@/hooks/use-document-properties";
 import {
   blocksRenderMode,
+  blocksStorageTarget,
   isBlocksPropertyType,
   isPrimaryBlocksField,
+  type BlocksStorageTarget,
 } from "@shared/properties";
 import type { DocumentProperty } from "@shared/api";
 import { VisualEditor } from "./VisualEditor";
@@ -30,6 +32,22 @@ export function blockFieldsFromProperties(
   return properties
     .filter((property) => isBlocksPropertyType(property.definition.type))
     .sort((a, b) => a.definition.position - b.definition.position);
+}
+
+// Which storage backs the SOLO (chromeless) editor for a given set of Blocks
+// fields. Solo does NOT imply primary: if the lone surviving field is a
+// non-primary field (its primary "Content" sibling was deleted), the chromeless
+// editor must read AND write the block-field store, not the document body. While
+// fields are still loading (none yet) default to the body so the primary editor
+// shows without a flash. Returns null when not in solo mode.
+export function soloBlocksStorageTarget(
+  blockFields: DocumentProperty[],
+): BlocksStorageTarget | null {
+  if (blocksRenderMode(blockFields.length) !== "solo") return null;
+  const soloField = blockFields[0];
+  // No field loaded yet → treat as the primary body editor (loading fallback).
+  if (!soloField) return "document_body";
+  return blocksStorageTarget(soloField.definition.options);
 }
 
 /**
@@ -55,9 +73,29 @@ export function DocumentBlockFields({
     [properties],
   );
 
-  // Until properties load, render the primary editor chromelessly so the body
-  // is never hidden behind a loading flash (matches the solo default).
-  if (blocksRenderMode(blockFields.length) === "solo") {
+  // Solo (chromeless: no header) — but solo does NOT mean primary. The sole
+  // field can be a non-primary Blocks field (e.g. the primary "Content" field
+  // was deleted while a non-primary field survives). Bind reads AND writes to
+  // WHICHEVER field is solo:
+  //   - primary  → the collaborative body editor backed by `documents.content`
+  //   - non-primary → the debounced block-field-store editor (same path the
+  //     additional-field editor uses), just rendered without the shell.
+  // While properties load (blockFields empty) fall back to the primary editor
+  // so the body is never hidden behind a loading flash.
+  const soloTarget = soloBlocksStorageTarget(blockFields);
+  if (soloTarget !== null) {
+    const soloField = blockFields[0];
+    if (soloField && soloTarget === "block_field_store") {
+      return (
+        <div className="grid gap-1">
+          <AdditionalBlockEditor
+            documentId={documentId}
+            property={soloField}
+            canEdit={canEdit}
+          />
+        </div>
+      );
+    }
     return <div className="grid gap-1">{primaryEditor}</div>;
   }
 
