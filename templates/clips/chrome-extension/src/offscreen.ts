@@ -3,11 +3,11 @@
 // This document holds the getDisplayMedia()/getUserMedia() stream and the
 // MediaRecorder. Living in an offscreen document (reason DISPLAY_MEDIA) is what
 // lets a recording survive page navigations — the capture is decoupled from any
-// tab. The camera bubble and controls are rendered as on-page overlays by the
-// content script, so we no longer composite the camera into a canvas here; for
-// screen modes we record the display stream directly (+ mixed mic audio), and
-// the bubble shows up in the recording naturally when a full screen/window/tab
-// surface that contains it is captured.
+// tab. Controls render as on-page overlays. For SCREEN+CAMERA we capture the
+// camera HERE and composite it (canvas) into the recording, because the on-page
+// bubble can't get the camera on pages that send `Permissions-Policy: camera=()`
+// (an iframe can't escape its parent's policy). Screen-only records the display
+// directly; camera-only records the webcam directly.
 //
 // Lifecycle: ACQUIRE (show picker, hold stream) → BEGIN (start recorder after
 // the countdown) → PAUSE/RESUME → STOP/CANCEL, plus RESTART (discard and start

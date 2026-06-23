@@ -311,6 +311,7 @@ async function restoreRuntimeState(): Promise<void> {
         baseElapsedMs?: number;
         baseEpochMs?: number;
         showsBubble?: boolean;
+        recordingShowsBubble?: boolean;
         countdownEndsAtMs?: number;
       }
     | undefined;

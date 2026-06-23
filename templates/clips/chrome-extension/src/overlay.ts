@@ -84,12 +84,23 @@ async function initBubble(): Promise<void> {
   root.appendChild(bubble);
 
   try {
+    const videoDeviceId = await new Promise<string>((resolve) => {
+      try {
+        chrome.storage.sync.get("videoDeviceId", (v) =>
+          resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
+        );
+      } catch {
+        resolve("");
+      }
+    });
+    const videoConstraint: MediaTrackConstraints = {
+      width: { ideal: 640 },
+      height: { ideal: 640 },
+    };
+    if (videoDeviceId) videoConstraint.deviceId = { exact: videoDeviceId };
+    else videoConstraint.facingMode = "user";
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 640 },
-        height: { ideal: 640 },
-        facingMode: "user",
-      },
+      video: videoConstraint,
       audio: false,
     });
     const video = document.createElement("video");
