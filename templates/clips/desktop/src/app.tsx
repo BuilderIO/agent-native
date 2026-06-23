@@ -2347,7 +2347,7 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-{latest.kind === "native" && latest.corrupt ? (
+        {latest.kind === "native" && latest.corrupt ? (
           <button
             type="button"
             className="pending-upload-discard"
