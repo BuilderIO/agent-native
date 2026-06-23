@@ -2923,6 +2923,11 @@ async function startRecordingInner(
       }
       await thumbnailUploadPromise;
 
+      if (popoverOwnsCamera) {
+        console.log("[clips-recorder] releasing popover camera");
+        emit("clips:release-camera").catch(() => {});
+      }
+
       const videoSettings = uploadPrimaryVideo.stream
         .getVideoTracks()[0]
         ?.getSettings();

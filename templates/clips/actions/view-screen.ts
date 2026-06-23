@@ -11,7 +11,10 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -427,7 +430,9 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = (await readAppState(
+    // Scoped to the requesting browser tab so each tab exposes the clip IT is
+    // showing, falling back to the global key for CLI/external agents.
+    const navigation = (await readAppStateForCurrentTab(
       "navigation",
     )) as NavigationState | null;
     const playerState = await readAppState("player-state");

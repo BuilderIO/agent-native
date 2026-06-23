@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 import getLibrary from "./get-library.js";
 import getAsset from "./get-asset.js";
@@ -19,7 +22,7 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const [navigation, variants, legacyVariants] = await Promise.all([
-      readAppState("navigation"),
+      readAppStateForCurrentTab("navigation"),
       readAppState("asset-variants"),
       readAppState("image-variants").catch(() => null),
     ]);

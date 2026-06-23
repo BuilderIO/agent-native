@@ -9,7 +9,7 @@ import {
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useQueryClient } from "@tanstack/react-query";
-import { useDbSync } from "@agent-native/core/client";
+import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   CommandMenu,
@@ -74,8 +74,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
@@ -91,7 +89,7 @@ function DbSyncSetup() {
       "workspace",
       "insights",
     ],
-    ignoreSource: TAB_ID,
+    ignoreSource: getBrowserTabId(),
   });
   return null;
 }
