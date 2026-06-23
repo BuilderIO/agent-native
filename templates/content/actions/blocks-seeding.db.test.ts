@@ -34,7 +34,7 @@ beforeAll(async () => {
   databaseUtils = await import("./_database-utils.js");
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
-});
+}, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
 
 afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
