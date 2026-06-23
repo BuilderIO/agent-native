@@ -1087,7 +1087,7 @@ export function embedApp(
     }
 
     function shouldRenderControlledAppFrame() {
-      return !!openAiBridge || isChatGptSandboxHost();
+      return !!openAiBridge || !!app || isChatGptSandboxHost();
     }
 
     function navigateToAppFrame(src) {
@@ -1301,7 +1301,7 @@ export function embedApp(
     }
 
     async function launchEmbed() {
-      const launchUrl = openStartUrl || openUrl;
+      let launchUrl = openStartUrl || openUrl;
       if (!launchUrl) {
         setMessage("Open link was not available.");
         return;
@@ -1310,11 +1310,18 @@ export function embedApp(
         setMessage("Ready to open.");
         return;
       }
-      if (startedFor === launchUrl) return;
-      startedFor = launchUrl;
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
+        if (
+          isEmbedStartUrl(launchUrl) &&
+          openUrl &&
+          !isEmbedStartUrl(openUrl)
+        ) {
+          launchUrl = openUrl;
+        }
+        if (startedFor === launchUrl) return;
+        startedFor = launchUrl;
         const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (shouldTransplantAppDocument()) {

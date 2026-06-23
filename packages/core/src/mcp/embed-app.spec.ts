@@ -50,7 +50,8 @@ describe("embedApp", () => {
     expect(html).toContain("return { error: text.trim() };");
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
-    expect(html).toContain("const launchUrl = openStartUrl || openUrl");
+    expect(html).toContain("let launchUrl = openStartUrl || openUrl");
+    expect(html).toContain("launchUrl = openUrl;");
     expect(html).toContain("if (openUrl || openStartUrl)");
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("function renderModeSource()");
@@ -62,7 +63,9 @@ describe("embedApp", () => {
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
     expect(html).toContain("window.location.replace(src)");
-    expect(html).toContain("return !!openAiBridge || isChatGptSandboxHost();");
+    expect(html).toContain(
+      "return !!openAiBridge || !!app || isChatGptSandboxHost();",
+    );
     expect(html).toContain("shouldTransplantAppDocument");
     expect(html).toContain("isClaudeMcpContentHost");
     expect(html).toContain("transplantAppDocument");
