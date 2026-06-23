@@ -204,8 +204,8 @@ let activeNativeRecording: NativeRecording | null = null;
 // show; the timer base lets every overlay iframe tick the same clock locally.
 
 type CaptureMode = "screen" | "camera";
-type OverlayPhase = "idle" | "countdown" | "recording" | "paused";
-type OverlayPart = "bubble" | "countdown" | "toolbar";
+type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
+type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
@@ -214,17 +214,17 @@ let overlayShowsBubble = false;
 let countdownEndsAtMs = 0;
 
 function desiredParts(): OverlayPart[] {
-  // We deliberately do NOT inject the control toolbar on the page: anything over
-  // the page would be captured in full-screen/window recordings. The face is
-  // meant to be in-frame and the countdown is gone before recording starts, so
-  // only those get injected. Stop/pause/discard live in the toolbar popup, which
-  // is never captured. (The "toolbar" part still exists in the overlay code and
-  // can be re-enabled here if we ever want in-page controls for tab-only mode.)
+  // The on-page controls match the desktop app: a left-edge vertical pill plus
+  // the face bubble. (Both are captured in full-screen/window recordings — same
+  // tradeoff as the desktop's on-screen controls; that's the intended UX.)
   if (overlayPhase === "countdown") {
     return overlayShowsBubble ? ["bubble", "countdown"] : ["countdown"];
   }
   if (overlayPhase === "recording" || overlayPhase === "paused") {
-    return overlayShowsBubble ? ["bubble"] : [];
+    return overlayShowsBubble ? ["bubble", "toolbar"] : ["toolbar"];
+  }
+  if (overlayPhase === "saving") {
+    return ["saving"];
   }
   return [];
 }
@@ -1153,13 +1153,41 @@ async function resetRecordingChunks(
   return Boolean(response?.ok);
 }
 
+// Finalize a successful save: open the clip and tear down the "Saving…" overlay.
+// Guarded + claims the phase synchronously so it runs exactly once even if both
+// the STOP response and the offscreen "complete" status race to call it (the
+// latter is the safety net when the worker was suspended mid-upload).
+async function finishSaving(
+  recording: NativeRecording,
+  recordingIdFromStatus?: string,
+): Promise<boolean> {
+  if (overlayPhase !== "saving") return false;
+  resetOverlay(); // first statement sets overlayPhase = "idle" synchronously
+  recording.status = "complete";
+  recording.error = null;
+  if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
+  recording.recordingUrl = recordingUrl(recording);
+  await saveNativeDiagnostics(recording);
+  await deleteSession(recording.sessionId);
+  await broadcastUnmount();
+  broadcastOverlayState();
+  await clearNativeRecording();
+  await createTab(recording.recordingUrl);
+  return true;
+}
+
 async function stopRecording() {
   const recording = activeNativeRecording;
   if (!recording) return { ok: false, error: "No active Clips recording." };
   recording.status = "stopping";
-  resetOverlay();
+  // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
+  // so the user has feedback during the upload gap (instead of everything
+  // vanishing while the clip uploads invisibly). Mirrors the desktop Finalizing
+  // overlay. The popup stays disabled so the icon can't interrupt the save.
+  overlayPhase = "saving";
+  countdownEndsAtMs = 0;
   await saveActiveNativeRecording();
-  await broadcastUnmount();
+  await broadcastMount();
   broadcastOverlayState();
   try {
     const response = await sendOffscreenMessage<{
@@ -1185,19 +1213,17 @@ async function stopRecording() {
         "trash-recording",
         { id: recording.recordingId },
       ).catch(() => undefined);
+      resetOverlay();
+      await broadcastUnmount();
+      broadcastOverlayState();
       await clearNativeRecording();
       return { ok: true, cancelled: true };
     }
-    recording.status = "complete";
-    recording.error = null;
-    if (response.result && typeof response.result.recordingId === "string") {
-      recording.recordingId = response.result.recordingId;
-    }
-    recording.recordingUrl = recordingUrl(recording);
-    await saveNativeDiagnostics(recording);
-    await deleteSession(recording.sessionId);
-    await clearNativeRecording();
-    await createTab(recording.recordingUrl);
+    const recordingId =
+      response.result && typeof response.result.recordingId === "string"
+        ? response.result.recordingId
+        : undefined;
+    await finishSaving(recording, recordingId);
     return {
       ok: true,
       recordingId: recording.recordingId,
@@ -1207,6 +1233,9 @@ async function stopRecording() {
     recording.status = "error";
     recording.error =
       err instanceof Error ? err.message : "Could not stop recording.";
+    resetOverlay();
+    await broadcastUnmount();
+    broadcastOverlayState();
     await saveActiveNativeRecording();
     return { ok: false, error: recording.error };
   }
@@ -1768,11 +1797,45 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // Restore recording/overlay state whenever the service worker (re)starts so an
-// in-progress recording survives MV3 worker suspension.
-void restoreRuntimeState();
+// in-progress recording survives MV3 worker suspension. Memoized so every entry
+// point can `await ensureRestored()` before reading activeNativeRecording — the
+// worker can be revived by the very event (icon click, status message) that
+// needs the state, and the module globals start out empty until restore runs.
+let restorePromise: Promise<void> | null = null;
+function ensureRestored(): Promise<void> {
+  if (!restorePromise) {
+    restorePromise = restoreRuntimeState().catch(() => undefined);
+  }
+  return restorePromise;
+}
+void ensureRestored();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
+  void (async () => {
+    // Critical: never read activeNativeRecording/overlayPhase before state is
+    // restored, or a freshly-woken worker drops the message (e.g. the offscreen
+    // "recording" status, or an overlay Stop click).
+    await ensureRestored();
+    let response: unknown;
+    try {
+      response = await dispatchRuntimeMessage(message);
+    } catch (err) {
+      response = {
+        ok: false,
+        error: err instanceof Error ? err.message : "Could not use Clips.",
+      };
+    }
+    try {
+      sendResponse(response);
+    } catch {
+      /* message port already closed (fire-and-forget sender) */
+    }
+  })();
+  return true;
+});
+
+async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
 
   // Status updates streamed from the offscreen recorder.
@@ -1791,21 +1854,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           activeNativeRecording,
         );
       }
-      void saveActiveNativeRecording();
+      await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —
       // advance from countdown to recording (the reliable phase flip).
       if (status.status === "recording" && overlayPhase === "countdown") {
-        void markRecordingStarted();
+        await markRecordingStarted();
+      }
+      // Safety net: if the worker was suspended during the upload, stopRecording's
+      // await was lost — finalize here when the offscreen reports completion.
+      if (status.status === "complete" && overlayPhase === "saving") {
+        await finishSaving(
+          activeNativeRecording,
+          typeof status.recordingId === "string"
+            ? status.recordingId
+            : undefined,
+        );
       }
       if (status.status === "error") {
-        void (async () => {
-          resetOverlay();
-          await broadcastUnmount();
-          await chrome.action.setBadgeText({ text: "" });
-        })();
+        resetOverlay();
+        await broadcastUnmount();
+        await chrome.action.setBadgeText({ text: "" });
       }
     }
-    return false;
+    return { ok: true };
   }
 
   // The user stopped sharing from Chrome's native control bar.
@@ -1814,102 +1885,88 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (
       activeNativeRecording &&
       activeNativeRecording.sessionId === sessionId &&
-      overlayPhase !== "idle"
+      overlayPhase !== "idle" &&
+      overlayPhase !== "saving"
     ) {
-      void stopRecording();
+      return stopRecording();
     }
-    return false;
+    return { ok: true };
   }
 
   // Content script asking which overlay parts to show on its page.
   if (type === "CLIPS_CONTENT_HELLO") {
-    sendResponse({ ok: true, parts: desiredParts() });
-    return false;
+    return { ok: true, parts: desiredParts() };
   }
 
   // Overlay iframe handshake — rebroadcast the current timer/phase to it.
   if (type === "CLIPS_OVERLAY_HELLO") {
     broadcastOverlayState();
-    sendResponse({ ok: true, state: overlayStateForBroadcast() });
-    return false;
+    return { ok: true, state: overlayStateForBroadcast() };
   }
 
   if (type === "CLIPS_PREWARM") {
     void ensureOffscreenDocument().catch(() => undefined);
-    sendResponse({ ok: true });
-    return false;
+    return { ok: true };
   }
 
-  let task: Promise<unknown> | null = null;
   switch (type) {
     case "CLIPS_POPUP_START":
-      task = handlePopupStart(message as PopupStartMessage);
-      break;
+      return handlePopupStart(message as PopupStartMessage);
     case "CLIPS_POPUP_STATUS":
-      task = handlePopupStatus();
-      break;
+      return handlePopupStatus();
     case "CLIPS_POPUP_STOP":
-      task = handlePopupStop();
-      break;
+      return handlePopupStop();
     case "CLIPS_POPUP_CANCEL":
-      task = handlePopupCancel();
-      break;
+      return handlePopupCancel();
     case "CLIPS_POPUP_OPEN":
-      task = handlePopupOpen();
-      break;
+      return handlePopupOpen();
     case "CLIPS_POPUP_SIGN_IN":
-      task = handlePopupSignIn(
+      return handlePopupSignIn(
         message as { settings?: Partial<ExtensionSettings> },
       );
-      break;
     case "CLIPS_OVERLAY_COUNTDOWN_DONE":
       // Skip button on the countdown overlay: start the recorder now.
-      task = handleOverlaySkip();
-      break;
+      return handleOverlaySkip();
     case "CLIPS_OVERLAY_PAUSE":
-      task = Promise.resolve(handleOverlayPause());
-      break;
+      return handleOverlayPause();
     case "CLIPS_OVERLAY_RESUME":
-      task = Promise.resolve(handleOverlayResume());
-      break;
+      return handleOverlayResume();
     case "CLIPS_OVERLAY_STOP":
-      task = stopRecording();
-      break;
+      return stopRecording();
     case "CLIPS_OVERLAY_CANCEL":
-      task = cancelRecording();
-      break;
+      return cancelRecording();
     case "CLIPS_OVERLAY_RESTART":
-      task = handleOverlayRestart();
-      break;
+      return handleOverlayRestart();
+    default:
+      return { ok: false, error: "Unknown message." };
   }
-  if (!task) return false;
-
-  void task.then(sendResponse).catch((err) => {
-    sendResponse({
-      ok: false,
-      error: err instanceof Error ? err.message : "Could not use Clips.",
-    });
-  });
-  return true;
-});
+}
 
 // While a recording is active, keep the overlay following the user as they
 // switch tabs (programmatic injection covers tabs opened before the extension
 // loaded; declared content scripts cover navigations).
 chrome.tabs.onActivated.addListener((info) => {
-  if (overlayPhase === "idle" || !activeNativeRecording) return;
-  void mountOverlayOnTab(info.tabId);
+  void (async () => {
+    await ensureRestored();
+    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    await mountOverlayOnTab(info.tabId);
+  })();
 });
 
 // While recording, the popup is disabled (setActionPopup("")), so clicking the
 // extension icon lands here: stop & save immediately (or discard if we're still
 // in the pre-roll countdown). When idle, the popup opens and this never fires.
 chrome.action.onClicked.addListener(() => {
-  if (!activeNativeRecording) return;
-  if (overlayPhase === "countdown") void cancelRecording();
-  else if (overlayPhase === "recording" || overlayPhase === "paused") {
-    void stopRecording();
-  }
+  void (async () => {
+    // Await restore — the click may have woken the worker, leaving the module
+    // globals empty until this resolves. Without it, Stop silently does nothing.
+    await ensureRestored();
+    if (!activeNativeRecording) return;
+    if (overlayPhase === "countdown") await cancelRecording();
+    else if (overlayPhase === "recording" || overlayPhase === "paused") {
+      await stopRecording();
+    }
+  })();
 });
 
 chrome.runtime.onMessageExternal.addListener(

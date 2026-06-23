@@ -7,10 +7,10 @@
 // of truth for which "parts" are visible and pushes them here.
 
 (function clipsOverlayHost() {
-  type OverlayPart = "bubble" | "countdown" | "toolbar";
+  type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 
   const CONTAINER_ID = "clips-recorder-overlay-root";
-  const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar"];
+  const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
   function requestState(): void {
@@ -85,14 +85,21 @@
         height: "148px",
       });
     } else if (part === "toolbar") {
+      // Left-edge vertical pill (desktop layout). Height grows on hover via the
+      // resize message below.
       Object.assign(frame.style, {
-        left: "0",
-        right: "0",
-        bottom: "22px",
-        marginInline: "auto",
-        width: "420px",
-        maxWidth: "100%",
-        height: "64px",
+        left: "16px",
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "68px",
+        height: "154px",
+      });
+    } else if (part === "saving") {
+      Object.assign(frame.style, {
+        left: "24px",
+        bottom: "24px",
+        width: "264px",
+        height: "96px",
       });
     } else {
       Object.assign(frame.style, {
@@ -148,6 +155,22 @@
     } else if (type === "CLIPS_OVERLAY_UNMOUNT") {
       reconcile([]);
     }
+  });
+
+  // The toolbar overlay asks to grow/shrink its own iframe on hover (it can't
+  // resize itself). Only trust messages from our own extension-origin frames.
+  window.addEventListener("message", (event) => {
+    const data = event.data as
+      | { source?: string; kind?: string; part?: string; height?: number }
+      | undefined;
+    if (!data || data.source !== "clips-overlay" || data.kind !== "resize") {
+      return;
+    }
+    if (event.origin !== chrome.runtime.getURL("").replace(/\/$/, "")) return;
+    const part = data.part === "toolbar" ? "toolbar" : null;
+    if (!part || typeof data.height !== "number") return;
+    const frame = document.getElementById(partFrameId(part));
+    if (frame) frame.style.height = `${Math.round(data.height)}px`;
   });
 
   syncIfRecording();

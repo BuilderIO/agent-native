@@ -7,7 +7,23 @@ import "./overlay.css";
 // CSS isolation from the host page, and direct chrome.runtime messaging with the
 // background service worker.
 
-type OverlayPhase = "idle" | "countdown" | "recording" | "paused";
+type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
+
+// Hover-expand heights for the vertical toolbar, posted to the content script
+// which owns the iframe size (the iframe can't resize itself).
+const TOOLBAR_COLLAPSED_H = 154;
+const TOOLBAR_EXPANDED_H = 236;
+
+function postToolbarSize(height: number): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind: "resize", part: "toolbar", height },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
 
 type OverlayState = {
   phase: OverlayPhase;
@@ -166,17 +182,12 @@ function initCountdown(): void {
 
 /* --------------------------------------------------------------- toolbar --- */
 
+// Vertical pill anchored to the LEFT edge — mirrors the desktop app's toolbar.
+// Big Stop on top, elapsed time, pause; on hover it grows to reveal restart +
+// cancel. Pure command emitter; the background owns the recorder.
 function initToolbar(): void {
   const pill = document.createElement("div");
-  pill.className = "toolbar-pill";
-
-  const time = document.createElement("div");
-  time.className = "toolbar-time";
-  const dot = document.createElement("span");
-  dot.className = "toolbar-dot";
-  const clock = document.createElement("span");
-  clock.textContent = "0:00";
-  time.append(dot, clock);
+  pill.className = "toolbar-v";
 
   const makeBtn = (
     cls: string,
@@ -185,7 +196,8 @@ function initToolbar(): void {
     onClick: () => void,
   ): HTMLButtonElement => {
     const btn = document.createElement("button");
-    btn.className = `toolbar-btn ${cls}`.trim();
+    btn.type = "button";
+    btn.className = cls;
     btn.title = title;
     btn.setAttribute("aria-label", title);
     btn.innerHTML = svg;
@@ -193,40 +205,81 @@ function initToolbar(): void {
     return btn;
   };
 
-  const pauseBtn = makeBtn("pause-resume", "Pause", ICONS.pause, () => {
+  const stopBtn = makeBtn(
+    "toolbar-v-stop",
+    "Stop & save",
+    '<span class="toolbar-v-stop-square"></span>',
+    () => send("CLIPS_OVERLAY_STOP"),
+  );
+
+  const time = document.createElement("div");
+  time.className = "toolbar-v-time";
+  time.textContent = "0:00";
+
+  const pauseBtn = makeBtn("toolbar-v-pause", "Pause", ICONS.pause, () => {
     if (state.phase === "paused") send("CLIPS_OVERLAY_RESUME");
     else send("CLIPS_OVERLAY_PAUSE");
   });
-  const restartBtn = makeBtn("restart", "Restart", ICONS.restart, () =>
+
+  const hoverGroup = document.createElement("div");
+  hoverGroup.className = "toolbar-v-hover-actions";
+  const restartBtn = makeBtn("toolbar-v-action", "Restart", ICONS.restart, () =>
     send("CLIPS_OVERLAY_RESTART"),
   );
-  const deleteBtn = makeBtn("danger", "Delete", ICONS.trash, () =>
-    send("CLIPS_OVERLAY_CANCEL"),
+  const cancelBtn = makeBtn(
+    "toolbar-v-action toolbar-v-action-danger",
+    "Discard",
+    ICONS.trash,
+    () => send("CLIPS_OVERLAY_CANCEL"),
   );
-  const stopBtn = makeBtn("stop", "Stop & save", ICONS.stop, () =>
-    send("CLIPS_OVERLAY_STOP"),
-  );
+  hoverGroup.append(restartBtn, cancelBtn);
 
-  const divider = document.createElement("div");
-  divider.className = "toolbar-divider";
-
-  pill.append(time, divider, pauseBtn, restartBtn, deleteBtn, stopBtn);
+  pill.append(stopBtn, time, pauseBtn, hoverGroup);
   root.appendChild(pill);
+
+  // The iframe can't size itself, so ask the content script to grow/shrink it.
+  pill.addEventListener("mouseenter", () =>
+    postToolbarSize(TOOLBAR_EXPANDED_H),
+  );
+  pill.addEventListener("mouseleave", () =>
+    postToolbarSize(TOOLBAR_COLLAPSED_H),
+  );
 
   const render = (): void => {
     const paused = state.phase === "paused";
-    pill.classList.toggle("paused", paused);
+    pill.classList.toggle("toolbar-v-paused", paused);
     pauseBtn.title = paused ? "Resume" : "Pause";
     pauseBtn.innerHTML = paused ? ICONS.resume : ICONS.pause;
     const elapsed = paused
       ? state.baseElapsedMs
       : state.baseElapsedMs + Math.max(0, Date.now() - state.baseEpochMs);
-    clock.textContent = formatDuration(elapsed);
+    time.textContent = formatDuration(elapsed);
   };
 
   window.setInterval(render, 250);
   toolbarRender = render;
   render();
+}
+
+/* ---------------------------------------------------------------- saving --- */
+
+// Bottom-left "Saving…" card shown from Stop until the clip opens, mirroring the
+// desktop Finalizing overlay so the upload gap isn't a blank screen.
+function initSaving(): void {
+  const card = document.createElement("div");
+  card.className = "saving-card";
+  const spinner = document.createElement("div");
+  spinner.className = "saving-spinner";
+  const caption = document.createElement("div");
+  caption.className = "saving-caption";
+  caption.textContent = "Saving clip…";
+  const bar = document.createElement("div");
+  bar.className = "saving-bar";
+  const fill = document.createElement("div");
+  fill.className = "saving-bar-fill";
+  bar.appendChild(fill);
+  card.append(spinner, caption, bar);
+  root.appendChild(card);
 }
 
 function formatDuration(ms: number): string {
@@ -266,6 +319,7 @@ chrome.runtime.onMessage.addListener((message) => {
 if (part === "bubble") void initBubble();
 else if (part === "countdown") initCountdown();
 else if (part === "toolbar") initToolbar();
+else if (part === "saving") initSaving();
 
 // Ask the background for the current state so a freshly-injected toolbar (e.g.
 // after the user navigated to a new page mid-recording) shows the right timer.
