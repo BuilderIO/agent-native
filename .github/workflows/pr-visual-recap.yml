@@ -297,7 +297,12 @@ jobs:
           PR_NUMBER_ENV: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          git fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"
+          if git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            git update-ref refs/recap/pr-head "$HEAD_SHA"
+          else
+            AUTH_B64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH_B64" fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"
+          fi
           FETCHED_SHA="$(git rev-parse refs/recap/pr-head)"
           if [ "$FETCHED_SHA" != "$HEAD_SHA" ]; then
             echo "FATAL: fetched PR head $FETCHED_SHA != event HEAD_SHA $HEAD_SHA — aborting to avoid recapping the wrong commit"

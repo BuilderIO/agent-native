@@ -41,6 +41,7 @@ import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1004,12 +1005,10 @@ function PublicAgentEmptyState() {
         Loom alternative
       </p>
       <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
-        <Button asChild className="w-full gap-2">
-          <a href={appPath("/download")}>
-            <IconDownload className="h-4 w-4" />
-            {downloadLabel}
-          </a>
-        </Button>
+        <CaptureInstallButton className="w-full gap-2" align="center">
+          <IconDownload className="h-4 w-4" />
+          {downloadLabel}
+        </CaptureInstallButton>
         <Button asChild variant="outline" className="w-full">
           <a href={appPath("/signup")}>Sign up</a>
         </Button>

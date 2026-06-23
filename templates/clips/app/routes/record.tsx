@@ -71,6 +71,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { toast } from "sonner";
 
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
@@ -542,13 +543,12 @@ function DesktopRecorderCallout() {
           </p>
         </div>
       </div>
-      <Button
-        asChild
+      <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
       >
-        <Link to="/download">Download desktop app</Link>
-      </Button>
+        Download desktop app
+      </CaptureInstallButton>
     </aside>
   );
 }

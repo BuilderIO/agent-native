@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   IconArrowsExchange,
@@ -34,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 
 export function meta() {
   return [{ title: "Dictate · Clips" }];
@@ -609,12 +609,10 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
             work in any app — Slack, your editor, anywhere.
           </p>
           <div className="mt-5 flex items-center justify-center">
-            <Button asChild size="sm" className="gap-1.5">
-              <Link to="/download">
-                <IconDownload className="h-3.5 w-3.5" />
-                Download Clips desktop app
-              </Link>
-            </Button>
+            <CaptureInstallButton size="sm" className="gap-1.5">
+              <IconDownload className="h-3.5 w-3.5" />
+              Download Clips desktop app
+            </CaptureInstallButton>
           </div>
           <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <Kbd>Fn</Kbd>
@@ -646,12 +644,10 @@ function DownloadDesktopAppCard() {
           desktop app is the way to use this.
         </p>
       </div>
-      <Button asChild size="sm" className="gap-1.5">
-        <Link to="/download">
-          <IconDownload className="h-3.5 w-3.5" />
-          Download
-        </Link>
-      </Button>
+      <CaptureInstallButton size="sm" className="gap-1.5">
+        <IconDownload className="h-3.5 w-3.5" />
+        Download
+      </CaptureInstallButton>
     </div>
   );
 }
