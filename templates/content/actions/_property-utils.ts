@@ -1,12 +1,16 @@
-import { and, asc, eq, inArray, type InferSelectModel } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
   evaluatePropertyFormula,
   formulaValueText,
+  isBlocksPropertyType,
   isComputedPropertyType,
   isEmptyPropertyValue,
+  isPrimaryBlocksField,
   normalizePropertyValue,
+  resolveBlocksFieldValue,
   normalizePropertyVisibility,
   parsePropertyOptions,
   parsePropertyValue,
@@ -386,7 +390,25 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(document: DocumentRow) {
   const database = await resolvePropertyDatabaseForDocument(document);
   if (!database) return [];
+  await ensurePrimaryBlocksField(database);
   return listPropertiesForDatabase(database.id, document);
+}
+
+// Migration / safety net: guarantee every database has its primary "Content"
+// Blocks field. Databases created before the Blocks type existed had none — the
+// existing `documents.content` body still works and is exposed for free once
+// the primary field is seeded. Idempotent and cheap (one indexed read).
+export async function ensurePrimaryBlocksField(database: {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+}): Promise<void> {
+  await seedDefaultBlocksField({
+    databaseId: database.id,
+    ownerEmail: database.ownerEmail,
+    orgId: database.orgId ?? null,
+    now: new Date().toISOString(),
+  });
 }
 
 export async function listPropertiesForDatabase(
@@ -416,6 +438,13 @@ export async function listPropertiesForDatabase(
     ? await databaseRowNumbersByDocumentId(databaseId)
     : new Map<string, number>();
 
+  // Additional (non-primary) Blocks fields keep their content in their own
+  // store, keyed by (documentId, propertyId). Load this row's contents up front
+  // so each Blocks field resolves to its OWN independent content.
+  const blockContentByPropertyId = valueDocument
+    ? await blockFieldContentsForDocument(valueDocument.id)
+    : new Map<string, string>();
+
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
@@ -437,7 +466,15 @@ export async function listPropertiesForDatabase(
           ? computedPropertyValue(type, valueDocument, {
               databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
             })
-          : parsePropertyValue(storedValue?.valueJson),
+          : valueDocument && isBlocksPropertyType(type)
+            ? // Each Blocks field reads from exactly one place: the primary from
+              // the document body, additional fields from their own store.
+              resolveBlocksFieldValue({
+                options,
+                documentBody: valueDocument.content,
+                blockFieldContent: blockContentByPropertyId.get(definition.id),
+              })
+            : parsePropertyValue(storedValue?.valueJson),
       editable: !isComputedPropertyType(type),
     };
   });
@@ -611,4 +648,178 @@ export function normalizedValueJson(
   value: unknown,
 ) {
   return serializePropertyValue(normalizePropertyValue(type, value));
+}
+
+// --- Blocks fields ---------------------------------------------------------
+//
+// Storage model: the default/primary "Content" Blocks field is backed by
+// `documents.content`. Every ADDITIONAL Blocks field stores its content in its
+// own row in `document_block_field_contents`, keyed by (documentId,
+// propertyId). This guarantees independence — no two Blocks fields ever share
+// content.
+
+// Load all additional-Blocks-field contents for a single document, keyed by
+// propertyId. The primary field is intentionally absent here (its content lives
+// on the document itself).
+export async function blockFieldContentsForDocument(
+  documentId: string,
+): Promise<Map<string, string>> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      propertyId: schema.documentBlockFieldContents.propertyId,
+      content: schema.documentBlockFieldContents.content,
+    })
+    .from(schema.documentBlockFieldContents)
+    .where(eq(schema.documentBlockFieldContents.documentId, documentId));
+  return new Map(rows.map((row) => [row.propertyId, row.content ?? ""]));
+}
+
+export async function readBlockFieldContent(
+  documentId: string,
+  propertyId: string,
+): Promise<string> {
+  const db = getDb();
+  const [row] = await db
+    .select({ content: schema.documentBlockFieldContents.content })
+    .from(schema.documentBlockFieldContents)
+    .where(
+      and(
+        eq(schema.documentBlockFieldContents.documentId, documentId),
+        eq(schema.documentBlockFieldContents.propertyId, propertyId),
+      ),
+    );
+  return row?.content ?? "";
+}
+
+// Upsert the content for an additional (non-primary) Blocks field.
+export async function writeBlockFieldContent(args: {
+  documentId: string;
+  propertyId: string;
+  ownerEmail: string;
+  content: string;
+  now: string;
+}): Promise<void> {
+  const db = getDb();
+  const [existing] = await db
+    .select({ id: schema.documentBlockFieldContents.id })
+    .from(schema.documentBlockFieldContents)
+    .where(
+      and(
+        eq(schema.documentBlockFieldContents.documentId, args.documentId),
+        eq(schema.documentBlockFieldContents.propertyId, args.propertyId),
+      ),
+    );
+  if (existing) {
+    await db
+      .update(schema.documentBlockFieldContents)
+      .set({ content: args.content, updatedAt: args.now })
+      .where(eq(schema.documentBlockFieldContents.id, existing.id));
+  } else {
+    await db.insert(schema.documentBlockFieldContents).values({
+      id: nanoid(),
+      ownerEmail: args.ownerEmail,
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      content: args.content,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+}
+
+// Write the primary Blocks field's content — i.e. the document body.
+export async function writePrimaryBlocksContent(args: {
+  documentId: string;
+  content: string;
+  now: string;
+}): Promise<void> {
+  const db = getDb();
+  await db
+    .update(schema.documents)
+    .set({ content: args.content, updatedAt: args.now })
+    .where(eq(schema.documents.id, args.documentId));
+}
+
+// Fetch a single property definition scoped to a database (and owner).
+export async function getPropertyDefinitionForDatabase(args: {
+  propertyId: string;
+  databaseId: string;
+  ownerEmail: string;
+}) {
+  const db = getDb();
+  const [definition] = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(
+      and(
+        eq(schema.documentPropertyDefinitions.id, args.propertyId),
+        eq(schema.documentPropertyDefinitions.ownerEmail, args.ownerEmail),
+        eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
+      ),
+    );
+  return definition ?? null;
+}
+
+// How many Blocks-type property definitions a database has. Used to drive the
+// solo (chromeless) vs. multi (headers + collapsible) rendering decision and
+// the "only Blocks field" delete warning.
+export async function countBlocksFieldsForDatabase(
+  databaseId: string,
+): Promise<number> {
+  const db = getDb();
+  const definitions = await db
+    .select({ type: schema.documentPropertyDefinitions.type })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  return definitions.filter((definition) =>
+    isBlocksPropertyType(definition.type as DocumentPropertyType),
+  ).length;
+}
+
+// Seed the default primary "Content" Blocks field for a database, unless one
+// already exists. Idempotent. Returns the property id (existing or new).
+export async function seedDefaultBlocksField(args: {
+  databaseId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  now: string;
+}): Promise<string> {
+  const db = getDb();
+  const existing = await db
+    .select({
+      id: schema.documentPropertyDefinitions.id,
+      type: schema.documentPropertyDefinitions.type,
+      optionsJson: schema.documentPropertyDefinitions.optionsJson,
+    })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+
+  const existingPrimary = existing.find(
+    (definition) =>
+      isBlocksPropertyType(definition.type as DocumentPropertyType) &&
+      isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson)),
+  );
+  if (existingPrimary) return existingPrimary.id;
+
+  const [maxPos] = await db
+    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+
+  const id = nanoid();
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id,
+    ownerEmail: args.ownerEmail,
+    orgId: args.orgId,
+    databaseId: args.databaseId,
+    name: DEFAULT_BLOCKS_FIELD_NAME,
+    type: "blocks",
+    visibility: "always_show",
+    optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+    position: (maxPos?.max ?? -1) + 1,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  return id;
 }

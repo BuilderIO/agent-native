@@ -243,4 +243,23 @@ export const documentPropertyValues = table("document_property_values", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// Independent backing store for ADDITIONAL "Blocks" property fields. The
+// default/primary Blocks field ("Content") is backed by `documents.content`
+// (so the existing TipTap/Yjs editor, collab, and existing data migrate for
+// free). Every other Blocks field on a row gets its OWN content here, keyed by
+// (documentId, propertyId) — guaranteeing no two Blocks fields ever alias the
+// same content. Stored as markdown, same shape as `documents.content`.
+export const documentBlockFieldContents = table(
+  "document_block_field_contents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    content: text("content").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
 export const documentShares = createSharesTable("document_shares");

@@ -14,6 +14,7 @@ import {
   federateSources,
 } from "./_federation-join.js";
 import {
+  ensurePrimaryBlocksField,
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -122,6 +123,10 @@ export async function getContentDatabaseResponse(
     .where(eq(schema.contentDatabases.id, databaseId));
 
   if (!database) throw new Error(`Database "${databaseId}" not found`);
+
+  // Guarantee the default "Content" Blocks field exists (migrates legacy
+  // databases for free) before reading properties.
+  await ensurePrimaryBlocksField(database);
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const [itemCount] = await db

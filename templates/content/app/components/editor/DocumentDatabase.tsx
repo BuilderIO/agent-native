@@ -167,9 +167,11 @@ import {
 } from "@shared/api";
 import {
   type DocumentPropertyOptionColor,
+  countWords,
   documentPropertyDateKey,
   documentPropertyDatePart,
   evaluateNormalizationFormula,
+  formatWordCount,
   formulaValueText,
   isComputedPropertyType,
   isEmptyPropertyValue,
@@ -9114,6 +9116,17 @@ function isTablePropertyVisible(
 }
 
 function databaseTableCellDisplayValue(property: DocumentProperty) {
+  // Blocks columns show a word count, never the dumped body content.
+  if (property.definition.type === "blocks") {
+    const content =
+      typeof property.value === "string" ? property.value : "";
+    const words = countWords(content);
+    if (words === 0) return <span aria-hidden="true">&nbsp;</span>;
+    return (
+      <span className="text-muted-foreground">{formatWordCount(content)}</span>
+    );
+  }
+
   if (isEmptyPropertyValue(property.value)) {
     return <span aria-hidden="true">&nbsp;</span>;
   }
@@ -12952,6 +12965,10 @@ function DatabaseTableRow({
               >
                 {value}
               </button>
+            ) : itemProperty.definition.type === "blocks" ? (
+              // Blocks cells are a read-only word count in the table; the body
+              // is edited on the page, not inline.
+              value
             ) : canEdit && itemProperty.editable ? (
               <PropertyValuePopover
                 property={itemProperty}

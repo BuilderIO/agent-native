@@ -418,6 +418,27 @@ const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_database_source_executions_change_set_idx ON content_database_source_executions (change_set_id);
         CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
     },
+    {
+      // Independent backing store for ADDITIONAL "Blocks" property fields. The
+      // primary "Content" Blocks field is backed by documents.content; every
+      // other Blocks field on a row stores its own content here, keyed by
+      // (document_id, property_id), so no two Blocks fields ever share content.
+      version: 48,
+      sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      document_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 49,
+      sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS document_block_field_contents_doc_prop_idx ON document_block_field_contents (document_id, property_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
