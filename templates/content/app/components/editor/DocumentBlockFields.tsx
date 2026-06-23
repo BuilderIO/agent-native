@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useDocumentProperties } from "@/hooks/use-document-properties";
@@ -23,6 +30,8 @@ import {
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
+
+const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
 interface DocumentBlockFieldsProps {
   documentId: string;
@@ -85,6 +94,74 @@ export function computeFieldReorderTarget(
   }
 
   return { targetPropertyId: followingField.definition.id, position: "before" };
+}
+
+function blockFieldDragMoved(
+  startX: number,
+  startY: number,
+  clientX: number,
+  clientY: number,
+) {
+  return (
+    Math.hypot(clientX - startX, clientY - startY) >= BLOCK_FIELD_DRAG_THRESHOLD
+  );
+}
+
+function suppressNextDocumentClick() {
+  const handler = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  globalThis.document.addEventListener("click", handler, {
+    capture: true,
+    once: true,
+  });
+}
+
+type BlockFieldDragPreviewState = {
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+};
+
+function blockFieldDragPreviewFromElement(
+  element: HTMLElement,
+  label: string,
+  clientX: number,
+  clientY: number,
+): BlockFieldDragPreviewState {
+  const rect = element.getBoundingClientRect();
+  return {
+    label,
+    x: clientX,
+    y: clientY,
+    width: Math.min(rect.width, 320),
+  };
+}
+
+function BlockFieldDragPreview({
+  preview,
+}: {
+  preview: BlockFieldDragPreviewState | null;
+}) {
+  if (!preview) return null;
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed left-0 top-0 z-[9999] flex h-8 max-w-80 items-center gap-1.5 overflow-hidden rounded-md border border-border bg-background/95 px-2 text-sm font-medium opacity-80 shadow-lg"
+      data-block-field-drag-preview
+      style={{
+        width: preview.width,
+        transform: `translate3d(${preview.x + 12}px, ${preview.y + 10}px, 0)`,
+      }}
+    >
+      <IconGripVertical className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{preview.label}</span>
+    </div>
+  );
 }
 
 // The render decision for a row's Blocks fields, computed from the loaded
@@ -259,25 +336,142 @@ function MultiBlockFields({
   const reorder = useReorderDocumentProperty(documentId);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
+  const [dragPreview, setDragPreview] =
+    useState<BlockFieldDragPreviewState | null>(null);
 
-  function handleDropOnGap(dropGapIndex: number) {
-    setDragOverGapIndex(null);
-    if (!dragId) return;
+  useEffect(() => {
+    return () => {
+      globalThis.document.body.style.userSelect = "";
+      globalThis.document.body.style.cursor = "";
+      globalThis.document.body.classList.remove("notion-editor-is-dragging");
+    };
+  }, []);
 
-    const target = computeFieldReorderTarget(dragId, dropGapIndex, blockFields);
+  function clearFieldDrag() {
     setDragId(null);
+    setDragOverGapIndex(null);
+    setDragPreview(null);
+    globalThis.document.body.classList.remove("notion-editor-is-dragging");
+  }
+
+  function dropGapIndexFromPoint(clientX: number, clientY: number) {
+    const element = globalThis.document.elementFromPoint(clientX, clientY);
+    const gap = element?.closest<HTMLElement>("[data-block-field-drop-zone]");
+    const indexText = gap?.dataset.blockFieldDropGapIndex;
+    if (!indexText) return null;
+
+    const index = Number(indexText);
+    if (!Number.isInteger(index)) return null;
+    return index;
+  }
+
+  function moveFieldToGap(propertyId: string, dropGapIndex: number) {
+    const target = computeFieldReorderTarget(
+      propertyId,
+      dropGapIndex,
+      blockFields,
+    );
     if (!target) return;
 
     void reorder.mutateAsync({
       documentId,
-      propertyId: dragId,
+      propertyId,
       targetPropertyId: target.targetPropertyId,
       position: target.position,
     });
   }
 
+  function startFieldPointerDrag(
+    property: DocumentProperty,
+    event: ReactPointerEvent<HTMLElement>,
+  ) {
+    if (!canEdit || blockFields.length < 2) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const propertyId = property.definition.id;
+    const sourceElement =
+      event.currentTarget.closest<HTMLElement>("[data-block-field-shell]") ??
+      event.currentTarget;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+
+    function validGapIndexFromPoint(clientX: number, clientY: number) {
+      const gapIndex = dropGapIndexFromPoint(clientX, clientY);
+      if (gapIndex === null) return null;
+      return computeFieldReorderTarget(propertyId, gapIndex, blockFields)
+        ? gapIndex
+        : null;
+    }
+
+    function beginDrag(moveEvent: PointerEvent) {
+      dragging = true;
+      setDragId(propertyId);
+      setDragOverGapIndex(null);
+      setDragPreview(
+        blockFieldDragPreviewFromElement(
+          sourceElement,
+          property.definition.name,
+          moveEvent.clientX,
+          moveEvent.clientY,
+        ),
+      );
+      globalThis.document.body.style.userSelect = "none";
+      globalThis.document.body.style.cursor = "grabbing";
+      globalThis.document.body.classList.add("notion-editor-is-dragging");
+    }
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (
+        !dragging &&
+        !blockFieldDragMoved(
+          startX,
+          startY,
+          moveEvent.clientX,
+          moveEvent.clientY,
+        )
+      ) {
+        return;
+      }
+      if (!dragging) beginDrag(moveEvent);
+      moveEvent.preventDefault();
+      setDragPreview((current) =>
+        current
+          ? { ...current, x: moveEvent.clientX, y: moveEvent.clientY }
+          : current,
+      );
+      setDragOverGapIndex(
+        validGapIndexFromPoint(moveEvent.clientX, moveEvent.clientY),
+      );
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      globalThis.document.body.style.userSelect = "";
+      globalThis.document.body.style.cursor = "";
+      globalThis.document.removeEventListener("pointermove", handlePointerMove);
+      globalThis.document.removeEventListener("pointerup", handlePointerUp);
+
+      if (dragging) {
+        suppressNextDocumentClick();
+        const gapIndex = validGapIndexFromPoint(
+          upEvent.clientX,
+          upEvent.clientY,
+        );
+        if (gapIndex !== null) moveFieldToGap(propertyId, gapIndex);
+      }
+
+      clearFieldDrag();
+    };
+
+    globalThis.document.addEventListener("pointermove", handlePointerMove);
+    globalThis.document.addEventListener("pointerup", handlePointerUp);
+  }
+
   return (
     <div className="grid">
+      <BlockFieldDragPreview preview={dragPreview} />
       {blockFields.map((property, index) => {
         const primary = isPrimaryBlocksField(property.definition.options);
         return (
@@ -285,23 +479,13 @@ function MultiBlockFields({
             <FieldDropZone
               active={canEdit && dragId !== null}
               over={dragOverGapIndex === index}
-              onDragOver={() => setDragOverGapIndex(index)}
-              onDragLeave={() =>
-                setDragOverGapIndex((current) =>
-                  current === index ? null : current,
-                )
-              }
-              onDrop={() => handleDropOnGap(index)}
+              gapIndex={index}
             />
             <BlockFieldShell
               property={property}
               canEdit={canEdit}
               isDragging={dragId === property.definition.id}
-              onDragStart={() => setDragId(property.definition.id)}
-              onDragEnd={() => {
-                setDragId(null);
-                setDragOverGapIndex(null);
-              }}
+              onPointerDown={(event) => startFieldPointerDrag(property, event)}
             >
               {primary ? (
                 primaryEditor
@@ -323,13 +507,7 @@ function MultiBlockFields({
       <FieldDropZone
         active={canEdit && dragId !== null}
         over={dragOverGapIndex === blockFields.length}
-        onDragOver={() => setDragOverGapIndex(blockFields.length)}
-        onDragLeave={() =>
-          setDragOverGapIndex((current) =>
-            current === blockFields.length ? null : current,
-          )
-        }
-        onDrop={() => handleDropOnGap(blockFields.length)}
+        gapIndex={blockFields.length}
       />
     </div>
   );
@@ -338,41 +516,27 @@ function MultiBlockFields({
 function FieldDropZone({
   active,
   over,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  gapIndex,
 }: {
   active: boolean;
   over: boolean;
-  onDragOver: () => void;
-  onDragLeave: () => void;
-  onDrop: () => void;
+  gapIndex: number;
 }) {
   return (
     <div
-      className="relative h-2"
+      className={cn("relative h-3", active && "cursor-grabbing")}
       data-block-field-drop-zone
-      onDragOver={(event) => {
-        if (!active) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        onDragOver();
-      }}
-      onDragLeave={() => {
-        if (!active) return;
-        onDragLeave();
-      }}
-      onDrop={(event) => {
-        if (!active) return;
-        event.preventDefault();
-        onDrop();
-      }}
+      data-block-field-drop-gap-index={gapIndex}
     >
       <div
         className={cn(
-          "pointer-events-none absolute left-6 right-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-primary opacity-0 transition-opacity",
+          "pointer-events-none absolute left-6 right-2 top-1/2 h-[3px] -translate-y-1/2 rounded-full opacity-0 transition-opacity",
           over && "opacity-100",
         )}
+        style={{
+          background: "hsl(210 100% 52%)",
+          boxShadow: "0 0 0 1px hsl(var(--background))",
+        }}
       />
     </div>
   );
@@ -383,15 +547,13 @@ function BlockFieldShell({
   canEdit,
   children,
   isDragging,
-  onDragStart,
-  onDragEnd,
+  onPointerDown,
 }: {
   property: DocumentProperty;
   canEdit: boolean;
   children: ReactNode;
   isDragging: boolean;
-  onDragStart: () => void;
-  onDragEnd: () => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -404,6 +566,7 @@ function BlockFieldShell({
         "group/blockfield rounded-md",
         isDragging && "opacity-50",
       )}
+      data-block-field-shell
       data-block-field-id={property.definition.id}
     >
       {/* ONE grip rail: the header grip sits in a fixed 24px left gutter, and
@@ -416,17 +579,8 @@ function BlockFieldShell({
           <span
             role="button"
             aria-label={`Reorder ${property.definition.name}`}
-            draggable
             className="flex w-6 shrink-0 justify-center cursor-grab text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
-            onDragStart={(event) => {
-              event.dataTransfer.setData(
-                "text/block-field-id",
-                property.definition.id,
-              );
-              event.dataTransfer.effectAllowed = "move";
-              onDragStart();
-            }}
-            onDragEnd={onDragEnd}
+            onPointerDown={onPointerDown}
           >
             <IconGripVertical className="size-4" />
           </span>
