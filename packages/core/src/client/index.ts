@@ -707,6 +707,8 @@ export {
   openAgentSidebar,
   submitToAgent,
   type CommandMenuProps,
+  type CommandMenuDoc,
+  type CommandDocsGroupProps,
   type CommandGroupProps,
   type CommandItemProps,
   type CommandShortcutProps,

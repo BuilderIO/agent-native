@@ -31,6 +31,7 @@ import {
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
+  useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import {
@@ -45,6 +46,15 @@ export default function Settings() {
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
   const disconnectGoogle = useDisconnectGoogle();
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onError: (issue) =>
+      toast.error(issue.message || issue.error || "Google sign-in failed"),
+    onSuccess: () => window.location.reload(),
+  });
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const disconnectZoom = useDisconnectZoom();
@@ -81,6 +91,12 @@ export default function Settings() {
   }
 
   function handleConnect() {
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        previousAccountCount: googleStatus.data?.accounts?.length ?? 0,
+      });
+      return;
+    }
     setWantAuthUrl(true);
   }
 
@@ -179,7 +195,15 @@ export default function Settings() {
                 Disconnect
               </Button>
             ) : (
-              <Button size="sm" onClick={handleConnect}>
+              <Button
+                size="sm"
+                onClick={handleConnect}
+                disabled={
+                  authUrl.isLoading ||
+                  authUrl.isFetching ||
+                  isGoogleDesktopAuthPending
+                }
+              >
                 <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
                 Connect
               </Button>

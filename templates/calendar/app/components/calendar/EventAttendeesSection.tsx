@@ -16,6 +16,7 @@ import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import { cn } from "@/lib/utils";
 import {
+  canInlineRsvp,
   getRsvpStatusLabel,
   RsvpStatusIcon,
   type RsvpStatus,
@@ -406,6 +407,7 @@ export function EventAttendeesSection({
     | "id"
     | "accountEmail"
     | "attendees"
+    | "overlayEmail"
     | "responseStatus"
     | "source"
     | "recurringEventId"
@@ -423,8 +425,14 @@ export function EventAttendeesSection({
   const { data: photos } = useAttendeePhotos(emails);
 
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
-  const selfAttendee = sorted.find((attendee) => attendee.self);
-  const others = sorted.filter((attendee) => !attendee.self);
+  const canRsvpInline = canInlineRsvp(event);
+  const selfAttendee = canRsvpInline
+    ? sorted.find((attendee) => attendee.self)
+    : undefined;
+  const others =
+    canRsvpInline && selfAttendee
+      ? sorted.filter((attendee) => !attendee.self)
+      : sorted;
 
   useEffect(() => {
     setSelfStatus(event.responseStatus || "needsAction");
@@ -505,7 +513,7 @@ export function EventAttendeesSection({
                   attendee={selfAttendee}
                   event={event}
                   photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
-                  inlineRsvp={event.source === "google"}
+                  inlineRsvp={canRsvpInline}
                   currentStatus={selfStatus}
                   currentNote={selfNote}
                   onResponseChange={handleSelfResponseChange}

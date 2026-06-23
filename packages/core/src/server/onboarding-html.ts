@@ -28,9 +28,10 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
+import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 function hasGoogleOAuth(): boolean {
-  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  return hasGoogleSignInCredentials();
 }
 
 function getConnectionLabel(): string {

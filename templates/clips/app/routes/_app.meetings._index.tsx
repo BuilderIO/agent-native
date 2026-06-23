@@ -45,6 +45,7 @@ import { Input } from "@/components/ui/input";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { PageHeader } from "@/components/library/page-header";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 
 export function meta() {
   return [{ title: "Meetings · Clips" }];
@@ -668,17 +669,14 @@ function MeetingsHeader({
         </div>
         {showDesktopCta && (
           <div className="flex w-fit shrink-0 flex-col items-start gap-1 sm:items-end">
-            <Button
-              asChild
+            <CaptureInstallButton
               size="sm"
               variant="secondary"
               className="h-8 w-fit gap-1.5 cursor-pointer"
             >
-              <NavLink to="/download">
-                <IconAppWindow className="h-4 w-4" />
-                Get desktop app
-              </NavLink>
-            </Button>
+              <IconAppWindow className="h-4 w-4" />
+              Get desktop app
+            </CaptureInstallButton>
             <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
               Required for meeting reminders and transcription.
             </p>

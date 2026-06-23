@@ -140,18 +140,23 @@ truth choices, metric definitions, dashboards, and analyses.
 
 Credentials are stored via the framework's settings/env layer — no secrets in git. Production requires:
 
-| Variable                                 | Purpose                       |
-| ---------------------------------------- | ----------------------------- |
-| `DATABASE_URL`                           | Persistent SQL connection URL |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Auth                          |
-| `GOOGLE_CLIENT_ID` / `_SECRET`           | Google sign-in (OAuth 2.0)    |
-| `BIGQUERY_PROJECT_ID`                    | BigQuery project              |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery service-account JSON |
-| `ANTHROPIC_API_KEY`                      | Agent chat                    |
+| Variable                                 | Purpose                                                 |
+| ---------------------------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`                           | Persistent SQL connection URL                           |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Auth                                                    |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Preferred Google sign-in client (OAuth 2.0)             |
+| `GOOGLE_CLIENT_ID` / `_SECRET`           | Legacy sign-in fallback / Google API integration client |
+| `BIGQUERY_PROJECT_ID`                    | BigQuery project                                        |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery service-account JSON                           |
+| `ANTHROPIC_API_KEY`                      | Agent chat                                              |
 
 Provider-specific keys (HubSpot, Jira, Gong, Pylon, etc.) are documented in each source's walkthrough on the Data Sources page. If you add a new action that needs an API key, it appears as a new source on that page via the template's onboarding registration.
 
-Note: the BigQuery OAuth credential for Google sign-in is a **separate** credential from the BigQuery service account JSON. Create the sign-in client at GCP Console → APIs & Services → Credentials → OAuth client ID.
+Note: the BigQuery OAuth credential for Google sign-in is a **separate**
+credential from the BigQuery service account JSON. Create the sign-in client at
+GCP Console → APIs & Services → Credentials → OAuth client ID, and prefer the
+`GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` env names so this
+low-scope login client stays separate from Google API integration clients.
 
 ### Data model
 

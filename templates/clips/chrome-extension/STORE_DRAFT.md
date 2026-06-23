@@ -39,3 +39,29 @@ Diagnostics are bounded and redacted before they are saved. Clips does not colle
 ## Review Notes
 
 The extension opens `https://clips.agent-native.com/record` by default. Local development can point the settings page to a localhost Clips instance.
+
+## Submission Artifact
+
+Build the latest Chrome Web Store ZIP from the repo root:
+
+```bash
+pnpm --filter clips-chrome-extension package
+```
+
+Upload the generated artifact:
+
+```txt
+templates/clips/chrome-extension/releases/clips-chrome-extension-0.1.0.zip
+```
+
+## Web App Rollout Gate
+
+Keep the web app's Chrome extension UI hidden until the Web Store listing is
+approved and there is a stable public URL.
+
+- `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` reveals the Chrome option beside
+  Clips desktop prompts.
+- `VITE_CLIPS_CHROME_EXTENSION_URL=<chrome-web-store-url>` powers the install
+  links.
+- Leave both unset while submitting the draft so production continues to send
+  users directly to the desktop app.

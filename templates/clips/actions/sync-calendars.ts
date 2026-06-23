@@ -21,7 +21,8 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import {
   listEvents,
-  refreshAccessToken,
+  resolveGoogleOAuthCredentialCandidates,
+  refreshAccessTokenWithFallback,
   pickJoinUrl,
   type CalendarEvent,
 } from "../server/lib/google-calendar-client.js";
@@ -55,9 +56,8 @@ async function resolveAccessToken(args: {
   accessRef: string | null;
   refreshRef: string | null;
 }): Promise<string | null> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
+  const credentialCandidates = resolveGoogleOAuthCredentialCandidates();
+  if (!credentialCandidates.length) return null;
 
   let bundle: AccessTokenBundle | null = null;
   if (args.accessRef) {
@@ -93,10 +93,9 @@ async function resolveAccessToken(args: {
 
   let refreshed;
   try {
-    refreshed = await refreshAccessToken({
+    refreshed = await refreshAccessTokenWithFallback({
       refreshToken: refreshSecret.value,
-      clientId,
-      clientSecret,
+      credentials: credentialCandidates,
     });
   } catch {
     return null;

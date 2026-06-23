@@ -2017,7 +2017,13 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Fetch pull request head");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      'git fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"',
+      'git update-ref refs/recap/pr-head "$HEAD_SHA"',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "AUTHORIZATION: basic $AUTH_B64",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'fetch origin "pull/${PR_NUMBER_ENV}/head:refs/recap/pr-head"',
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--head refs/recap/pr-head");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("isTrustedAuthor");
@@ -2559,6 +2565,8 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
     expect(content).toContain("Fetch pull request head");
+    expect(content).toContain('git update-ref refs/recap/pr-head "$HEAD_SHA"');
+    expect(content).toContain("AUTHORIZATION: basic $AUTH_B64");
     expect(content).toContain("--head refs/recap/pr-head");
     expect(content).toContain("steps.route_health.outputs.unhealthy != 'true'");
     // Concurrency group to cancel stale runs.

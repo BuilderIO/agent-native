@@ -24,7 +24,12 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
-import { IconSearch, IconMessage } from "@tabler/icons-react";
+import {
+  IconBook2,
+  IconExternalLink,
+  IconSearch,
+  IconMessage,
+} from "@tabler/icons-react";
 import { sendToAgentChat } from "./agent-chat.js";
 import { cn } from "./utils.js";
 
@@ -96,6 +101,7 @@ interface CommandItemProps {
   children: ReactNode;
   keywords?: string[];
   className?: string;
+  deferSelect?: boolean;
 }
 
 function CommandItem({
@@ -103,12 +109,19 @@ function CommandItem({
   children,
   keywords: _keywords,
   className,
+  deferSelect = true,
 }: CommandItemProps) {
   const { onOpenChange, containerRef, setSelectedIndex } =
     useCommandMenuContext();
   const itemRef = useRef<HTMLDivElement>(null);
 
   const handleSelect = () => {
+    if (!deferSelect) {
+      onSelect();
+      onOpenChange(false);
+      return;
+    }
+
     onOpenChange(false);
     // Small delay to let dialog close animation start
     setTimeout(onSelect, 50);
@@ -157,6 +170,68 @@ function CommandShortcut({ children, className }: CommandShortcutProps) {
 
 function CommandSeparator({ className }: { className?: string }) {
   return <div className={cn("-mx-1 my-1 h-px bg-border", className)} />;
+}
+
+export interface CommandMenuDoc {
+  title: string;
+  href: string;
+  description?: string;
+  keywords?: string[];
+}
+
+interface CommandDocsGroupProps {
+  docs: CommandMenuDoc[];
+  heading?: string;
+}
+
+function commandDocSearchText(doc: CommandMenuDoc): string {
+  return [doc.title, doc.description, ...(doc.keywords ?? [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function filterCommandDocs(docs: CommandMenuDoc[], search: string) {
+  const searchLower = search.trim().toLowerCase();
+  if (!searchLower) return docs;
+  return docs.filter((doc) => commandDocSearchText(doc).includes(searchLower));
+}
+
+function openDocsHref(href: string) {
+  if (/^https?:\/\//i.test(href)) {
+    window.open(href, "_blank", "noopener,noreferrer");
+    return;
+  }
+  window.location.assign(href);
+}
+
+function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
+  if (docs.length === 0) return null;
+
+  return (
+    <CommandGroup heading={heading}>
+      {docs.map((doc) => (
+        <CommandItem
+          key={doc.href}
+          onSelect={() => openDocsHref(doc.href)}
+          keywords={[doc.title, doc.description ?? "", ...(doc.keywords ?? [])]}
+          deferSelect={false}
+          className="items-start py-2"
+        >
+          <IconBook2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{doc.title}</span>
+            {doc.description ? (
+              <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                {doc.description}
+              </span>
+            ) : null}
+          </span>
+          <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  );
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
@@ -305,6 +380,18 @@ export function CommandMenu({
         } as Record<string, unknown>);
       }
 
+      if (child.type === CommandDocsGroup) {
+        const docs = Array.isArray(props.docs)
+          ? (props.docs as CommandMenuDoc[])
+          : [];
+        const filteredDocs = filterCommandDocs(docs, search);
+        if (filteredDocs.length === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          docs: filteredDocs,
+        } as Record<string, unknown>);
+      }
+
       // If it's a CommandItem, check if it matches search
       if (child.type === CommandItem) {
         if (!search) return child;
@@ -330,7 +417,9 @@ export function CommandMenu({
 
   const filteredChildren = filterChildren(children);
   const hasResults = React.Children.toArray(filteredChildren).some(
-    (child) => React.isValidElement(child) && child.type === CommandGroup,
+    (child) =>
+      React.isValidElement(child) &&
+      (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
 
   return (
@@ -435,6 +524,7 @@ function getTextContent(children: ReactNode): string {
 // Attach sub-components
 CommandMenu.Group = CommandGroup;
 CommandMenu.Item = CommandItem;
+CommandMenu.DocsGroup = CommandDocsGroup;
 CommandMenu.Shortcut = CommandShortcut;
 CommandMenu.Separator = CommandSeparator;
 
@@ -465,4 +555,9 @@ export function useCommandMenuShortcut(onOpen: () => void) {
   }, [onOpen]);
 }
 
-export type { CommandGroupProps, CommandItemProps, CommandShortcutProps };
+export type {
+  CommandDocsGroupProps,
+  CommandGroupProps,
+  CommandItemProps,
+  CommandShortcutProps,
+};

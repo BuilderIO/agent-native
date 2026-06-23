@@ -12,6 +12,7 @@
  */
 
 import { listOAuthAccounts, saveOAuthTokens } from "./store.js";
+import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -31,29 +32,43 @@ interface RefreshResponse {
 }
 
 async function refreshOne(refreshToken: string): Promise<RefreshResponse> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const credentialCandidates = resolveGoogleProviderCredentialCandidates();
+  if (!credentialCandidates.length) {
     throw new Error("GOOGLE_CLIENT_ID/SECRET not set");
   }
-  const res = await fetch(GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
+
+  let data: Record<string, unknown> | null = null;
+  let lastStatusText = "refresh failed";
+  for (const credentials of credentialCandidates) {
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: refreshToken,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        grant_type: "refresh_token",
+      }),
+    });
+    lastStatusText = res.statusText;
+    data = (await res.json()) as Record<string, unknown>;
+    if (res.ok) return data as unknown as RefreshResponse;
+    if (
+      data.error !== "invalid_grant" &&
+      data.error !== "unauthorized_client" &&
+      data.error !== "invalid_client"
+    ) {
+      break;
+    }
+  }
+
+  if (data) {
     const err = (data.error_description ||
       data.error ||
-      res.statusText) as string;
+      lastStatusText) as string;
     throw new Error(err);
   }
-  return data as unknown as RefreshResponse;
+  throw new Error(lastStatusText);
 }
 
 /**

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 export function NotFound() {
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
+    <div className="flex min-h-full w-full items-center justify-center bg-background px-4 py-12">
       <div className="text-center">
         <IconMail className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
         <h1 className="text-2xl font-semibold text-foreground">404</h1>

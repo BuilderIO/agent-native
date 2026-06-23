@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import {
+  IconBrowser,
   IconBrandApple,
   IconBrandWindows,
+  IconExternalLink,
   IconPlayerRecord,
 } from "@tabler/icons-react";
 import { appBasePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  clipsChromeExtensionEnabled,
+  clipsChromeExtensionUrl,
+} from "@/lib/capture-install-options";
 
 export function meta() {
   return [
@@ -237,6 +243,49 @@ export default function DownloadPage() {
               )}
             </div>
           </div>
+
+          {clipsChromeExtensionEnabled && (
+            <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <IconBrowser className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Chrome extension for browser logs
+                  </h2>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    Use the extension when you want a recording plus redacted
+                    console and fetch/XHR diagnostics from the tab you launch
+                    from. The desktop app is still the smoothest everyday
+                    recorder.
+                  </p>
+                </div>
+              </div>
+              <Button
+                asChild={Boolean(clipsChromeExtensionUrl)}
+                disabled={!clipsChromeExtensionUrl}
+                variant="outline"
+                className="mt-4 w-full gap-2"
+              >
+                {clipsChromeExtensionUrl ? (
+                  <a
+                    href={clipsChromeExtensionUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <IconExternalLink className="h-4 w-4" />
+                    Install Chrome extension
+                  </a>
+                ) : (
+                  <>
+                    <IconExternalLink className="h-4 w-4" />
+                    Chrome Web Store URL pending
+                  </>
+                )}
+              </Button>
+            </section>
+          )}
         </div>
       </main>
     </div>

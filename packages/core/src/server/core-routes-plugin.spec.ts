@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
 import {
   resolveBuilderOwnerContextForRequest,
+  resolveBuilderWaitlistFormTargetForRequest,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
   AVATAR_RASTER_MIME,
@@ -212,6 +213,50 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     expect(context.email).toBe("steve@builder.io");
     expect(context.session).toEqual({ email: "steve@builder.io" });
     expect(context.anonymous).toBe(false);
+  });
+});
+
+describe("resolveBuilderWaitlistFormTargetForRequest", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("uses the Builder-org waitlist form on hosted Agent Native domains", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "DYTHuM0jlV",
+      formsOrigin: "https://forms.agent-native.com",
+    });
+  });
+
+  it("does not submit local waitlist clicks to the hosted form by default", () => {
+    const event = createMockEvent(
+      "http://localhost:8080/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toBeNull();
+  });
+
+  it("allows self-hosted deployments to opt into a form target explicitly", () => {
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORM_ID = "custom-form";
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORMS_ORIGIN =
+      "https://forms.example.com/path";
+    const event = createMockEvent(
+      "https://app.example.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "custom-form",
+      formsOrigin: "https://forms.example.com",
+    });
   });
 });
 

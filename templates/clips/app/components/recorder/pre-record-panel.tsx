@@ -18,9 +18,10 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath, appPath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import {
   Popover,
   PopoverContent,
@@ -724,12 +725,9 @@ export function PreRecordPanel({
                 {micAccessError ? (
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {micAccessError}{" "}
-                    <a
-                      href={appPath("/download")}
-                      className="text-foreground underline-offset-4 hover:underline"
-                    >
+                    <CaptureInstallInlineLink className="text-foreground underline-offset-4 hover:underline">
                       Try Clips Desktop.
-                    </a>
+                    </CaptureInstallInlineLink>
                   </p>
                 ) : null}
               </div>

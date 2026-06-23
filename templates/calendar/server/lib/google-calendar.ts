@@ -46,19 +46,57 @@ interface GoogleTokens {
   photoUrl?: string;
 }
 
+interface GoogleOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function getOAuth2Credentials() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const credentials = resolveGoogleProviderCredentialCandidates()[0];
+  if (!credentials) {
     throw new Error(
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
     );
   }
+  return credentials;
+}
+
+function getOAuth2RefreshCredentials() {
+  const candidates = resolveGoogleProviderCredentialCandidates();
+  if (!candidates.length) {
+    throw new Error(
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
+    );
+  }
+  return candidates;
+}
+
+function readCredentialPair(
+  clientIdKey: string,
+  clientSecretKey: string,
+): GoogleOAuthCredentials | null {
+  const clientId = process.env[clientIdKey];
+  const clientSecret = process.env[clientSecretKey];
+  if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
+}
+
+function resolveGoogleProviderCredentialCandidates(): GoogleOAuthCredentials[] {
+  const primary = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  const legacy = readCredentialPair(
+    "GOOGLE_LEGACY_CLIENT_ID",
+    "GOOGLE_LEGACY_CLIENT_SECRET",
+  );
+  if (!primary) return legacy ? [legacy] : [];
+  if (!legacy || legacy.clientId === primary.clientId) return [primary];
+  return [primary, legacy];
 }
 
 /**
@@ -316,17 +354,27 @@ async function getValidAccessToken(
       );
     }
     try {
-      const { clientId, clientSecret } = getOAuth2Credentials();
-      const oauth2 = createOAuth2Client(clientId, clientSecret, "");
-      const newTokens = await oauth2.refreshToken(tokens.refresh_token);
-      const merged = { ...tokens, ...newTokens };
-      await saveOAuthTokens(
-        "google",
-        accountId,
-        merged as unknown as Record<string, unknown>,
-        owner ?? accountId,
-      );
-      return merged.access_token;
+      let lastRefreshError: any;
+      for (const { clientId, clientSecret } of getOAuth2RefreshCredentials()) {
+        try {
+          const oauth2 = createOAuth2Client(clientId, clientSecret, "");
+          const newTokens = await oauth2.refreshToken(tokens.refresh_token);
+          const merged = { ...tokens, ...newTokens };
+          await saveOAuthTokens(
+            "google",
+            accountId,
+            merged as unknown as Record<string, unknown>,
+            owner ?? accountId,
+          );
+          return merged.access_token;
+        } catch (err: any) {
+          lastRefreshError = err;
+          if (!isPermanentRefreshError(err?.message || "")) {
+            throw err;
+          }
+        }
+      }
+      throw lastRefreshError;
     } catch (err: any) {
       if (isPermanentRefreshError(err?.message || "")) {
         // Drop the dead row so isOAuthConnected returns false and the UI
@@ -860,6 +908,7 @@ export async function listOverlayEvents(
           eventType: event.eventType || "default",
           accountEmail: undefined,
           overlayEmail,
+          ...mapColor(event),
           attendees: mapAttendees(event),
           organizer: mapOrganizer(event),
           createdAt: event.created || new Date().toISOString(),

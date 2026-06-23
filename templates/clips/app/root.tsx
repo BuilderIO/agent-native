@@ -19,9 +19,18 @@ import {
   getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -117,8 +126,30 @@ type ExternalChromeRuntime = {
   ) => void;
 };
 
+const CLIPS_COMMAND_DOCS = [
+  {
+    title: "Use the Chrome extension for browser logs",
+    description:
+      "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
+    href: "https://www.agent-native.com/docs/template-clips#browser-logs-and-developer-diagnostics",
+    keywords: [
+      "logs",
+      "browser logs",
+      "developer logs",
+      "console logs",
+      "network logs",
+      "fetch",
+      "xhr",
+      "diagnostics",
+      "chrome extension",
+      "recording",
+    ],
+  },
+] satisfies React.ComponentProps<typeof CommandMenu.DocsGroup>["docs"];
+
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
+  const [showAuthSuccess, setShowAuthSuccess] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -163,6 +194,7 @@ function ClipsExtensionAuthBridge() {
           cleaned.searchParams.delete("clipsExtensionAuth");
           cleaned.searchParams.delete("clipsExtensionId");
           window.history.replaceState(window.history.state, "", cleaned);
+          setShowAuthSuccess(true);
         },
       );
     }
@@ -173,7 +205,26 @@ function ClipsExtensionAuthBridge() {
     };
   }, [location.search]);
 
-  return null;
+  return (
+    <Dialog open={showAuthSuccess} onOpenChange={setShowAuthSuccess}>
+      <DialogContent className="max-w-sm text-center sm:text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+          <IconCheck className="h-9 w-9" strokeWidth={2.5} />
+        </div>
+        <DialogHeader className="items-center text-center sm:text-center">
+          <DialogTitle>Signed in</DialogTitle>
+          <DialogDescription className="max-w-xs">
+            Open the Clips extension again to start recording.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="sm:justify-center">
+          <Button type="button" onClick={() => setShowAuthSuccess(false)}>
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /**
@@ -211,6 +262,7 @@ function AppContent() {
           <CommandMenu.Group heading="Actions">
             <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
           </CommandMenu.Group>
+          <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
           <CommandMenu.Group heading="Appearance">
             <ThemeToggleItem />
           </CommandMenu.Group>

@@ -1,11 +1,19 @@
+import { Link } from "react-router";
+
 export default function Footer() {
   const year = new Date().getFullYear();
 
   return (
     <footer className="border-t border-[var(--docs-border)] px-6 py-8">
-      <div className="mx-auto flex max-w-[1440px] items-center justify-between text-sm text-[var(--fg-secondary)]">
+      <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-4 text-sm text-[var(--fg-secondary)] sm:flex-row">
         <p className="m-0">&copy; {year} Agent-Native</p>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:justify-end">
+          <Link
+            to="/privacy"
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            Privacy
+          </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"
             target="_blank"

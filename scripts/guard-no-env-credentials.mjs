@@ -92,6 +92,10 @@ const ALLOWLIST_EXACT = new Set([
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "NOTION_STATE_SECRET",
+  // Google OAuth app configuration. Sign-in credentials should be low-scope
+  // identity-only clients; provider integrations use separate app clients.
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "AUTH_SECRET",
   // Framework auth gate
   "ACCESS_TOKEN",
