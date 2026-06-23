@@ -183,9 +183,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "unsaved old-field edit",
     });
     // It did NOT get misrouted to the new field.
-    expect(
-      calls.some((c) => c.documentId === "doc-new"),
-    ).toBe(false);
+    expect(calls.some((c) => c.documentId === "doc-new")).toBe(false);
   });
 
   it("same-field collapse→reopen→edit within the in-flight window: older save never wins (shared controller)", async () => {

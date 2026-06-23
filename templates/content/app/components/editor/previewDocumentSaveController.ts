@@ -102,7 +102,10 @@ export function createPreviewDocumentSaveController(args: {
   documentId: string;
   initial: PreviewDocumentPayload;
   /** Persist `payload` to this controller's document. */
-  save: (documentId: string, payload: PreviewDocumentPayload) => Promise<unknown>;
+  save: (
+    documentId: string,
+    payload: PreviewDocumentPayload,
+  ) => Promise<unknown>;
   onSaved?: (payload: PreviewDocumentPayload) => void;
   onError?: (error: unknown) => void;
   debounceMs?: number;
@@ -221,9 +224,7 @@ export function createPreviewDocumentSaveController(args: {
   // not loop on repeated failure). Chains strictly on the in-flight save promise,
   // so it never busy-waits and always tracks the real settle of the trailing
   // save that carries `target`.
-  function waitUntilPersisted(
-    target: PreviewDocumentPayload,
-  ): Promise<void> {
+  function waitUntilPersisted(target: PreviewDocumentPayload): Promise<void> {
     if (payloadsEqual(lastSaved, target)) return Promise.resolve();
     if (inFlight === null) return Promise.resolve(); // quiescent (e.g. failed).
     return inFlight.then(() => waitUntilPersisted(target));

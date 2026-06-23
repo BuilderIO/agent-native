@@ -119,7 +119,10 @@ describe("previewDocumentSaveRegistry", () => {
     const resolvers: Array<() => void> = [];
     const save = () => new Promise<void>((resolve) => resolvers.push(resolve));
 
-    const first = acquirePreviewDocumentSaveController(id, factoryFor(id, save));
+    const first = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
     first.changeContent("content");
 
     // Release → flush-then-evict starts; the save goes in flight (unresolved).
@@ -127,7 +130,10 @@ describe("previewDocumentSaveRegistry", () => {
     expect(activePreviewControllerCount()).toBe(1);
 
     // Reopen before the flush settles: same instance, eviction cancelled.
-    const second = acquirePreviewDocumentSaveController(id, factoryFor(id, save));
+    const second = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
     expect(second).toBe(first);
 
     // Even after the in-flight flush save settles, the entry is NOT evicted

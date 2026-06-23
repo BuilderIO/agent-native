@@ -336,9 +336,9 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
       content: "v2",
       now,
     });
-    expect(await propertyUtils.readBlockFieldContent(documentId, propertyId)).toBe(
-      "v2",
-    );
+    expect(
+      await propertyUtils.readBlockFieldContent(documentId, propertyId),
+    ).toBe("v2");
   });
 });
 
@@ -521,9 +521,7 @@ describe("primary Blocks value reflects the body, never the title (finding: word
       databaseId,
       rowDocument,
     );
-    const primary = properties.find(
-      (p: any) => p.definition.id === primaryId,
-    );
+    const primary = properties.find((p: any) => p.definition.id === primaryId);
 
     // Word count reflects ONLY the 3 body words — not the 5-word title.
     expect(primary?.value).toBe("one two three");

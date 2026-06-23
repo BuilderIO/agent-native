@@ -185,7 +185,9 @@ export function isBlocksPropertyType(type: DocumentPropertyType): boolean {
 // The primary Blocks field is the one backed by `documents.content`. There is
 // at most one per database; it is the field seeded by default and is what the
 // page-body editor reads/writes.
-export function isPrimaryBlocksField(options: DocumentPropertyOptions): boolean {
+export function isPrimaryBlocksField(
+  options: DocumentPropertyOptions,
+): boolean {
   return options.blocks?.primary === true;
 }
 
@@ -215,9 +217,7 @@ export function formatWordCount(content: string | null | undefined): string {
 // Render decision for a set of Blocks-field types on one row:
 // - 0 or 1 Blocks field → "solo" (chromeless: no header, just the body).
 // - 2+                  → "multi" (each field gets a header + is collapsible).
-export function blocksRenderMode(
-  blocksFieldCount: number,
-): "solo" | "multi" {
+export function blocksRenderMode(blocksFieldCount: number): "solo" | "multi" {
   return blocksFieldCount >= 2 ? "multi" : "solo";
 }
 

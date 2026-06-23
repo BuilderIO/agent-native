@@ -15,9 +15,7 @@ export default defineAction({
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
     propertyId: z.string().describe("Property definition ID to move"),
-    targetPropertyId: z
-      .string()
-      .describe("Property to position relative to"),
+    targetPropertyId: z.string().describe("Property to position relative to"),
     position: z
       .enum(["before", "after"])
       .default("before")

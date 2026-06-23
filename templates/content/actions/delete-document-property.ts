@@ -48,7 +48,8 @@ export default defineAction({
       definition.type as DocumentPropertyType,
     );
     const isPrimaryBlocks =
-      isBlocks && isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson));
+      isBlocks &&
+      isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson));
 
     await db
       .delete(schema.documentPropertyValues)

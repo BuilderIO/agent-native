@@ -115,11 +115,7 @@ export function releaseBlockFieldSaveController(key: string): void {
     const current = registry.get(key);
     // Evict only if it is the SAME entry, still unreferenced, and still marked
     // for eviction (a reopen would have flipped `evicting` off / refCount up).
-    if (
-      current === entry &&
-      current.refCount === 0 &&
-      current.evicting
-    ) {
+    if (current === entry && current.refCount === 0 && current.evicting) {
       registry.delete(key);
       // Drop the per-key save-impl ref alongside the controller. It is only
       // cleared on test reset otherwise, so without this it accumulates one

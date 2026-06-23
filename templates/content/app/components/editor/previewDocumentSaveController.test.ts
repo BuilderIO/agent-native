@@ -360,9 +360,11 @@ describe("per-doc-controller independence (race-class elimination)", () => {
   it("an OLD-row in-flight save resolving AFTER a row-switch does NOT alter the new row's controller and does NOT trigger a redundant new-row save", async () => {
     // Old-row save is gated so it resolves AFTER we have switched to the new row.
     let resolveOld: (() => void) | undefined;
-    const oldSave = vi.fn().mockImplementation(
-      () => new Promise<void>((resolve) => (resolveOld = resolve)),
-    );
+    const oldSave = vi
+      .fn()
+      .mockImplementation(
+        () => new Promise<void>((resolve) => (resolveOld = resolve)),
+      );
     const old = createPreviewDocumentSaveController({
       documentId: "doc-old",
       initial: { title: "T", content: "old0" },

@@ -81,7 +81,11 @@ describe("blockFieldSaveController", () => {
   it("a FAILED save does not set hasSavedLocally", async () => {
     const onError = vi.fn();
     const save = vi.fn().mockRejectedValue(new Error("network"));
-    const c = createBlockFieldSaveController({ initialContent: "", save, onError });
+    const c = createBlockFieldSaveController({
+      initialContent: "",
+      save,
+      onError,
+    });
 
     c.change("typed");
     vi.advanceTimersByTime(500);

@@ -43,6 +43,50 @@ export function blockFieldsFromProperties(
     .sort((a, b) => a.definition.position - b.definition.position);
 }
 
+export type FieldReorderTarget = {
+  targetPropertyId: string;
+  position: "before" | "after";
+};
+
+export function computeFieldReorderTarget(
+  draggedId: string,
+  dropGapIndex: number,
+  orderedFields: DocumentProperty[],
+): FieldReorderTarget | null {
+  const blockFields = orderedFields.filter((field) =>
+    isBlocksPropertyType(field.definition.type),
+  );
+  const draggedIndex = blockFields.findIndex(
+    (field) => field.definition.id === draggedId,
+  );
+
+  if (
+    draggedIndex === -1 ||
+    dropGapIndex < 0 ||
+    dropGapIndex > blockFields.length ||
+    blockFields.length < 2
+  ) {
+    return null;
+  }
+
+  if (dropGapIndex === draggedIndex || dropGapIndex === draggedIndex + 1) {
+    return null;
+  }
+
+  if (dropGapIndex === blockFields.length) {
+    const lastField = blockFields[blockFields.length - 1];
+    if (!lastField || lastField.definition.id === draggedId) return null;
+    return { targetPropertyId: lastField.definition.id, position: "after" };
+  }
+
+  const followingField = blockFields[dropGapIndex];
+  if (!followingField || followingField.definition.id === draggedId) {
+    return null;
+  }
+
+  return { targetPropertyId: followingField.definition.id, position: "before" };
+}
+
 // The render decision for a row's Blocks fields, computed from the loaded
 // field list AND whether that list has actually arrived from the server.
 //
@@ -155,10 +199,7 @@ export function DocumentBlockFields({
       // metadata-only row). Render NO block editor — definitely not the body
       // editor. An affordance to add a Blocks field is appropriate here.
       return (
-        <div
-          className="grid gap-1"
-          data-block-fields-state="empty"
-        >
+        <div className="grid gap-1" data-block-fields-state="empty">
           {canEdit ? (
             <p className="px-1 py-2 text-sm text-muted-foreground">
               No Blocks fields. Add one from the property menu.
@@ -217,47 +258,122 @@ function MultiBlockFields({
 }) {
   const reorder = useReorderDocumentProperty(documentId);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
+
+  function handleDropOnGap(dropGapIndex: number) {
+    setDragOverGapIndex(null);
+    if (!dragId) return;
+
+    const target = computeFieldReorderTarget(dragId, dropGapIndex, blockFields);
+    setDragId(null);
+    if (!target) return;
+
+    void reorder.mutateAsync({
+      documentId,
+      propertyId: dragId,
+      targetPropertyId: target.targetPropertyId,
+      position: target.position,
+    });
+  }
 
   return (
-    <div className="grid gap-2">
-      {blockFields.map((property) => {
+    <div className="grid">
+      {blockFields.map((property, index) => {
         const primary = isPrimaryBlocksField(property.definition.options);
         return (
-          <BlockFieldShell
-            key={property.definition.id}
-            property={property}
-            canEdit={canEdit}
-            isDragging={dragId === property.definition.id}
-            onDragStart={() => setDragId(property.definition.id)}
-            onDragEnd={() => setDragId(null)}
-            onDropBefore={(sourceId) => {
-              setDragId(null);
-              if (sourceId && sourceId !== property.definition.id) {
-                void reorder.mutateAsync({
-                  documentId,
-                  propertyId: sourceId,
-                  targetPropertyId: property.definition.id,
-                  position: "before",
-                });
+          <div key={property.definition.id}>
+            <FieldDropZone
+              active={canEdit && dragId !== null}
+              over={dragOverGapIndex === index}
+              onDragOver={() => setDragOverGapIndex(index)}
+              onDragLeave={() =>
+                setDragOverGapIndex((current) =>
+                  current === index ? null : current,
+                )
               }
-            }}
-          >
-            {primary ? (
-              primaryEditor
-            ) : (
-              <AdditionalBlockEditor
-                // Identity key (see solo case): remount on a documentId/
-                // propertyId change so a reused instance never saves the new
-                // doc's edits to the old field's closure.
-                key={`${documentId}:${property.definition.id}`}
-                documentId={documentId}
-                property={property}
-                canEdit={canEdit}
-              />
-            )}
-          </BlockFieldShell>
+              onDrop={() => handleDropOnGap(index)}
+            />
+            <BlockFieldShell
+              property={property}
+              canEdit={canEdit}
+              isDragging={dragId === property.definition.id}
+              onDragStart={() => setDragId(property.definition.id)}
+              onDragEnd={() => {
+                setDragId(null);
+                setDragOverGapIndex(null);
+              }}
+            >
+              {primary ? (
+                primaryEditor
+              ) : (
+                <AdditionalBlockEditor
+                  // Identity key (see solo case): remount on a documentId/
+                  // propertyId change so a reused instance never saves the new
+                  // doc's edits to the old field's closure.
+                  key={`${documentId}:${property.definition.id}`}
+                  documentId={documentId}
+                  property={property}
+                  canEdit={canEdit}
+                />
+              )}
+            </BlockFieldShell>
+          </div>
         );
       })}
+      <FieldDropZone
+        active={canEdit && dragId !== null}
+        over={dragOverGapIndex === blockFields.length}
+        onDragOver={() => setDragOverGapIndex(blockFields.length)}
+        onDragLeave={() =>
+          setDragOverGapIndex((current) =>
+            current === blockFields.length ? null : current,
+          )
+        }
+        onDrop={() => handleDropOnGap(blockFields.length)}
+      />
+    </div>
+  );
+}
+
+function FieldDropZone({
+  active,
+  over,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  active: boolean;
+  over: boolean;
+  onDragOver: () => void;
+  onDragLeave: () => void;
+  onDrop: () => void;
+}) {
+  return (
+    <div
+      className="relative h-2"
+      data-block-field-drop-zone
+      onDragOver={(event) => {
+        if (!active) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        onDragOver();
+      }}
+      onDragLeave={() => {
+        if (!active) return;
+        onDragLeave();
+      }}
+      onDrop={(event) => {
+        if (!active) return;
+        event.preventDefault();
+        onDrop();
+      }}
+    >
+      <div
+        className={cn(
+          "pointer-events-none absolute left-6 right-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-primary opacity-0 transition-opacity",
+          over && "opacity-100",
+        )}
+      />
     </div>
   );
 }
@@ -269,7 +385,6 @@ function BlockFieldShell({
   isDragging,
   onDragStart,
   onDragEnd,
-  onDropBefore,
 }: {
   property: DocumentProperty;
   canEdit: boolean;
@@ -277,34 +392,19 @@ function BlockFieldShell({
   isDragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onDropBefore: (sourcePropertyId: string | null) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const [dragOver, setDragOver] = useState(false);
 
   return (
     <section
       className={cn(
         // Borderless, Capacities-style: fields are separated by the header +
-        // spacing, not a box. Drag-over shows a ring (no layout shift, no
-        // persistent border that the grips would sit inside/outside of).
+        // spacing, not a box. Field drop targets live only in the explicit
+        // between-field zones rendered by MultiBlockFields.
         "group/blockfield rounded-md",
         isDragging && "opacity-50",
-        dragOver && "ring-1 ring-primary/50",
       )}
       data-block-field-id={property.definition.id}
-      onDragOver={(event) => {
-        if (!canEdit) return;
-        event.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(event) => {
-        if (!canEdit) return;
-        event.preventDefault();
-        setDragOver(false);
-        onDropBefore(event.dataTransfer.getData("text/block-field-id") || null);
-      }}
     >
       {/* ONE grip rail: the header grip sits in a fixed 24px left gutter, and
           the content below is indented by the same 24px (pl-6). The editor's

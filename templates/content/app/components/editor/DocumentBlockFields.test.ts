@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   blockFieldsFromProperties,
   blockFieldsRenderState,
+  computeFieldReorderTarget,
   isLoadedForDocument,
 } from "./DocumentBlockFields";
 import type { DocumentProperty } from "@shared/api";
@@ -60,6 +61,76 @@ describe("blockFieldsFromProperties", () => {
       property({ id: "status", type: "status", position: 1 }),
     ];
     expect(blockFieldsFromProperties(properties)).toEqual([]);
+  });
+});
+
+describe("computeFieldReorderTarget", () => {
+  const fields = [
+    property({
+      id: "content",
+      type: "blocks",
+      position: 0,
+      options: { blocks: { primary: true } },
+    }),
+    property({
+      id: "summary",
+      type: "blocks",
+      position: 1,
+      options: { blocks: { primary: false } },
+    }),
+    property({
+      id: "notes",
+      type: "blocks",
+      position: 2,
+      options: { blocks: { primary: false } },
+    }),
+  ];
+
+  it("moves a field up by targeting the following field in the destination gap", () => {
+    expect(computeFieldReorderTarget("notes", 1, fields)).toEqual({
+      targetPropertyId: "summary",
+      position: "before",
+    });
+  });
+
+  it("moves a field down by targeting the following field in the destination gap", () => {
+    expect(computeFieldReorderTarget("content", 2, fields)).toEqual({
+      targetPropertyId: "notes",
+      position: "before",
+    });
+  });
+
+  it("moves a field to the very top", () => {
+    expect(computeFieldReorderTarget("notes", 0, fields)).toEqual({
+      targetPropertyId: "content",
+      position: "before",
+    });
+  });
+
+  it("moves a field to the very bottom using after the last field", () => {
+    expect(computeFieldReorderTarget("content", 3, fields)).toEqual({
+      targetPropertyId: "notes",
+      position: "after",
+    });
+  });
+
+  it("returns null for no-op drops into the field's own adjacent gaps", () => {
+    expect(computeFieldReorderTarget("summary", 1, fields)).toBeNull();
+    expect(computeFieldReorderTarget("summary", 2, fields)).toBeNull();
+  });
+
+  it("keeps non-Blocks fields out of the reorder target model", () => {
+    const mixedFields = [
+      fields[0]!,
+      property({ id: "status", type: "status", position: 1 }),
+      fields[1]!,
+      fields[2]!,
+    ];
+
+    expect(computeFieldReorderTarget("notes", 1, mixedFields)).toEqual({
+      targetPropertyId: "summary",
+      position: "before",
+    });
   });
 });
 
@@ -160,7 +231,10 @@ describe("blockFieldsRenderState", () => {
       position: 0,
       options: { blocks: { primary: true } },
     });
-    const state = blockFieldsRenderState({ loaded: true, blockFields: [field] });
+    const state = blockFieldsRenderState({
+      loaded: true,
+      blockFields: [field],
+    });
     expect(state).toMatchObject({ kind: "solo", target: "document_body" });
   });
 
@@ -174,7 +248,10 @@ describe("blockFieldsRenderState", () => {
       position: 0,
       options: { blocks: { primary: false } },
     });
-    const state = blockFieldsRenderState({ loaded: true, blockFields: [field] });
+    const state = blockFieldsRenderState({
+      loaded: true,
+      blockFields: [field],
+    });
     expect(state).toMatchObject({
       kind: "solo",
       target: "block_field_store",

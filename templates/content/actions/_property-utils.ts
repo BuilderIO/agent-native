@@ -1,3 +1,4 @@
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, sql, type InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -567,8 +568,14 @@ async function propertyValuesForLinkedDocuments(
   const docs = await db
     .select()
     .from(schema.documents)
-    .where(inArray(schema.documents.id, documentIds));
+    .where(
+      and(
+        inArray(schema.documents.id, documentIds),
+        accessFilter(schema.documents, schema.documentShares),
+      ),
+    );
   const docById = new Map(docs.map((doc) => [doc.id, doc]));
+  const accessibleDocumentIds = docs.map((doc) => doc.id);
 
   if (isComputedPropertyType(property.definition.type)) {
     const rowNumberByDocumentId = property.definition.databaseId
@@ -584,12 +591,19 @@ async function propertyValuesForLinkedDocuments(
     });
   }
 
+  if (accessibleDocumentIds.length === 0) {
+    return documentIds.map(() => null);
+  }
+
   const storedValues = await db
     .select()
     .from(schema.documentPropertyValues)
     .where(
       and(
-        inArray(schema.documentPropertyValues.documentId, documentIds),
+        inArray(
+          schema.documentPropertyValues.documentId,
+          accessibleDocumentIds,
+        ),
         eq(schema.documentPropertyValues.propertyId, property.definition.id),
       ),
     );
@@ -717,6 +731,7 @@ export async function writePrimaryBlocksContent(args: {
   content: string;
   now: string;
 }): Promise<void> {
+  await assertAccess("document", args.documentId, "editor");
   const db = getDb();
   await db
     .update(schema.documents)

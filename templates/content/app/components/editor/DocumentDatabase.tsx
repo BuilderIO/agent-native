@@ -9239,8 +9239,7 @@ function isTablePropertyVisible(
 function databaseTableCellDisplayValue(property: DocumentProperty) {
   // Blocks columns show a word count, never the dumped body content.
   if (property.definition.type === "blocks") {
-    const content =
-      typeof property.value === "string" ? property.value : "";
+    const content = typeof property.value === "string" ? property.value : "";
     const words = countWords(content);
     if (words === 0) return <span aria-hidden="true">&nbsp;</span>;
     return (
