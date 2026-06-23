@@ -138,11 +138,12 @@ import {
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentBlockFields } from "./DocumentBlockFields";
+import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import {
-  createPreviewDocumentSaveController,
-  type PreviewDocumentSaveController,
-} from "./previewDocumentSaveController";
-import { enqueuePreviewSave } from "./previewSaveLane";
+  acquirePreviewDocumentSaveController,
+  peekPreviewDocumentSaveController,
+  releasePreviewDocumentSaveController,
+} from "./previewDocumentSaveRegistry";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -2012,44 +2013,44 @@ function DatabaseItemPreview({
   // The peek's primary title+body save runs through a flush-on-release controller
   // so a pending debounced edit is PERSISTED — not dropped — when the row
   // switches, the editor unmounts, or the sheet closes / Open-page navigates.
-  // (Mirrors the additional Blocks fields' flush-on-release controller.) Always
-  // saves the LATEST controller pending payload, never a stale render closure.
+  //
+  // ONE CONTROLLER PER DOCUMENT ID (mirrors the additional Blocks fields): the
+  // peek is a SINGLE component instance whose `item` prop changes on row-switch.
+  // Rather than rebasing one controller's target id across rows (which produced a
+  // class of timing races), we ACQUIRE a per-doc controller for the current row
+  // and RELEASE it on switch. A controller's doc id is fixed for its life, so a
+  // flush always lands on the correct document and a stale completion can only
+  // ever touch its own row's state. See previewDocumentSaveRegistry.
   const updateDocumentRef = useRef(updateDocument);
   updateDocumentRef.current = updateDocument;
   const queryClientRef = useRef(queryClient);
   queryClientRef.current = queryClient;
-  // The document id the controller's pending payload belongs to. Set at EDIT
-  // time (not save time) so a flush triggered by a row-switch writes the
-  // previous row's pending edit to the PREVIOUS document — not the row we just
-  // switched to. The controller reads it via resolveTargetId at DISPATCH time
-  // and binds it to that save, so a rebase after dispatch can't retarget it.
-  // Seeded to the initial row.
-  const saveTargetIdRef = useRef(item.document.id);
   // Doc ids that have been deleted in this peek's lifetime. A pending save must
   // never resurrect a deleted document, so dispatch is suppressed for these.
   const deletedIdsRef = useRef<Set<string>>(new Set());
-  const saveControllerRef = useRef<PreviewDocumentSaveController | null>(null);
-  if (saveControllerRef.current === null) {
-    saveControllerRef.current = createPreviewDocumentSaveController({
+
+  const documentId = item.document.id;
+
+  // Build the factory for THIS row's controller. It closes over the stable
+  // component-scoped refs (updateDocument, queryClient, deletedIds), so the
+  // freshest mutation impl is always used while the controller's save TARGET
+  // (`documentId`) is fixed by the registry key.
+  const makeController = () =>
+    createPreviewDocumentSaveController({
+      documentId,
       initial: {
         title: item.document.title,
         content: item.document.content,
       },
-      resolveTargetId: () => saveTargetIdRef.current,
-      enqueue: (documentId, run) => enqueuePreviewSave(documentId, run),
-      save: (documentId, payload) =>
+      save: (id, payload) =>
         new Promise((resolve, reject) => {
           // A just-deleted doc must not be re-dispatched (resurrection guard).
-          if (deletedIdsRef.current.has(documentId)) {
+          if (deletedIdsRef.current.has(id)) {
             resolve(undefined);
             return;
           }
           updateDocumentRef.current.mutate(
-            {
-              id: documentId,
-              title: payload.title,
-              content: payload.content,
-            },
+            { id, title: payload.title, content: payload.content },
             { onSuccess: () => resolve(undefined), onError: reject },
           );
         }),
@@ -2068,8 +2069,37 @@ function DatabaseItemPreview({
         });
       },
     });
-  }
 
+  // Acquire the controller for the current row, and release it on row-switch /
+  // unmount. Release flush-then-evicts: the OLD row's latest dirty payload is
+  // dispatched SYNCHRONOUSLY (bound to the OLD doc id) before the new row's
+  // controller takes over, so a pending edit is persisted, not dropped, and never
+  // retargeted. A quick reopen before the flush settles reuses the live instance.
+  // The current controller is held in a ref so the change handlers reach it
+  // synchronously.
+  const saveControllerRef = useRef<ReturnType<typeof makeController> | null>(
+    null,
+  );
+  useEffect(() => {
+    saveControllerRef.current = acquirePreviewDocumentSaveController(
+      documentId,
+      makeController,
+    );
+    return () => {
+      saveControllerRef.current = null;
+      releasePreviewDocumentSaveController(documentId);
+    };
+    // makeController is rebuilt every render but intentionally not a dep: the
+    // registry only invokes it on the FIRST acquire of a doc id, and the doc id
+    // (the registry key) is the only thing that should drive re-acquire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  // Sync displayed state to the current row, and adopt fresh server content
+  // (e.g. an agent edit) as the controller's new confirmed baseline. mark()
+  // touches only THIS row's controller — never another row's — because the
+  // controller's doc id is fixed. The acquire effect above runs first, so the
+  // controller for `documentId` is registered before this fires.
   useEffect(() => {
     const nextTitle = document?.title ?? item.document.title;
     const nextContent = document?.content ?? item.document.content;
@@ -2077,38 +2107,23 @@ function DatabaseItemPreview({
     setLocalTitle(nextTitle);
     setLocalContent(nextContent);
     setLocalIcon(nextIcon);
-    // Adopting a fresh server/row baseline must NOT silently discard a pending
-    // edit. flush() now DISPATCHES the OLD row's trailing save SYNCHRONOUSLY,
-    // bound to the PREVIOUS target id still held in the ref, BEFORE we rebase —
-    // so the write is committed-to on the old id's lane before the next line
-    // points the ref at the new row. Only then do we rebase the target + adopt
-    // the new row's baseline. (Order matters: rebase must come AFTER flush.)
-    const controller = saveControllerRef.current;
-    if (controller) {
-      void controller.flush();
-      saveTargetIdRef.current = item.document.id;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    // Only adopt as baseline when the user hasn't typed something newer (don't
+    // clobber a dirty in-progress edit on this row).
+    if (controller && controller.pending.title === controller.lastSaved.title &&
+        controller.pending.content === controller.lastSaved.content) {
       controller.mark({ title: nextTitle, content: nextContent });
     }
   }, [
+    documentId,
     document?.id,
     document?.title,
     document?.content,
     document?.icon,
-    item.document.id,
     item.document.title,
     item.document.content,
     item.document.icon,
   ]);
-
-  useEffect(() => {
-    const controller = saveControllerRef.current;
-    return () => {
-      // Sheet close / Open-page navigate / unmount: FLUSH (don't drop) the
-      // pending payload. flush() issues the save synchronously before teardown,
-      // so the write is dispatched before any navigation completes.
-      if (controller) void controller.flush();
-    };
-  }, []);
 
   useEffect(() => {
     if (!focusTitle || !canEdit || isLoading || !document) return;
@@ -2125,14 +2140,12 @@ function DatabaseItemPreview({
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
     if (!canEdit || !document) return;
-    saveTargetIdRef.current = document.id;
     saveControllerRef.current?.changeTitle(nextTitle);
   }
 
   function handleContentChange(nextContent: string) {
     setLocalContent(nextContent);
     if (!canEdit || !document) return;
-    saveTargetIdRef.current = document.id;
     saveControllerRef.current?.changeContent(nextContent);
   }
 
@@ -2182,10 +2195,10 @@ function DatabaseItemPreview({
 
   async function deletePreviewRow() {
     // Cancel (do NOT flush) before any row switch/close: we're deleting this
-    // document, so a pending save must not resurrect it. Rebase pending onto the
-    // last-saved baseline so the row-switch reset effect's flush is a no-op, and
-    // record the id so any save already enqueued on its lane is a no-op too
-    // (the controller's save impl skips deleted ids).
+    // document, so a pending save must not resurrect it. Reset pending onto the
+    // last-saved baseline so the controller's release flush is a no-op, and
+    // record the id so any save already in flight is a no-op too (the
+    // controller's save impl skips deleted ids).
     deletedIdsRef.current.add(item.document.id);
     const controller = saveControllerRef.current;
     if (controller) {

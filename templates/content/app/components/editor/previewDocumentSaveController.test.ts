@@ -3,22 +3,15 @@ import {
   createPreviewDocumentSaveController,
   type PreviewDocumentPayload,
 } from "./previewDocumentSaveController";
-import {
-  __resetPreviewSaveLanes,
-  enqueuePreviewSave,
-} from "./previewSaveLane";
 
 beforeEach(() => {
   vi.useFakeTimers();
-  __resetPreviewSaveLanes();
 });
 afterEach(() => vi.useRealTimers());
 
 const initial: PreviewDocumentPayload = { title: "T0", content: "C0" };
 const DOC = "doc-1";
 
-// The per-doc lane wraps each save in extra promise hops, so a single
-// runAllTicks() may not drain the whole chain. Flush microtasks a few times.
 async function flushMicrotasks(times = 6) {
   for (let i = 0; i < times; i++) {
     await vi.runAllTicks();
@@ -26,19 +19,16 @@ async function flushMicrotasks(times = 6) {
   }
 }
 
-// A passthrough enqueue that runs immediately (no cross-doc serialization
-// needed for single-doc tests) — exercises the real lane so ordering is real.
 function makeController(args: {
   save: (id: string, p: PreviewDocumentPayload) => Promise<unknown>;
-  targetId?: () => string;
+  documentId?: string;
   onSaved?: (p: PreviewDocumentPayload) => void;
   onError?: (e: unknown) => void;
   init?: PreviewDocumentPayload;
 }) {
   return createPreviewDocumentSaveController({
+    documentId: args.documentId ?? DOC,
     initial: args.init ?? initial,
-    resolveTargetId: args.targetId ?? (() => DOC),
-    enqueue: (id, run) => enqueuePreviewSave(id, run),
     save: args.save,
     onSaved: args.onSaved,
     onError: args.onError,
@@ -46,7 +36,7 @@ function makeController(args: {
 }
 
 describe("previewDocumentSaveController", () => {
-  it("debounces a primary-body edit and persists after the delay, bound to the target id", async () => {
+  it("debounces a primary-body edit and persists after the delay, bound to the doc id", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = makeController({ save });
 
@@ -189,7 +179,8 @@ describe("previewDocumentSaveController", () => {
     expect(save).toHaveBeenCalledTimes(1);
     expect(c.isSaving).toBe(true);
 
-    // Closing now must NOT issue a second identical save — it's already covered.
+    // Closing now must NOT issue a second identical save — single-flight skips
+    // dispatch and the in-flight save already carries the latest payload.
     const flushed = c.flush();
     expect(save).toHaveBeenCalledTimes(1);
 
@@ -200,7 +191,7 @@ describe("previewDocumentSaveController", () => {
     expect(c.lastSaved).toEqual({ title: "T0", content: "C1" });
   });
 
-  it("mark() adopts a new baseline (e.g. row switch) without scheduling a save", async () => {
+  it("mark() adopts a new baseline (e.g. agent edit) without scheduling a save", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = makeController({ save });
 
@@ -224,10 +215,16 @@ describe("previewDocumentSaveController", () => {
     });
   });
 
+  it("exposes its fixed document id and never retargets it", () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({ save, documentId: "doc-fixed" });
+    expect(c.documentId).toBe("doc-fixed");
+  });
+
   // THE INTEGRATION BUG (facet 1 — trailing edit lost on teardown). A save is in
-  // flight AND a trailing edit landed; a flush/teardown must DISPATCH that
+  // flight AND a trailing edit landed; a flush/teardown must persist that
   // trailing edit, not drop it behind awaiting the in-flight save.
-  it("flush dispatches the trailing edit synchronously even while a save is in flight", async () => {
+  it("flush persists the trailing edit even while a save is in flight (latest payload final)", async () => {
     let resolveFirst: (() => void) | undefined;
     const save = vi
       .fn()
@@ -245,11 +242,11 @@ describe("previewDocumentSaveController", () => {
     expect(c.isSaving).toBe(true);
 
     // Trailing edit, then immediate teardown (flush) BEFORE the in-flight save
-    // resolves. The final save must already be enqueued on the lane.
+    // resolves. Single-flight defers the trailing dispatch behind the in-flight
+    // save; the returned flush promise resolves once the trailing save lands.
     c.changeContent("C2-trailing");
     const flushed = c.flush();
 
-    // The first save still has to finish before the lane runs the trailing one.
     resolveFirst?.();
     await flushed;
     await flushMicrotasks();
@@ -263,34 +260,10 @@ describe("previewDocumentSaveController", () => {
     expect(c.lastSaved).toEqual({ title: "T0", content: "C2-trailing" });
   });
 
-  // THE INTEGRATION BUG (facet 2 — trailing edit retargeted to the new row). The
-  // controller services many ids; a flush at row-switch must bind the OLD id.
-  it("flush binds the OLD document id even when the target rebases to the new row right after", async () => {
-    const calls: Array<{ id: string; payload: PreviewDocumentPayload }> = [];
-    let targetId = "old-doc";
-    const save = vi.fn().mockImplementation((id: string, payload) => {
-      calls.push({ id, payload });
-      return Promise.resolve();
-    });
-    const c = makeController({ save, targetId: () => targetId });
-
-    // Edit the OLD row, then row-switch: flush, THEN rebase target to new row.
-    c.changeContent("old-row trailing edit");
-    void c.flush(); // dispatches synchronously, binds "old-doc"
-    targetId = "new-doc"; // rebase happens immediately after, as in the effect
-    await flushMicrotasks();
-
-    expect(calls).toHaveLength(1);
-    // Bound to the OLD doc, never retargeted to "new-doc".
-    expect(calls[0].id).toBe("old-doc");
-    expect(calls[0].payload).toEqual({
-      title: "T0",
-      content: "old-row trailing edit",
-    });
-  });
-
-  // Same doc id: two saves commit in issue order, latest payload final.
-  it("two saves for the same doc commit in issue order (latest payload wins)", async () => {
+  // STRICT SAME-DOC ORDERING: with at most one save in flight per controller, two
+  // saves commit in issue order, latest payload final — and there is no queue to
+  // jump (the old lane's microtask gap is gone because there is no lane).
+  it("two saves for the same doc commit in issue order (no overlap, latest payload wins)", async () => {
     const order: string[] = [];
     const gates: Array<() => void> = [];
     const save = vi.fn().mockImplementation((_id: string, payload) => {
@@ -307,14 +280,18 @@ describe("previewDocumentSaveController", () => {
     vi.advanceTimersByTime(450);
     await flushMicrotasks();
     expect(c.isSaving).toBe(true);
+    // Single-flight: the second save has NOT been dispatched while the first runs.
+    expect(save).toHaveBeenCalledTimes(1);
 
-    // Trailing edit + flush while first is still gated.
+    // Trailing edit + flush while first is still gated. No second dispatch yet.
     c.changeContent("second");
     void c.flush();
+    expect(save).toHaveBeenCalledTimes(1);
 
-    // Release in order; lane guarantees first runs before second.
+    // Release first; its success kicks the trailing save for the latest payload.
     gates[0]?.();
     await flushMicrotasks();
+    expect(save).toHaveBeenCalledTimes(2);
     gates[1]?.();
     await flushMicrotasks();
 
@@ -323,66 +300,102 @@ describe("previewDocumentSaveController", () => {
   });
 });
 
-// Integration-level proof of the dispatch/rebase ordering at the SEAM the
-// component uses (resolveTargetId ref + the per-doc lane) — without rendering
-// all of DocumentDatabase. Mirrors how DatabaseItemPreview wires the controller.
-describe("preview save dispatch/rebase ordering (integration seam)", () => {
-  beforeEach(() => {
-    vi.useRealTimers(); // exercise the real lane microtask ordering
-    __resetPreviewSaveLanes();
-  });
+// STRUCTURAL PROOF that the old cross-doc races cannot recur with one controller
+// per document id: separate controllers are fully independent, and a stale OLD-row
+// completion can only ever touch its OWN controller's state — never the new row's.
+describe("per-doc-controller independence (race-class elimination)", () => {
+  beforeEach(() => vi.useRealTimers());
   afterEach(() => vi.useFakeTimers());
 
-  it("a row-switch dispatches the old row's trailing edit to the OLD id before the new row saves to the NEW id; ids stay independent", async () => {
+  it("a row-switch persists the old row's trailing edit to the OLD doc; a new doc's controller is independent", async () => {
     const writes: Array<{ id: string; content: string }> = [];
-    // Gate per-id so we can prove independence + correct targeting.
-    const resolvers = new Map<string, Array<() => void>>();
+    const gates = new Map<string, Array<() => void>>();
     const save = (id: string, payload: PreviewDocumentPayload) =>
       new Promise<void>((resolve) => {
-        const list = resolvers.get(id) ?? [];
+        const list = gates.get(id) ?? [];
         list.push(() => {
           writes.push({ id, content: payload.content });
           resolve();
         });
-        resolvers.set(id, list);
+        gates.set(id, list);
       });
 
-    // The component's saveTargetIdRef; resolveTargetId reads it at dispatch.
-    const targetRef = { current: "doc-A" };
-    const c = createPreviewDocumentSaveController({
+    // Row A's controller. Edit it, then on row-switch flush it (binds doc-A).
+    const a = createPreviewDocumentSaveController({
+      documentId: "doc-A",
       initial: { title: "TA", content: "A0" },
-      resolveTargetId: () => targetRef.current,
-      enqueue: (id, run) => enqueuePreviewSave(id, run),
       save,
     });
+    a.changeContent("A-edit");
+    const aFlush = a.flush();
 
-    // 1) Edit doc-A, then ROW SWITCH: flush (binds doc-A) THEN rebase to doc-B.
-    c.changeContent("A-edit");
-    void c.flush();
-    targetRef.current = "doc-B";
-    c.mark({ title: "TB", content: "B0" });
+    // Switching rows acquires a SEPARATE controller for doc-B (never the same
+    // instance, never a rebased target). Edit it, then close: flush (binds doc-B).
+    const b = createPreviewDocumentSaveController({
+      documentId: "doc-B",
+      initial: { title: "TB", content: "B0" },
+      save,
+    });
+    b.changeContent("B-edit");
+    const bFlush = b.flush();
 
-    // 2) Edit doc-B, then close: flush (binds doc-B).
-    c.changeContent("B-edit");
-    void c.flush();
-
-    // Let each lane's first step run so the gated saves register their resolver.
     const drain = async () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     };
     await drain();
 
-    // Release doc-B first to prove ids are independent (doc-A not yet released).
-    resolvers.get("doc-B")?.forEach((r) => r());
+    // Release doc-B first to prove independence (doc-A not yet released).
+    gates.get("doc-B")?.forEach((r) => r());
     await drain();
-    resolvers.get("doc-A")?.forEach((r) => r());
+    gates.get("doc-A")?.forEach((r) => r());
     await drain();
+    await Promise.all([aFlush, bFlush]);
 
-    // Both writes landed, each on its correct id; the old-row edit was NOT
-    // retargeted to doc-B.
-    const a = writes.filter((w) => w.id === "doc-A");
-    const b = writes.filter((w) => w.id === "doc-B");
-    expect(a).toEqual([{ id: "doc-A", content: "A-edit" }]);
-    expect(b).toEqual([{ id: "doc-B", content: "B-edit" }]);
+    const aWrites = writes.filter((w) => w.id === "doc-A");
+    const bWrites = writes.filter((w) => w.id === "doc-B");
+    expect(aWrites).toEqual([{ id: "doc-A", content: "A-edit" }]);
+    expect(bWrites).toEqual([{ id: "doc-B", content: "B-edit" }]);
+  });
+
+  it("an OLD-row in-flight save resolving AFTER a row-switch does NOT alter the new row's controller and does NOT trigger a redundant new-row save", async () => {
+    // Old-row save is gated so it resolves AFTER we have switched to the new row.
+    let resolveOld: (() => void) | undefined;
+    const oldSave = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => (resolveOld = resolve)),
+    );
+    const old = createPreviewDocumentSaveController({
+      documentId: "doc-old",
+      initial: { title: "T", content: "old0" },
+      save: oldSave,
+    });
+
+    // Edit the old row and dispatch the save; it is now in flight, unresolved.
+    old.changeContent("old-edit");
+    void old.flush();
+    expect(oldSave).toHaveBeenCalledTimes(1);
+
+    // Row-switch: acquire the NEW row's controller. The new controller is seeded
+    // with the new row's baseline. The old save is still in flight.
+    const newSave = vi.fn().mockResolvedValue(undefined);
+    const fresh = createPreviewDocumentSaveController({
+      documentId: "doc-new",
+      initial: { title: "T", content: "new0" },
+      save: newSave,
+    });
+    fresh.mark({ title: "T", content: "new0" }); // adopt new-row baseline.
+
+    // NOW the stale old-row save resolves. In the old design this advanced the
+    // SHARED controller's lastSaved to the old payload and kicked a redundant
+    // save against the new row's baseline. With per-doc controllers it can only
+    // advance the OLD controller's own lastSaved.
+    resolveOld?.();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    // The old controller's own baseline advanced correctly.
+    expect(old.lastSaved).toEqual({ title: "T", content: "old-edit" });
+    // The NEW controller is untouched: baseline unchanged, no save triggered.
+    expect(fresh.lastSaved).toEqual({ title: "T", content: "new0" });
+    expect(fresh.pending).toEqual({ title: "T", content: "new0" });
+    expect(newSave).not.toHaveBeenCalled();
   });
 });
