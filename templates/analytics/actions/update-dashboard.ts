@@ -410,7 +410,9 @@ export default defineAction({
     "Edit a SQL dashboard config (scope-aware). Prefer this over raw db-patch on the settings table — " +
     "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
     "Use `ops` for structural changes (reorder/insert/remove panels, update field values via JSON Pointer paths). " +
-    "Use `config` to replace the entire dashboard config. The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
+    "Use `config` to replace the entire dashboard config. " +
+    "For a large dashboard, build it up incrementally: save a small dashboard first, then add panels one at a time with `ops` rather than authoring the whole `config` in one call — a very large single `config` payload can get cut off mid-stream and stall the turn. " +
+    "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
     dashboardId: z
       .string()

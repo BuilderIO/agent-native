@@ -904,7 +904,7 @@ describe("recap comment body", () => {
     );
     expect(body).not.toContain("review at a higher altitude");
     expect(body).not.toContain("Updated for");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
     expect(body).toContain("<!-- plan-id: plan-abc123 -->");
     expect(body).toContain("<!-- pr-visual-recap -->");
     expect(body).not.toContain("_As of `");
@@ -944,7 +944,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      "[Open the full interactive recap](https://plan.agent-native.com/recaps/plan-abc123)",
+      "Open the [full interactive recap](https://plan.agent-native.com/recaps/plan-abc123)",
     );
     expect(body).not.toContain("evil.example.com");
   });
@@ -958,7 +958,7 @@ describe("recap comment body", () => {
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
     expect(body).not.toContain("javascript:");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 
   it("drops an invalid dark image URL and keeps the light screenshot picture", () => {
@@ -988,7 +988,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 
   it("refreshes to a skipped state on a tiny diff", () => {
@@ -999,7 +999,7 @@ describe("recap comment body", () => {
     expect(body).toContain("skipped");
     expect(body).toContain("too small");
     expect(body).not.toContain("Updated for");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("_As of `");
   });
 
@@ -1020,7 +1020,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("![Visual recap]");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 
   it("drops the link when the plan URL origin does not match the app origin", () => {
@@ -1031,7 +1031,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("Updated for");
     expect(body).not.toContain("evil.example.com");
   });
@@ -1077,7 +1077,7 @@ describe("recap comment body", () => {
     expect(body).toContain("suppressed");
     expect(body).toContain("Reason: `high-confidence secret in diff`.");
     expect(body).not.toContain("Updated for");
-    expect(body).not.toContain("Open the full interactive recap");
+    expect(body).not.toContain("Open the [full interactive recap]");
     expect(body).not.toContain("_As of `");
   });
 
@@ -1121,7 +1121,7 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1",
     } as NodeJS.ProcessEnv);
     expect(body).not.toContain("_As of `");
-    expect(body).toContain("Open the full interactive recap");
+    expect(body).toContain("Open the [full interactive recap]");
   });
 });
 

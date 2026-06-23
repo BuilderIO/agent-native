@@ -1932,7 +1932,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(`</a>`);
     lines.push("");
   }
-  lines.push(`**[Open the full interactive recap](${safeUrl})**`);
+  lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
     lines.push("");
     lines.push(

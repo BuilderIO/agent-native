@@ -11,10 +11,11 @@ name: Keep Neon DBs warm
 
 on:
   schedule:
-    # Every 5 minutes. Neon's default autosuspend is ~5 min idle; pinging at
-    # this cadence keeps the compute hot. (Raising autosuspend in the Neon
-    # dashboard widens the safety margin against scheduler jitter.)
-    - cron: "*/5 * * * *"
+    # Every 3 minutes. Neon's default autosuspend is ~5 min idle, so a 3-min
+    # cadence leaves margin for GitHub's scheduled-workflow jitter (runs can be
+    # delayed several minutes near the top of the hour) — a delayed 5-min ping
+    # could let the compute suspend, but a delayed 3-min one almost never does.
+    - cron: "*/3 * * * *"
   workflow_dispatch:
 
 permissions: {}
