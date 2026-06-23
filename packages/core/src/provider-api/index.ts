@@ -19,6 +19,7 @@ import {
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import type {
@@ -3432,36 +3433,55 @@ async function refreshGoogleOAuthToken(
   },
   refreshToken: string,
 ): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const credentialCandidates = resolveGoogleProviderCredentialCandidates();
+  if (!credentialCandidates.length) {
     throw new Error(
       "GOOGLE_CLIENT_ID/SECRET not set for Google OAuth refresh.",
     );
   }
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = (await res.json()) as {
+
+  let data: {
     access_token?: string;
     expires_in?: number;
     token_type?: string;
     scope?: string;
     error?: string;
     error_description?: string;
-  };
-  if (!res.ok || !data.access_token) {
+  } | null = null;
+  let lastStatusText = "refresh failed";
+  for (const credentials of credentialCandidates) {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: refreshToken,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        grant_type: "refresh_token",
+      }),
+    });
+    lastStatusText = res.statusText;
+    data = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      token_type?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
+    if (res.ok && data.access_token) break;
     if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      continue;
+    }
+    const detail = data.error_description ?? data.error ?? lastStatusText;
+    throw new Error(`Google OAuth refresh failed: ${detail}`);
+  }
+
+  if (!data?.access_token) {
+    if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
       await deleteOAuthTokens(options.oauthProvider, options.accountId);
     }
-    const detail = data.error_description ?? data.error ?? res.statusText;
+    const detail = data?.error_description ?? data?.error ?? lastStatusText;
     throw new Error(`Google OAuth refresh failed: ${detail}`);
   }
   const merged: OAuthTokens = {

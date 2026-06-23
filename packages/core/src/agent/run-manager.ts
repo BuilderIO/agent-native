@@ -86,6 +86,44 @@ export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 
+const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
+
+function getRunErrorMessage(err: unknown): string {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof err.message === "string" &&
+    err.message.trim().length > 0
+  ) {
+    return err.message;
+  }
+  return "Unknown error";
+}
+
+function getEngineRunErrorCode(err: EngineError): string | undefined {
+  if (err.errorCode) return err.errorCode;
+  if (err.statusCode === 429) return PROVIDER_RATE_LIMITED_ERROR_CODE;
+  return undefined;
+}
+
+function getEngineRunErrorDetails(err: EngineError): string | undefined {
+  if (err.statusCode === 429) return err.message;
+  return undefined;
+}
+
+function shouldCaptureRunError(err: unknown): boolean {
+  if (!(err instanceof EngineError)) return true;
+  const errorCode = getEngineRunErrorCode(err);
+  if (!errorCode) return true;
+  const normalizedCode = errorCode.toLowerCase();
+  return (
+    !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== "provider_rate_limited" &&
+    normalizedCode !== "rate_limit_exceeded"
+  );
+}
+
 export interface StartRunOptions {
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
@@ -421,13 +459,19 @@ export function startRun(
         return;
       }
       run.status = "errored";
-      captureRunError(err, "run");
+      if (shouldCaptureRunError(err)) {
+        captureRunError(err, "run");
+      }
+      const errorMessage = getRunErrorMessage(err);
+      const errorCode =
+        err instanceof EngineError ? getEngineRunErrorCode(err) : undefined;
+      const details =
+        err instanceof EngineError ? getEngineRunErrorDetails(err) : undefined;
       send({
         type: "error",
-        error: err?.message ?? "Unknown error",
-        ...(err instanceof EngineError && err.errorCode
-          ? { errorCode: err.errorCode }
-          : {}),
+        error: errorMessage,
+        ...(errorCode ? { errorCode } : {}),
+        ...(details ? { details } : {}),
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),

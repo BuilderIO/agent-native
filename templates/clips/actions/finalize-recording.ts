@@ -26,6 +26,10 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import {
+  requiresConfiguredVideoStorage,
+  STORAGE_SETUP_REQUIRED_REASON,
+} from "../server/lib/video-storage.js";
 import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -73,8 +77,6 @@ function chunkIndexFromKey(key: string): number {
   return Number(key.split("-").pop() || 0);
 }
 
-const STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload and finish saving this clip.";
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
 
@@ -410,6 +412,41 @@ export default defineAction({
 
       if (upload === null) {
         const now = new Date().toISOString();
+        if (requiresConfiguredVideoStorage()) {
+          await db
+            .update(schema.recordings)
+            .set({
+              status: "failed",
+              failureReason: STORAGE_SETUP_REQUIRED_REASON,
+              durationMs: finalDurationMs,
+              width: finalWidth,
+              height: finalHeight,
+              hasAudio: finalHasAudio,
+              hasCamera: finalHasCamera,
+              uploadProgress: 0,
+              updatedAt: now,
+            })
+            .where(eq(schema.recordings.id, id));
+
+          await writeAppState(`recording-upload-${id}`, {
+            recordingId: id,
+            status: "failed",
+            failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            storageSetupRequired: true,
+            progress: 0,
+            updatedAt: now,
+          });
+          await writeAppState("refresh-signal", { ts: Date.now() });
+
+          return {
+            id,
+            status: "failed" as const,
+            storageSetupRequired: true,
+            failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            durationMs: finalDurationMs,
+          };
+        }
+
         await db
           .update(schema.recordings)
           .set({

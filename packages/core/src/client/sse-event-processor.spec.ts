@@ -34,6 +34,36 @@ function silentStream(): ReadableStream<Uint8Array> {
   });
 }
 
+function keepaliveThenDoneStream(
+  keepaliveAtMs: number,
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setTimeout(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, keepaliveAtMs);
+    },
+    cancel() {
+      if (timer) clearTimeout(timer);
+    },
+  });
+}
+
 function eventStream(events: unknown[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -108,6 +138,24 @@ describe("SSE event processor no-progress recovery", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("stream_keepalive events reset the no-progress watchdog", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        keepaliveThenDoneStream(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(donePromise).resolves.toBeDefined();
   });
 
   it("turns raw comment-only live streams into an auto-continuation signal", async () => {
@@ -419,6 +467,59 @@ describe("SSE event processor error classification", () => {
           runError: {
             message: "No LLM provider is connected",
             errorCode: "missing_credentials",
+          },
+        },
+      },
+    });
+  });
+
+  it("surfaces provider rate limits as terminal run errors", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "429 status code (no body)",
+            errorCode: "provider_rate_limited",
+            details: "429 status code (no body)",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rate-limit",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message:
+            "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+          details: "429 status code (no body)",
+          errorCode: "provider_rate_limited",
+          tabId: "tab-rate-limit",
+        },
+      }),
+    );
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message:
+              "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+            details: "429 status code (no body)",
+            errorCode: "provider_rate_limited",
           },
         },
       },

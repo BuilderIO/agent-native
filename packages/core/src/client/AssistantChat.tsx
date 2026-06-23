@@ -50,7 +50,12 @@ import type {
   ChatThreadSnapshot,
 } from "./use-chat-threads.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
-import { getActiveRun } from "./active-run-state.js";
+import {
+  getActiveRun,
+  resolveReconnectAfterSeq,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -136,6 +141,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  type BuilderSetupCardLayout,
   type LoopLimitInfo,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
@@ -659,6 +665,8 @@ export interface AssistantChatProps {
   composerAreaClassName?: string;
   /** Placeholder for the shared composer in its normal idle state. */
   composerPlaceholder?: string;
+  /** Sidebar uses a compact setup CTA above the composer; page chat keeps the default below-composer CTA. */
+  missingApiKeySetupLayout?: BuilderSetupCardLayout;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
@@ -949,6 +957,7 @@ const AssistantChatInner = forwardRef<
     composerSlot,
     composerAreaClassName,
     composerPlaceholder,
+    missingApiKeySetupLayout = "default",
     composerLayoutVariant = "default",
     centerComposerWhenEmpty = false,
     emptyStateDisplay = "default",
@@ -1104,6 +1113,8 @@ const AssistantChatInner = forwardRef<
     providerStatusChecksEnabled,
   ).missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
+  const missingApiKeySetupAboveComposer =
+    missingApiKeySetupLayout === "sidebar";
   // Increments each time the user clicks the (disabled) composer while no LLM
   // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
@@ -1241,6 +1252,7 @@ const AssistantChatInner = forwardRef<
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
+  const [reconnectAfterSeq, setReconnectAfterSeq] = useState(0);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
@@ -1450,6 +1462,13 @@ const AssistantChatInner = forwardRef<
       if (reconnectRunIdRef.current === runId) return true;
 
       reconnectRunIdRef.current = runId;
+      const afterSeq = resolveReconnectAfterSeq(threadId, runId);
+      setReconnectAfterSeq(afterSeq);
+      setActiveRun({
+        threadId,
+        runId,
+        lastSeq: afterSeq > 0 ? afterSeq - 1 : -1,
+      });
       setIsReconnecting(true);
       setReconnectFrozen(false);
       setReconnectContent([]);
@@ -1492,9 +1511,16 @@ const AssistantChatInner = forwardRef<
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
+        const threadPollInterval =
+          afterSeq > 0
+            ? window.setInterval(() => {
+                if (reconnectRunIdRef.current !== runId) return;
+                void refreshThreadFromServer();
+              }, 2000)
+            : undefined;
         try {
           const sseRes = await fetch(
-            `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=0`,
+            `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
             { signal: abortCtrl.signal },
           );
           if (sseRes.ok && sseRes.body) {
@@ -1505,6 +1531,7 @@ const AssistantChatInner = forwardRef<
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {
+              if (afterSeq > 0) return;
               latestSnapshot = snapshot;
               if (rafPending) return;
               rafPending = true;
@@ -1520,8 +1547,11 @@ const AssistantChatInner = forwardRef<
               toolCallCounter,
               tabId,
               scheduleUpdate,
+              (seq) => updateActiveRunSeq(seq),
             );
-            setReconnectContent([...content]);
+            if (afterSeq === 0) {
+              setReconnectContent([...content]);
+            }
           }
         } catch (err) {
           if (
@@ -1537,6 +1567,9 @@ const AssistantChatInner = forwardRef<
             noProgressDuringReconnect = true;
           }
         } finally {
+          if (threadPollInterval !== undefined) {
+            window.clearInterval(threadPollInterval);
+          }
           clearInterval(watchdog);
           clearTimeout(maxReconnectTimer);
         }
@@ -1564,9 +1597,17 @@ const AssistantChatInner = forwardRef<
           } catch {
             // Best effort — the important part is unwinding the UI.
           }
-          settleInterruptedToolCalls(latestContent);
-          setReconnectContent([...latestContent]);
-          setReconnectFrozen(latestContent.length > 0);
+          if (afterSeq > 0) {
+            // Tail-resume only replays new events; never freeze that slice as a
+            // complete assistant turn — the server thread is authoritative.
+            await refreshThreadFromServer();
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+          } else {
+            settleInterruptedToolCalls(latestContent);
+            setReconnectContent([...latestContent]);
+            setReconnectFrozen(latestContent.length > 0);
+          }
           setRunErrorInfo({
             message:
               "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
@@ -1578,6 +1619,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          setReconnectAfterSeq(0);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1604,6 +1646,7 @@ const AssistantChatInner = forwardRef<
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
+          setReconnectAfterSeq(0);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -2012,18 +2055,22 @@ const AssistantChatInner = forwardRef<
     // is about to hit "Refresh chat" — that's the "Reload UI required"
     // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
-      captureError(new Error("agent-chat:auth_error_card_stuck"), {
-        tags: {
-          context: "agent-native-chat",
-          errorCode: "auth_error_card",
-          sessionAvailable: String(authSessionAvailable),
-          sessionExpired: String(!!authError.sessionExpired),
-        },
-        extra: {
-          threadId: threadId ?? null,
-          tabId: tabId ?? null,
-        },
-      });
+      void (async () => {
+        const hasSession = await checkAuthSession();
+        if (hasSession) return;
+        captureError(new Error("agent-chat:auth_error_card_stuck"), {
+          tags: {
+            context: "agent-native-chat",
+            errorCode: "auth_error_card",
+            sessionAvailable: String(authSessionAvailable),
+            sessionExpired: String(!!authError.sessionExpired),
+          },
+          extra: {
+            threadId: threadId ?? null,
+            tabId: tabId ?? null,
+          },
+        });
+      })();
     }, 3000);
     const handler = () => void checkAuthSession();
     const timer = window.setTimeout(handler, 250);
@@ -2350,6 +2397,7 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current?.abort();
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
+      setReconnectAfterSeq(0);
       setIsReconnecting(false);
       setReconnectFrozen(reconnectContent.length > 0);
     }
@@ -2816,7 +2864,15 @@ const AssistantChatInner = forwardRef<
     !isRestoring &&
     !isReconnecting &&
     !authError;
-  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+  const centeredRestoringState =
+    centerComposerWhenEmpty &&
+    messages.length === 0 &&
+    !hasActiveChatWork &&
+    isRestoring &&
+    !isReconnecting &&
+    !authError;
+  const centeredEmptyState =
+    centerComposerWhenEmpty && (isFreshEmptyChat || centeredRestoringState);
   const showEmptyState =
     messages.length === 0 && !isReconnecting && !hasActiveChatWork;
   const showComposerSlot =
@@ -3009,6 +3065,23 @@ const AssistantChatInner = forwardRef<
                         </button>
                       </div>
                     </div>
+                  ) : isRestoring && centeredRestoringState ? (
+                    <div
+                      className={cn(
+                        "agent-empty-state",
+                        emptyStateDisplay === "hidden"
+                          ? "sr-only"
+                          : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                      )}
+                      aria-busy="true"
+                    >
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                        <IconMessage className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <p className="sr-only">
+                        {emptyStateText ?? "Loading chat..."}
+                      </p>
+                    </div>
                   ) : isRestoring ? (
                     <div className="flex flex-col gap-3 p-4">
                       <div className="flex justify-end">
@@ -3124,6 +3197,7 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
+                        reconnectAfterSeq === 0 &&
                         reconnectContent.length > 0 && (
                           <ReconnectStreamMessage content={reconnectContent} />
                         )}
@@ -3249,6 +3323,15 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 )}
+                {missingApiKey &&
+                !authError &&
+                missingApiKeySetupAboveComposer ? (
+                  <BuilderSetupCard
+                    onConnected={handleBuilderConnected}
+                    bouncePulse={missingKeyBouncePulse}
+                    layout={missingApiKeySetupLayout}
+                  />
+                ) : null}
                 {/* Input area */}
                 <AgentComposerFrame
                   layoutVariant={composerLayoutVariant}
@@ -3269,7 +3352,9 @@ const AssistantChatInner = forwardRef<
                     disabled={isComposerDisabled}
                     placeholder={
                       missingApiKey
-                        ? "Connect AI below to start chatting..."
+                        ? missingApiKeySetupAboveComposer
+                          ? "Connect AI above to start chatting..."
+                          : "Connect AI below to start chatting..."
                         : composerDisabled
                           ? (composerDisabledPlaceholder ??
                             "Open Desktop to use this chat.")
@@ -3345,10 +3430,13 @@ const AssistantChatInner = forwardRef<
                     }
                   />
                 </AgentComposerFrame>
-                {missingApiKey && !authError ? (
+                {missingApiKey &&
+                !authError &&
+                !missingApiKeySetupAboveComposer ? (
                   <BuilderSetupCard
                     onConnected={handleBuilderConnected}
                     bouncePulse={missingKeyBouncePulse}
+                    layout={missingApiKeySetupLayout}
                   />
                 ) : null}
               </div>

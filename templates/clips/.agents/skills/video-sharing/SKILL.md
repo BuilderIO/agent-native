@@ -124,6 +124,38 @@ const { url } = await callAction("build-embed-url", {
 // -> /embed/<shareId>?t=80&autoplay=1
 ```
 
+## Slack unfurls
+
+Clips can render Loom-style Slack previews through Slack App Unfurling. Configure
+the Slack app's `link_shared` event to call `/api/slack/unfurl`; the route
+verifies `SLACK_SIGNING_SECRET`, acknowledges Slack URL verification, and calls
+`chat.unfurl` with a Block Kit `video` block using the existing `/embed/:id`
+player URL.
+
+For installable workspaces, use the Clips Settings OAuth flow. `connect-slack`
+opens Slack OAuth, `/api/slack/oauth/callback` stores the bot token encrypted in
+`app_secrets`, and `slack_installations` stores only the Slack team/app metadata
+plus the secret ref. The unfurl webhook resolves the token by Slack `team_id`
+and `api_app_id`; only if no OAuth install exists should it fall back to the
+legacy `SLACK_BOT_TOKEN` path.
+
+The playable Slack embed is deliberately narrower than the share page:
+
+- Only `ready` recordings with `visibility === "public"` can produce a video block.
+- Password-protected, expired, archived, trashed, private, org-only, or still-processing clips must not produce a playable Slack block.
+- Slack thumbnails use the stored thumbnail (or animated thumbnail as fallback) and normal share-page metadata remains the fallback when no Slack app is installed.
+- Do not put passwords, short-lived share tokens, raw provider URLs, or transcript text in Slack unfurl payloads.
+
+Required Slack app setup:
+
+- Bot scopes: `links:read`, `links:write`, `links.embed:write`
+- Event subscription: `link_shared`
+- App unfurl domains: the public Clips share domain, for example `clips.agent-native.com`
+- Request URL: `https://<clips-host>/api/slack/unfurl`
+- OAuth redirect URL: `https://<clips-host>/api/slack/oauth/callback`
+- Deploy secrets: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
+  `SLACK_SIGNING_SECRET`
+
 ## Agent-readable public clips
 
 Public recordings also expose URLs meant for external agents:

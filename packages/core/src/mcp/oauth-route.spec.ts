@@ -259,6 +259,51 @@ describe("MCP OAuth route", () => {
     });
   });
 
+  it("allows private-use IDE scheme redirect URIs during registration", async () => {
+    const res = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          client_name: "Cursor",
+          redirect_uris: [
+            "cursor://anysphere.cursor-retrieval/mcp/oauth/callback",
+          ],
+          token_endpoint_auth_method: "none",
+        } as any,
+      }),
+      "/register",
+    );
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      redirect_uris: ["cursor://anysphere.cursor-retrieval/mcp/oauth/callback"],
+    });
+  });
+
+  it("rejects script- and file-capable redirect schemes during registration", async () => {
+    for (const uri of [
+      "javascript:alert(1)",
+      "data:text/html,evil",
+      "file:///etc/passwd",
+      "http://evil.example.com/callback",
+    ]) {
+      const res = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            client_name: "Bad client",
+            redirect_uris: [uri],
+            token_endpoint_auth_method: "none",
+          } as any,
+        }),
+        "/register",
+      );
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: "invalid_client_metadata",
+      });
+    }
+  });
+
   it("serves login HTML when authorize is opened without a browser session", async () => {
     const client = await (
       await handleMcpOAuth(

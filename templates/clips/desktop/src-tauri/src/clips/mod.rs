@@ -511,6 +511,48 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Interactive full-screen one-shot selector for choosing the screen region to
+/// record. The React view emits the selected normalized rectangle back to the
+/// recorder and closes itself.
+#[tauri::command]
+pub async fn show_region_capture_selector(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(REGION_GUIDE_EDITOR_LABEL) {
+        let _ = existing.close();
+    }
+
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        REGION_GUIDE_EDITOR_LABEL,
+        build_overlay_url("region-capture-selector"),
+    )
+    .title("Select Clips Recording Region")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(true);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
+        eprintln!("[clips-tray] region capture selector build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
+    set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
 /// with hover-revealed restart/cancel controls matching Loom's left-rail
 /// placement. Draggable, always on top.
@@ -765,6 +807,7 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
 /// MediaRecorder doesn't touch the camera after start.
 #[tauri::command]
 pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
         dlog!("[clips-tray] close_bubble — destroying bubble webview");
         let _ = w.close();

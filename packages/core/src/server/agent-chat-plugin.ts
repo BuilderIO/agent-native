@@ -9,6 +9,11 @@ import { getSetting, putSetting } from "../settings/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import {
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
+import {
   getH3App,
   markDefaultPluginProvided,
   trackPluginInit,
@@ -687,6 +692,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
+      if (meta.scope === "dev") continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -923,7 +929,7 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
       readOnly: true,
       tool: {
         description:
-          "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions, db-exec, db-patch) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",
+          "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions and any enabled raw DB write tools) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",
         parameters: {
           type: "object",
           properties: {
@@ -1287,16 +1293,29 @@ function createDataWidgetActionEntries(): Record<string, ActionEntry> {
  * `pnpm action db-query ...` — but in production there is no bash, so these
  * must be registered as native tools for the agent to reach the app DB at all.
  */
-async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
+async function createDbScriptEntries(
+  mode: DatabaseToolsMode = "write",
+  options: { extensionTools?: boolean } = {},
+): Promise<Record<string, ActionEntry>> {
   try {
-    const [schemaMod, queryMod, execMod, patchMod] = await Promise.all([
+    if (mode === "off") return {};
+    const extensionQueryGuidance =
+      options.extensionTools === false
+        ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
+        : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
+    const [schemaMod, queryMod] = await Promise.all([
       import("../scripts/db/schema.js"),
       import("../scripts/db/query.js"),
-      import("../scripts/db/exec.js"),
-      import("../scripts/db/patch.js"),
     ]);
+    const [execMod, patchMod] =
+      mode === "write"
+        ? await Promise.all([
+            import("../scripts/db/exec.js"),
+            import("../scripts/db/patch.js"),
+          ])
+        : [null, null];
 
-    return {
+    const entries: Record<string, ActionEntry> = {
       "db-schema": wrapCliScript(
         {
           description:
@@ -1317,8 +1336,7 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       ),
       "db-query": wrapCliScript(
         {
-          description:
-            "Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like data warehouses, CRMs, issue trackers, analytics platforms, calendars, mail, docs, or other third-party services. For those, use the relevant template/provider action, MCP connector, or provider-api-catalog/provider-api-docs/provider-api-request when available. If the user names a provider, that named provider wins; do not substitute a warehouse or app database copy unless they explicitly ask for it. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.",
+          description: `Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like data warehouses, CRMs, issue trackers, analytics platforms, calendars, mail, docs, or other third-party services. For those, use the relevant template/provider action, MCP connector, or provider-api-catalog/provider-api-docs/provider-api-request when available. If the user names a provider, that named provider wins; do not substitute a warehouse or app database copy unless they explicitly ask for it. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. ${extensionQueryGuidance}`,
           parameters: {
             type: "object",
             properties: {
@@ -1349,15 +1367,18 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
         queryMod.default,
         { readOnly: true },
       ),
-      "db-exec": wrapCliScript(
+    };
+
+    if (execMod && patchMod) {
+      entries["db-exec"] = wrapCliScript(
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: dbExecToolParameters(),
         },
         execMod.default,
-      ),
-      "db-patch": wrapCliScript(
+      );
+      entries["db-patch"] = wrapCliScript(
         {
           description:
             "Surgical patch on a large text/JSON column in the app's SQL database. Two modes: (1) text find/replace via `find`/`replace`/`edits` — best for small edits to documents, slide HTML, etc. (2) structural JSON ops via `json-ops` — STRONGLY PREFERRED when the column is JSON (dashboard configs, form schemas, slide decks) because it avoids all the brace/quote/comma surgery that text find/replace requires. Use `json-ops` to set/remove values at a JSON Pointer path, or to move/insert array items — e.g. reorder dashboard panels, add a filter, rename a field. Targets exactly one row (narrow `where` by primary key). Same per-user/org scoping as db-exec.",
@@ -1408,53 +1429,91 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
           },
         },
         patchMod.default,
-      ),
-    };
+      );
+    }
+
+    return entries;
   } catch {
     return {};
   }
 }
 
 /**
- * Creates the docs-search tool so agents can look up framework documentation.
- * Docs are bundled in @agent-native/core and read via fs at runtime.
+ * Creates read-only package lookup tools so agents can inspect version-matched
+ * framework docs and source bundled in @agent-native/core at runtime.
  */
 async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
+  const entries: Record<string, ActionEntry> = {};
+
   try {
     const mod = await import("../scripts/docs/search.js");
-    return {
-      "docs-search": wrapCliScript(
-        {
-          description:
-            "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
-          parameters: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description:
-                  "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
-              },
-              slug: {
-                type: "string",
-                description:
-                  "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
-              },
-              list: {
-                type: "string",
-                description: 'Set to "true" to list all available doc pages',
-                enum: ["true"],
-              },
+    entries["docs-search"] = wrapCliScript(
+      {
+        description:
+          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
+            },
+            slug: {
+              type: "string",
+              description:
+                "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list all available doc pages',
+              enum: ["true"],
             },
           },
         },
-        mod.default,
-        { readOnly: true },
-      ),
-    };
+      },
+      mod.default,
+      { readOnly: true },
+    );
   } catch {
-    return {};
+    // Keep source-search available if docs-search fails during a partial build.
   }
+
+  try {
+    const mod = await import("../scripts/docs/source-search.js");
+    entries["source-search"] = wrapCliScript(
+      {
+        description:
+          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant core or template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
+            },
+            path: {
+              type: "string",
+              description:
+                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'core/src/action.ts').",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list corpus sections',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      mod.default,
+      { readOnly: true },
+    );
+  } catch {
+    // Older package installs may not have the corpus/search script yet.
+  }
+
+  return entries;
 }
 
 /**
@@ -1942,7 +2001,12 @@ async function createCallAgentScriptEntry(
 function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
+  extensionTools?: boolean;
 }): Record<string, ActionEntry> {
+  const extensionRequestGuidance =
+    deps.extensionTools === false
+      ? "Do NOT call this for requests to create or edit user-authored extensions/widgets/dashboards/calculators/mini-apps; extension tools are disabled for this app, and Builder is only for source-code changes to the host app. "
+      : "Do NOT call this for creating or editing extensions/widgets/dashboards/calculators/mini-apps; those are sandboxed extension data and must use create-extension/update-extension instead. ";
   const setBuiltinForCurrentUser = async (
     id: BuiltinMcpCapabilityId,
     enabled: boolean,
@@ -1971,8 +2035,7 @@ function createBuilderBrowserTool(deps: {
   const entries: Record<string, ActionEntry> = {
     "connect-builder": {
       tool: {
-        description:
-          "Render a Builder.io card inline in the chat. Call this as the first step (no code exploration or planning needed) when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. Do NOT call this for creating or editing extensions/widgets/dashboards/calculators/mini-apps; those are sandboxed extension data and must use create-extension/update-extension instead. Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. If Builder is connected and Builder Cloud Agents are available, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. If `builderEnabled` is false, the card shows a waitlist/local-dev fallback instead; never tell the user to enable Builder Cloud Agents in Builder org settings or beta settings, and do not claim the Builder card has everything, is pre-loaded for handoff, or can run the cloud agent. When you call this for a code-change request, pass the user's request verbatim as the `prompt` arg so the card can forward it to Builder unchanged when cloud agents are available.",
+        description: `Render a Builder.io card inline in the chat. Call this as the first step (no code exploration or planning needed) when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. ${extensionRequestGuidance}Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. If Builder is connected and Builder Cloud Agents are available, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. If \`builderEnabled\` is false, the card shows a waitlist/local-dev fallback instead; never tell the user to enable Builder Cloud Agents in Builder org settings or beta settings, and do not claim the Builder card has everything, is pre-loaded for handoff, or can run the cloud agent. When you call this for a code-change request, pass the user's request verbatim as the \`prompt\` arg so the card can forward it to Builder unchanged when cloud agents are available.`,
         parameters: {
           type: "object",
           properties: {
@@ -2635,13 +2698,24 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
-   * Expose raw SQL/native database tools (`db-query`, `db-exec`, `db-patch`,
-   * `db-schema`) to the app agent. Defaults to true for backwards-compatible
-   * agent/UI parity. Set to false for chat-first apps that want agents to use
-   * typed actions only while still rendering rich data widgets from action
-   * results.
+   * Expose raw SQL/native database tools to the app agent.
+   *
+   * Defaults to `"write"` (also `true`) for backwards-compatible agent/UI
+   * parity: `db-schema`, `db-query`, `db-exec`, and `db-patch` are available
+   * and writes remain scoped to the current user/org. Set to `"read"` to keep
+   * `db-schema`/`db-query` for inspection while routing writes through typed
+   * app actions. Set to `"off"` (also `false`) for chat-first apps that want
+   * agents to use typed actions only.
    */
-  databaseTools?: boolean;
+  databaseTools?: DatabaseToolsOption;
+  /**
+   * Expose framework extension management actions (`create-extension`,
+   * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
+   * true. Set to false for apps that do not want the LLM to create or manage
+   * sandboxed extension mini-apps, even though the core extension routes may
+   * still be mounted for other surfaces.
+   */
+  extensionTools?: boolean;
   /**
    * Optional A2A-only deterministic response path. Runs after inbound A2A text
    * and user context are resolved, but before an agent engine/model is loaded.
@@ -2906,10 +2980,12 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
   "sql-tools": `### SQL Tools
 
+When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. When database write tools are enabled, \`db-exec\` and \`db-patch\` are also available. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
+
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
-- \`db-patch\` — surgical search-and-replace on a large text column. Use for edits to large fields instead of re-sending multi-kilobyte strings.
+- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE when raw DB writes are enabled (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
+- \`db-patch\` — surgical search-and-replace on a large text column when raw DB writes are enabled. Use for edits to large fields instead of re-sending multi-kilobyte strings.
 
 ### When to pick which SQL tool
 - Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
@@ -2933,7 +3009,7 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
  */
 function buildFrameworkPrompts(
   examples?: PromptExamples,
-  options?: { databaseTools?: boolean },
+  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
 ): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
@@ -2947,20 +3023,18 @@ function buildFrameworkPrompts(
   // This prevents the ~1.5KB block from appearing on every request forever.
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
-
-  const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
-
-You are an AI agent in an agent-native application, running in **production mode**.
-
-The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
-
-**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
-
-### Plan Mode
-
-If the current turn is in Plan mode, plan before anything gets written. This applies to source-code handoffs and to app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call \`create-extension\`, \`update-extension\`, \`connect-builder\`, or any action that creates, updates, deletes, sends, publishes, or persists data until the user switches back to Act mode.
-
-### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
+  const extensionToolsEnabled = options?.extensionTools !== false;
+  const planModeArtifactList = extensionToolsEnabled
+    ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
+    : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
+  const planModeBlockedTools = extensionToolsEnabled
+    ? "`create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+    : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
+  const extensionConnectBuilderGuard = extensionToolsEnabled
+    ? "If the request matches the Extensions section above, use `create-extension` or `update-extension` instead — do NOT route it to `connect-builder`."
+    : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
+  const extensionInstructionsFull = extensionToolsEnabled
+    ? `### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
 
 In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
 
@@ -2987,11 +3061,45 @@ Route by what the request changes, not how it is phrased. Extensions render in t
 | Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`create-extension\` (prefer the instant path) |
 </routing>
 
-Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.
+Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+    : `### Extensions Disabled
+
+Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
+  const extensionInstructionsCompact = extensionToolsEnabled
+    ? `### Extensions (Mini-Apps) — Use \`create-extension\`
+
+In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+
+Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
+
+If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
+
+For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
+
+### Extensions vs. Code Changes — Pick the Right Path
+
+If the user wants a **new self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
+    : `### Extensions Disabled
+
+Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
+
+  const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
+
+You are an AI agent in an agent-native application, running in **production mode**.
+
+The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
+
+**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
+
+### Plan Mode
+
+If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} until the user switches back to Act mode.
+
+${extensionInstructionsFull}
 
 ### Code Changes Not Available — Call \`connect-builder\` Immediately
 
-If the request matches the Extensions section above, use \`create-extension\` or \`update-extension\` instead — do NOT route it to \`connect-builder\`.
+${extensionConnectBuilderGuard}
 
 In Act mode, when the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
@@ -3039,21 +3147,9 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 ### Plan Mode
 
-If the turn is in Plan mode, plan before anything gets written — including extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, videos, and code-change handoffs. Use read-only tools only and do not call \`create-extension\`, \`update-extension\`, \`connect-builder\`, or other write actions until the user switches back to Act mode.
+If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} until the user switches back to Act mode.
 
-### Extensions (Mini-Apps) — Use \`create-extension\`
-
-In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
-
-Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
-
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
-
-For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
-
-### Extensions vs. Code Changes — Pick the Right Path
-
-If the user wants a **new self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.
+${extensionInstructionsCompact}
 
 ### Code Changes — Call \`connect-builder\`
 
@@ -3097,6 +3193,7 @@ export const _agentChatPromptSectionsForTests = (() => {
     frameworkCore,
     frameworkCoreCompact,
     frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
+    buildFrameworkPrompts,
     generateActionsPrompt,
     createDataWidgetActionEntries,
   };
@@ -3318,13 +3415,13 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  hasRawDbTools = true,
+  databaseTools: DatabaseToolsOption = "write",
 ): Promise<string> {
   try {
     return await loadSchemaPromptBlock({
       owner,
       orgId: getRequestOrgId() ?? null,
-      hasRawDbTools,
+      databaseTools,
     });
   } catch {
     return "";
@@ -3518,17 +3615,37 @@ function parseSkillFrontmatter(content: string): {
   name?: string;
   description?: string;
   userInvocable?: boolean;
+  scope?: "runtime" | "dev" | "both";
 } {
   const frontmatter = parseFrontmatter(content);
   const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
+  const scope = normalizeSkillFrontmatterScope(
+    getFrontmatterValue(frontmatter, "scope"),
+  );
   return {
     name: getFrontmatterValue(frontmatter, "name"),
     description: getFrontmatterValue(frontmatter, "description"),
+    scope,
     userInvocable:
       userInvocable === undefined
         ? undefined
         : userInvocable.toLowerCase() === "true",
   };
+}
+
+function normalizeSkillFrontmatterScope(
+  value: string | undefined,
+): "runtime" | "dev" | "both" | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "runtime" ||
+    normalized === "dev" ||
+    normalized === "both"
+  ) {
+    return normalized;
+  }
+  return "both";
 }
 
 function isLocalhost(event: any): boolean {
@@ -3665,6 +3782,7 @@ export function createAgentChatPlugin(
         DEV_FRAMEWORK_PROMPT_COMPACT,
       } = buildFrameworkPrompts(options?.promptExamples, {
         databaseTools: options?.databaseTools,
+        extensionTools: options?.extensionTools,
       });
 
       // Initialize MCP client. Merges file/env config + auto-detected binaries
@@ -3772,9 +3890,16 @@ export function createAgentChatPlugin(
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();
       const docsScripts = await createDocsScriptEntries();
-      const databaseToolsEnabled = options?.databaseTools !== false;
+      const databaseToolsMode = normalizeDatabaseToolsMode(
+        options?.databaseTools,
+      );
+      const databaseToolsEnabled = databaseToolsMode !== "off";
+      const databaseWriteToolsEnabled = databaseToolsMode === "write";
+      const extensionToolsEnabled = options?.extensionTools !== false;
       const dbScripts = databaseToolsEnabled
-        ? await createDbScriptEntries()
+        ? await createDbScriptEntries(databaseToolsMode, {
+            extensionTools: extensionToolsEnabled,
+          })
         : {};
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
@@ -3796,6 +3921,7 @@ export function createAgentChatPlugin(
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
+        extensionTools: options?.extensionTools,
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -3809,7 +3935,7 @@ export function createAgentChatPlugin(
           const { createDevScriptRegistry } =
             await import("../scripts/dev/index.js");
           devScriptsForA2A = await createDevScriptRegistry({
-            databaseTools: databaseToolsEnabled,
+            databaseTools: databaseToolsMode,
           });
         } catch {}
 
@@ -4095,14 +4221,16 @@ export function createAgentChatPlugin(
       } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();
-      try {
-        const { createExtensionActionEntries } =
-          await import("../extensions/actions.js");
-        toolActions = {
-          ...toolActions,
-          ...createExtensionActionEntries(),
-        };
-      } catch {}
+      if (extensionToolsEnabled) {
+        try {
+          const { createExtensionActionEntries } =
+            await import("../extensions/actions.js");
+          toolActions = {
+            ...toolActions,
+            ...createExtensionActionEntries(),
+          };
+        } catch {}
+      }
       let browserSessionTools: Record<string, ActionEntry> = {};
       try {
         const { createBrowserSessionActionEntries } =
@@ -4511,7 +4639,7 @@ export function createAgentChatPlugin(
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, databaseToolsEnabled && devActive);
+            : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
@@ -4796,7 +4924,7 @@ export function createAgentChatPlugin(
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(SHARED_OWNER, databaseToolsEnabled);
+              : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
             // Build the MCP handler's own prompt — always use the bash-based
             // dev prompt in dev mode because mcpActions routes template actions
             // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -5319,7 +5447,9 @@ export function createAgentChatPlugin(
       // does whenever it is available — true agent/UI parity, in App or Code mode.
       const dbAdminScripts =
         databaseToolsEnabled && process.env.NODE_ENV === "development"
-          ? createDbAdminAgentTools()
+          ? databaseWriteToolsEnabled
+            ? createDbAdminAgentTools()
+            : filterReadOnlyActions(createDbAdminAgentTools())
           : {};
 
       const prodActions = attachToolSearch({
@@ -5532,7 +5662,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // tools are enabled the agent can call `db-schema` on demand.
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, databaseToolsEnabled);
+            : await buildSchemaBlock(owner, databaseToolsMode);
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -5712,7 +5842,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry({
-                    databaseTools: databaseToolsEnabled,
+                    databaseTools: databaseToolsMode,
                   })),
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
@@ -5754,7 +5884,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
                 ? ""
-                : await buildSchemaBlock(owner, true);
+                : await buildSchemaBlock(owner, databaseToolsMode);
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
@@ -6362,6 +6492,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const content = _fs.readFileSync(skillFilePath, "utf-8");
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
+                    if (fm.scope === "dev") continue;
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -6445,6 +6576,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
+                  if (fm.scope === "dev") continue;
                   if (fm.name) skillName = fm.name;
                   description = fm.description;
                   userInvocable = fm.userInvocable;
@@ -7680,7 +7812,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, databaseToolsEnabled);
+              : await buildSchemaBlock(owner, databaseToolsMode);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
@@ -7779,7 +7911,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(owner, databaseToolsEnabled);
+              : await buildSchemaBlock(owner, databaseToolsMode);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,

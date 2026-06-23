@@ -48,6 +48,7 @@ import {
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   listEvents,
+  listOverlayEvents,
   rsvpEvent,
   updateEvent,
 } from "./google-calendar";
@@ -57,6 +58,8 @@ describe("calendar Google auth status", () => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    delete process.env.GOOGLE_LEGACY_CLIENT_ID;
+    delete process.env.GOOGLE_LEGACY_CLIENT_SECRET;
     getOAuthAccountsMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -127,6 +130,52 @@ describe("calendar Google auth status", () => {
       "google",
       "secondary@example.com",
       expect.objectContaining({ access_token: "new-token" }),
+      "owner@example.com",
+    );
+  });
+
+  it("falls back to legacy Google credentials when refreshed tokens were minted by the previous client", async () => {
+    process.env.GOOGLE_LEGACY_CLIENT_ID = "legacy-client-id";
+    process.env.GOOGLE_LEGACY_CLIENT_SECRET = "legacy-client-secret";
+    const primaryRefresh = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("OAuth token refresh failed: unauthorized_client"),
+      );
+    const legacyRefresh = vi.fn().mockResolvedValue({
+      access_token: "legacy-refreshed-token",
+      expiry_date: Date.now() + 60_000,
+    });
+    createOAuth2ClientMock.mockImplementation((clientId: string) => ({
+      refreshToken:
+        clientId === "legacy-client-id" ? legacyRefresh : primaryRefresh,
+    }));
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "secondary@example.com",
+    });
+
+    await getAuthStatus("owner@example.com");
+
+    expect(primaryRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(legacyRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+    );
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+      expect.objectContaining({ access_token: "legacy-refreshed-token" }),
       "owner@example.com",
     );
   });
@@ -228,6 +277,65 @@ describe("calendar event listing", () => {
         pageToken: "page-2",
       }),
     );
+  });
+
+  it("preserves attendee details for overlay calendars", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "overlay-1",
+          summary: "Design critique",
+          start: { dateTime: "2026-02-05T17:00:00Z" },
+          end: { dateTime: "2026-02-05T17:30:00Z" },
+          attendees: [
+            {
+              email: "host@example.com",
+              displayName: "Host Person",
+              organizer: true,
+              responseStatus: "accepted",
+            },
+            {
+              email: "guest@example.com",
+              displayName: "Guest Person",
+              responseStatus: "needsAction",
+            },
+          ],
+          organizer: {
+            email: "host@example.com",
+            displayName: "Host Person",
+          },
+        },
+      ],
+    });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["host@example.com"],
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "overlay-host@example.com-overlay-1",
+      overlayEmail: "host@example.com",
+      attendees: [
+        {
+          email: "host@example.com",
+          displayName: "Host Person",
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          displayName: "Guest Person",
+          responseStatus: "needsAction",
+        },
+      ],
+      organizer: {
+        email: "host@example.com",
+        displayName: "Host Person",
+      },
+    });
   });
 });
 

@@ -11,7 +11,10 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -21,6 +24,7 @@ import {
   getActiveOrganizationId,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 
 interface NavigationState {
   view?: string;
@@ -117,6 +121,16 @@ async function fetchComments(recordingId: string) {
   }));
 }
 
+async function fetchBrowserDiagnosticsSummary(recordingId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.recordingBrowserDiagnostics)
+    .where(eq(schema.recordingBrowserDiagnostics.recordingId, recordingId))
+    .limit(1);
+  return parseBrowserDiagnosticsRow(row)?.summary ?? null;
+}
+
 async function fetchLibrary(folderId?: string) {
   const db = getDb();
   const conditions = [
@@ -126,8 +140,6 @@ async function fetchLibrary(folderId?: string) {
   ];
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
-  } else {
-    conditions.push(isNull(schema.recordings.folderId));
   }
   const rows = await db
     .select()
@@ -416,12 +428,14 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = (await readAppState(
+    // Scoped to the requesting browser tab so each tab exposes the clip IT is
+    // showing, falling back to the global key for CLI/external agents.
+    const navigation = (await readAppStateForCurrentTab(
       "navigation",
     )) as NavigationState | null;
     const playerState = await readAppState("player-state");
     const editorDraft = await readAppState("editor-draft");
-    const selection = await readAppState("selection");
+    const selection = await readAppStateForCurrentTab("selection");
     const organizationId = await getActiveOrganizationId();
     const recordIntent = await readAppState("record-intent");
     const recordingSetup = await readAppState("recording-setup");
@@ -442,10 +456,12 @@ export default defineAction({
         if (nav.recordingId) {
           const recording = await fetchRecording(nav.recordingId);
           if (recording) {
-            const [transcript, comments] = await Promise.all([
-              fetchTranscript(nav.recordingId),
-              fetchComments(nav.recordingId),
-            ]);
+            const [transcript, comments, browserDiagnosticsSummary] =
+              await Promise.all([
+                fetchTranscript(nav.recordingId),
+                fetchComments(nav.recordingId),
+                fetchBrowserDiagnosticsSummary(nav.recordingId),
+              ]);
             screen.recording = recording;
             if (transcript) {
               // Ambient snapshot only — embed a short fullText snippet and the
@@ -468,6 +484,12 @@ export default defineAction({
               };
             }
             screen.comments = comments.slice(0, 50);
+            if (browserDiagnosticsSummary) {
+              screen.browserDiagnostics = {
+                summary: browserDiagnosticsSummary,
+                note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
+              };
+            }
           }
         }
         break;

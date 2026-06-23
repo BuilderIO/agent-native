@@ -1022,6 +1022,7 @@ function DiffRead({
             onMouseEnter={hover.cancelClose}
             onMouseLeave={hover.scheduleClose}
             onClose={hover.closeForScroll}
+            onInteractOutside={hover.close}
           />
         )}
     </section>

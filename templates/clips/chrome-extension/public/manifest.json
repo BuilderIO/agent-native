@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Agent-Native Clips",
+  "short_name": "Clips",
+  "version": "0.1.0",
+  "description": "Start Clips recordings from Chrome with optional redacted console and network diagnostics.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "Record with Clips",
+    "default_popup": "src/popup.html"
+  },
+  "options_page": "src/options.html",
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "icons": {
+    "32": "icons/icon-32.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "offscreen",
+    "storage",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "https://clips.agent-native.com/*",
+    "https://forms.agent-native.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://clips.agent-native.com/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  }
+}

@@ -62,6 +62,46 @@ function tabOrientation(data: Pick<TabsData, "orientation">): TabsOrientation {
   return data.orientation === "vertical" ? "vertical" : "horizontal";
 }
 
+function tabsUseWideLayout(data: TabsData): boolean {
+  return (
+    tabOrientation(data) === "vertical" ||
+    data.tabs.some((tab) => nestedBlocksContainDiffLike(tab.blocks))
+  );
+}
+
+function nestedBlocksContainDiffLike(blocks: NestedBlock[]): boolean {
+  return blocks.some(nestedBlockContainsDiffLike);
+}
+
+function nestedBlockContainsDiffLike(block: NestedBlock): boolean {
+  if (block.type === "diff" || block.type === "annotated-code") return true;
+
+  const data = (block as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return false;
+
+  const tabs = (data as { tabs?: unknown }).tabs;
+  if (Array.isArray(tabs)) {
+    return tabs.some((tab) => {
+      const blocks = (tab as { blocks?: unknown }).blocks;
+      return Array.isArray(blocks)
+        ? nestedBlocksContainDiffLike(blocks as NestedBlock[])
+        : false;
+    });
+  }
+
+  const columns = (data as { columns?: unknown }).columns;
+  if (Array.isArray(columns)) {
+    return columns.some((column) => {
+      const blocks = (column as { blocks?: unknown }).blocks;
+      return Array.isArray(blocks)
+        ? nestedBlocksContainDiffLike(blocks as NestedBlock[])
+        : false;
+    });
+  }
+
+  return false;
+}
+
 function tabsWith(data: TabsData, tabs: TabsTab[]): TabsData {
   return { ...data, tabs };
 }
@@ -140,8 +180,14 @@ export function TabsBlockReader({
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
+  const wideLayout = tabsUseWideLayout(data);
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-tabs-orientation={orientation}
+      data-wide-layout-block={wideLayout ? "" : undefined}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       <div className={cn("min-w-0 max-w-full", vertical && "@container/tabs")}>
         <div
@@ -211,6 +257,7 @@ export function TabsBlockEditor({
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
+  const wideLayout = tabsUseWideLayout(data);
 
   const commit = (tabs: TabsTab[]) => onChange(tabsWith(data, tabs));
 
@@ -263,6 +310,8 @@ export function TabsBlockEditor({
     <div
       className={cn("min-w-0", vertical && "@container/tabs")}
       data-tabs-edit-block={blockId}
+      data-tabs-orientation={orientation}
+      data-wide-layout-block={wideLayout ? "" : undefined}
     >
       <div
         className={cn(

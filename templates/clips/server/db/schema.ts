@@ -227,6 +227,32 @@ export const recordingTranscripts = table("recording_transcripts", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const recordingBrowserDiagnostics = table(
+  "recording_browser_diagnostics",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    organizationId: text("workspace_id").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    source: text("source", {
+      enum: ["browser-recorder", "desktop", "extension"],
+    })
+      .notNull()
+      .default("browser-recorder"),
+    phase: text("phase").notNull().default("recording"),
+    pageUrl: text("page_url"),
+    userAgent: text("user_agent"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    consoleLogsJson: text("console_logs_json").notNull().default("[]"),
+    networkRequestsJson: text("network_requests_json").notNull().default("[]"),
+    redactionVersion: integer("redaction_version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
 export const recordingCtas = table("recording_ctas", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
@@ -440,6 +466,41 @@ export const calendarEvents = table("calendar_events", {
   // ISO timestamp from the provider — used so updates don't clobber newer
   // changes from the source calendar.
   providerUpdatedAt: text("provider_updated_at"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+// -----------------------------------------------------------------------------
+// Slack app installs — team-level OAuth grants for Clips app unfurls.
+//
+// Slack webhooks arrive without a Clips user session, so this table is not a
+// framework-shareable resource. It stores only provider metadata and secret
+// references; bot tokens live encrypted in app_secrets.
+// -----------------------------------------------------------------------------
+
+export const slackInstallations = table("slack_installations", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull(),
+  teamName: text("team_name"),
+  enterpriseId: text("enterprise_id"),
+  enterpriseName: text("enterprise_name"),
+  apiAppId: text("api_app_id"),
+  botUserId: text("bot_user_id"),
+  botTokenSecretRef: text("bot_token_secret_ref").notNull(),
+  secretScope: text("secret_scope", {
+    enum: ["user", "org", "workspace"],
+  }).notNull(),
+  secretScopeId: text("secret_scope_id").notNull(),
+  scope: text("scope"),
+  installedBySlackUserId: text("installed_by_slack_user_id"),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  status: text("status", {
+    enum: ["connected", "disconnected", "revoked", "error"],
+  })
+    .notNull()
+    .default("connected"),
+  lastError: text("last_error"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

@@ -48,6 +48,7 @@ export default defineAction({
         formId: r.formId,
         data: JSON.parse(r.data),
         submittedAt: r.submittedAt,
+        submitterEmail: r.submitterEmail ?? null,
       })) as FormResponse[],
       total: (total as any)?.count ?? 0,
       fields: JSON.parse(form.fields),

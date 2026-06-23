@@ -2972,6 +2972,7 @@ function recoverRecapFailureEnv(
 export interface RecapGatePullRequest {
   number?: number;
   draft?: boolean;
+  author_association?: string | null;
   head?: { repo?: { full_name?: string | null } | null } | null;
   user?: { login?: string | null; type?: string | null } | null;
 }
@@ -2981,6 +2982,8 @@ export interface RecapGateInput {
   pr: RecapGatePullRequest | null;
   /** GITHUB_REPOSITORY ("owner/name"). */
   repository: string | undefined;
+  /** Whether the base repository is private. */
+  repositoryPrivate?: boolean;
   /** PLAN_RECAP_TOKEN present. */
   hasPlan: boolean;
   /** ANTHROPIC_API_KEY present. */
@@ -3061,6 +3064,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
   const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
+  const isPrivate = Boolean(input.repositoryPrivate);
+  const association = ((pr && pr.author_association) || "").toUpperCase();
+  const trustedAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
+  const isTrustedAuthor = trustedAssociations.includes(association);
   if (isFork && !input.hasPlan) {
     reasons.push(
       `fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`,
@@ -3125,9 +3132,11 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // secrets. In the default auto/latest modes the recap prompt comes from the
   // trusted bundled skill, so visual skill and recap workflow files are ordinary
   // reviewed content and may be recapped.
-  const hits = input.changedFiles.filter((p) =>
-    isRecapSensitivePath(p, { skillSource }),
-  );
+  const shouldApplySensitivePathGuard =
+    Boolean(pr) && (isFork || (!isPrivate && !isTrustedAuthor));
+  const hits = shouldApplySensitivePathGuard
+    ? input.changedFiles.filter((p) => isRecapSensitivePath(p, { skillSource }))
+    : [];
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
@@ -3197,13 +3206,16 @@ async function runGate(): Promise<void> {
   // Read the pull_request object out of the event payload, tolerating a
   // missing/unreadable file (degrades to the "no pull_request payload" reason).
   let pr: RecapGatePullRequest | null = null;
+  let repositoryPrivate = false;
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (eventPath) {
     try {
       const payload = JSON.parse(fs.readFileSync(eventPath, "utf8"));
       pr = payload && payload.pull_request ? payload.pull_request : null;
+      repositoryPrivate = Boolean(payload && payload.repository?.private);
     } catch {
       pr = null;
+      repositoryPrivate = false;
     }
   }
 
@@ -3231,6 +3243,7 @@ async function runGate(): Promise<void> {
   const decision = evaluateRecapGate({
     pr,
     repository,
+    repositoryPrivate,
     hasPlan: process.env.HAS_PLAN === "true",
     hasAnthropic: process.env.HAS_ANTHROPIC === "true",
     hasOpenai: process.env.HAS_OPENAI === "true",

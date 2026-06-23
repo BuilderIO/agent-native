@@ -532,7 +532,9 @@ switch (command) {
     // Run an action from actions/ (or scripts/ for backwards compat)
     const actionName = args[0];
     if (!actionName) {
-      console.error("Usage: agent-native action <name> [--args]");
+      console.error(
+        `Usage: agent-native action <name> ['{"arg":"value"}'] [--args]`,
+      );
       process.exit(1);
     }
     const tsxAction = findTsxBin();
@@ -875,7 +877,7 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
-  agent-native skills add assets|design-exploration|visual-plan|visual-recap|context-xray
+  agent-native skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
                                 --no-connect skips auth (run 'connect' later);

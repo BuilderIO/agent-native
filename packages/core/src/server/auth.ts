@@ -72,6 +72,7 @@ import {
 } from "../db/client.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -912,6 +913,20 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+}
+
+export async function hasLegacySessionForEmail(
+  email: string,
+): Promise<boolean> {
+  await ensureSessionTable();
+  const client = getDbExec();
+  const result = await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: `SELECT 1 FROM sessions WHERE email = ? LIMIT 1`,
+      args: [email],
+    }),
+  );
+  return result.rows.length > 0;
 }
 
 /** Remove a session from the legacy sessions table. */
@@ -2448,11 +2463,8 @@ async function mountBetterAuthRoutes(
   // Auto-add Google OAuth routes when credentials are configured. Templates
   // that need broader product scopes (mail/calendar) opt out and provide
   // their own Nitro routes at these paths.
-  if (
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET &&
-    options.mountGoogleOAuthRoutes !== false
-  ) {
+  const googleSignInCredentials = resolveGoogleSignInCredentials();
+  if (googleSignInCredentials && options.mountGoogleOAuthRoutes !== false) {
     setGenericGoogleOAuthRoutesEnabled(app, true);
     for (const gp of [
       "/_agent-native/google/callback",
@@ -2521,7 +2533,7 @@ async function mountBetterAuthRoutes(
             process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
         });
         const params = new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_id: googleSignInCredentials.clientId,
           redirect_uri: redirectUri,
           response_type: "code",
           scope: googleScopes,
@@ -2633,8 +2645,8 @@ async function mountBetterAuthRoutes(
             },
             body: new URLSearchParams({
               code,
-              client_id: process.env.GOOGLE_CLIENT_ID!,
-              client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+              client_id: googleSignInCredentials.clientId,
+              client_secret: googleSignInCredentials.clientSecret,
               redirect_uri: redirectUri,
               grant_type: "authorization_code",
             }),
@@ -2682,6 +2694,11 @@ async function mountBetterAuthRoutes(
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              authUserId: typeof user.id === "string" ? user.id : undefined,
+              name: typeof user.name === "string" ? user.name : undefined,
+            },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,

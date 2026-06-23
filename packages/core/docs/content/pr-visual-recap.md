@@ -147,29 +147,29 @@ After the agent publishes the recap, the workflow screenshots the rendered plan 
 
 ### Default behavior (no action required)
 
-The main `pr-visual-recap.yml` workflow fires on the plain `pull_request` trigger, **not** `pull_request_target`. Fork PRs therefore run with **no access to repository secrets**, so the workflow finds no `PLAN_RECAP_TOKEN` and cleanly no-ops — no failed publish, no error comment, no credentials exposed. Recaps only run for PRs from branches in the same repository, where the secrets are available.
+The main `pr-visual-recap.yml` workflow fires on the plain `pull_request` trigger, **not** `pull_request_target`. Fork PRs therefore run with **no access to repository secrets**, so the workflow finds no `PLAN_RECAP_TOKEN` and cleanly no-ops — no failed publish, no credentials exposed. Recaps run automatically for PRs from branches in the same repository, where the secrets are available.
 
 This also means you can merge the workflow file **before** the secrets exist: with no token configured, every run is a quiet no-op until you set the secrets. The `gate` step also skips draft PRs and bot-authored PRs automatically, so neither trigger recap runs by default.
 
 ### Opt-in with the label-gated fork workflow
 
-If you want to generate recaps for fork PRs, a second workflow file is available: `.github/workflows/pr-visual-recap-fork.yml`. It uses `pull_request_target` (which runs with base-repo secrets) but requires an explicit **per-PR maintainer opt-in** via a `recap` label before the recap agent runs.
+If you want to generate recaps for fork PRs, a second workflow file is available: `.github/workflows/pr-visual-recap-fork.yml`. It uses `pull_request_target` (which runs with base-repo secrets) but never checks out or executes fork code. Trusted fork authors with GitHub author association `OWNER`, `MEMBER`, or `COLLABORATOR` run automatically. Outside fork PRs require an explicit **per-head maintainer opt-in** via a fresh `recap` label event before the recap agent runs.
 
 To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same secrets (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) apply.
 
-```an-diagram title="Fork PR consent gate" summary="Fork PRs get no secrets by default; the opt-in workflow runs only after a maintainer reviews the diff and applies the recap label."
+```an-diagram title="Fork PR consent gate" summary="Fork PRs get no secrets by default; trusted authors run automatically, and outside contributors require a fresh maintainer recap label."
 {
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">no recap runs automatically</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Maintainer review</span><small class=\"diagram-muted\">skim diff for prompt-injection, then apply the <code>recap</code> label</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">is fork PR? &amp; label present?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR opened<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Trusted author</span><small class=\"diagram-muted\">OWNER, MEMBER, or COLLABORATOR runs automatically</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Outside contributor</span><small class=\"diagram-muted\">maintainer reviews diff, then applies <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap runs<br><small class=\"diagram-muted\">base-repo code only · fork diff is text input</small></div></div>",
   "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
 }
 ```
 
 ### How the label gate works
 
-1. A fork contributor opens a PR. No recap runs automatically.
-2. A maintainer reviews the diff (especially for any prompt-injection-shaped content — see below), then applies the `recap` label to the PR.
-3. The fork workflow's gate checks: **is this a fork PR?** and **does the `recap` label exist?** Both must be true. If either fails, the job skips.
-4. On subsequent pushes to the same PR, the gate re-checks that the label is still present. Removing the label revokes consent — the recap will not run on the next synchronize event.
+1. A fork contributor opens a PR. The normal `pull_request` workflow skips because GitHub withholds secrets from fork runs.
+2. The fork workflow checks the PR author association. Trusted authors (`OWNER`, `MEMBER`, or `COLLABORATOR`) run automatically on open, synchronize, reopen, and ready-for-review events.
+3. Outside contributors require a maintainer to review the current diff (especially for prompt-injection-shaped content — see below), then apply the `recap` label to the PR.
+4. The outside-contributor label gate is per head SHA: if the contributor pushes more commits, the next synchronize event skips until a maintainer removes and reapplies `recap` after reviewing the new diff.
 
 ### What the fork workflow does and does NOT do
 
@@ -196,7 +196,7 @@ These mitigations are already layered in the workflow (secret scan, sensitive-pa
 
 ### Relationship to the main workflow
 
-The two workflow files are independent. For non-fork PR updates, `pr-visual-recap.yml` is the only workflow that runs. For fork PRs, the normal workflow exits at its fork gate, and `pr-visual-recap-fork.yml` runs only when a maintainer applies the `recap` label. They share the same sticky comment marker and plan-id threading, so both PRs and fork PRs produce a single upserted comment on the same PR.
+The two workflow files are independent. For non-fork PR updates, `pr-visual-recap.yml` is the only workflow that runs. For fork PRs, the normal workflow exits at its fork gate, and `pr-visual-recap-fork.yml` runs automatically for trusted same-org authors or after a fresh maintainer `recap` label for outside contributors. They share the same sticky comment marker and plan-id threading, so both PRs and fork PRs produce a single upserted comment on the same PR.
 
 ### Self-modifying guard {#self-modifying-guard}
 

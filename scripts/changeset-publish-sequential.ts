@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 type PackageJson = {
@@ -37,6 +38,10 @@ const rootDir = path.resolve(
   "..",
 );
 const registry = "https://registry.npmjs.org";
+const availabilityPollIntervalMs = 10_000;
+const availabilityTimeoutMs = Number(
+  process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ?? 5 * 60_000,
+);
 const npmPublishAllowlist = new Set([
   "@agent-native/core",
   "@agent-native/dispatch",
@@ -314,6 +319,62 @@ function tagName(pkg: PublishPackage): string {
   return `${pkg.name}@${pkg.version}`;
 }
 
+async function waitForPackageAvailability(pkg: PublishPackage): Promise<void> {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let lastOutput = "";
+
+  while (Date.now() - startedAt <= availabilityTimeoutMs) {
+    attempt += 1;
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "agent-native-npm-"));
+    try {
+      const result = await run(
+        "npm",
+        [
+          "pack",
+          tagName(pkg),
+          "--pack-destination",
+          tmpRoot,
+          `--registry=${registry}`,
+          "--json",
+          "--prefer-online",
+          "--cache",
+          path.join(tmpRoot, "cache"),
+        ],
+        { stream: false },
+      );
+      if (result.code === 0) {
+        console.log(
+          `${tagName(pkg)} is fetchable from npm after ${attempt} attempt(s)`,
+        );
+        return;
+      }
+      lastOutput = `${result.stdout}\n${result.stderr}`.trim();
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = availabilityTimeoutMs - elapsedMs;
+    if (remainingMs <= 0) {
+      break;
+    }
+    const waitMs = Math.min(availabilityPollIntervalMs, remainingMs);
+    console.warn(
+      `${tagName(pkg)} is published but not fetchable yet; retrying in ${Math.ceil(
+        waitMs / 1000,
+      )}s`,
+    );
+    await sleep(waitMs);
+  }
+
+  throw new Error(
+    `${tagName(pkg)} was published but npm could not fetch it within ${Math.ceil(
+      availabilityTimeoutMs / 1000,
+    )}s:\n${lastOutput}`,
+  );
+}
+
 export function localRuntimeDependencyNames(pkg: PublishPackage): string[] {
   return Object.keys({
     ...pkg.packageJson.dependencies,
@@ -456,6 +517,7 @@ async function main() {
         console.log(
           `${pkg.name} is already published on npm, but ${tagName(pkg)} is missing on origin`,
         );
+        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
       continue;
@@ -486,6 +548,7 @@ async function main() {
     // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
+        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
     } catch (error) {

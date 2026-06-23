@@ -222,6 +222,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||
+    code === "provider_rate_limited" ||
     // `builder_gateway_error` is the no-detail fallback the Builder engine
     // emits when the gateway returns `{type:"stop",reason:"error"}` with no
     // explanation — almost always the upstream provider giving up (model
@@ -354,6 +355,10 @@ export function processEvent(
       action: "yield",
       result: { content: [...content] } as ChatModelRunResult,
     };
+  }
+
+  if (ev.type === "stream_keepalive") {
+    return { action: "continue" };
   }
 
   if (ev.type === "activity") {
@@ -566,7 +571,7 @@ export function processEvent(
     const errMsg = LLM_MISSING_CREDENTIALS_MESSAGE;
     const errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
     const runError = {
-      message: normalizeChatError(errMsg).message,
+      message: normalizeChatError(errMsg, errorCode).message,
       errorCode,
     };
     if (typeof window !== "undefined") {
@@ -658,7 +663,7 @@ export function processEvent(
         },
       };
     }
-    const normalized = normalizeChatError(errMsg);
+    const normalized = normalizeChatError(errMsg, ev.errorCode);
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -867,6 +872,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
+  onSeq?: (seq: number) => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -905,6 +911,10 @@ export async function readSSEStreamRaw(
         }
         sawDataEvent = true;
         lastMeaningfulEventAt = Date.now();
+
+        if (ev.seq !== undefined && onSeq) {
+          onSeq(ev.seq);
+        }
 
         const { action, autoContinue } = processEvent(
           ev,

@@ -7,16 +7,16 @@ import { withDefaultSocialImage } from "../seo";
 export const meta = () =>
   withDefaultSocialImage([
     {
-      title: "Agent Skills — Visual Plan & Visual Recap for coding agents",
+      title: "Agent Skills — Visual Plan and Visual Recap for coding agents",
     },
     {
       name: "description",
       content:
-        "Install Agent-Native app-backed skills your coding agent runs as slash commands. /visual-plan opens structured plans; /visual-recap turns a PR diff into a high-altitude review.",
+        "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
     },
     {
       property: "og:title",
-      content: "Agent Skills — Visual Plan & Visual Recap for coding agents",
+      content: "Agent Skills — Visual Plan and Visual Recap for coding agents",
     },
     {
       property: "og:description",
@@ -26,7 +26,7 @@ export const meta = () =>
     {
       name: "keywords",
       content:
-        "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, slash command, agent-native",
+        "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     },
   ]);
 
@@ -240,9 +240,9 @@ export default function SkillsPage() {
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install slash commands powered by Agent-Native apps you can fully
-              customize. Start with visual plans before you build and
-              high-altitude recaps after each diff.
+              Install app-backed skills powered by Agent-Native apps you can
+              fully customize: visual planning before implementation and visual
+              PR recaps after changes land.
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
@@ -255,12 +255,12 @@ export default function SkillsPage() {
       {/* Skill cards */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Two skills, one install
+          App-backed skills for coding agents
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Both ship in the same bundle. Use hosted shareable Plan links, local
-          files only, or a self-hosted/custom Plan app, and your agent opens the
-          review surface in the right mode.
+          Use hosted shareable app links, local files, or a self-hosted/custom
+          app, and your agent gets instructions plus the matching MCP surface
+          when one is required.
         </p>
         <div className="grid gap-6 md:grid-cols-2">
           {SKILLS.map((skill) => (

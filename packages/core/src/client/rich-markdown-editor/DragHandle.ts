@@ -580,10 +580,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       }
 
       const wrapperRect = wrapper.getBoundingClientRect();
+      const handleLeft = block.rect.left - wrapperRect.left - 24;
 
       handle.style.display = "flex";
       handle.style.top = `${block.rect.top - wrapperRect.top + 2}px`;
-      handle.style.left = "-24px";
+      handle.style.left = `${handleLeft}px`;
     };
 
     const selectBlockAt = (editorView: EditorView, pos: number) => {

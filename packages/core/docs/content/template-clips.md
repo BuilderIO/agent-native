@@ -1,6 +1,7 @@
 ---
 title: "Clips"
 description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — paste Clips links into agents and they can read transcripts, visuals, and summaries."
+search: "Clips browser logs developer logs console logs network logs fetch XHR Chrome extension diagnostics recorder desktop app"
 ---
 
 # Clips
@@ -31,9 +32,32 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Preview public clips in Slack** with a Loom-style playable unfurl after the
+  workspace installs your Clips Slack app.
+- **Capture browser logs with the Chrome extension.** Browser recordings can
+  attach redacted console logs and fetch/XHR metadata, which is helpful for
+  product bugs and browser-only repros.
 - **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
+
+## Browser logs and developer diagnostics
+
+Use the Clips Chrome extension when you need a recording plus browser logs from
+the tab you are debugging. The extension starts an active-tab recording and can
+save redacted console logs, JavaScript exceptions, and fetch/XHR network
+metadata such as method, redacted URL, status, duration, and failure text. It
+does not save request bodies, response bodies, or headers.
+
+The regular browser recorder page can save diagnostics from the recorder page
+itself. The Chrome extension is the path for active-tab developer logs and
+browser-only repros. In the Clips UI, use the Chrome option for browser logs and
+the desktop app for the most seamless everyday capture path.
+
+If you host your own Clips server, keep the Chrome extension option hidden until
+your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` and
+`VITE_CLIPS_CHROME_EXTENSION_URL=<chrome-web-store-url>` after approval to show
+the extension beside desktop-app download prompts.
 
 ## Agent-readable clips
 
@@ -52,6 +76,11 @@ The endpoints follow the same public/password/expiry rules as the share page.
 Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
+
+Slack previews use the same sharing boundary. The `/api/slack/unfurl` webhook
+only returns a playable Slack `video` block for ready, public clips without a
+password, expiry hit, archive marker, or trash marker. Other clips still get the
+normal share-page title/thumbnail metadata and require opening Clips.
 
 ```an-api title="Agent context entry point"
 {
@@ -136,7 +165,61 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 
 1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
-3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording.
+3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording. Browser recordings can save redacted console and fetch/XHR diagnostics from the recorder page. Once a deployment has a published Clips Chrome extension URL, enable `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` and set `VITE_CLIPS_CHROME_EXTENSION_URL` so users can choose the extension for active-tab browser logs or the desktop app for the smoothest native capture path.
+4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; set the Request URL to `https://your-clips.example.com/api/slack/unfurl`; and add the OAuth redirect URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`, then connect workspaces from Clips Settings.
+
+### Host your own Clips server
+
+The hosted Clips app at [clips.agent-native.com](https://clips.agent-native.com)
+is just a deployed copy of the Clips template. To run your own server, scaffold
+the template, deploy it like any other agent-native app, then point the desktop
+tray app at your deployment.
+
+1. **Create the app.**
+
+   ```bash
+   npx @agent-native/core@latest create my-clips --standalone --template clips
+   cd my-clips
+   pnpm install
+   ```
+
+2. **Configure production state.** Set a persistent `DATABASE_URL`, the normal
+   production auth/secrets variables from [Deployment](/docs/deployment), and a
+   video storage provider. Builder.io Connect is the easiest storage path; for
+   self-hosted storage, use `S3_*` or `R2_*` variables for an S3-compatible
+   bucket.
+
+3. **Deploy the web app.** For a plain Node deploy:
+
+   ```bash
+   pnpm build
+   node .output/server/index.mjs
+   ```
+
+   You can also use any Nitro target from [Deployment](/docs/deployment), such
+   as Netlify, Vercel, Cloudflare Pages, AWS Lambda, or Deno Deploy. Make sure
+   `BETTER_AUTH_URL` is the public Clips origin, for example
+   `https://clips.example.com`.
+
+4. **Connect the desktop tray app.** Open Clips Desktop settings and set
+   **Clips server URL** to the public base URL of your deployment, for example
+   `https://clips.example.com`. If the app is mounted under a workspace path,
+   include that path, such as `https://example.com/clips`. Click **Connect**,
+   then sign in with an account on that Clips server.
+
+5. **Enable the Chrome extension after publishing.** Keep
+   `VITE_CLIPS_CHROME_EXTENSION_ENABLED` unset until the Chrome Web Store listing
+   is approved and you have a public extension URL. Then set it to `1` and set
+   `VITE_CLIPS_CHROME_EXTENSION_URL` to reveal the browser-log option beside the
+   desktop app prompts.
+
+6. **Connect optional integrations.** Google Calendar powers the Meetings tab,
+   `GEMINI_API_KEY` or Builder.io Connect powers transcript cleanup and titles,
+   `GROQ_API_KEY` can provide speech-to-text fallback, and the Slack OAuth
+   connection in Settings enables playable Slack unfurls.
+
+For local development, run the web app with `pnpm dev` and point the desktop
+tray app at `http://localhost:8094`.
 
 ### Key features
 
@@ -147,6 +230,11 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 **Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
 
 **Agent-readable share links.** Public share links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
+
+**Slack playable unfurls.** Public share links can render a Slack `video` block
+that points at the existing `/embed/:id` player. This is a workspace Slack app
+install, not a global crawler behavior: normal Open Graph/Twitter metadata is
+the fallback when the app is not installed.
 
 ### Data model
 

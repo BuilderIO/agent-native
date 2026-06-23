@@ -1,4 +1,4 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState, getBrowserTabId } from "@agent-native/core/client";
 
 interface NavigationState {
   view: string;
@@ -20,6 +20,7 @@ interface NavigationState {
  */
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
+    browserTabId: getBrowserTabId(),
     getNavigationState: ({ pathname }) => {
       if (pathname === "/" || pathname === "") return { view: "list" };
       if (pathname.startsWith("/local-files")) return { view: "local-files" };

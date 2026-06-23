@@ -21,7 +21,9 @@ import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
+  useGoogleDesktopAuth,
   useDisconnectGoogle,
+  type DesktopAuthIssue,
 } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
@@ -66,15 +68,6 @@ interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
 
-interface DesktopAuthIssue {
-  error?: string;
-  message?: string;
-  code?: string;
-  accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
-}
-
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
@@ -93,75 +86,22 @@ export function GoogleConnectBanner({
   const hasAccounts = accounts.length > 0;
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
-  const useDesktopAuth = useMemo(
-    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
-    [isBuilderFrame],
-  );
-  const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onError: setDesktopAuthIssue,
+    onSuccess: () => window.location.reload(),
+  });
   useEffect(() => {
     return () => {
-      if (desktopPollRef.current) clearInterval(desktopPollRef.current);
       if (authPollRef.current) clearInterval(authPollRef.current);
       if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
-
-  function signInViaDesktopBrowser(addAccount = false) {
-    setDesktopAuthIssue(null);
-    const flowId =
-      crypto.randomUUID?.() ||
-      Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const origin = window.location.origin;
-    const endpoint = addAccount
-      ? "/_agent-native/google/add-account/auth-url"
-      : "/_agent-native/google/auth-url";
-    const redirectUri = encodeURIComponent(
-      oauthRedirectUri("/_agent-native/google/callback"),
-    );
-    window.open(
-      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-      "_blank",
-    );
-    const start = Date.now();
-    if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-    desktopPollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-          ),
-        );
-        const data = await res.json();
-        if (data?.error) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          setDesktopAuthIssue(data);
-        } else if (data?.token) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          await fetch(
-            agentNativePath(
-              `/_agent-native/auth/session?_session=${data.token}`,
-            ),
-            {
-              credentials: "include",
-            },
-          );
-          window.location.reload();
-        } else if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      } catch {
-        if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      }
-    }, 1500);
-  }
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -293,16 +233,19 @@ export function GoogleConnectBanner({
 
   function handleConnect() {
     setDesktopAuthIssue(null);
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser();
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({ previousAccountCount: accounts.length });
       return;
     }
     setWantAuthUrl(true);
   }
 
   function handleAddAccount() {
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser(true);
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        addAccount: true,
+        previousAccountCount: accounts.length,
+      });
       return;
     }
     setWantAddAccount(true);
@@ -377,7 +320,11 @@ export function GoogleConnectBanner({
           size="sm"
           className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
           onClick={handleConnect}
-          disabled={authUrl.isLoading || authUrl.isFetching}
+          disabled={
+            authUrl.isLoading ||
+            authUrl.isFetching ||
+            isGoogleDesktopAuthPending
+          }
         >
           <GoogleIcon className="h-3.5 w-3.5" />
           {authUrl.isLoading
@@ -458,7 +405,11 @@ export function GoogleConnectBanner({
             ))}
             <button
               onClick={handleAddAccount}
-              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+              disabled={
+                addAccountUrl.isLoading ||
+                addAccountUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
               className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
             >
               + Add account
@@ -515,7 +466,11 @@ export function GoogleConnectBanner({
               size="sm"
               className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
               <GoogleIcon className="h-3 w-3" />
               {authUrl.isLoading ? "Connecting..." : "Sign in with Google"}
@@ -526,7 +481,11 @@ export function GoogleConnectBanner({
               variant="outline"
               className="gap-1.5 text-xs h-7 font-medium"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
               {authUrl.isLoading ? "..." : "Connect Google"}
             </Button>

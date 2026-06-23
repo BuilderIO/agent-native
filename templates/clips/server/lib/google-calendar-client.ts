@@ -82,6 +82,35 @@ export interface ExchangeCodeArgs {
   redirectUri: string;
 }
 
+export interface GoogleOAuthClientCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
+function readCredentialPair(
+  clientIdKey: string,
+  clientSecretKey: string,
+): GoogleOAuthClientCredentials | null {
+  const clientId = process.env[clientIdKey];
+  const clientSecret = process.env[clientSecretKey];
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+export function resolveGoogleOAuthCredentialCandidates(): GoogleOAuthClientCredentials[] {
+  const primary = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  const legacy = readCredentialPair(
+    "GOOGLE_LEGACY_CLIENT_ID",
+    "GOOGLE_LEGACY_CLIENT_SECRET",
+  );
+  if (!primary) return legacy ? [legacy] : [];
+  if (!legacy || legacy.clientId === primary.clientId) return [primary];
+  return [primary, legacy];
+}
+
 /** Exchange an authorization code for tokens. Throws on non-2xx. */
 export async function exchangeCode(
   args: ExchangeCodeArgs,
@@ -127,6 +156,38 @@ export async function refreshAccessToken(args: {
     throw new Error(`Google token refresh failed (${res.status}): ${text}`);
   }
   return (await res.json()) as GoogleTokenResponse;
+}
+
+function isPermanentRefreshFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("invalid_grant") ||
+    lower.includes("unauthorized_client") ||
+    lower.includes("invalid_client")
+  );
+}
+
+export async function refreshAccessTokenWithFallback(args: {
+  refreshToken: string;
+  credentials: GoogleOAuthClientCredentials[];
+}): Promise<GoogleTokenResponse> {
+  let lastError: unknown;
+  for (const credentials of args.credentials) {
+    try {
+      return await refreshAccessToken({
+        refreshToken: args.refreshToken,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isPermanentRefreshFailure(error)) throw error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Google token refresh failed.");
 }
 
 /** Best-effort revoke. Returns true if Google returned 2xx, false otherwise. */

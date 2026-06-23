@@ -7,19 +7,24 @@ belongs in that app's own `AGENTS.md` or `.agents/skills/` directory.
 ## Framework Docs Lookup
 
 Version-matched Agent Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`.
+`node_modules/@agent-native/core/docs`. A source-only corpus of core and
+first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 
 - From an app directory, use `pnpm action docs-search --query "<topic>"`,
   `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
+  Use `pnpm action source-search --query "<pattern>"` or
+  `pnpm action source-search --path <path>` when source examples matter.
 - If the action runner is unavailable, read
   `node_modules/@agent-native/core/docs/AGENTS.md` and search
-  `node_modules/@agent-native/core/docs/content/` directly with `rg`.
+  `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
+  `node_modules/@agent-native/core/corpus/` for source examples.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
   `external-agents`, `mcp-protocol`, `sharing`, and `security`.
 
-Use package docs for framework APIs, and use this `AGENTS.md` plus
-`.agents/skills/` for workspace-specific conventions.
+Use package docs for framework APIs, the package corpus for reusable
+framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for
+workspace-specific conventions.
 
 ## Shared Context
 

@@ -163,7 +163,7 @@ export default function AssetDetailPage() {
           ) : (
             <Field
               label="Dimensions"
-              value={`${asset.width || "?"} x ${asset.height || "?"}`}
+              value={formatDimensions(asset.width, asset.height)}
             />
           )}
           <Field label="MIME" value={asset.mimeType || "n/a"} />
@@ -392,7 +392,7 @@ function Field({
   multiline,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   multiline?: boolean;
 }) {
   return (
@@ -405,4 +405,21 @@ function Field({
       </div>
     </div>
   );
+}
+
+function formatDimensions(width?: number | null, height?: number | null) {
+  const dimensions = `${width || "?"} x ${height || "?"}`;
+  if (!width || !height) return dimensions;
+  const divisor = gcd(width, height);
+  return (
+    <span className="flex items-center gap-2">
+      {dimensions}
+      <span className="h-4 w-px bg-[rgb(56,56,61)]" />
+      {`${width / divisor}:${height / divisor}`}
+    </span>
+  );
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }

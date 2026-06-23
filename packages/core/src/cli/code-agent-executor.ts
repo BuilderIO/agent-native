@@ -44,7 +44,7 @@ import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
 import {
   readAgentsBundleFromFs,
-  generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
 import {
   isReasoningEffort,
@@ -183,8 +183,11 @@ export async function executeCodeAgentRun(
     metadata: { status: "running", phase: "executing" },
   });
 
+  // Fall back to AGENT_ENGINE here too, mirroring resolveExecutorEngine below.
+  // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
+  // to resolveEngine (LLM providers only), which throws `Unknown engine`.
   const requestedEngine = normalizeRequestedEngine(
-    metadataString(existing, "engine"),
+    metadataString(existing, "engine") ?? process.env.AGENT_ENGINE,
   );
   if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
     return executeCodexCliRun({
@@ -546,6 +549,8 @@ async function executeCodexCliRun(options: {
   const outputPath = path.join(outputDir, "last-message.txt");
   const model = normalizeCodexCliModel(options.model);
   const args = [
+    "--ask-for-approval",
+    "never",
     "exec",
     "--cd",
     cwd,
@@ -554,8 +559,6 @@ async function executeCodexCliRun(options: {
     "--skip-git-repo-check",
     "--sandbox",
     codexSandboxForPermissionMode(options.permissionMode),
-    "--ask-for-approval",
-    "never",
     "--output-last-message",
     outputPath,
   ];
@@ -1541,7 +1544,7 @@ export async function buildCodeAgentSystemPrompt(
   }
 
   const repoInstructionsBlock = buildRepoInstructionsBlock(agentsMdContent);
-  const skillsBlock = generateSkillsPromptBlock(bundle);
+  const skillsBlock = generateDevelopmentSkillsPromptBlock(bundle);
 
   return codeAgentSystemPrompt(
     cwd,

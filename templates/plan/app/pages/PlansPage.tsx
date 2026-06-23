@@ -3106,6 +3106,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const localPlanSuggestedRepoPath =
     localPlanBundle?.suggestedRepoPath ??
     (localPlanSlug ? `plans/${localPlanSlug}` : "plans");
+  const localPlanMenuPath =
+    localPlanRepoPath ??
+    localPlanBundle?.repoPath ??
+    localPlanSuggestedRepoPath ??
+    localPlanSlug ??
+    "local plan files";
   const planAccessStatusQuery = usePlanAccessStatus(
     selectedId,
     Boolean(selectedId && !bundle && !localPlanMode),
@@ -5468,6 +5474,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
+              viewerEmail={session?.email ?? null}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
@@ -5691,8 +5698,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           Local files
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
-                          <div className="break-words text-foreground">
-                            {localPlanDisplayFolder}
+                          <div
+                            className="truncate text-foreground"
+                            title={localPlanDisplayFolder}
+                          >
+                            {localPlanMenuPath}
                           </div>
                           <div>No hosted database writes or sharing.</div>
                         </div>
@@ -7829,6 +7839,7 @@ type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 function PlansOverview({
   plans,
   isLoading,
+  viewerEmail,
   onCreate,
   canCreate,
   onArchive,
@@ -7838,6 +7849,7 @@ function PlansOverview({
 }: {
   plans: PlanSummary[];
   isLoading: boolean;
+  viewerEmail?: string | null;
   onCreate: () => void;
   canCreate: boolean;
   onArchive: (planId: string, archived: boolean) => void;
@@ -7847,6 +7859,7 @@ function PlansOverview({
 }) {
   const [filter, setFilter] = useState<OverviewFilter>("all");
   const [search, setSearch] = useState("");
+  const [author, setAuthor] = useState<string>("all");
 
   if (isLoading) {
     return <PlansOverviewSkeleton />;
@@ -7857,13 +7870,41 @@ function PlansOverview({
 
   const activePlans = plans.filter((p) => !p.deletedAt);
   const deletedPlans = plans.filter((p) => p.deletedAt);
+  const ownedEmail = plans.find((p) => p.canDelete)?.ownerEmail?.trim() || null;
+  const normalizedViewerEmail =
+    (ownedEmail ?? viewerEmail)?.trim().toLowerCase() || null;
+  const authorEmails = Array.from(
+    new Set(
+      plans
+        .map((p) => p.ownerEmail?.trim())
+        .filter((email): email is string => Boolean(email)),
+    ),
+  ).sort((a, b) => emailToName(a).localeCompare(emailToName(b)));
+  const hasMine =
+    normalizedViewerEmail !== null &&
+    authorEmails.some((email) => email.toLowerCase() === normalizedViewerEmail);
   const visibleBeforeSearch = plans.filter((p) => {
-    if (filter === "deleted") return Boolean(p.deletedAt);
-    if (p.deletedAt) return false;
-    if (filter === "archived") return p.status === "archived";
-    if (p.status === "archived") return false;
-    if (filter === "plans") return p.kind === "plan";
-    if (filter === "recaps") return p.kind === "recap";
+    if (filter === "deleted") {
+      if (!p.deletedAt) return false;
+    } else {
+      if (p.deletedAt) return false;
+      if (filter === "archived") {
+        if (p.status !== "archived") return false;
+      } else {
+        if (p.status === "archived") return false;
+        if (filter === "plans" && p.kind !== "plan") return false;
+        if (filter === "recaps" && p.kind !== "recap") return false;
+      }
+    }
+    if (author === "me") {
+      return Boolean(
+        normalizedViewerEmail &&
+        p.ownerEmail?.trim().toLowerCase() === normalizedViewerEmail,
+      );
+    }
+    if (author !== "all") {
+      return p.ownerEmail?.trim() === author;
+    }
     return true;
   });
 
@@ -7921,6 +7962,31 @@ function PlansOverview({
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+
+            {authorEmails.length > 1 && (
+              <Select value={author} onValueChange={setAuthor}>
+                <SelectTrigger className="h-9 w-[170px] text-sm">
+                  <SelectValue placeholder="Created by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All authors</SelectItem>
+                  {hasMine && <SelectItem value="me">Me</SelectItem>}
+                  {authorEmails
+                    .filter(
+                      (email) =>
+                        !(
+                          hasMine &&
+                          email.toLowerCase() === normalizedViewerEmail
+                        ),
+                    )
+                    .map((email) => (
+                      <SelectItem key={email} value={email}>
+                        {emailToName(email)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <div className="relative min-w-0 flex-1">
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -7993,6 +8059,33 @@ function PlansOverview({
                         </>
                       ) : null}
                       {!isDeleted && <span>{shortDate(plan.updatedAt)}</span>}
+                      {plan.ownerEmail && (
+                        <>
+                          <span>·</span>
+                          <span
+                            className="flex min-w-0 items-center gap-1.5"
+                            title={plan.ownerEmail}
+                          >
+                            <Avatar className="size-5">
+                              <AvatarFallback
+                                className="text-[9px] font-semibold text-white"
+                                style={{
+                                  backgroundColor: emailToColor(
+                                    plan.ownerEmail,
+                                  ),
+                                }}
+                              >
+                                {commentAuthorInitials(
+                                  emailToName(plan.ownerEmail),
+                                )}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="truncate">
+                              {emailToName(plan.ownerEmail)}
+                            </span>
+                          </span>
+                        </>
+                      )}
                     </div>
                   </>
                 );

@@ -385,7 +385,6 @@ function AnnotatedCodeRead({
             {rangeStartMarkers.map((item) => (
               <span
                 key={item.index}
-                title={`Annotation ${item.marker}`}
                 data-annotated-code-marker={item.marker}
                 onMouseEnter={(event) => {
                   event.stopPropagation();
@@ -519,6 +518,7 @@ function AnnotatedCodeRead({
             onMouseEnter={hover.cancelClose}
             onMouseLeave={hover.scheduleClose}
             onClose={hover.closeForScroll}
+            onInteractOutside={hover.close}
           />
         )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
