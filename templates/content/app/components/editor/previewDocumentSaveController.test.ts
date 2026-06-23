@@ -104,6 +104,22 @@ describe("previewDocumentSaveController", () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 
+  it("tracks locally saved payloads until server state is adopted", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({ save });
+
+    expect(c.hasSavedLocally).toBe(false);
+    c.changeContent("C1");
+    vi.advanceTimersByTime(450);
+    await flushMicrotasks();
+
+    expect(c.hasSavedLocally).toBe(true);
+    expect(c.lastSaved).toEqual({ title: "T0", content: "C1" });
+
+    c.mark({ title: "T0", content: "C1" });
+    expect(c.hasSavedLocally).toBe(false);
+  });
+
   it("marks clean only AFTER the save resolves; a failed save stays dirty and retries on flush", async () => {
     let rejectSave: ((err: unknown) => void) | undefined;
     const onError = vi.fn();

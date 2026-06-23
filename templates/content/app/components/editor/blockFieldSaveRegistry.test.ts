@@ -72,6 +72,37 @@ describe("blockFieldSaveRegistry", () => {
     expect(peekBlockFieldSaveController(key)).toBeUndefined();
   });
 
+  it("keeps a dirty controller after a failed release flush so reopen can retry", async () => {
+    const key = "doc:field";
+    blockFieldSaveImplRef(key).current = () =>
+      Promise.reject(new Error("network"));
+
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("draft");
+
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(activeControllerCount()).toBe(1);
+    expect(peekBlockFieldSaveController(key)).toBe(controller);
+    expect(controller.pending).toBe("draft");
+    expect(controller.lastSaved).toBe("");
+
+    const saved: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved.push(value);
+      return Promise.resolve();
+    };
+    const reopened = acquireBlockFieldSaveController(key, factoryFor(key));
+    expect(reopened).toBe(controller);
+
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(saved).toEqual(["draft"]);
+    expect(activeControllerCount()).toBe(0);
+  });
+
   it("a flush during release still persists the latest dirty content", async () => {
     const key = "doc:field";
     const saved: string[] = [];

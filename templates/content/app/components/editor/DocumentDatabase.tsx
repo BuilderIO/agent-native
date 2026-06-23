@@ -1972,6 +1972,26 @@ function DatabaseItemPreviewSheet({
   );
 }
 
+function previewPayloadsEqual(
+  a: { title: string; content: string },
+  b: { title: string; content: string },
+) {
+  return a.title === b.title && a.content === b.content;
+}
+
+function retainedPreviewPayload(
+  documentId: string,
+  serverPayload: { title: string; content: string },
+) {
+  const controller = peekPreviewDocumentSaveController(documentId);
+  if (!controller) return null;
+  const dirty = !previewPayloadsEqual(controller.pending, controller.lastSaved);
+  const savedAheadOfServer =
+    controller.hasSavedLocally &&
+    !previewPayloadsEqual(controller.lastSaved, serverPayload);
+  return dirty || savedAheadOfServer ? controller.pending : null;
+}
+
 function DatabaseItemPreview({
   item,
   previousItem,
@@ -2008,20 +2028,18 @@ function DatabaseItemPreview({
   // edit is restored on remount instead of showing stale server content; else
   // from the server/item value.
   const [localTitle, setLocalTitle] = useState(() => {
-    const c = peekPreviewDocumentSaveController(item.document.id);
-    const dirty =
-      !!c &&
-      (c.pending.title !== c.lastSaved.title ||
-        c.pending.content !== c.lastSaved.content);
-    return dirty ? c!.pending.title : item.document.title;
+    const retained = retainedPreviewPayload(item.document.id, {
+      title: item.document.title,
+      content: item.document.content,
+    });
+    return retained?.title ?? item.document.title;
   });
   const [localContent, setLocalContent] = useState(() => {
-    const c = peekPreviewDocumentSaveController(item.document.id);
-    const dirty =
-      !!c &&
-      (c.pending.title !== c.lastSaved.title ||
-        c.pending.content !== c.lastSaved.content);
-    return dirty ? c!.pending.content : item.document.content;
+    const retained = retainedPreviewPayload(item.document.id, {
+      title: item.document.title,
+      content: item.document.content,
+    });
+    return retained?.content ?? item.document.content;
   });
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
@@ -2126,24 +2144,26 @@ function DatabaseItemPreview({
     // follow the server.
     setLocalIcon(nextIcon);
     const controller = peekPreviewDocumentSaveController(documentId);
+    const serverPayload = { title: nextTitle, content: nextContent };
     const dirty =
       !!controller &&
-      (controller.pending.title !== controller.lastSaved.title ||
-        controller.pending.content !== controller.lastSaved.content);
+      !previewPayloadsEqual(controller.pending, controller.lastSaved);
+    const savedAheadOfServer =
+      !!controller &&
+      controller.hasSavedLocally &&
+      !previewPayloadsEqual(controller.lastSaved, serverPayload);
     // Only adopt the server's title/content — into BOTH the displayed editor
     // state and the controller baseline — when the user hasn't typed something
     // newer on this row. If a dirty in-progress edit exists, preserve it: don't
     // clobber the visible text (the controller already holds the unsaved edit,
     // so nothing is lost, but the editor must keep showing what the user typed).
-    if (!dirty) {
+    if (!dirty && !savedAheadOfServer) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
-      controller?.mark({ title: nextTitle, content: nextContent });
+      controller?.mark(serverPayload);
     } else if (controller) {
-      // A dirty in-progress edit exists: show the controller's pending edit, not
-      // stale server props. During active typing `pending` already tracks local
-      // (a no-op); on reopen of a retained dirty controller this restores the
-      // unsaved edit instead of showing server content.
+      // A dirty in-progress edit or a clean local save that the query has not
+      // echoed yet is newer than stale server props.
       setLocalTitle(controller.pending.title);
       setLocalContent(controller.pending.content);
     }
@@ -2259,6 +2279,7 @@ function DatabaseItemPreview({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
+      deletedIdsRef.current.delete(item.document.id);
       onPreviewItem?.(item);
       toast.error("Failed to delete row", {
         description:

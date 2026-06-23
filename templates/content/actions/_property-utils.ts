@@ -595,6 +595,42 @@ async function propertyValuesForLinkedDocuments(
     return documentIds.map(() => null);
   }
 
+  if (isBlocksPropertyType(property.definition.type)) {
+    const blockFieldRows = isPrimaryBlocksField(property.definition.options)
+      ? []
+      : await db
+          .select({
+            documentId: schema.documentBlockFieldContents.documentId,
+            content: schema.documentBlockFieldContents.content,
+          })
+          .from(schema.documentBlockFieldContents)
+          .where(
+            and(
+              inArray(
+                schema.documentBlockFieldContents.documentId,
+                accessibleDocumentIds,
+              ),
+              eq(
+                schema.documentBlockFieldContents.propertyId,
+                property.definition.id,
+              ),
+            ),
+          );
+    const blockFieldContentByDocumentId = new Map(
+      blockFieldRows.map((row) => [row.documentId, row.content]),
+    );
+    return documentIds.map((documentId) => {
+      const doc = docById.get(documentId);
+      return doc
+        ? resolveBlocksFieldValue({
+            options: property.definition.options,
+            documentBody: doc.content,
+            blockFieldContent: blockFieldContentByDocumentId.get(documentId),
+          })
+        : null;
+    });
+  }
+
   const storedValues = await db
     .select()
     .from(schema.documentPropertyValues)
@@ -801,16 +837,13 @@ async function findExistingPrimaryBlocksDefinition(
 // Seed the primary "Content" Blocks field for a database exactly ONCE.
 //
 // `content_databases.primary_blocks_property_id` is the single source of truth
-// and the concurrency guard. Seeding is gated by an atomic conditional UPDATE
-// that claims the slot (sets primary_blocks_property_id + blocks_seeded=1) only
-// while it is still NULL/unseeded; the row insert happens only for the caller
-// that won the claim. Two concurrent calls therefore produce at most ONE primary
-// definition — the loser's UPDATE matches zero rows and it returns the existing
-// id. This removes the read-time select-then-insert aliasing race entirely.
+// and the concurrency guard. The deterministic primary definition is inserted
+// before the database row is marked seeded, so we never publish blocks_seeded=1
+// before the definition row exists. Two concurrent calls converge on the same
+// property id and the loser returns the already-claimed id.
 //
 // Returns the primary property id (existing or newly created). Never reseeds a
-// database whose primary was intentionally deleted (blocks_seeded=1, id NULL):
-// callers must pass { reseedIfDeleted: false } (the default) for that to hold.
+// database whose primary was intentionally deleted (blocks_seeded=1, id NULL).
 export async function seedDefaultBlocksField(args: {
   databaseId: string;
   ownerEmail: string;
@@ -849,10 +882,39 @@ export async function seedDefaultBlocksField(args: {
     return existingPrimary;
   }
 
-  // Atomically claim the primary slot: only succeeds while it is still empty
-  // AND the database has never been seeded. If the primary was intentionally
-  // deleted (blocks_seeded=1, primary_blocks_property_id NULL) this matches
-  // nothing, so we do NOT recreate it.
+  const [database] = await db
+    .select({
+      primaryId: schema.contentDatabases.primaryBlocksPropertyId,
+      blocksSeeded: schema.contentDatabases.blocksSeeded,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, args.databaseId));
+  if (!database) return null;
+  if (database.primaryId) return database.primaryId;
+  if (database.blocksSeeded === 1) return null;
+
+  const [maxPos] = await db
+    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+
+  await db
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id,
+      ownerEmail: args.ownerEmail,
+      orgId: args.orgId,
+      databaseId: args.databaseId,
+      name: DEFAULT_BLOCKS_FIELD_NAME,
+      type: "blocks",
+      visibility: "always_show",
+      optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+      position: (maxPos?.max ?? -1) + 1,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing();
+
   const claim = await db
     .update(schema.contentDatabases)
     .set({
@@ -869,40 +931,18 @@ export async function seedDefaultBlocksField(args: {
     )
     .returning({ id: schema.contentDatabases.primaryBlocksPropertyId });
 
-  const claimedId = claim[0]?.id ?? null;
+  if (claim[0]?.id === id) return id;
 
-  // We did not win the claim — either another caller already seeded, or the
-  // primary was intentionally deleted. Return exactly what the column points at:
-  // an id when one already exists, or NULL when the primary was intentionally
-  // removed (blocks_seeded = 1, id NULL). Callers treat null as "no primary" and
-  // must NOT recreate it.
-  if (claimedId !== id) {
-    const [database] = await db
-      .select({ primaryId: schema.contentDatabases.primaryBlocksPropertyId })
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, args.databaseId));
-    return database?.primaryId ?? null;
-  }
+  const [afterClaim] = await db
+    .select({ primaryId: schema.contentDatabases.primaryBlocksPropertyId })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, args.databaseId));
+  if (afterClaim?.primaryId) return afterClaim.primaryId;
 
-  const [maxPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
-
-  await db.insert(schema.documentPropertyDefinitions).values({
-    id,
-    ownerEmail: args.ownerEmail,
-    orgId: args.orgId,
-    databaseId: args.databaseId,
-    name: DEFAULT_BLOCKS_FIELD_NAME,
-    type: "blocks",
-    visibility: "always_show",
-    optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-    position: (maxPos?.max ?? -1) + 1,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
-  return id;
+  await db
+    .delete(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.id, id));
+  return null;
 }
 
 // One-time startup repair for LEGACY databases that have never been seeded —

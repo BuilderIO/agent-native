@@ -534,3 +534,203 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     expect(formatWordCount(primary?.value)).toBe("3 words");
   });
 });
+
+describe("rollups resolve Blocks fields from their backing stores", () => {
+  it("rolls up primary Blocks values from linked document bodies", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const db = getDb();
+    const sourceDocumentId = `source_rollup_${databaseId}`;
+    const targetDocumentId = `target_rollup_${databaseId}`;
+    const relationPropertyId = `relation_${databaseId}`;
+    const rollupPropertyId = `rollup_${databaseId}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: sourceDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Source",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: targetDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Target",
+        content: "target body",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related body",
+        type: "rollup",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: primaryId,
+            aggregation: "count_values",
+          },
+        }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${sourceDocumentId}`,
+      ownerEmail: OWNER,
+      documentId: sourceDocumentId,
+      propertyId: relationPropertyId,
+      valueJson: JSON.stringify([targetDocumentId]),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [sourceDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, sourceDocumentId));
+    const properties = await runWithRequestContext({ userEmail: OWNER }, () =>
+      propertyUtils.listPropertiesForDatabase(databaseId, sourceDocument),
+    );
+
+    expect(
+      properties.find(
+        (property: any) => property.definition.id === rollupPropertyId,
+      )?.value,
+    ).toBe(1);
+  });
+
+  it("rolls up additional Blocks values from document_block_field_contents", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const db = getDb();
+    const sourceDocumentId = `source_extra_rollup_${databaseId}`;
+    const targetDocumentId = `target_extra_rollup_${databaseId}`;
+    const relationPropertyId = `relation_extra_${databaseId}`;
+    const blocksPropertyId = `blocks_extra_${databaseId}`;
+    const rollupPropertyId = `rollup_extra_${databaseId}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: sourceDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Source",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: targetDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Target",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: blocksPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ blocks: { primary: false } }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related notes",
+        type: "rollup",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: blocksPropertyId,
+            aggregation: "count_values",
+          },
+        }),
+        position: 3,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${sourceDocumentId}`,
+      ownerEmail: OWNER,
+      documentId: sourceDocumentId,
+      propertyId: relationPropertyId,
+      valueJson: JSON.stringify([targetDocumentId]),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await propertyUtils.writeBlockFieldContent({
+      documentId: targetDocumentId,
+      propertyId: blocksPropertyId,
+      ownerEmail: OWNER,
+      content: "additional body",
+      now,
+    });
+
+    const [sourceDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, sourceDocumentId));
+    const properties = await runWithRequestContext({ userEmail: OWNER }, () =>
+      propertyUtils.listPropertiesForDatabase(databaseId, sourceDocument),
+    );
+
+    expect(
+      properties.find(
+        (property: any) => property.definition.id === rollupPropertyId,
+      )?.value,
+    ).toBe(1);
+  });
+});
