@@ -81,6 +81,27 @@ describe("token minting surface is closed (no public bypass)", () => {
     expect(MutableTarget.is(lookAlike)).toBe(false);
     expect(MutableModel.is({ model: "blog-article" })).toBe(false);
   });
+
+  it("rejects a prototype-forged token even after copying a real token's props", () => {
+    // The round-2 attack: skip the constructor via Object.create (so the key
+    // guard never runs) and copy everything readable off a legitimate token,
+    // then point it at a production model. The `#`-private brand is not an own
+    // property, so it isn't copied and isn't present on the forged object —
+    // `.is()` must still reject it.
+    const realModel = assertModelAllowedForLive(TEST_MODEL, []);
+    const forgedModel = Object.create(MutableModel.prototype);
+    Object.assign(forgedModel, realModel);
+    forgedModel.model = "blog-article";
+    expect(MutableModel.is(forgedModel)).toBe(false);
+
+    const reg = new ThrowawayRegistry();
+    const realTarget = reg.register(realModel, "entry-x", makeThrowawayName());
+    const forgedTarget = Object.create(MutableTarget.prototype);
+    Object.assign(forgedTarget, realTarget);
+    forgedTarget.model = "blog-article";
+    forgedTarget.entryId = "production-entry";
+    expect(MutableTarget.is(forgedTarget)).toBe(false);
+  });
 });
 
 describe("ThrowawayRegistry chokepoint", () => {

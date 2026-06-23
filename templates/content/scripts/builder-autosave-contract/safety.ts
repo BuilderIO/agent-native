@@ -93,7 +93,15 @@ export class MutableModel {
   // NOTE: no TS "parameter properties" anywhere in this file — Node's
   // --experimental-strip-types (strip-only) mode does not support them, and the
   // harness runs under that flag. Declare fields explicitly and assign in body.
-  private readonly brand: typeof MUTABLE_MODEL_BRAND = MUTABLE_MODEL_BRAND;
+  //
+  // The brand is a true ECMAScript private field (`#authentic`), not a
+  // TypeScript `private` property. That matters: a TS `private` field is a
+  // normal readable/copyable own property at runtime, so a token could be
+  // forged via `Object.create(MutableModel.prototype)` plus copying the brand.
+  // A `#`-private field can only be installed by running this constructor and
+  // is unreadable/uncopyable from outside, so `#authentic in value` is an
+  // unforgeable identity check.
+  #authentic = true;
   readonly model: string;
   constructor(key: symbol, model: string) {
     if (key !== MODEL_MINT_KEY) {
@@ -105,11 +113,12 @@ export class MutableModel {
     this.model = model;
   }
   static is(value: unknown): value is MutableModel {
-    return value instanceof MutableModel && value.brand === MUTABLE_MODEL_BRAND;
+    return (
+      typeof value === "object" && value !== null && #authentic in value
+    );
   }
 }
 
-const MUTABLE_MODEL_BRAND = Symbol("builder-autosave-contract/mutable-model");
 const MODEL_MINT_KEY = Symbol("builder-autosave-contract/model-mint-key");
 
 /**
@@ -148,7 +157,9 @@ export function assertModelAllowedForLive(
  * `any`).
  */
 export class MutableTarget {
-  private readonly brand: typeof MUTABLE_TARGET_BRAND = MUTABLE_TARGET_BRAND;
+  // True ECMAScript private field (see MutableModel for why `#`-private rather
+  // than TS `private`): unforgeable via prototype tricks or brand copying.
+  #authentic = true;
   readonly model: string;
   readonly entryId: string;
   readonly name: string;
@@ -167,12 +178,11 @@ export class MutableTarget {
   /** Runtime check used by client mutators to reject forged/plain objects. */
   static is(value: unknown): value is MutableTarget {
     return (
-      value instanceof MutableTarget && value.brand === MUTABLE_TARGET_BRAND
+      typeof value === "object" && value !== null && #authentic in value
     );
   }
 }
 
-const MUTABLE_TARGET_BRAND = Symbol("builder-autosave-contract/mutable-target");
 const TARGET_MINT_KEY = Symbol("builder-autosave-contract/target-mint-key");
 
 /**
