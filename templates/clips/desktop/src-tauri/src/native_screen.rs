@@ -257,7 +257,9 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
     std::thread::spawn(move || {
         let tick_ms = 500u64;
         let ticks_per_check = (DISK_MONITOR_INTERVAL_SECS * 1000) / tick_ms;
-        let mut ticks = 0u64;
+        // Start at ticks_per_check so the first iteration runs an immediate check
+        // rather than waiting the full 30s interval. Subsequent checks are every 30s.
+        let mut ticks = ticks_per_check;
         // True once a warning/critical event has been emitted; used to gate the
         // recovery ok event so we only emit it on actual state transitions.
         let mut was_elevated = false;
@@ -834,12 +836,17 @@ pub async fn native_fullscreen_recording_stop_and_save(
             ));
         }
     }
-    // Gate corruption actions on the definitive outcome:
-    //  - Explicit SCK error (recording_did_fail) + missing moov → file is permanently
-    //    unrecoverable; delete it so it doesn't accumulate on disk and fail hard.
-    //  - Timeout path (stop_outcome Ok but moov absent) → SCK may still be flushing;
-    //    reject the export but keep the file so the user can attempt recovery.
-    if let Err(_) = &stop_outcome {
+    // Only treat the file as permanently unrecoverable when the SCK delegate
+    // explicitly called recording_did_fail (error string contains "finalize failed").
+    // Transient stop_capture / remove_recording_output errors return Err too, but
+    // they don't prove the moov was never written — deleting the file there would
+    // risk silent data loss on a still-valid clip.
+    let is_definitive_finalize_error = stop_outcome
+        .as_ref()
+        .err()
+        .map(|e| e.contains("finalize failed"))
+        .unwrap_or(false);
+    if is_definitive_finalize_error {
         if mp4_has_moov(&session.path) == Some(false) {
             eprintln!(
                 "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
