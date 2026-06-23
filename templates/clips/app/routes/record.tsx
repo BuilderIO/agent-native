@@ -716,6 +716,11 @@ export default function RecordRoute() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  // The capture surface the user actually picked in the browser's native screen
+  // picker (authority over the requested `displaySurface` hint). Drives whether
+  // the live camera bubble is hidden during full-screen recording.
+  const [resolvedDisplaySurface, setResolvedDisplaySurface] =
+    useState<DisplaySurface | null>(null);
   const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
@@ -893,6 +898,9 @@ export default function RecordRoute() {
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
+      // Clear any surface resolved by a previous capture; the engine reports the
+      // new one once the user picks in the browser's screen dialog.
+      setResolvedDisplaySurface(null);
       flushSync(() => {
         setUiState("pickingSources");
       });
@@ -921,6 +929,12 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Track the surface the user actually chose (and any mid-recording
+          // switch) so the live camera bubble is hidden only when the full
+          // screen — including this tab's overlay — is being captured.
+          onResolvedDisplaySurface: (surface) => {
+            setResolvedDisplaySurface(surface);
           },
           onState: (state) => {
             // Mirror the engine's compression pass into the UI so the
@@ -1940,12 +1954,19 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
+  // The requested `displaySurface` is only a hint — the user picks the real
+  // surface in the browser's native dialog and can even switch it mid-recording
+  // (`surfaceSwitching: include`). Prefer the surface the engine resolved from
+  // the live track, falling back to the requested one only when the browser
+  // doesn't expose the resolved value (Firefox/Safari are partial).
+  const effectiveDisplaySurface =
+    resolvedDisplaySurface ?? rememberedRecorderOptions?.displaySurface ?? null;
   // Full-screen capture records this tab's own bubble, which the composite
   // already bakes into the video — hide the live overlay while recording so it
   // doesn't appear twice. Countdown isn't recorded; window/tab captures don't
   // include the overlay, so both keep it.
   const hideBubbleForFullScreenCapture =
-    rememberedRecorderOptions?.displaySurface === "monitor" &&
+    effectiveDisplaySurface === "monitor" &&
     recordingMode === "screen+camera" &&
     uiState === "recording";
 

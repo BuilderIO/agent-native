@@ -99,6 +99,17 @@ export interface RecorderEngineOptions {
    */
   onDisplayTrackEnded?: () => void;
   /**
+   * Fired with the *actual* capture surface the user selected in the browser's
+   * native screen picker, read from the resulting display track's settings.
+   * The `displaySurface` we request is only a hint, and `surfaceSwitching:
+   * include` lets the user swap surfaces mid-recording — so this is the
+   * authority for "is the whole screen (this tab included) being captured?".
+   * Fires once right after acquisition and again on `configurationchange` when
+   * the shared surface switches. Reports `null` when the browser doesn't expose
+   * the resolved surface (Firefox/Safari are partial).
+   */
+  onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
+  /**
    * Fired with progress updates while ffmpeg.wasm is re-encoding a too-large
    * recording. Stage transitions from `loading-ffmpeg` → `preparing` →
    * `encoding` (with 0..1 progress) → `finalizing`. The engine itself
@@ -604,7 +615,22 @@ export class RecorderEngine {
       // Without it we fall back to stopping the engine directly — but this
       // bypasses all UI side-effects, so always provide the callback.
       if (this.displayStream) {
+        // The requested `displaySurface` is only a hint; report the surface the
+        // user actually picked so the UI can hide its live camera-bubble overlay
+        // only when the whole screen (this tab included) is captured. With
+        // `surfaceSwitching: include` the user can swap surfaces mid-recording
+        // without a re-prompt, so refresh on `configurationchange` too.
+        const reportDisplaySurface = (track: MediaStreamTrack) => {
+          const settings = track.getSettings() as MediaTrackSettings & {
+            displaySurface?: DisplaySurface;
+          };
+          this.opts.onResolvedDisplaySurface?.(settings.displaySurface ?? null);
+        };
         for (const track of this.displayStream.getVideoTracks()) {
+          reportDisplaySurface(track);
+          track.addEventListener("configurationchange", () =>
+            reportDisplaySurface(track),
+          );
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
               if (this.opts.onDisplayTrackEnded) {
