@@ -2037,6 +2037,70 @@ body[data-clips-route="recording-pill"] #root {
   pointer-events: none;
 }
 
+/*
+ * Horizontal row of [cancel] [number] [skip]. The two circular buttons are
+ * absolutely centered at exactly ±200px (logical) from the row center so the
+ * native cursor-poll hit-rects in clips/mod.rs (CONTROL_OFFSET_X = 200.0,
+ * CONTROL_DIAMETER = 64.0) line up with the rendered controls. Keep these
+ * numbers in sync with that Rust code.
+ */
+.countdown-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.countdown-control {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(10, 12, 16, 0.42);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  transform: translateY(-50%);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.countdown-control-cancel {
+  /* center at -200px from row center: -200 - (64 / 2) = -232px */
+  left: -232px;
+}
+
+.countdown-control-skip {
+  /* center at +200px from row center: 200 - (64 / 2) = 168px */
+  right: -232px;
+}
+
+.countdown-control:hover {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.95);
+  color: #0b0d12;
+}
+
+.countdown-control:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+.countdown-control:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
 .countdown-number {
   font-size: 240px;
   font-weight: 800;
@@ -3848,11 +3912,15 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Collapsed (not expanded). Shrinks to dot + waveform; controls revealed via
-   CSS :hover which works at the WebKit level even when the app is unfocused. */
+   CSS :hover which works at the WebKit level even when the app is unfocused.
+   Top-anchored (not centered) inside the headroom-sized window so the hover
+   reveal of the drag grip grows the capsule strictly DOWNWARD — centering it
+   would split the growth and raise the top edge, sliding buttons up under the
+   cursor and causing misclicks. */
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  align-self: center;
+  align-self: flex-start;
   border-radius: 18px;
 }
 

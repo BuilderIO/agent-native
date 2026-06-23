@@ -147,9 +147,11 @@ const SetupButton = lazy(() =>
   })),
 );
 
-// Setup/onboarding widget appears above chat until required setup is complete,
-// and can be reopened from the header after dismissal.
-const SHOW_ONBOARDING = true;
+// The setup/onboarding checklist that used to appear above chat is disabled
+// for every app — setup (AI engine, image/video gen, asset storage, email,
+// GitHub, etc.) is surfaced in better places (the settings panel and the
+// per-feature setup affordances). Keep this off; do not re-enable globally.
+const SHOW_ONBOARDING = false;
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";

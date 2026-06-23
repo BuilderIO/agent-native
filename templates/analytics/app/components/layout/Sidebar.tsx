@@ -1947,7 +1947,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </Link>
 
           {/* Dashboards section */}
-          <div className="group/section space-y-1">
+          <div className="group/section min-w-0 space-y-1">
             <div
               className={cn(
                 "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
@@ -2050,7 +2050,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </div>
 
           {/* Analyses section */}
-          <div className="group/section space-y-1">
+          <div className="group/section min-w-0 space-y-1">
             <div
               className={cn(
                 "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",

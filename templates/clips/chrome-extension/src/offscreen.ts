@@ -1,28 +1,47 @@
-type CaptureSurface = "browser" | "window" | "monitor" | "camera";
+// Offscreen recording engine (Loom-style, MV3).
+//
+// This document holds the getDisplayMedia()/getUserMedia() stream and the
+// MediaRecorder. Living in an offscreen document (reason DISPLAY_MEDIA) is what
+// lets a recording survive page navigations — the capture is decoupled from any
+// tab. The camera bubble and controls are rendered as on-page overlays by the
+// content script, so we no longer composite the camera into a canvas here; for
+// screen modes we record the display stream directly (+ mixed mic audio), and
+// the bubble shows up in the recording naturally when a full screen/window/tab
+// surface that contains it is captured.
+//
+// Lifecycle: ACQUIRE (show picker, hold stream) → BEGIN (start recorder after
+// the countdown) → PAUSE/RESUME → STOP/CANCEL, plus RESTART (discard and start
+// over on the same stream).
 
-type OffscreenStartMessage = {
-  type: "CLIPS_OFFSCREEN_START";
+type CaptureMode = "screen" | "camera";
+
+type AcquireMessage = {
+  type: "CLIPS_OFFSCREEN_ACQUIRE";
+  sessionId: string;
+  mode: CaptureMode;
+  surface: "browser" | "window" | "monitor";
+  includeMicrophone: boolean;
+};
+
+type BeginMessage = {
+  type: "CLIPS_OFFSCREEN_BEGIN";
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
-  streamId?: string;
-  captureSurface: CaptureSurface;
-  includeCamera: boolean;
-  includeMicrophone: boolean;
-  title?: string | null;
+  hasCamera?: boolean;
 };
 
-type OffscreenStopMessage = {
-  type: "CLIPS_OFFSCREEN_STOP";
+type SimpleMessage = {
+  type:
+    | "CLIPS_OFFSCREEN_PAUSE"
+    | "CLIPS_OFFSCREEN_RESUME"
+    | "CLIPS_OFFSCREEN_STOP"
+    | "CLIPS_OFFSCREEN_CANCEL"
+    | "CLIPS_OFFSCREEN_RESTART";
   sessionId: string;
 };
 
-type OffscreenCancelMessage = {
-  type: "CLIPS_OFFSCREEN_CANCEL";
-  sessionId: string;
-};
-
-type StatusName = "recording" | "uploading" | "complete" | "error";
+type StatusName = "recording" | "paused" | "uploading" | "complete" | "error";
 
 type UploadResult = {
   ok?: boolean;
@@ -35,26 +54,36 @@ type UploadResult = {
   error?: string;
 };
 
+type PreparedStreams = {
+  sessionId: string;
+  mode: CaptureMode;
+  displayStream: MediaStream | null;
+  micStream: MediaStream | null;
+  cameraStream: MediaStream | null;
+  width: number;
+  height: number;
+  endedListener: (() => void) | null;
+  endedTrack: MediaStreamTrack | null;
+};
+
 type ActiveRecording = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
-  captureSurface: CaptureSurface;
-  includeCamera: boolean;
-  includeMicrophone: boolean;
+  mode: CaptureMode;
   startedAtMs: number;
   mimeType: string;
   recorder: MediaRecorder;
   outputStream: MediaStream;
   sourceStreams: MediaStream[];
-  canvas: HTMLCanvasElement;
-  canvasStream: MediaStream;
   audioContext: AudioContext | null;
-  frameRequestId: number | null;
   chunkIndex: number;
   uploadPromises: Promise<unknown>[];
   uploadFailure: Error | null;
   cancelled: boolean;
+  // Set when the recorder is being torn down to start over on the same source
+  // streams, so the stop handler skips the usual track cleanup.
+  restarting: boolean;
   dimensions: { width: number; height: number };
   hasAudio: boolean;
   hasCamera: boolean;
@@ -63,6 +92,7 @@ type ActiveRecording = {
   rejectStopped: (error: Error) => void;
 };
 
+let prepared: PreparedStreams | null = null;
 let activeRecording: ActiveRecording | null = null;
 
 function reportStatus(
@@ -114,183 +144,79 @@ function waitForMetadata(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-async function makeVideo(stream: MediaStream): Promise<HTMLVideoElement> {
+async function streamDimensions(
+  stream: MediaStream,
+): Promise<{ width: number; height: number }> {
+  const track = stream.getVideoTracks()[0];
+  const settings = track?.getSettings?.();
+  if (settings?.width && settings?.height) {
+    return { width: settings.width, height: settings.height };
+  }
   const video = document.createElement("video");
   video.muted = true;
-  video.playsInline = true;
   video.srcObject = stream;
-  await waitForMetadata(video);
-  await video.play();
-  return video;
-}
-
-function drawCover(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): void {
-  const sourceWidth = video.videoWidth || width;
-  const sourceHeight = video.videoHeight || height;
-  const scale = Math.max(width / sourceWidth, height / sourceHeight);
-  const drawWidth = sourceWidth * scale;
-  const drawHeight = sourceHeight * scale;
-  ctx.drawImage(
-    video,
-    x + (width - drawWidth) / 2,
-    y + (height - drawHeight) / 2,
-    drawWidth,
-    drawHeight,
-  );
-}
-
-function drawCameraBubble(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  canvas: HTMLCanvasElement,
-): void {
-  const size = Math.max(
-    148,
-    Math.round(Math.min(canvas.width, canvas.height) * 0.2),
-  );
-  const margin = Math.max(
-    24,
-    Math.round(Math.min(canvas.width, canvas.height) * 0.035),
-  );
-  const x = margin;
-  const y = canvas.height - size - margin;
-  const radius = size / 2;
-  const centerX = x + radius;
-  const centerY = y + radius;
-
-  ctx.save();
-  ctx.shadowColor = "rgba(15, 23, 42, 0.35)";
-  ctx.shadowBlur = Math.round(size * 0.08);
-  ctx.shadowOffsetY = Math.round(size * 0.035);
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.fillStyle = "#0f172a";
-  ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius - 4, 0, Math.PI * 2);
-  ctx.clip();
-  drawCover(ctx, video, x + 4, y + 4, size - 8, size - 8);
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius - 2, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function startDrawing(params: {
-  canvas: HTMLCanvasElement;
-  sourceVideo: HTMLVideoElement | null;
-  cameraVideo: HTMLVideoElement | null;
-}): number {
-  const ctx = params.canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas rendering is unavailable.");
-
-  const draw = () => {
-    ctx.fillStyle = "#020617";
-    ctx.fillRect(0, 0, params.canvas.width, params.canvas.height);
-
-    if (params.sourceVideo) {
-      drawCover(
-        ctx,
-        params.sourceVideo,
-        0,
-        0,
-        params.canvas.width,
-        params.canvas.height,
-      );
-    } else if (params.cameraVideo) {
-      drawCover(
-        ctx,
-        params.cameraVideo,
-        0,
-        0,
-        params.canvas.width,
-        params.canvas.height,
-      );
-    }
-
-    if (params.sourceVideo && params.cameraVideo) {
-      drawCameraBubble(ctx, params.cameraVideo, params.canvas);
-    }
-
-    const recording = activeRecording;
-    if (recording && recording.frameRequestId !== null) {
-      recording.frameRequestId = requestAnimationFrame(draw);
-    }
-  };
-
-  return requestAnimationFrame(draw);
-}
-
-function tabMediaConstraints(streamId: string): MediaStreamConstraints {
+  await waitForMetadata(video).catch(() => undefined);
   return {
-    audio: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: streamId,
-      },
-    },
+    width: video.videoWidth || 1280,
+    height: video.videoHeight || 720,
+  };
+}
+
+function displayConstraints(
+  surface: "browser" | "window" | "monitor",
+): MediaStreamConstraints {
+  const displaySurface =
+    surface === "browser"
+      ? "browser"
+      : surface === "window"
+        ? "window"
+        : "monitor";
+  return {
     video: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: streamId,
-      },
+      frameRate: { ideal: 30, max: 30 },
+      ...({ displaySurface } as object),
     },
-  } as unknown as MediaStreamConstraints;
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  } as MediaStreamConstraints;
 }
 
-async function getTabStream(streamId: string): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia(tabMediaConstraints(streamId));
-}
-
-async function getCameraStream(
-  includeVideo: boolean,
-  includeAudio: boolean,
-): Promise<MediaStream | null> {
-  if (!includeVideo && !includeAudio) return null;
-  return navigator.mediaDevices.getUserMedia({
-    video: includeVideo
-      ? { width: { ideal: 1280 }, height: { ideal: 720 } }
-      : false,
-    audio: includeAudio,
-  });
+async function getMicStream(): Promise<MediaStream | null> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+      video: false,
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function createMixedAudio(
   streams: MediaStream[],
-  monitorStreams: MediaStream[],
 ): Promise<{ audioContext: AudioContext | null; tracks: MediaStreamTrack[] }> {
   const streamsWithAudio = streams.filter(
     (stream) => stream.getAudioTracks().length,
   );
   if (!streamsWithAudio.length) return { audioContext: null, tracks: [] };
+  if (streamsWithAudio.length === 1) {
+    return { audioContext: null, tracks: streamsWithAudio[0].getAudioTracks() };
+  }
 
   const audioContext = new AudioContext();
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
-
   for (const stream of streamsWithAudio) {
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(destination);
-    if (monitorStreams.includes(stream)) {
-      source.connect(audioContext.destination);
-    }
+    audioContext.createMediaStreamSource(stream).connect(destination);
   }
-
   return { audioContext, tracks: destination.stream.getAudioTracks() };
 }
 
@@ -337,9 +263,7 @@ async function uploadChunk(
   const body = await blob.arrayBuffer();
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": blob.type || recording.mimeType,
-    },
+    headers: { "Content-Type": blob.type || recording.mimeType },
     credentials: "include",
     body,
   });
@@ -353,74 +277,132 @@ async function uploadChunk(
   return data;
 }
 
-function cleanup(recording: ActiveRecording): void {
-  if (recording.frameRequestId !== null) {
-    cancelAnimationFrame(recording.frameRequestId);
-    recording.frameRequestId = null;
-  }
-  for (const stream of [
-    recording.outputStream,
-    recording.canvasStream,
-    ...recording.sourceStreams,
-  ]) {
+function stopStreams(streams: (MediaStream | null)[]): void {
+  for (const stream of streams) {
+    if (!stream) continue;
     for (const track of stream.getTracks()) track.stop();
   }
+}
+
+function disposePrepared(): void {
+  if (!prepared) return;
+  if (prepared.endedTrack && prepared.endedListener) {
+    prepared.endedTrack.removeEventListener("ended", prepared.endedListener);
+  }
+  prepared = null;
+}
+
+function cleanup(recording: ActiveRecording): void {
+  stopStreams([recording.outputStream, ...recording.sourceStreams]);
   void recording.audioContext?.close().catch(() => undefined);
 }
 
-async function startRecording(message: OffscreenStartMessage): Promise<{
+/* ---------------------------------------------------------------- acquire --- */
+
+async function acquire(message: AcquireMessage): Promise<{
   ok: boolean;
-  recordingId: string;
+  width: number;
+  height: number;
+}> {
+  if (activeRecording) throw new Error("Clips is already recording.");
+  // Discard any half-prepared capture from a cancelled attempt.
+  stopPreparedStreams();
+  disposePrepared();
+
+  let displayStream: MediaStream | null = null;
+  let micStream: MediaStream | null = null;
+  let cameraStream: MediaStream | null = null;
+
+  if (message.mode === "camera") {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: "user",
+      },
+      audio: message.includeMicrophone,
+    });
+  } else {
+    // Native "Choose what to share" picker. This is the screenshot Steve showed.
+    displayStream = await navigator.mediaDevices.getDisplayMedia(
+      displayConstraints(message.surface),
+    );
+    if (message.includeMicrophone) micStream = await getMicStream();
+  }
+
+  const videoStream = displayStream ?? cameraStream;
+  if (!videoStream) throw new Error("No media stream was available to record.");
+  const { width, height } = await streamDimensions(videoStream);
+
+  // If the user stops sharing via Chrome's native control, tell the worker so it
+  // can run the normal stop/finalize flow.
+  const endedTrack = videoStream.getVideoTracks()[0] ?? null;
+  const endedListener = () => {
+    chrome.runtime.sendMessage({
+      type: "CLIPS_NATIVE_ENDED",
+      sessionId: message.sessionId,
+    });
+  };
+  endedTrack?.addEventListener("ended", endedListener);
+
+  prepared = {
+    sessionId: message.sessionId,
+    mode: message.mode,
+    displayStream,
+    micStream,
+    cameraStream,
+    width,
+    height,
+    endedListener,
+    endedTrack,
+  };
+  return { ok: true, width, height };
+}
+
+function stopPreparedStreams(): void {
+  if (!prepared) return;
+  stopStreams([
+    prepared.displayStream,
+    prepared.micStream,
+    prepared.cameraStream,
+  ]);
+}
+
+/* ------------------------------------------------------------------ begin --- */
+
+async function begin(message: BeginMessage): Promise<{
+  ok: boolean;
   width: number;
   height: number;
   hasAudio: boolean;
   hasCamera: boolean;
 }> {
-  if (activeRecording) {
-    throw new Error("Clips is already recording.");
+  const ready = prepared;
+  if (!ready || ready.sessionId !== message.sessionId) {
+    throw new Error("No prepared Clips capture was found.");
   }
+  if (activeRecording) throw new Error("Clips is already recording.");
 
-  const tabStream =
-    message.captureSurface === "browser" && message.streamId
-      ? await getTabStream(message.streamId)
-      : null;
-  const wantsCamera =
-    message.captureSurface === "camera" || message.includeCamera;
-  const cameraStream = await getCameraStream(
-    wantsCamera,
-    message.includeMicrophone,
-  );
+  const videoStream = ready.displayStream ?? ready.cameraStream;
+  const videoTrack = videoStream?.getVideoTracks()[0];
+  if (!videoTrack) throw new Error("Capture video track was lost.");
 
-  if (!tabStream && !cameraStream) {
-    throw new Error("No media stream was available to record.");
-  }
-
-  const sourceVideo = tabStream ? await makeVideo(tabStream) : null;
-  const cameraVideo = cameraStream?.getVideoTracks().length
-    ? await makeVideo(cameraStream)
-    : null;
-
-  const width = sourceVideo?.videoWidth || cameraVideo?.videoWidth || 1280;
-  const height = sourceVideo?.videoHeight || cameraVideo?.videoHeight || 720;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const canvasStream = canvas.captureStream(30);
-
-  const audioStreams = [
-    ...(tabStream ? [tabStream] : []),
-    ...(cameraStream ? [cameraStream] : []),
+  const audioInputs = [
+    ...(ready.displayStream ? [ready.displayStream] : []),
+    ...(ready.micStream ? [ready.micStream] : []),
+    ...(ready.mode === "camera" && ready.cameraStream
+      ? [ready.cameraStream]
+      : []),
   ];
-  const monitorStreams = tabStream ? [tabStream] : [];
-  const mixedAudio = await createMixedAudio(audioStreams, monitorStreams);
+  const mixedAudio = await createMixedAudio(audioInputs);
 
-  const outputStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
-    ...mixedAudio.tracks,
-  ]);
+  const outputStream = new MediaStream([videoTrack, ...mixedAudio.tracks]);
   const mimeType = chooseMimeType();
-  const recorder = new MediaRecorder(outputStream, { mimeType });
+  const recorder = new MediaRecorder(outputStream, {
+    mimeType,
+    videoBitsPerSecond: 4_000_000,
+    audioBitsPerSecond: 128_000,
+  });
 
   let resolveStopped: (result: UploadResult) => void = () => undefined;
   let rejectStopped: (error: Error) => void = () => undefined;
@@ -430,37 +412,38 @@ async function startRecording(message: OffscreenStartMessage): Promise<{
   });
 
   const recording: ActiveRecording = {
-    sessionId: message.sessionId,
+    sessionId: ready.sessionId,
     recordingId: message.recordingId,
     uploadUrl: message.uploadUrl,
-    captureSurface: message.captureSurface,
-    includeCamera: message.includeCamera,
-    includeMicrophone: message.includeMicrophone,
+    mode: ready.mode,
     startedAtMs: Date.now(),
     mimeType,
     recorder,
     outputStream,
     sourceStreams: [
-      ...(tabStream ? [tabStream] : []),
-      ...(cameraStream ? [cameraStream] : []),
+      ...(ready.displayStream ? [ready.displayStream] : []),
+      ...(ready.micStream ? [ready.micStream] : []),
+      ...(ready.cameraStream ? [ready.cameraStream] : []),
     ],
-    canvas,
-    canvasStream,
     audioContext: mixedAudio.audioContext,
-    frameRequestId: null,
     chunkIndex: 0,
     uploadPromises: [],
     uploadFailure: null,
     cancelled: false,
-    dimensions: { width, height },
+    restarting: false,
+    dimensions: { width: ready.width, height: ready.height },
     hasAudio: outputStream.getAudioTracks().length > 0,
-    hasCamera: Boolean(cameraVideo),
+    hasCamera:
+      typeof message.hasCamera === "boolean"
+        ? message.hasCamera
+        : ready.mode === "camera",
     stopped,
     resolveStopped,
     rejectStopped,
   };
+  // The prepared streams are now owned by the active recording.
+  prepared = null;
   activeRecording = recording;
-  recording.frameRequestId = startDrawing({ canvas, sourceVideo, cameraVideo });
 
   recorder.addEventListener("dataavailable", (event) => {
     if (
@@ -485,127 +468,207 @@ async function startRecording(message: OffscreenStartMessage): Promise<{
   });
 
   recorder.addEventListener("stop", () => {
-    void (async () => {
-      if (recording.cancelled) {
-        cleanup(recording);
-        activeRecording = null;
-        recording.resolveStopped({ ok: true, status: "cancelled" });
-        return;
-      }
-      reportStatus(recording.sessionId, "uploading", {
-        recordingId: recording.recordingId,
-      });
-      try {
-        const settled = await Promise.allSettled(recording.uploadPromises);
-        const rejected = settled.find(
-          (item): item is PromiseRejectedResult => item.status === "rejected",
-        );
-        if (recording.uploadFailure) throw recording.uploadFailure;
-        if (rejected) {
-          throw rejected.reason instanceof Error
-            ? rejected.reason
-            : new Error(String(rejected.reason));
-        }
-        const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
-        const result = await uploadChunk(
-          recording,
-          new Blob([], { type: recording.mimeType }),
-          recording.chunkIndex,
-          {
-            isFinal: true,
-            total: recording.chunkIndex,
-            durationMs,
-            width: recording.dimensions.width,
-            height: recording.dimensions.height,
-            hasAudio: recording.hasAudio,
-            hasCamera: recording.hasCamera,
-          },
-        );
-        cleanup(recording);
-        activeRecording = null;
-        reportStatus(recording.sessionId, "complete", {
-          recordingId: recording.recordingId,
-          result,
-        });
-        recording.resolveStopped(result);
-      } catch (err) {
-        cleanup(recording);
-        activeRecording = null;
-        const error = err instanceof Error ? err : new Error(String(err));
-        reportStatus(recording.sessionId, "error", {
-          recordingId: recording.recordingId,
-          error: error.message,
-        });
-        recording.rejectStopped(error);
-      }
-    })();
+    void finalizeStop(recording);
   });
 
   recorder.start(2000);
   reportStatus(recording.sessionId, "recording", {
     recordingId: recording.recordingId,
-    width,
-    height,
+    width: recording.dimensions.width,
+    height: recording.dimensions.height,
     hasAudio: recording.hasAudio,
     hasCamera: recording.hasCamera,
   });
 
   return {
     ok: true,
-    recordingId: message.recordingId,
-    width,
-    height,
+    width: recording.dimensions.width,
+    height: recording.dimensions.height,
     hasAudio: recording.hasAudio,
     hasCamera: recording.hasCamera,
   };
 }
 
-async function stopRecording(
-  message: OffscreenStopMessage,
+async function finalizeStop(recording: ActiveRecording): Promise<void> {
+  if (recording.restarting) {
+    // restart() re-homes the source streams; do not stop or upload anything.
+    return;
+  }
+  if (recording.cancelled) {
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
+    recording.resolveStopped({ ok: true, status: "cancelled" });
+    return;
+  }
+  reportStatus(recording.sessionId, "uploading", {
+    recordingId: recording.recordingId,
+  });
+  try {
+    const settled = await Promise.allSettled(recording.uploadPromises);
+    if (recording.uploadFailure) throw recording.uploadFailure;
+    const rejected = settled.find(
+      (item): item is PromiseRejectedResult => item.status === "rejected",
+    );
+    if (rejected) {
+      throw rejected.reason instanceof Error
+        ? rejected.reason
+        : new Error(String(rejected.reason));
+    }
+    const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
+    const result = await uploadChunk(
+      recording,
+      new Blob([], { type: recording.mimeType }),
+      recording.chunkIndex,
+      {
+        isFinal: true,
+        total: recording.chunkIndex,
+        durationMs,
+        width: recording.dimensions.width,
+        height: recording.dimensions.height,
+        hasAudio: recording.hasAudio,
+        hasCamera: recording.hasCamera,
+      },
+    );
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
+    reportStatus(recording.sessionId, "complete", {
+      recordingId: recording.recordingId,
+      result,
+    });
+    recording.resolveStopped(result);
+  } catch (err) {
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
+    const error = err instanceof Error ? err : new Error(String(err));
+    reportStatus(recording.sessionId, "error", {
+      recordingId: recording.recordingId,
+      error: error.message,
+    });
+    recording.rejectStopped(error);
+  }
+}
+
+/* ------------------------------------------------------- pause/resume/stop --- */
+
+function pause(message: SimpleMessage): { ok: boolean } {
+  const recording = activeRecording;
+  if (recording && recording.sessionId === message.sessionId) {
+    if (recording.recorder.state === "recording") recording.recorder.pause();
+    reportStatus(recording.sessionId, "paused", {
+      recordingId: recording.recordingId,
+    });
+  }
+  return { ok: true };
+}
+
+function resume(message: SimpleMessage): { ok: boolean } {
+  const recording = activeRecording;
+  if (recording && recording.sessionId === message.sessionId) {
+    if (recording.recorder.state === "paused") recording.recorder.resume();
+    reportStatus(recording.sessionId, "recording", {
+      recordingId: recording.recordingId,
+    });
+  }
+  return { ok: true };
+}
+
+async function stop(
+  message: SimpleMessage,
 ): Promise<{ ok: boolean; result: UploadResult }> {
   const recording = activeRecording;
   if (!recording || recording.sessionId !== message.sessionId) {
     throw new Error("No active Clips recording was found.");
   }
-  if (recording.recorder.state !== "inactive") {
-    recording.recorder.stop();
-  }
+  if (recording.recorder.state !== "inactive") recording.recorder.stop();
   return { ok: true, result: await recording.stopped };
 }
 
-async function cancelRecording(
-  message: OffscreenCancelMessage,
-): Promise<{ ok: boolean }> {
+function cancel(message: SimpleMessage): { ok: boolean } {
+  const recording = activeRecording;
+  if (recording && recording.sessionId === message.sessionId) {
+    recording.cancelled = true;
+    if (recording.recorder.state !== "inactive") recording.recorder.stop();
+    cleanup(recording);
+    activeRecording = null;
+  } else if (prepared && prepared.sessionId === message.sessionId) {
+    stopPreparedStreams();
+    disposePrepared();
+  }
+  return { ok: true };
+}
+
+// Restart: discard the in-progress recording but keep the same source streams
+// (so the user does not have to re-pick a screen), then re-home them into a
+// prepared slot. A fresh recorder is built on the next BEGIN.
+async function restart(
+  message: SimpleMessage,
+): Promise<{ ok: boolean; width: number; height: number }> {
   const recording = activeRecording;
   if (!recording || recording.sessionId !== message.sessionId) {
-    return { ok: true };
+    throw new Error("No active Clips recording to restart.");
   }
+  // restarting + cancelled => the stop handler returns early and the dataavailable
+  // handler ignores the final flush, so the source tracks stay live.
+  recording.restarting = true;
   recording.cancelled = true;
-  if (recording.recorder.state !== "inactive") {
-    recording.recorder.stop();
-  }
-  cleanup(recording);
+  if (recording.recorder.state !== "inactive") recording.recorder.stop();
+  // Close only the old mixing context; keep the capture tracks alive.
+  void recording.audioContext?.close().catch(() => undefined);
   activeRecording = null;
-  return { ok: true };
+
+  const videoStream =
+    recording.sourceStreams.find((s) => s.getVideoTracks().length) ?? null;
+  const isCamera = recording.mode === "camera";
+  prepared = {
+    sessionId: recording.sessionId,
+    mode: recording.mode,
+    displayStream: isCamera ? null : videoStream,
+    cameraStream: isCamera ? videoStream : null,
+    micStream:
+      recording.sourceStreams.find(
+        (s) => s.getAudioTracks().length && s !== videoStream,
+      ) ?? null,
+    width: recording.dimensions.width,
+    height: recording.dimensions.height,
+    endedListener: null,
+    endedTrack: null,
+  };
+  return {
+    ok: true,
+    width: recording.dimensions.width,
+    height: recording.dimensions.height,
+  };
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
   const type = (message as { type?: unknown }).type;
-  if (
-    type !== "CLIPS_OFFSCREEN_START" &&
-    type !== "CLIPS_OFFSCREEN_STOP" &&
-    type !== "CLIPS_OFFSCREEN_CANCEL"
-  ) {
-    return false;
+  let task: Promise<unknown> | null = null;
+  switch (type) {
+    case "CLIPS_OFFSCREEN_ACQUIRE":
+      task = acquire(message as AcquireMessage);
+      break;
+    case "CLIPS_OFFSCREEN_BEGIN":
+      task = begin(message as BeginMessage);
+      break;
+    case "CLIPS_OFFSCREEN_PAUSE":
+      task = Promise.resolve(pause(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_RESUME":
+      task = Promise.resolve(resume(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_STOP":
+      task = stop(message as SimpleMessage);
+      break;
+    case "CLIPS_OFFSCREEN_CANCEL":
+      task = Promise.resolve(cancel(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_RESTART":
+      task = restart(message as SimpleMessage);
+      break;
+    default:
+      return false;
   }
-
-  const task =
-    type === "CLIPS_OFFSCREEN_START"
-      ? startRecording(message as OffscreenStartMessage)
-      : type === "CLIPS_OFFSCREEN_STOP"
-        ? stopRecording(message as OffscreenStopMessage)
-        : cancelRecording(message as OffscreenCancelMessage);
 
   void task.then(sendResponse).catch((err) =>
     sendResponse({

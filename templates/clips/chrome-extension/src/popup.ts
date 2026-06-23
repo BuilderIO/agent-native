@@ -511,6 +511,16 @@ function renderActiveRecording(recording: NativeRecording | null): void {
 
 async function init(): Promise<void> {
   const settings = await readSettings();
+  // Warm the offscreen recorder so the native screen picker opens promptly when
+  // the user presses Record (keeps getDisplayMedia close to the click).
+  try {
+    chrome.runtime.sendMessage(
+      { type: "CLIPS_PREWARM" },
+      () => void chrome.runtime.lastError,
+    );
+  } catch {
+    /* ignore */
+  }
   const sourceButton = byId<HTMLButtonElement>("source-button");
   const sourceMenu = byId<HTMLDivElement>("source-menu");
   const includeCamera = byId<HTMLButtonElement>("include-camera");

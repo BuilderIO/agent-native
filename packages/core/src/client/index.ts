@@ -609,6 +609,7 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export { getClientSurface, type ClientSurface } from "./client-surface.js";
 export {
   DevDatabaseLink,
   type DevDatabaseLinkProps,

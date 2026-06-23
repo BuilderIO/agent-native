@@ -67,6 +67,8 @@ export function embedApp(
     .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; color: color-mix(in srgb, CanvasText 72%, Canvas); }
     .actions { display: flex; align-items: center; gap: 6px; }
     button { min-height: 28px; border: 1px solid color-mix(in srgb, CanvasText 14%, Canvas); border-radius: 7px; background: Canvas; color: CanvasText; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 0 9px; }
+    button.primary { min-height: 32px; padding: 0 14px; background: CanvasText; color: Canvas; border-color: CanvasText; }
+    button.primary:hover:not(:disabled) { background: color-mix(in srgb, CanvasText 86%, Canvas); }
     button:disabled { opacity: .55; cursor: default; }
     .stage { position: relative; min-height: var(--agent-native-viewport-height); }
     iframe { display: block; width: 100%; height: var(--agent-native-viewport-height); border: 0; background: Canvas; }
@@ -895,9 +897,21 @@ export function embedApp(
       });
       if (!response.ok) {
         if (response.status === 401 && isEmbedStartUrl(src)) {
+          reportEmbedError(
+            "transplant-auth",
+            "Embedded app session expired (HTTP 401).",
+            "Opaque-origin sandbox could not authenticate the embed.",
+            401
+          );
           refreshExpiredEmbedSession();
           return;
         }
+        reportEmbedError(
+          "transplant-http",
+          "Embedded app returned HTTP " + response.status + ".",
+          undefined,
+          response.status
+        );
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
@@ -998,6 +1012,52 @@ export function embedApp(
       }, frameReadyTimeoutMs);
     }
 
+    // Best-effort telemetry sink so inline-embed failures are visible in
+    // Sentry (handshake timeout, transplant fetch status/CORS, auth, CSP).
+    // The shell is a sandboxed opaque-origin iframe, so it POSTs to the app
+    // origin's CORS-open /_agent-native/mcp/embed-error route, derived from the
+    // known app URLs. Deduped per stage+message so a retry loop can't spam.
+    const reportedEmbedErrorKeys = new Set();
+    let embedErrorReportCount = 0;
+    function embedReportOrigin() {
+      for (const value of [openStartUrl, openUrl, lastFrameSrc]) {
+        if (typeof value === "string" && value) {
+          try { return new URL(value, window.location.href).origin; } catch {}
+        }
+      }
+      return "";
+    }
+    function reportEmbedError(stage, message, detail, status) {
+      try {
+        const key = String(stage) + "|" + String(message || "");
+        if (reportedEmbedErrorKeys.has(key) || embedErrorReportCount >= 8) return;
+        reportedEmbedErrorKeys.add(key);
+        embedErrorReportCount += 1;
+        const origin = embedReportOrigin();
+        if (!origin) return;
+        let renderMode = "";
+        try { renderMode = renderModeSource().mode || ""; } catch {}
+        const body = JSON.stringify({
+          stage: String(stage || ""),
+          message: String(message || "").slice(0, 500),
+          detail: detail ? String(detail).slice(0, 1200) : undefined,
+          url: openStartUrl || openUrl || lastFrameSrc || "",
+          status: typeof status === "number" ? status : undefined,
+          host: window.location.hostname || "",
+          renderMode: renderMode,
+          bridge: openAiBridge ? "openai" : app ? "native" : "none",
+          userAgent: navigator.userAgent || ""
+        });
+        fetch(origin + "/_agent-native/mcp/embed-error", {
+          method: "POST",
+          credentials: "omit",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: body
+        }).catch(() => {});
+      } catch {}
+    }
+
     function renderFrameFallback() {
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -1005,12 +1065,13 @@ export function embedApp(
       const fallbackCopy = openUrl
         ? "This chat host did not allow the embedded app frame to load inline. You can still open the same app route through the host or use the URL below."
         : "This chat host did not allow the embedded app frame to load inline.";
+      reportEmbedError("frame-fallback", fallbackCopy);
       stage.innerHTML =
         '<div class="fallback">' +
           '<div class="fallback-title">Open this app in its own tab</div>' +
           '<div class="fallback-copy">' + esc(fallbackCopy) + '</div>' +
           '<div class="fallback-actions">' +
-            '<button type="button" data-fallback-open>Open app</button>' +
+            '<button type="button" class="primary" data-fallback-open>Open in new tab</button>' +
             '<button type="button" data-fallback-retry>Try inline again</button>' +
           '</div>' +
           (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
@@ -1038,6 +1099,7 @@ export function embedApp(
       const fallbackCopy = openUrl
         ? "The inline MCP app could not load in this chat host. You can open the same app route in a new tab or retry the inline load."
         : "The inline MCP app could not load in this chat host.";
+      reportEmbedError("app-launch-error", message || fallbackCopy, message);
       const copyHtml = message
         ? '<div>' + esc(message) + '</div><div>' + esc(fallbackCopy) + '</div>'
         : esc(fallbackCopy);
@@ -1046,7 +1108,7 @@ export function embedApp(
           '<div class="fallback-title">App did not load</div>' +
           '<div class="fallback-copy">' + copyHtml + '</div>' +
           '<div class="fallback-actions">' +
-            '<button type="button" data-fallback-open>Open in new tab</button>' +
+            '<button type="button" class="primary" data-fallback-open>Open in new tab</button>' +
             '<button type="button" data-fallback-retry>Retry</button>' +
           '</div>' +
           (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
@@ -1801,8 +1863,30 @@ export function embedApp(
       }
     } catch (err) {
       console.error("[agent-native] MCP app shell failed", err);
+      reportEmbedError(
+        "bridge-init",
+        err && err.message ? err.message : "Could not initialize app.",
+        err && err.stack ? String(err.stack) : undefined
+      );
       setMessage(err && err.message ? err.message : "Could not initialize app.");
     }
+
+    window.addEventListener("error", (event) => {
+      const err = event && event.error;
+      reportEmbedError(
+        "window-error",
+        (err && err.message) || (event && event.message) || "Uncaught error in MCP app embed.",
+        err && err.stack ? String(err.stack) : undefined
+      );
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event && event.reason;
+      reportEmbedError(
+        "unhandled-rejection",
+        (reason && reason.message) || String(reason || "Unhandled promise rejection in MCP app embed."),
+        reason && reason.stack ? String(reason.stack) : undefined
+      );
+    });
     })();
   </script>
 </body>

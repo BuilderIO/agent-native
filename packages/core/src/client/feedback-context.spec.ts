@@ -53,6 +53,21 @@ describe("getFeedbackClientContext", () => {
     expect(context.pageUrl).toBe(
       "http://localhost:3000/inbox?token=%3Credacted%3E&utm=ok#section",
     );
+    // happy-dom has no desktop/Tauri markers, so the surface resolves to web.
+    expect(context.clientSurface).toBe("web");
+  });
+
+  it("detects the Tauri desktop surface from the injected global", () => {
+    (
+      window as unknown as { __TAURI_INTERNALS__?: unknown }
+    ).__TAURI_INTERNALS__ = {};
+    try {
+      const context = getFeedbackClientContext();
+      expect(context.clientSurface).toBe("tauri");
+    } finally {
+      delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
+        .__TAURI_INTERNALS__;
+    }
   });
 
   it("dedupes chat session ids", () => {

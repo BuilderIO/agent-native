@@ -48,6 +48,22 @@ interface SubmissionPayload {
   activeRunId?: string | null;
   /** Page URL where the feedback was submitted, when available. */
   pageUrl?: string | null;
+  /** Client surface (web/electron/tauri) the feedback came from, when known. */
+  clientSurface?: string | null;
+}
+
+/** Human-readable label for a client-surface token. */
+function clientSurfaceLabel(surface: string): string {
+  switch (surface) {
+    case "electron":
+      return "Desktop (Electron)";
+    case "tauri":
+      return "Desktop (Tauri)";
+    case "web":
+      return "Web";
+    default:
+      return surface;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +99,9 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
   }
   if (submission.pageUrl) {
     lines.push(`Page: <${submission.pageUrl}|open>`);
+  }
+  if (submission.clientSurface) {
+    lines.push(`Source: ${clientSurfaceLabel(submission.clientSurface)}`);
   }
   return lines;
 }
@@ -170,6 +189,13 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       inline: false,
     });
   }
+  if (submission.clientSurface) {
+    discordFields.push({
+      name: "Source",
+      value: clientSurfaceLabel(submission.clientSurface),
+      inline: true,
+    });
+  }
 
   return {
     embeds: [
@@ -192,6 +218,7 @@ function buildGoogleSheetsPayload(submission: SubmissionPayload) {
     chatSessionIds: (submission.chatSessionIds ?? []).join(", "),
     activeRunId: submission.activeRunId ?? "",
     pageUrl: submission.pageUrl ?? "",
+    clientSurface: submission.clientSurface ?? "",
     ...formatFields(submission.fields, submission.data),
   };
 }
@@ -208,6 +235,7 @@ function buildWebhookPayload(submission: SubmissionPayload) {
     chatSessionIds: submission.chatSessionIds ?? [],
     activeRunId: submission.activeRunId ?? null,
     pageUrl: submission.pageUrl ?? null,
+    clientSurface: submission.clientSurface ?? null,
     data: formatFields(submission.fields, submission.data),
     rawData: submission.data,
   };
