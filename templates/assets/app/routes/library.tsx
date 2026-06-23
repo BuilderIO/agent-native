@@ -809,11 +809,15 @@ export default function AssetPicker() {
     } as any,
   );
   const viewingDrafts = assetTab === "drafts";
+  // The standalone Library "Drafts" tab mirrors the home Recent Drafts section:
+  // every unsaved draft across all accessible libraries, regardless of media
+  // type. The embedded picker keeps its library + media-type scope so an
+  // image-only picker never surfaces video drafts.
+  const draftsGlobalView = viewingDrafts && !embedded;
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
-      // Drafts can be images or videos, so don't constrain by media type there.
-      mediaType: viewingDrafts ? undefined : mediaType,
+      mediaType,
       // Drafts are exactly generated candidates — filter them server-side
       // instead of fetching the whole library and filtering on the client.
       role: viewingDrafts ? "generated" : undefined,
@@ -839,8 +843,19 @@ export default function AssetPicker() {
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
     assetsParams as any,
-    { enabled: Boolean(selectedLibraryId) && !usingStarterLibrary } as any,
+    {
+      enabled:
+        Boolean(selectedLibraryId) && !usingStarterLibrary && !draftsGlobalView,
+    } as any,
   ) as { data?: { assets?: Asset[] }; isLoading: boolean };
+  const { data: globalDraftsData, isLoading: globalDraftsLoading } =
+    useActionQuery(
+      "list-draft-assets",
+      { limit: 100 } as any,
+      {
+        enabled: draftsGlobalView,
+      } as any,
+    ) as { data?: { assets?: Asset[] }; isLoading: boolean };
   const starterAssets: Asset[] = useMemo(
     () =>
       STARTER_PRESET.referenceImages.map((reference) => ({
@@ -867,15 +882,28 @@ export default function AssetPicker() {
         .some((value) => String(value).toLowerCase().includes(needle)),
     );
   }, [query, starterAssets]);
-  const allAssets = usingStarterLibrary
-    ? mediaType === "image"
-      ? visibleStarterAssets
-      : []
-    : (assetData?.assets ?? []);
+  const globalDrafts = useMemo(() => {
+    const drafts = globalDraftsData?.assets ?? [];
+    const needle = query.trim().toLowerCase();
+    if (!needle) return drafts;
+    return drafts.filter((asset) =>
+      [asset.title, asset.description, asset.prompt]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
+    );
+  }, [globalDraftsData, query]);
+  const allAssets = draftsGlobalView
+    ? globalDrafts
+    : usingStarterLibrary
+      ? mediaType === "image"
+        ? visibleStarterAssets
+        : []
+      : (assetData?.assets ?? []);
   const assets = useMemo(
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
+  const listLoading = draftsGlobalView ? globalDraftsLoading : assetsLoading;
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
@@ -1381,23 +1409,29 @@ export default function AssetPicker() {
         {displayLibraries.length > 0 && (
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Select
-                value={selectedLibraryId}
-                onValueChange={setSelectedLibraryId}
-              >
-                <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
-                  <SelectValue placeholder="Library" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {displayLibraries.map((library) => (
-                      <SelectItem key={library.id} value={library.id}>
-                        {library.title}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              {draftsGlobalView ? (
+                <div className="flex h-9 items-center rounded-md border border-border/70 bg-background px-3 text-sm text-muted-foreground sm:w-48">
+                  All libraries
+                </div>
+              ) : (
+                <Select
+                  value={selectedLibraryId}
+                  onValueChange={setSelectedLibraryId}
+                >
+                  <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
+                    <SelectValue placeholder="Library" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {displayLibraries.map((library) => (
+                        <SelectItem key={library.id} value={library.id}>
+                          {library.title}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
               {selectedLibraryId && (
                 <Tabs
                   value={assetTab}
@@ -1433,7 +1467,7 @@ export default function AssetPicker() {
           </div>
         )}
 
-        {selectedLibraryId && assetsLoading && (
+        {selectedLibraryId && listLoading && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton key={index} className="aspect-square rounded-md" />
@@ -1441,12 +1475,16 @@ export default function AssetPicker() {
           </div>
         )}
 
-        {selectedLibraryId && !assetsLoading && assets.length === 0 && (
+        {selectedLibraryId && !listLoading && assets.length === 0 && (
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
-              {query
-                ? `No matching ${mediaLabel} assets in this library.`
-                : `No ${mediaLabel} assets in this library yet.`}
+              {draftsGlobalView
+                ? query
+                  ? "No matching drafts."
+                  : "No drafts yet."
+                : query
+                  ? `No matching ${mediaLabel} assets in this library.`
+                  : `No ${mediaLabel} assets in this library yet.`}
             </div>
           </div>
         )}
