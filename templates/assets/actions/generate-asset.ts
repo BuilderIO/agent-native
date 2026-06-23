@@ -121,6 +121,7 @@ const action = defineAction({
         mediaType: "video",
         prompt: args.prompt,
         libraryId: args.libraryId,
+        libraryHint: args.libraryHint,
         count: args.count,
         callerAppId: args.callerAppId,
       })) as Record<string, unknown>;
@@ -136,6 +137,7 @@ const action = defineAction({
       mediaType: "image",
       prompt: args.prompt,
       libraryId: args.libraryId,
+      libraryHint: args.libraryHint,
       aspectRatio: args.aspectRatio,
       presetId: args.presetId,
       count: args.count,

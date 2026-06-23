@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import {
   hasCollabState,
   getText,
@@ -97,30 +97,36 @@ function appendAssetMarkup(
 
 async function resolveTarget(args: z.infer<typeof schemaInput>) {
   const [navigation, selection] = await Promise.all([
-    readAppState("navigation").catch(() => null),
-    readAppState("design-selection").catch(() => null),
+    readAppStateForCurrentTab("navigation").catch(() => null),
+    readAppStateForCurrentTab("design-selection").catch(() => null),
   ]);
   const navigationDesignId = stringFromState(navigation, "designId");
   const selectionDesignId = stringFromState(selection, "designId");
   const selectionOwnerId = stringFromState(selection, "ownerId");
   const selectionMatchesOwner =
     Boolean(args.ownerId) && selectionOwnerId === args.ownerId;
+  // Prefer the owner-matched selection over generic navigation so a tab-scoped
+  // picker handoff lands in the design that produced it.
   const designId =
     args.designId ??
-    navigationDesignId ??
-    (selectionMatchesOwner ? selectionDesignId : undefined);
+    (selectionMatchesOwner ? selectionDesignId : undefined) ??
+    navigationDesignId;
   const canUseSelection =
     selectionMatchesOwner &&
     Boolean(designId) &&
     selectionDesignId === designId;
+  const navigationActiveFileId =
+    designId && navigationDesignId === designId
+      ? stringFromState(navigation, "activeFileId")
+      : undefined;
   return {
     designId,
     fileId:
       args.fileId ??
-      stringFromState(navigation, "activeFileId") ??
       (canUseSelection
         ? stringFromState(selection, "activeFileId")
-        : undefined),
+        : undefined) ??
+      navigationActiveFileId,
   };
 }
 

@@ -129,6 +129,7 @@ type HostConfig = {
   prompt?: string;
   query?: string;
   libraryId?: string;
+  libraryHint?: string;
   aspectRatio?: string;
   presetId?: string;
   count?: number;
@@ -139,6 +140,32 @@ type HostConfig = {
   autoGenerate?: boolean;
   candidateRunIds?: string[];
 };
+
+// Preselect the library whose title/description best matches a free-text brand
+// or use-case hint. Falls back to no match (caller uses the first library).
+function matchLibraryByHint(
+  libraries: Library[],
+  hint: string | undefined,
+): string | undefined {
+  const needle = hint?.trim().toLowerCase();
+  if (!needle) return undefined;
+  const terms = needle.split(/\s+/).filter(Boolean);
+  let best: { id: string; score: number } | null = null;
+  for (const library of libraries) {
+    const haystack =
+      `${library.title ?? ""} ${library.description ?? ""}`.toLowerCase();
+    if (!haystack.trim()) continue;
+    let score = 0;
+    if (haystack.includes(needle)) score += 10;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += 1;
+    }
+    if (score > 0 && (!best || score > best.score)) {
+      best = { id: library.id, score };
+    }
+  }
+  return best?.id;
+}
 
 function isEmbeddedWindow() {
   if (typeof window === "undefined") return false;
@@ -207,6 +234,8 @@ function normalizeHostConfig(value: unknown): HostConfig {
     query: typeof record.query === "string" ? record.query : undefined,
     libraryId:
       typeof record.libraryId === "string" ? record.libraryId : undefined,
+    libraryHint:
+      typeof record.libraryHint === "string" ? record.libraryHint : undefined,
     aspectRatio:
       typeof record.aspectRatio === "string" ? record.aspectRatio : undefined,
     presetId: typeof record.presetId === "string" ? record.presetId : undefined,
@@ -696,6 +725,7 @@ export default function AssetPicker() {
       prompt: params.get("prompt") ?? undefined,
       query: params.get("q") ?? undefined,
       libraryId: params.get("libraryId") ?? undefined,
+      libraryHint: params.get("libraryHint") ?? undefined,
       aspectRatio: params.get("aspectRatio") ?? undefined,
       presetId: params.get("presetId") ?? undefined,
       count: normalizeCount(params.get("count")),
@@ -774,7 +804,10 @@ export default function AssetPicker() {
     const firstLibraryId = displayLibraries[0]?.id;
     if (!firstLibraryId) return;
     if (!selectedLibraryId) {
-      setSelectedLibraryId(firstLibraryId);
+      setSelectedLibraryId(
+        matchLibraryByHint(displayLibraries, hostConfig.libraryHint) ??
+          firstLibraryId,
+      );
       return;
     }
     if (!libraryListReady) return;
@@ -784,7 +817,12 @@ export default function AssetPicker() {
     if (!selectedLibraryExists) {
       setSelectedLibraryId(firstLibraryId);
     }
-  }, [displayLibraries, libraryListReady, selectedLibraryId]);
+  }, [
+    displayLibraries,
+    hostConfig.libraryHint,
+    libraryListReady,
+    selectedLibraryId,
+  ]);
 
   const { data: config } = useActionQuery(
     "get-image-generation-config",
@@ -1006,6 +1044,9 @@ export default function AssetPicker() {
         setQuery("");
       },
       onError: (error: Error) => {
+        // Allow the auto-create effect to retry after a transient failure;
+        // otherwise the picker stays stuck on "Preparing..." until reload.
+        autoCreateLibraryRef.current = false;
         toast.error(error.message || "Could not prepare an image library");
       },
     } as any,

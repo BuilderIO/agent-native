@@ -92,6 +92,21 @@ export default defineAction({
           message: "Assets MCP is already connected for this organization.",
         };
       }
+    }
+
+    // Verify the target endpoint is trusted before removing any existing
+    // server, so a transient org-directory/auth failure cannot turn a reconnect
+    // into a full disconnect for the org.
+    const targetTrust = await isFirstPartyRemoteEndpointTrusted(
+      orgId,
+      "assets",
+      currentUrl,
+    );
+    if (!targetTrust.ok) {
+      throw new Error(targetTrust.error);
+    }
+
+    for (const existing of existingServers) {
       await removeRemoteServer("org", orgId, existing.id);
     }
 

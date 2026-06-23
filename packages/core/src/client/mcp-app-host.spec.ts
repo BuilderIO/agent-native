@@ -90,8 +90,12 @@ async function flushMicrotasks() {
 }
 
 async function flushHostLifecycleTurn() {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The direct host handshake awaits multiple lifecycle turns before the
+  // caller's follow-up request is posted, so flush enough macrotask turns to
+  // let the post-initialize continuation run.
+  for (let i = 0; i < 4; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   await flushMicrotasks();
 }
 

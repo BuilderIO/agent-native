@@ -26,6 +26,12 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Optional asset library to open in the picker."),
+  libraryHint: z
+    .string()
+    .optional()
+    .describe(
+      "Brand, campaign, or use-case hint used to preselect the best-matching library when libraryId is omitted.",
+    ),
   aspectRatio: z
     .string()
     .optional()
@@ -106,6 +112,9 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   if (args.prompt?.trim()) params.set("prompt", args.prompt.trim());
   if (args.query?.trim()) params.set("q", args.query.trim());
   if (args.libraryId?.trim()) params.set("libraryId", args.libraryId.trim());
+  if (args.libraryHint?.trim()) {
+    params.set("libraryHint", args.libraryHint.trim());
+  }
   if (args.aspectRatio?.trim()) {
     params.set("aspectRatio", args.aspectRatio.trim());
   }
@@ -186,6 +195,7 @@ const action = defineAction({
       query: args.query ?? null,
       prompt: args.prompt ?? null,
       libraryId: args.libraryId ?? null,
+      libraryHint: args.libraryHint ?? null,
       aspectRatio: args.aspectRatio ?? null,
       presetId: args.presetId ?? null,
       count: args.count,

@@ -43,6 +43,7 @@ import {
   ShareButton,
   isEmbedAuthActive,
   sendToAgentChat,
+  getBrowserTabId,
   readClientAppState,
   setClientAppState,
   useReconciledState,
@@ -115,6 +116,16 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+
+// Selection is tab-scoped (like navigation) so a second editor tab cannot
+// overwrite this tab's selection context. The global key is mirrored as a
+// fallback for CLI/external agents that do not send a browser tab id.
+function designSelectionStateKeys(): string[] {
+  const tabId = getBrowserTabId();
+  return tabId
+    ? [`design-selection:${tabId}`, "design-selection"]
+    : ["design-selection"];
+}
 // Stable symbol used as the Yjs transaction origin for all local user edits.
 // The UndoManager tracks only this origin so remote peers' and the agent's
 // edits are never undone by this user's Cmd+Z.
@@ -348,18 +359,19 @@ export default function DesignEditor() {
   useEffect(() => {
     return () => {
       void (async () => {
-        const current = await readClientAppState("design-selection").catch(
-          () => null,
-        );
+        const keys = designSelectionStateKeys();
+        const current = await readClientAppState(keys[0]).catch(() => null);
         const ownerId =
           current && typeof current === "object"
             ? (current as { ownerId?: unknown }).ownerId
             : undefined;
         if (ownerId !== designSelectionOwnerIdRef.current) return;
         persistedSelectionStateRef.current = null;
-        await setClientAppState("design-selection", null, {
-          keepalive: true,
-        }).catch(() => {});
+        for (const key of designSelectionStateKeys()) {
+          await setClientAppState(key, null, {
+            keepalive: true,
+          }).catch(() => {});
+        }
       })();
     };
   }, []);
@@ -1443,9 +1455,11 @@ export default function DesignEditor() {
     const persistedKey = JSON.stringify(persistedSelection);
     if (persistedSelectionStateRef.current !== persistedKey) {
       persistedSelectionStateRef.current = persistedKey;
-      setClientAppState("design-selection", persistedSelection, {
-        keepalive: true,
-      }).catch(() => {});
+      for (const key of designSelectionStateKeys()) {
+        setClientAppState(key, persistedSelection, {
+          keepalive: true,
+        }).catch(() => {});
+      }
     }
     const el = document.documentElement;
     el.dataset.designId = id;

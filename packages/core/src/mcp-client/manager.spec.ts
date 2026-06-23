@@ -621,6 +621,9 @@ describe("McpClientManager", () => {
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeTransport) {
       if (transport.key === "http https://stalled.example.com/mcp") {
+        // Attach the transport (as the real SDK does at the start of connect)
+        // before stalling, so the manager can close it on timeout.
+        await origConnect.call(this, transport);
         await new Promise(() => {
           // Intentionally never resolves.
         });

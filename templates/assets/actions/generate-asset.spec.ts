@@ -24,7 +24,7 @@ describe("generate-asset", () => {
       generationMode: "picker-auto-generate",
     });
     expect(result.path).toBe(
-      "/library?mediaType=image&prompt=A+polished+landing+page+hero+image&includeLogo=1&callerAppId=design&autoGenerate=1",
+      "/library?mediaType=image&prompt=A+polished+landing+page+hero+image&aspectRatio=16%3A9&includeLogo=1&callerAppId=design&autoGenerate=1",
     );
     expect(result.message).toContain("no libraries");
   });

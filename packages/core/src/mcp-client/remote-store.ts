@@ -451,7 +451,8 @@ function sameFirstPartyMcpEndpoint(endpointUrl: URL, appUrl: string): boolean {
   return (
     endpointUrl.origin === expected.origin &&
     normalizeEndpointPath(endpointUrl.pathname) ===
-      normalizeEndpointPath(expected.pathname)
+      normalizeEndpointPath(expected.pathname) &&
+    endpointUrl.search === expected.search
   );
 }
 
