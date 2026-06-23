@@ -58,6 +58,16 @@ describe("source-search", { timeout: 60000 }, () => {
     );
     expect(files.some((file) => file.endsWith(".db"))).toBe(false);
     expect(files.some((file) => file.endsWith(".db-wal"))).toBe(false);
+    expect(files).not.toContain("core/src/assets/branding/favicon.png");
+    expect(files).not.toContain(
+      "templates/clips/chrome-extension/public/icons/icon-128.png",
+    );
+    expect(files).not.toContain(
+      "templates/plan/public/fonts/Excalifont-Regular.woff2",
+    );
+    expect(
+      files.some((file) => /\.(png|webp|ico|woff2?|ttf)$/.test(file)),
+    ).toBe(false);
   });
 
   it("reads and searches the packaged source corpus", async () => {

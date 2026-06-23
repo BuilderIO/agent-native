@@ -4,17 +4,72 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(packageDir, "..", "..");
 const corpusDir = join(packageDir, "corpus");
+const maxSourceFileBytes = 1_000_000;
+const textSampleBytes = 8192;
+
+// Keep this conservative so the package corpus only contains files that the
+// runtime source-search reader can use.
+const textFileExtensions = new Set([
+  ".bash",
+  ".cjs",
+  ".cts",
+  ".css",
+  ".csv",
+  ".env",
+  ".example",
+  ".html",
+  ".js",
+  ".json",
+  ".jsonc",
+  ".jsonl",
+  ".jsx",
+  ".md",
+  ".mdc",
+  ".mdx",
+  ".mjs",
+  ".mts",
+  ".plist",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".svg",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yaml",
+  ".yml",
+  ".zsh",
+]);
+
+const textFileNames = new Set([
+  ".dockerignore",
+  ".gitignore",
+  ".ignore",
+  ".npmignore",
+  ".npmrc",
+  ".prettierignore",
+  ".prettierrc",
+  ".taurignore",
+  "AGENTS.md",
+  "DEVELOPING.md",
+  "README.md",
+  "_gitignore",
+  "_redirects",
+  "package.json",
+]);
 
 const excludedDirNames = new Set([
   ".agent-native",
@@ -73,6 +128,41 @@ function shouldSkipRelativePath(relativePath) {
   return shouldSkipFile(name);
 }
 
+function hasTextLikeName(relativePath) {
+  const name = basename(relativePath);
+  if (textFileNames.has(name)) return true;
+  if (name.startsWith(".env.example")) return true;
+  if (name.startsWith(".prettier")) return true;
+  return textFileExtensions.has(extname(name).toLowerCase());
+}
+
+function hasTextLikeContents(absPath) {
+  const buffer = readFileSync(absPath).subarray(0, textSampleBytes);
+  if (buffer.length === 0) return true;
+  let controlBytes = 0;
+  for (const byte of buffer) {
+    if (byte === 0) return false;
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) {
+      controlBytes += 1;
+    }
+  }
+  return controlBytes / buffer.length < 0.01;
+}
+
+function shouldIncludeSourceFile(relativePath) {
+  if (!hasTextLikeName(relativePath)) return false;
+  const absPath = join(repoRoot, relativePath);
+  if (!existsSync(absPath)) return false;
+  try {
+    const stat = lstatSync(absPath);
+    if (!stat.isFile()) return false;
+    if (stat.size > maxSourceFileBytes) return false;
+    return hasTextLikeContents(absPath);
+  } catch {
+    return false;
+  }
+}
+
 function listTrackedFiles(rootRel) {
   try {
     const output = execFileSync(
@@ -110,7 +200,11 @@ function sourceFilesFor(rootRel) {
   const tracked = listTrackedFiles(rootRel);
   const files =
     tracked ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
-  return files.filter((file) => !shouldSkipRelativePath(file)).sort();
+  return files
+    .filter(
+      (file) => !shouldSkipRelativePath(file) && shouldIncludeSourceFile(file),
+    )
+    .sort();
 }
 
 function copySourceFiles(rootRel, targetName) {
@@ -148,6 +242,9 @@ function writeCorpusReadme(stats) {
     "output are intentionally excluded. Use this corpus for framework APIs,",
     "reusable patterns, and template best practices; use the app's own files as",
     "the source of truth for app-specific behavior.",
+    "",
+    "Binary assets and other files that runtime source-search cannot read are",
+    "also excluded.",
     "",
     "## Lookup",
     "",

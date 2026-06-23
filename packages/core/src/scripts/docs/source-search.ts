@@ -26,19 +26,27 @@ const MAX_READ_CHARS = 40_000;
 const MAX_RESULTS = 20;
 const MAX_SNIPPETS_PER_FILE = 3;
 const TEXT_EXTENSIONS = new Set([
+  ".bash",
   ".cjs",
+  ".cts",
   ".css",
   ".csv",
   ".env",
   ".example",
   ".html",
+  ".js",
   ".json",
+  ".jsonc",
   ".jsonl",
   ".jsx",
   ".md",
+  ".mdc",
   ".mdx",
   ".mjs",
+  ".mts",
+  ".plist",
   ".rs",
+  ".sh",
   ".sql",
   ".svg",
   ".toml",
@@ -47,6 +55,7 @@ const TEXT_EXTENSIONS = new Set([
   ".txt",
   ".yaml",
   ".yml",
+  ".zsh",
 ]);
 
 function getCorpusRoot(): string {
@@ -64,9 +73,19 @@ function isProbablyTextFile(filePath: string): boolean {
   if (TEXT_EXTENSIONS.has(ext)) return true;
   const base = path.basename(filePath);
   return (
+    base === ".dockerignore" ||
+    base === ".gitignore" ||
+    base === ".ignore" ||
+    base === ".npmignore" ||
+    base === ".npmrc" ||
+    base === ".prettierignore" ||
+    base === ".prettierrc" ||
+    base === ".taurignore" ||
     base === "AGENTS.md" ||
     base === "DEVELOPING.md" ||
     base === "README.md" ||
+    base === "_gitignore" ||
+    base === "_redirects" ||
     base === "package.json" ||
     base.startsWith(".env.example") ||
     base.startsWith(".prettier")

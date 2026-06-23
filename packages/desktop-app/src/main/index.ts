@@ -1233,12 +1233,6 @@ function hideMainWindowForShortcut() {
 }
 
 function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
-  debugDesktopShortcut("triggered", {
-    id: binding.id,
-    accelerator: binding.accelerator,
-    app: binding.app,
-    activeAppId,
-  });
   const win =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
@@ -1247,10 +1241,17 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
     win && !win.isDestroyed() && win.isVisible() && win.isFocused(),
   );
   const isTargetActive = activeAppId === binding.app;
+  debugDesktopShortcut("triggered", {
+    id: binding.id,
+    accelerator: binding.accelerator,
+    app: binding.app,
+    behavior: binding.behavior,
+    activeAppId,
+    isWindowFrontmost,
+  });
 
-  if (binding.behavior === "toggle" && isTargetActive) {
-    if (isWindowFrontmost) hideMainWindowForShortcut();
-    else focusMainWindow({ stealFocus: true });
+  if (binding.behavior === "toggle" && isTargetActive && isWindowFrontmost) {
+    hideMainWindowForShortcut();
     return;
   }
 

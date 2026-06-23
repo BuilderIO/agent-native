@@ -27,6 +27,7 @@
   ],
   "host_permissions": [
     "https://clips.agent-native.com/*",
+    "https://forms.agent-native.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
