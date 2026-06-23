@@ -50,7 +50,7 @@ function threadIdFromPath(pathname: string): string | null {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
   } catch {
-    return match[1] || null;
+    return null;
   }
 }
 

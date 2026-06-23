@@ -53,7 +53,10 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isChatRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "chat", chatPath: "/" });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "chat",
+    isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+  });
 
   useEffect(() => {
     setMobileSidebarOpen(false);

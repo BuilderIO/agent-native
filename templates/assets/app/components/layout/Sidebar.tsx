@@ -107,7 +107,7 @@ function threadIdFromPath(pathname: string) {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
   } catch {
-    return match[1] || null;
+    return null;
   }
 }
 
@@ -282,7 +282,8 @@ function AssetsChatsSection() {
         {visibleThreads.map((thread) => {
           const isActive =
             thread.id ===
-            (threadIdFromPath(location.pathname) ?? activeThreadId);
+            (threadIdFromPath(location.pathname) ??
+              (location.pathname === "/" ? null : activeThreadId));
           const isRenaming = thread.id === renamingThreadId;
           return (
             <div

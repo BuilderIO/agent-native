@@ -785,6 +785,45 @@ const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
 
+// The history patch is installed once and shared via a ref count so that
+// multiple synced chats (or a remount) don't restore a stale `pushState`
+// reference and silently drop a wrapper installed by another instance.
+let historyPatchRefCount = 0;
+let restoreHistoryPatch: (() => void) | null = null;
+
+function installHistoryThreadUrlPatch(): () => void {
+  if (typeof window === "undefined") return () => {};
+  historyPatchRefCount += 1;
+  if (historyPatchRefCount === 1) {
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    const dispatchUrlChange = () => {
+      window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+    };
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
+    restoreHistoryPatch = () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+    };
+  }
+  return () => {
+    historyPatchRefCount = Math.max(0, historyPatchRefCount - 1);
+    if (historyPatchRefCount === 0) {
+      restoreHistoryPatch?.();
+      restoreHistoryPatch = null;
+    }
+  };
+}
+
 export interface ChatThreadUrlSyncOptions {
   /** Query-string parameter used by the generic URL adapter. Default: `thread`. */
   paramName?: string;
@@ -955,31 +994,18 @@ export function MultiTabAssistantChat({
         : readUrlThreadId(threadUrlParamName)
       : null,
   );
+  const urlThreadIdRef = useRef(urlThreadId);
+  urlThreadIdRef.current = urlThreadId;
 
   useEffect(() => {
     if (!threadUrlSyncEnabled || threadRouteControlsActiveThread) return;
     const update = () => setUrlThreadId(readUrlThreadId(threadUrlParamName));
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
-    const dispatchUrlChange = () => {
-      window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
-    };
-    window.history.pushState = function pushState(...args) {
-      const result = originalPushState.apply(this, args);
-      dispatchUrlChange();
-      return result;
-    };
-    window.history.replaceState = function replaceState(...args) {
-      const result = originalReplaceState.apply(this, args);
-      dispatchUrlChange();
-      return result;
-    };
+    const uninstallHistoryPatch = installHistoryThreadUrlPatch();
     update();
     window.addEventListener("popstate", update);
     window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
     return () => {
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
+      uninstallHistoryPatch();
       window.removeEventListener("popstate", update);
       window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
     };
@@ -2341,12 +2367,12 @@ export function MultiTabAssistantChat({
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
-        readUrlThreadId(threadUrlParamName) !== threadId
+        urlThreadIdRef.current !== threadId
       ) {
         writeThreadUrl(threadId);
       }
     },
-    [saveThreadData, threadUrlParamName, writeThreadUrl],
+    [saveThreadData, writeThreadUrl],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────
