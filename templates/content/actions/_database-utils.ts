@@ -123,6 +123,10 @@ export async function getContentDatabaseResponse(
 
   if (!database) throw new Error(`Database "${databaseId}" not found`);
 
+  // PURE read: the primary "Content" Blocks field is seeded at create time and
+  // by the one-time startup repair — never here. Reading a database (including a
+  // shared one a viewer is opening) must not mutate schema.
+
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
   const [itemCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -261,6 +265,11 @@ export async function deleteDatabaseDataForDocument(
       await db
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+      // Independent Blocks-field content is keyed by property id; drop it so
+      // deleting a database leaves no orphaned document_block_field_contents.
+      await db
+        .delete(schema.documentBlockFieldContents)
+        .where(eq(schema.documentBlockFieldContents.propertyId, definition.id));
     }
     const sources = await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -309,6 +318,12 @@ export async function deleteDatabaseDataForDocument(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
+    // A deleted row document's independent Blocks-field content is keyed by
+    // document id; drop it so no document_block_field_contents rows are
+    // orphaned when the row is removed.
+    await db
+      .delete(schema.documentBlockFieldContents)
+      .where(eq(schema.documentBlockFieldContents.documentId, documentId));
     await db
       .delete(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.documentId, documentId));

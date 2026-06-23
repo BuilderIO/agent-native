@@ -13,6 +13,7 @@ import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentProperties } from "./DocumentProperties";
+import { DocumentBlockFields } from "./DocumentBlockFields";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import {
@@ -958,37 +959,65 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 }
               }}
             >
-              <VisualEditor
-                key={documentId}
-                documentId={documentId}
-                content={isLocalFileDocument ? localContent : document.content}
-                contentUpdatedAt={
-                  isLocalFileDocument
-                    ? (localContentUpdatedAt ?? document.updatedAt)
-                    : document.updatedAt
+              {(() => {
+                // The primary "Content" Blocks field IS the document body, with
+                // the full collaborative editor. It renders chromeless when it's
+                // the only Blocks field, or inside a header/collapsible shell
+                // when the row has multiple Blocks fields.
+                const primaryEditor = (
+                  <VisualEditor
+                    key={documentId}
+                    documentId={documentId}
+                    content={
+                      isLocalFileDocument ? localContent : document.content
+                    }
+                    contentUpdatedAt={
+                      isLocalFileDocument
+                        ? (localContentUpdatedAt ?? document.updatedAt)
+                        : document.updatedAt
+                    }
+                    onChange={handleContentChange}
+                    ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
+                    awareness={
+                      canEdit && !isLocalFileDocument ? awareness : null
+                    }
+                    user={currentUser}
+                    editable={canEdit}
+                    localFileMode={isLocalFileDocument}
+                    onComment={
+                      canEdit && !isLocalFileDocument
+                        ? handleComment
+                        : undefined
+                    }
+                    commentThreads={threads ?? []}
+                    activeThreadId={activeThreadId}
+                    pendingHighlight={pendingComment?.range ?? null}
+                    onActivateThread={
+                      canEdit && !isLocalFileDocument
+                        ? setActiveThreadId
+                        : undefined
+                    }
+                    onJoinTitle={joinFirstBodyBlockToTitle}
+                    notionPageLinks={notionPageLinks}
+                    onOpenNotionPageLink={handleOpenNotionPageLink}
+                    notionPageId={document.notionPageId}
+                  />
+                );
+
+                // Only database rows have Blocks fields. Standalone pages and
+                // local-file documents keep the plain chromeless body.
+                if (document.databaseMembership && !isLocalFileDocument) {
+                  return (
+                    <DocumentBlockFields
+                      documentId={documentId}
+                      canEdit={canEdit}
+                      primaryEditor={primaryEditor}
+                    />
+                  );
                 }
-                onChange={handleContentChange}
-                ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
-                awareness={canEdit && !isLocalFileDocument ? awareness : null}
-                user={currentUser}
-                editable={canEdit}
-                localFileMode={isLocalFileDocument}
-                onComment={
-                  canEdit && !isLocalFileDocument ? handleComment : undefined
-                }
-                commentThreads={threads ?? []}
-                activeThreadId={activeThreadId}
-                pendingHighlight={pendingComment?.range ?? null}
-                onActivateThread={
-                  canEdit && !isLocalFileDocument
-                    ? setActiveThreadId
-                    : undefined
-                }
-                onJoinTitle={joinFirstBodyBlockToTitle}
-                notionPageLinks={notionPageLinks}
-                onOpenNotionPageLink={handleOpenNotionPageLink}
-                notionPageId={document.notionPageId}
-              />
+
+                return primaryEditor;
+              })()}
             </div>
           </div>
         </div>

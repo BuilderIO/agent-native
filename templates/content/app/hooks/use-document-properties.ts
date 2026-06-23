@@ -5,6 +5,7 @@ import type {
   DeleteDocumentPropertyRequest,
   DocumentPropertiesResponse,
   DuplicateDocumentPropertyRequest,
+  ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
 } from "@shared/api";
 
@@ -65,6 +66,26 @@ export function useDuplicateDocumentProperty(documentId: string) {
     DocumentPropertiesResponse,
     DuplicateDocumentPropertyRequest
   >("duplicate-document-property", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document", { id: documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+    },
+  });
+}
+
+export function useReorderDocumentProperty(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    DocumentPropertiesResponse,
+    ReorderDocumentPropertyRequest
+  >("reorder-document-property", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action", "list-document-properties", { documentId }],

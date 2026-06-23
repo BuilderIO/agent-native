@@ -19,6 +19,7 @@ import {
   IconEdit,
   IconEye,
   IconEyeOff,
+  IconFileText,
   IconHash,
   IconLink,
   IconList,
@@ -93,6 +94,7 @@ import {
   documentPropertyDatePart,
   isEmptyPropertyValue,
   isComputedPropertyType,
+  isOnlyBlocksFieldDeletion,
   normalizeDatePropertyValue,
   type DocumentPropertyDateValue,
   type DocumentPropertyOption,
@@ -132,6 +134,7 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   email: IconAt,
   phone: IconPhone,
   relation: IconLink,
+  blocks: IconFileText,
   id: IconNumber,
   created_time: IconClockFilled,
   created_by: IconUserCircle,
@@ -171,6 +174,7 @@ const PROPERTY_TYPE_SEARCH_ALIASES: Partial<
   formula: ["calculate", "calculation", "computed", "equation"],
   relation: ["relationship", "linked", "link", "database"],
   rollup: ["aggregate", "aggregation", "sum", "count", "relation"],
+  blocks: ["content", "body", "rich text", "rich-text", "page", "notes"],
 };
 
 function slugify(value: string) {
@@ -642,7 +646,11 @@ export function DocumentProperties({
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const { data, isLoading } = useDocumentProperties(documentId);
-  const properties = data?.properties ?? [];
+  // Blocks fields are rendered as body content (below the database/title), not
+  // as scalar property rows in this panel — exclude them here.
+  const properties = (data?.properties ?? []).filter(
+    (property) => property.definition.type !== "blocks",
+  );
   const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
   const hiddenProperties = properties.filter(
@@ -824,6 +832,16 @@ export function PropertyManagementPopover({
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
+  const { data: propertiesData } = useDocumentProperties(documentId);
+  // Whether deleting THIS property removes the last Blocks field of the type —
+  // i.e. the body. Drives the yellow warning in the delete dialog.
+  const blocksFieldCount = (propertiesData?.properties ?? []).filter(
+    (item) => item.definition.type === "blocks",
+  ).length;
+  const isOnlyBlocksField = isOnlyBlocksFieldDeletion({
+    type: property.definition.type,
+    blocksFieldCount,
+  });
   const [open, setOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [name, setName] = useState(property.definition.name);
@@ -1173,6 +1191,12 @@ export function PropertyManagementPopover({
               every document in this workspace.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isOnlyBlocksField ? (
+            <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
+              This is the only blocks property present in this object type. This
+              will delete the main content (body) for all objects of this type.
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction

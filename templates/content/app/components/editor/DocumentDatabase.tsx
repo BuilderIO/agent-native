@@ -138,6 +138,13 @@ import {
 } from "./DocumentProperties";
 import { EmojiPicker } from "./EmojiPicker";
 import { VisualEditor } from "./VisualEditor";
+import { DocumentBlockFields } from "./DocumentBlockFields";
+import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
+import {
+  acquirePreviewDocumentSaveController,
+  peekPreviewDocumentSaveController,
+  releasePreviewDocumentSaveController,
+} from "./previewDocumentSaveRegistry";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -168,9 +175,11 @@ import {
 } from "@shared/api";
 import {
   type DocumentPropertyOptionColor,
+  countWords,
   documentPropertyDateKey,
   documentPropertyDatePart,
   evaluateNormalizationFormula,
+  formatWordCount,
   formulaValueText,
   isComputedPropertyType,
   isEmptyPropertyValue,
@@ -1969,6 +1978,26 @@ function DatabaseItemPreviewSheet({
   );
 }
 
+function previewPayloadsEqual(
+  a: { title: string; content: string },
+  b: { title: string; content: string },
+) {
+  return a.title === b.title && a.content === b.content;
+}
+
+function retainedPreviewPayload(
+  documentId: string,
+  serverPayload: { title: string; content: string },
+) {
+  const controller = peekPreviewDocumentSaveController(documentId);
+  if (!controller) return null;
+  const dirty = !previewPayloadsEqual(controller.pending, controller.lastSaved);
+  const savedAheadOfServer =
+    controller.hasSavedLocally &&
+    !previewPayloadsEqual(controller.lastSaved, serverPayload);
+  return dirty || savedAheadOfServer ? controller.pending : null;
+}
+
 function DatabaseItemPreview({
   item,
   previousItem,
@@ -2000,46 +2029,160 @@ function DatabaseItemPreview({
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const [localTitle, setLocalTitle] = useState(item.document.title);
-  const [localContent, setLocalContent] = useState(item.document.content);
+  // Seed the displayed title/content from a RETAINED dirty controller's pending
+  // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
+  // edit is restored on remount instead of showing stale server content; else
+  // from the server/item value.
+  const [localTitle, setLocalTitle] = useState(() => {
+    const retained = retainedPreviewPayload(item.document.id, {
+      title: item.document.title,
+      content: item.document.content,
+    });
+    return retained?.title ?? item.document.title;
+  });
+  const [localContent, setLocalContent] = useState(() => {
+    const retained = retainedPreviewPayload(item.document.id, {
+      title: item.document.title,
+      content: item.document.content,
+    });
+    return retained?.content ?? item.document.content;
+  });
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
-  const lastSavedRef = useRef({
-    title: item.document.title,
-    content: item.document.content,
-  });
 
+  // The peek's primary title+body save runs through a flush-on-release controller
+  // so a pending debounced edit is PERSISTED — not dropped — when the row
+  // switches, the editor unmounts, or the sheet closes / Open-page navigates.
+  //
+  // ONE CONTROLLER PER DOCUMENT ID (mirrors the additional Blocks fields): the
+  // peek is a SINGLE component instance whose `item` prop changes on row-switch.
+  // Rather than rebasing one controller's target id across rows (which produced a
+  // class of timing races), we ACQUIRE a per-doc controller for the current row
+  // and RELEASE it on switch. A controller's doc id is fixed for its life, so a
+  // flush always lands on the correct document and a stale completion can only
+  // ever touch its own row's state. See previewDocumentSaveRegistry.
+  const updateDocumentRef = useRef(updateDocument);
+  updateDocumentRef.current = updateDocument;
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  // Doc ids that have been deleted in this peek's lifetime. A pending save must
+  // never resurrect a deleted document, so dispatch is suppressed for these.
+  const deletedIdsRef = useRef<Set<string>>(new Set());
+
+  const documentId = item.document.id;
+
+  // Build the factory for THIS row's controller. It closes over the stable
+  // component-scoped refs (updateDocument, queryClient, deletedIds), so the
+  // freshest mutation impl is always used while the controller's save TARGET
+  // (`documentId`) is fixed by the registry key.
+  const makeController = () =>
+    createPreviewDocumentSaveController({
+      documentId,
+      initial: {
+        title: item.document.title,
+        content: item.document.content,
+      },
+      save: (id, payload) =>
+        new Promise((resolve, reject) => {
+          // A just-deleted doc must not be re-dispatched (resurrection guard).
+          if (deletedIdsRef.current.has(id)) {
+            resolve(undefined);
+            return;
+          }
+          updateDocumentRef.current.mutate(
+            { id, title: payload.title, content: payload.content },
+            { onSuccess: () => resolve(undefined), onError: reject },
+          );
+        }),
+      onSaved: () => {
+        void queryClientRef.current.invalidateQueries({
+          queryKey: ["action", "get-content-database"],
+        });
+        void queryClientRef.current.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      },
+      onError: (err) => {
+        toast.error("Failed to save page preview", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      },
+    });
+
+  // Acquire the controller for the current row, and release it on row-switch /
+  // unmount. Release flush-then-evicts: the OLD row's latest dirty payload is
+  // dispatched SYNCHRONOUSLY (bound to the OLD doc id) before the new row's
+  // controller takes over, so a pending edit is persisted, not dropped, and never
+  // retargeted. A quick reopen before the flush settles reuses the live instance.
+  // The current controller is held in a ref so the change handlers reach it
+  // synchronously.
+  const saveControllerRef = useRef<ReturnType<typeof makeController> | null>(
+    null,
+  );
+  useEffect(() => {
+    saveControllerRef.current = acquirePreviewDocumentSaveController(
+      documentId,
+      makeController,
+    );
+    return () => {
+      saveControllerRef.current = null;
+      releasePreviewDocumentSaveController(documentId);
+    };
+    // makeController is rebuilt every render but intentionally not a dep: the
+    // registry only invokes it on the FIRST acquire of a doc id, and the doc id
+    // (the registry key) is the only thing that should drive re-acquire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  // Sync displayed state to the current row, and adopt fresh server content
+  // (e.g. an agent edit) as the controller's new confirmed baseline. mark()
+  // touches only THIS row's controller — never another row's — because the
+  // controller's doc id is fixed. The acquire effect above runs first, so the
+  // controller for `documentId` is registered before this fires.
   useEffect(() => {
     const nextTitle = document?.title ?? item.document.title;
     const nextContent = document?.content ?? item.document.content;
     const nextIcon = document?.icon ?? item.document.icon;
-    setLocalTitle(nextTitle);
-    setLocalContent(nextContent);
+    // Icon isn't tracked by the title/content save controller, so it can always
+    // follow the server.
     setLocalIcon(nextIcon);
-    lastSavedRef.current = { title: nextTitle, content: nextContent };
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    const serverPayload = { title: nextTitle, content: nextContent };
+    const dirty =
+      !!controller &&
+      !previewPayloadsEqual(controller.pending, controller.lastSaved);
+    const savedAheadOfServer =
+      !!controller &&
+      controller.hasSavedLocally &&
+      !previewPayloadsEqual(controller.lastSaved, serverPayload);
+    // Only adopt the server's title/content — into BOTH the displayed editor
+    // state and the controller baseline — when the user hasn't typed something
+    // newer on this row. If a dirty in-progress edit exists, preserve it: don't
+    // clobber the visible text (the controller already holds the unsaved edit,
+    // so nothing is lost, but the editor must keep showing what the user typed).
+    if (!dirty && !savedAheadOfServer) {
+      setLocalTitle(nextTitle);
+      setLocalContent(nextContent);
+      controller?.mark(serverPayload);
+    } else if (controller) {
+      // A dirty in-progress edit or a clean local save that the query has not
+      // echoed yet is newer than stale server props.
+      setLocalTitle(controller.pending.title);
+      setLocalContent(controller.pending.content);
     }
   }, [
+    documentId,
     document?.id,
     document?.title,
     document?.content,
     document?.icon,
-    item.document.id,
     item.document.title,
     item.document.content,
     item.document.icon,
   ]);
-
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (!focusTitle || !canEdit || isLoading || !document) return;
@@ -2053,48 +2196,16 @@ function DatabaseItemPreview({
     return () => cancelAnimationFrame(frame);
   }, [canEdit, document, focusTitle, isLoading, onTitleFocused]);
 
-  function savePreviewDocument(next: { title: string; content: string }) {
-    if (!canEdit || !document) return;
-    if (
-      next.title === lastSavedRef.current.title &&
-      next.content === lastSavedRef.current.content
-    ) {
-      return;
-    }
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      updateDocument.mutate(
-        { id: document.id, title: next.title, content: next.content },
-        {
-          onSuccess: () => {
-            lastSavedRef.current = next;
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-content-database"],
-            });
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "list-documents"],
-            });
-          },
-          onError: (err) => {
-            toast.error("Failed to save page preview", {
-              description:
-                err instanceof Error ? err.message : "Something went wrong",
-            });
-          },
-        },
-      );
-    }, 450);
-  }
-
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
-    savePreviewDocument({ title: nextTitle, content: localContent });
+    if (!canEdit || !document) return;
+    saveControllerRef.current?.changeTitle(nextTitle);
   }
 
   function handleContentChange(nextContent: string) {
     setLocalContent(nextContent);
-    savePreviewDocument({ title: localTitle, content: nextContent });
+    if (!canEdit || !document) return;
+    saveControllerRef.current?.changeContent(nextContent);
   }
 
   function handleIconChange(nextIcon: string | null) {
@@ -2142,6 +2253,18 @@ function DatabaseItemPreview({
   }
 
   async function deletePreviewRow() {
+    // Cancel (do NOT flush) before any row switch/close: we're deleting this
+    // document, so a pending save must not resurrect it. Reset pending onto the
+    // last-saved baseline so the controller's release flush is a no-op, and
+    // record the id so any save already in flight is a no-op too (the
+    // controller's save impl skips deleted ids).
+    deletedIdsRef.current.add(item.document.id);
+    const controller = saveControllerRef.current;
+    if (controller) {
+      controller.cancel();
+      controller.mark(controller.lastSaved);
+    }
+
     const nextPreviewItem = nextItem ?? previousItem;
     if (nextPreviewItem) {
       onPreviewItem?.(nextPreviewItem);
@@ -2150,10 +2273,6 @@ function DatabaseItemPreview({
     }
 
     try {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
       await deleteDocument.mutateAsync({ id: item.document.id });
       await queryClient.invalidateQueries({
         queryKey: [
@@ -2166,6 +2285,7 @@ function DatabaseItemPreview({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
+      deletedIdsRef.current.delete(item.document.id);
       onPreviewItem?.(item);
       toast.error("Failed to delete row", {
         description:
@@ -2327,14 +2447,38 @@ function DatabaseItemPreview({
               />
             ) : null}
             <div className="pt-6">
-              <VisualEditor
-                key={document.id}
-                documentId={document.id}
-                content={localContent}
-                onChange={handleContentChange}
-                ydoc={null}
-                editable={canEdit}
-              />
+              {(() => {
+                // The peek's primary "Content" Blocks field is the document body.
+                // No collab in the peek (ydoc=null), so it's a plain rich-text
+                // editor saving through the preview document save path.
+                const primaryEditor = (
+                  <VisualEditor
+                    key={document.id}
+                    documentId={document.id}
+                    content={localContent}
+                    onChange={handleContentChange}
+                    ydoc={null}
+                    editable={canEdit}
+                  />
+                );
+
+                // Render the peek body through the SAME component the full page
+                // uses so ALL Blocks fields (Content + any others) appear with
+                // identical loading/empty/solo/multi behavior — including the
+                // empty state (no editable body when there are zero Blocks
+                // fields). Only database rows have Blocks fields.
+                if (document.databaseMembership) {
+                  return (
+                    <DocumentBlockFields
+                      documentId={document.id}
+                      canEdit={canEdit}
+                      primaryEditor={primaryEditor}
+                    />
+                  );
+                }
+
+                return primaryEditor;
+              })()}
             </div>
           </div>
         </div>
@@ -9120,6 +9264,16 @@ function isTablePropertyVisible(
 }
 
 function databaseTableCellDisplayValue(property: DocumentProperty) {
+  // Blocks columns show a word count, never the dumped body content.
+  if (property.definition.type === "blocks") {
+    const content = typeof property.value === "string" ? property.value : "";
+    const words = countWords(content);
+    if (words === 0) return <span aria-hidden="true">&nbsp;</span>;
+    return (
+      <span className="text-muted-foreground">{formatWordCount(content)}</span>
+    );
+  }
+
   if (isEmptyPropertyValue(property.value)) {
     return <span aria-hidden="true">&nbsp;</span>;
   }
@@ -12958,6 +13112,10 @@ function DatabaseTableRow({
               >
                 {value}
               </button>
+            ) : itemProperty.definition.type === "blocks" ? (
+              // Blocks cells are a read-only word count in the table; the body
+              // is edited on the page, not inline.
+              value
             ) : canEdit && itemProperty.editable ? (
               <PropertyValuePopover
                 property={itemProperty}
