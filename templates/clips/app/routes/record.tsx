@@ -53,6 +53,10 @@ import {
   compressBlobIfTooLarge,
   formatMb,
 } from "@/lib/compress";
+import {
+  loadRecorderPreferences,
+  saveRecorderPreferences,
+} from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -718,7 +722,14 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
+  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
+    () => loadRecorderPreferences().cameraSize ?? "md",
+  );
+  // Remember the bubble size across visits alongside the panel's selections.
+  const handleCameraSizeChange = useCallback((size: CameraBubbleSize) => {
+    setCameraSize(size);
+    saveRecorderPreferences({ cameraSize: size });
+  }, []);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   // The capture surface the user actually picked in the browser's native screen
   // picker (authority over the requested `displaySurface` hint). Drives whether
@@ -2058,7 +2069,7 @@ export default function RecordRoute() {
                   onImportLoom={importLoom}
                   importingLoom={loomImporting}
                   cameraSize={cameraSize}
-                  onCameraSizeChange={setCameraSize}
+                  onCameraSizeChange={handleCameraSizeChange}
                 />
               ) : (
                 <StorageSetupCard
@@ -2137,7 +2148,7 @@ export default function RecordRoute() {
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
-          onSizeChange={setCameraSize}
+          onSizeChange={handleCameraSizeChange}
           hidden={
             (uiState !== "recording" && uiState !== "countdown") ||
             hideBubbleForFullScreenCapture

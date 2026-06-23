@@ -186,6 +186,17 @@ function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
 }
 
+// getUserMedia failed because the requested device is gone (unplugged / stale
+// saved id), not a permission error — recoverable by retrying with the default.
+function isDeviceUnavailableError(err: unknown): boolean {
+  const name = errorName(err);
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err || "Unknown error");
 }
@@ -592,7 +603,20 @@ export class RecorderEngine {
             audio: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "camera");
+          // Stale/unplugged cameraDeviceId — retry with the default camera
+          // instead of failing the recording.
+          if (this.opts.cameraDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "camera");
+            }
+          } else {
+            throw this.friendlyError(err, "camera");
+          }
         }
       }
 
@@ -603,7 +627,19 @@ export class RecorderEngine {
             video: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "microphone");
+          // Same stale-device fallback as the camera — retry default mic.
+          if (this.opts.micDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.micStream = await navigator.mediaDevices.getUserMedia({
+                audio: voiceFocusedAudioConstraints(),
+                video: false,
+              });
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "microphone");
+            }
+          } else {
+            throw this.friendlyError(err, "microphone");
+          }
         }
       }
 
