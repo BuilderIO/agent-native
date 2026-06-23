@@ -34,20 +34,49 @@ export function blockFieldsFromProperties(
     .sort((a, b) => a.definition.position - b.definition.position);
 }
 
-// Which storage backs the SOLO (chromeless) editor for a given set of Blocks
-// fields. Solo does NOT imply primary: if the lone surviving field is a
-// non-primary field (its primary "Content" sibling was deleted), the chromeless
-// editor must read AND write the block-field store, not the document body. While
-// fields are still loading (none yet) default to the body so the primary editor
-// shows without a flash. Returns null when not in solo mode.
-export function soloBlocksStorageTarget(
-  blockFields: DocumentProperty[],
-): BlocksStorageTarget | null {
-  if (blocksRenderMode(blockFields.length) !== "solo") return null;
-  const soloField = blockFields[0];
-  // No field loaded yet → treat as the primary body editor (loading fallback).
-  if (!soloField) return "document_body";
-  return blocksStorageTarget(soloField.definition.options);
+// The render decision for a row's Blocks fields, computed from the loaded
+// field list AND whether that list has actually arrived from the server.
+//
+// Three states must stay distinct so we NEVER blindly write the document body
+// when the solo field's identity/primacy is unknown:
+//
+//   - "loading"      — field data has not arrived yet. The list is `[]` but that
+//                      does NOT mean zero fields; render a non-editable
+//                      placeholder, never a writable body editor.
+//   - "empty"        — loaded, and there are genuinely zero Blocks fields (e.g.
+//                      the only field was deleted → metadata-only row). Render no
+//                      block editor (an "add a Blocks field" affordance is fine),
+//                      NOT the body editor.
+//   - "solo"         — loaded, exactly one Blocks field. Route to THAT field's
+//                      store: primary → body editor, non-primary → block-field
+//                      controller. Solo does NOT imply primary.
+//   - "multi"        — loaded, 2+ fields. Each gets a header.
+export type BlockFieldsRenderState =
+  | { kind: "loading" }
+  | { kind: "empty" }
+  | { kind: "solo"; field: DocumentProperty; target: BlocksStorageTarget }
+  | { kind: "multi"; fields: DocumentProperty[] };
+
+export function blockFieldsRenderState(args: {
+  loaded: boolean;
+  blockFields: DocumentProperty[];
+}): BlockFieldsRenderState {
+  // Until the field list has arrived we cannot know how many Blocks fields the
+  // row has, nor which one is solo, nor whether it is primary. Treat as loading
+  // and render a non-editable placeholder — never a body-backed writable editor.
+  if (!args.loaded) return { kind: "loading" };
+
+  const { blockFields } = args;
+  if (blockFields.length === 0) return { kind: "empty" };
+  if (blocksRenderMode(blockFields.length) === "multi") {
+    return { kind: "multi", fields: blockFields };
+  }
+  const field = blockFields[0]!;
+  return {
+    kind: "solo",
+    field,
+    target: blocksStorageTarget(field.definition.options),
+  };
 }
 
 /**
@@ -66,47 +95,82 @@ export function DocumentBlockFields({
   canEdit,
   primaryEditor,
 }: DocumentBlockFieldsProps) {
-  const { data } = useDocumentProperties(documentId);
-  const properties = data?.properties ?? [];
+  const query = useDocumentProperties(documentId);
+  const properties = query.data?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
     [properties],
   );
 
-  // Solo (chromeless: no header) — but solo does NOT mean primary. The sole
-  // field can be a non-primary Blocks field (e.g. the primary "Content" field
-  // was deleted while a non-primary field survives). Bind reads AND writes to
-  // WHICHEVER field is solo:
-  //   - primary  → the collaborative body editor backed by `documents.content`
-  //   - non-primary → the debounced block-field-store editor (same path the
-  //     additional-field editor uses), just rendered without the shell.
-  // While properties load (blockFields empty) fall back to the primary editor
-  // so the body is never hidden behind a loading flash.
-  const soloTarget = soloBlocksStorageTarget(blockFields);
-  if (soloTarget !== null) {
-    const soloField = blockFields[0];
-    if (soloField && soloTarget === "block_field_store") {
+  // Loaded the moment the query has ever produced data for this row. Until then
+  // `blockFields` is `[]` purely because nothing has arrived — which is NOT the
+  // same as a row that genuinely has zero Blocks fields. Distinguishing the two
+  // is what keeps a non-primary solo field (or a still-loading row) from writing
+  // the document body via the fallback path.
+  const loaded = query.data !== undefined;
+  const state = blockFieldsRenderState({ loaded, blockFields });
+
+  switch (state.kind) {
+    case "loading":
+      // Field data not yet arrived: render a NON-editable placeholder, never a
+      // writable body editor. We do not know yet whether the solo field (if any)
+      // is primary, so routing to the body could clobber a non-primary field.
       return (
-        <div className="grid gap-1">
-          <AdditionalBlockEditor
-            documentId={documentId}
-            property={soloField}
-            canEdit={canEdit}
-          />
+        <div
+          className="grid gap-1"
+          data-block-fields-state="loading"
+          aria-busy="true"
+        >
+          <div className="h-24 animate-pulse rounded-md bg-muted/40" />
         </div>
       );
-    }
-    return <div className="grid gap-1">{primaryEditor}</div>;
+    case "empty":
+      // Loaded with zero Blocks fields (the only field was deleted → a
+      // metadata-only row). Render NO block editor — definitely not the body
+      // editor. An affordance to add a Blocks field is appropriate here.
+      return (
+        <div
+          className="grid gap-1"
+          data-block-fields-state="empty"
+        >
+          {canEdit ? (
+            <p className="px-1 py-2 text-sm text-muted-foreground">
+              No Blocks fields. Add one from the property menu.
+            </p>
+          ) : null}
+        </div>
+      );
+    case "solo":
+      // Solo (chromeless: no header) — but solo does NOT mean primary. Route to
+      // WHICHEVER store backs the lone field:
+      //   - primary     → the collaborative body editor (`documents.content`)
+      //   - non-primary → the debounced block-field-store editor
+      if (state.target === "block_field_store") {
+        return (
+          <div className="grid gap-1" data-block-fields-state="solo">
+            <AdditionalBlockEditor
+              documentId={documentId}
+              property={state.field}
+              canEdit={canEdit}
+            />
+          </div>
+        );
+      }
+      return (
+        <div className="grid gap-1" data-block-fields-state="solo">
+          {primaryEditor}
+        </div>
+      );
+    case "multi":
+      return (
+        <MultiBlockFields
+          documentId={documentId}
+          canEdit={canEdit}
+          blockFields={state.fields}
+          primaryEditor={primaryEditor}
+        />
+      );
   }
-
-  return (
-    <MultiBlockFields
-      documentId={documentId}
-      canEdit={canEdit}
-      blockFields={blockFields}
-      primaryEditor={primaryEditor}
-    />
-  );
 }
 
 function MultiBlockFields({
@@ -306,7 +370,11 @@ function AdditionalBlockEditor({
   // unmounts children), flush the latest dirty content so a debounce that hadn't
   // fired yet is not dropped.
   useEffect(() => {
-    return () => controller.flush();
+    return () => {
+      // Fire-and-forget: flush() is async (it awaits any in-flight save before
+      // sending the final pending content), but a React cleanup must return void.
+      void controller.flush();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

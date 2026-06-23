@@ -10,18 +10,32 @@
 //    collapse so a debounce that has not fired yet is not dropped (finding 3).
 //  - mark() adopts fresh server content as the new confirmed baseline (e.g. an
 //    agent edit) without scheduling a save.
-//  - Every save carries a monotonic sequence number. Only the result of the
-//    LATEST issued save is allowed to win: a slower earlier save (A) that
-//    resolves after a newer save (B) is ignored, so a stale write can never
-//    overwrite newer content (lost-update guard). flush() supersedes any
-//    in-flight save by issuing the latest content as the newest sequence, so the
-//    final persisted value is deterministically the latest content.
+//
+// SINGLE-FLIGHT + TRAILING (lost-update fix): the server write (set-document-
+// property → upsert) is unconditional, so the LAST request to reach the DB wins.
+// A monotonic sequence only protects local bookkeeping; it cannot reorder two
+// requests already in flight. So we guarantee server write order == issue order
+// by never having two saves in flight at once:
+//
+//   - At most ONE save() call is outstanding per field.
+//   - While a save is in flight, further edits do not start a new save; they
+//     coalesce into a single `pending` payload.
+//   - When the in-flight save settles, if `pending` still differs from the last
+//     confirmed value, exactly one trailing save is issued for the LATEST
+//     pending content. This repeats (one at a time) until quiescent.
+//   - flush() awaits the in-flight save (if any) and then sends the final
+//     pending content, so the last value committed at the DB is deterministically
+//     the latest content the user typed.
 
 export interface BlockFieldSaveController {
   /** Record a user edit. Schedules a debounced save when the value is dirty. */
   change(content: string): void;
-  /** Persist the latest dirty content now (unmount / collapse). */
-  flush(): void;
+  /**
+   * Persist the latest dirty content now (unmount / collapse). Resolves after
+   * any in-flight save AND the resulting trailing save have settled, so the
+   * final DB value is the latest content.
+   */
+  flush(): Promise<void>;
   /** Cancel any pending debounce without flushing. */
   cancel(): void;
   /** Adopt `content` as the confirmed-saved baseline (no save scheduled). */
@@ -32,6 +46,8 @@ export interface BlockFieldSaveController {
   readonly pending: string;
   /** Whether a debounce timer is currently armed. */
   readonly hasPendingTimer: boolean;
+  /** Whether a save() call is currently outstanding (in flight). */
+  readonly isSaving: boolean;
 }
 
 export function createBlockFieldSaveController(args: {
@@ -49,11 +65,11 @@ export function createBlockFieldSaveController(args: {
   let lastSaved = args.initialContent;
   let pending = args.initialContent;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  // Monotonic id assigned to each issued save; the most recent one to be issued.
-  let issuedSeq = 0;
-  // The highest sequence whose result has already been applied (committed or
-  // failed). A save older than this is stale and must not touch lastSaved.
-  let settledSeq = 0;
+
+  // The single in-flight save, or null when idle. Edits made while this is set
+  // do NOT start a new save; they update `pending` and a trailing save fires
+  // when this settles. This is what makes server write order == issue order.
+  let inFlight: Promise<void> | null = null;
 
   function clearTimer() {
     if (timer !== null) {
@@ -62,29 +78,34 @@ export function createBlockFieldSaveController(args: {
     }
   }
 
-  function persist(content: string) {
-    if (content === lastSaved) return;
-    // Capture the attempted value so a flush mid-flight does not re-submit it,
-    // and a sequence so a slower earlier save can never overwrite a newer one.
-    const attempted = content;
-    const seq = ++issuedSeq;
-    void Promise.resolve(args.save(attempted))
+  // Start exactly one save if one isn't already running and there is dirty
+  // content. When it settles SUCCESSFULLY, kick the next trailing save so the
+  // latest pending content always ends up as the final DB write — one at a time.
+  function kick() {
+    if (inFlight !== null) return; // single-flight: never overlap saves.
+    if (pending === lastSaved) return; // nothing dirty to persist.
+
+    const attempted = pending;
+    const promise = Promise.resolve(args.save(attempted))
       .then(() => {
-        // Ignore a stale save that resolved after a newer save was issued — its
-        // value is older than what the user has since committed.
-        if (seq < settledSeq) return;
-        settledSeq = seq;
         // Mark clean ONLY after the save actually succeeds.
         lastSaved = attempted;
+        inFlight = null;
+        // A trailing edit may have landed while this save was in flight. Issue
+        // exactly one more save for the LATEST pending content. Bounded: stops
+        // once pending === lastSaved.
+        kick();
       })
       .catch((error) => {
         // A failed save never records its value as clean, so the content stays
-        // dirty and retries on the next edit or flush (finding 6). Still advance
-        // settledSeq so an even-older save can't later "win", but only if this is
-        // not itself already superseded.
-        if (seq >= settledSeq) settledSeq = seq;
+        // dirty (finding 6) and retries on the NEXT change() or flush() — we do
+        // NOT auto-retry here, to avoid a tight retry storm against a failing
+        // backend.
+        inFlight = null;
         args.onError?.(error);
       });
+
+    inFlight = promise;
   }
 
   return {
@@ -94,12 +115,26 @@ export function createBlockFieldSaveController(args: {
       if (content === lastSaved) return;
       timer = setTimeoutFn(() => {
         timer = null;
-        persist(content);
+        kick();
       }, debounceMs);
     },
-    flush() {
+    async flush() {
       clearTimer();
-      if (pending !== lastSaved) persist(pending);
+      // 1) Wait out any in-flight save so we never overlap with it (single-
+      //    flight) and so its successful trailing kick has fired.
+      while (inFlight !== null) {
+        await inFlight;
+      }
+      // 2) If the latest content still isn't persisted (a trailing edit, or the
+      //    in-flight save failed), send exactly one final save for the LATEST
+      //    pending content and await it. This is what makes the last value at the
+      //    DB deterministically the latest content. We do NOT loop on repeated
+      //    failure — flush is best-effort; a failed save stays dirty for the next
+      //    edit/flush.
+      if (pending !== lastSaved) {
+        kick();
+        if (inFlight !== null) await inFlight;
+      }
     },
     cancel() {
       clearTimer();
@@ -117,6 +152,9 @@ export function createBlockFieldSaveController(args: {
     },
     get hasPendingTimer() {
       return timer !== null;
+    },
+    get isSaving() {
+      return inFlight !== null;
     },
   };
 }

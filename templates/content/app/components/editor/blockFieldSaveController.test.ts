@@ -27,15 +27,17 @@ describe("blockFieldSaveController", () => {
     expect(save).not.toHaveBeenCalled();
 
     // Collapsing the field / navigating away flushes immediately.
-    c.flush();
+    const flushed = c.flush();
     expect(save).toHaveBeenCalledExactlyOnceWith("draft in flight");
     expect(c.hasPendingTimer).toBe(false);
+    await flushed;
+    expect(c.lastSaved).toBe("draft in flight");
   });
 
-  it("flush is a no-op when nothing is dirty", () => {
+  it("flush is a no-op when nothing is dirty", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = createBlockFieldSaveController({ initialContent: "same", save });
-    c.flush();
+    await c.flush();
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -71,15 +73,17 @@ describe("blockFieldSaveController", () => {
     c.change("v1");
     await vi.advanceTimersByTimeAsync(500);
 
-    // Failed save must not be recorded as saved.
+    // Failed save must not be recorded as saved, and must NOT auto-retry in a
+    // tight loop (single save attempt for this debounce).
     expect(c.lastSaved).toBe("");
     expect(onError).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(c.isSaving).toBe(false);
 
     // A subsequent flush retries the still-dirty value rather than skipping it.
-    c.flush();
+    await c.flush();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenLastCalledWith("v1");
-    await vi.advanceTimersByTimeAsync(0);
     expect(c.lastSaved).toBe("v1");
   });
 
@@ -101,44 +105,61 @@ describe("blockFieldSaveController", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("ignores a stale earlier save that resolves AFTER a newer save (lost-update guard)", async () => {
-    // Save A is slow; save B is issued later and resolves first. When A finally
-    // resolves it must NOT overwrite B's newer value.
+  it("single-flight: never overlaps two saves; an edit mid-flight coalesces into one trailing save", async () => {
+    // The server write is unconditional (last write wins at the DB), so the ONLY
+    // safe guarantee is that we never have two saves in flight. While save A is
+    // in flight, typing more must NOT start save B; it coalesces, and a single
+    // trailing save fires for the LATEST content only after A settles.
     const resolvers: Array<() => void> = [];
+    const order: string[] = [];
     const save = vi.fn(
       (content: string) =>
         new Promise<void>((resolve) => {
+          order.push(content);
           resolvers.push(() => resolve());
-          void content;
         }),
     );
     const c = createBlockFieldSaveController({ initialContent: "", save });
 
-    // A: type "old", let the debounce fire (in flight, unresolved).
+    // A: type "old", debounce fires → save("old") in flight.
     c.change("old");
     vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenCalledTimes(1);
     expect(save).toHaveBeenNthCalledWith(1, "old");
 
-    // B: type "new", let its debounce fire too (also in flight).
+    // While A is in flight, type "new" and let its debounce fire. Single-flight
+    // means NO second save starts yet — it is coalesced into pending.
     c.change("new");
     vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(c.pending).toBe("new");
+
+    // A settles. Its successful completion kicks exactly ONE trailing save for
+    // the latest pending content.
+    resolvers[0]!();
+    await vi.runAllTicks();
+    expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenNthCalledWith(2, "new");
+    expect(c.lastSaved).toBe("old"); // "new" not confirmed until it resolves.
 
-    // B (the newer save) resolves first.
-    resolvers[1]();
+    // Trailing save settles → latest content is the final persisted value.
+    resolvers[1]!();
     await vi.runAllTicks();
     expect(c.lastSaved).toBe("new");
 
-    // A (the stale older save) resolves last — must be ignored.
-    resolvers[0]();
-    await vi.runAllTicks();
-    expect(c.lastSaved).toBe("new");
+    // Server saw the writes in issue order: old before new.
+    expect(order).toEqual(["old", "new"]);
   });
 
-  it("flush persists the LATEST content even with an earlier save in flight", async () => {
+  it("flush awaits the in-flight save then persists the LATEST content (deterministic last write)", async () => {
     const resolvers: Array<() => void> = [];
+    const order: string[] = [];
     const save = vi.fn(
-      () => new Promise<void>((resolve) => resolvers.push(() => resolve())),
+      (content: string) =>
+        new Promise<void>((resolve) => {
+          order.push(content);
+          resolvers.push(() => resolve());
+        }),
     );
     const c = createBlockFieldSaveController({ initialContent: "", save });
 
@@ -147,18 +168,24 @@ describe("blockFieldSaveController", () => {
     vi.advanceTimersByTime(500);
     expect(save).toHaveBeenNthCalledWith(1, "first");
 
-    // User types more, then unmount-flushes before the debounce fires.
+    // User types more, then unmount-flushes before any new debounce fires. flush
+    // must NOT start a second save while the first is in flight (single-flight);
+    // it awaits the first, then sends the final pending content.
     c.change("second");
-    c.flush();
+    const flushed = c.flush();
+    expect(save).toHaveBeenCalledTimes(1); // not yet — first still in flight.
+
+    // Let the in-flight first save resolve; flush then issues the trailing save.
+    resolvers[0]!();
+    await vi.runAllTicks();
+    expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenNthCalledWith(2, "second");
-
-    // The earlier (stale) save resolves first, then the flush save resolves.
-    resolvers[0]();
+    resolvers[1]!();
     await vi.runAllTicks();
-    resolvers[1]();
-    await vi.runAllTicks();
+    await flushed;
 
-    // Deterministically the latest content wins, regardless of resolve order.
+    // Deterministically the latest content is the last thing written.
     expect(c.lastSaved).toBe("second");
+    expect(order).toEqual(["first", "second"]); // never out of order.
   });
 });
