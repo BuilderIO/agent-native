@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.68.2
+
+### Patch Changes
+
+- feaf633: Add a reusable CommandMenu docs group so apps can surface relevant Agent Native documentation from Cmd+K.
+- feaf633: Fix PR visual recap head fetching in private fork workflows without persisting checkout credentials.
+- feaf633: Submit Builder branch waitlist requests to the configured Forms endpoint on hosted Agent Native deployments.
+- feaf633: Try legacy Google OAuth client credentials during refresh after rotating product OAuth clients.
+- feaf633: Allow deployments to configure identity-only Google sign-in credentials separately from product Google OAuth credentials.
+
 ## 0.68.1
 
 ### Patch Changes
