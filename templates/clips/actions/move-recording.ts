@@ -48,10 +48,10 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
     const folderId = args.folderId ?? null;
+    const ownerEmail = getCurrentOwnerEmail();
+    const organizationId = await requireActiveOrganizationId();
 
     if (folderId) {
-      const ownerEmail = getCurrentOwnerEmail();
-      const organizationId = await requireActiveOrganizationId();
       const [folder] = await db
         .select({
           id: schema.folders.id,
@@ -103,9 +103,12 @@ export default defineAction({
       .update(schema.recordings)
       .set({ folderId, updatedAt: now })
       .where(
-        ids.length === 1
-          ? eq(schema.recordings.id, primaryId)
-          : inArray(schema.recordings.id, ids),
+        and(
+          ids.length === 1
+            ? eq(schema.recordings.id, primaryId)
+            : inArray(schema.recordings.id, ids),
+          eq(schema.recordings.organizationId, organizationId),
+        ),
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });

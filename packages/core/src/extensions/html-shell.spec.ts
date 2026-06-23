@@ -122,6 +122,10 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain('id="__extension-error-dismiss"');
     expect(html).toContain("agent-native-extension-error-fix");
+    expect(html).toContain("function _renderErrorToast()");
+    expect(html).toMatch(
+      /DOMContentLoaded', function\(\) \{\s+_renderErrorToast\(\);/,
+    );
     expect(
       html.match(/__extension-error-toast'\)\.style\.display = 'none'/g),
     ).toHaveLength(2);

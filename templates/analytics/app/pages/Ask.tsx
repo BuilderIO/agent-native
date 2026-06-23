@@ -25,7 +25,6 @@ export default function AskPage() {
         className="analytics-chat-panel"
         defaultMode="chat"
         storageKey="analytics"
-        restoreActiveThread={false}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}

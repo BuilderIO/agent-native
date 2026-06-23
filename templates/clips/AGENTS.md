@@ -12,6 +12,9 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
+- Use `move-recording` for both single and bulk folder moves. Pass `id` for one
+  clip or `ids` for selected clips, and `folderId: null` to move them to the
+  library or space root.
 - Recording start/stop/pause are UI gestures because browser media capture needs
   user activation; navigate the user to the recording view instead of trying a
   server action.
@@ -72,7 +75,8 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 ## Application State
 
 - `navigation` exposes library, recording, share, meeting, dictation, settings,
-  selected ids, and transcript context.
+  and transcript context. `selection` exposes selected library recording ids
+  when the user is in selection mode.
 - `recording-setup.import` exposes Loom import UI state while the `/record`
   surface is open, without storing the pasted URL in ambient screen context.
 - `navigate` moves the UI to recording/library/meeting/share surfaces.

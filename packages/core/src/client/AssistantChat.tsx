@@ -2826,7 +2826,15 @@ const AssistantChatInner = forwardRef<
     !isRestoring &&
     !isReconnecting &&
     !authError;
-  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+  const centeredRestoringState =
+    centerComposerWhenEmpty &&
+    messages.length === 0 &&
+    !hasActiveChatWork &&
+    isRestoring &&
+    !isReconnecting &&
+    !authError;
+  const centeredEmptyState =
+    centerComposerWhenEmpty && (isFreshEmptyChat || centeredRestoringState);
   const showEmptyState =
     messages.length === 0 && !isReconnecting && !hasActiveChatWork;
   const showComposerSlot =
@@ -3018,6 +3026,23 @@ const AssistantChatInner = forwardRef<
                           Refresh chat
                         </button>
                       </div>
+                    </div>
+                  ) : isRestoring && centeredRestoringState ? (
+                    <div
+                      className={cn(
+                        "agent-empty-state",
+                        emptyStateDisplay === "hidden"
+                          ? "sr-only"
+                          : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                      )}
+                      aria-busy="true"
+                    >
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                        <IconMessage className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <p className="sr-only">
+                        {emptyStateText ?? "Loading chat..."}
+                      </p>
                     </div>
                   ) : isRestoring ? (
                     <div className="flex flex-col gap-3 p-4">
