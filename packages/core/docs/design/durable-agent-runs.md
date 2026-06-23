@@ -18,7 +18,7 @@ the partial turn, writes a terminal event, and emits an `auto_continue` event
 fresh chunk. This works well for a single long model call that just needs more
 wall-clock time.
 
-It does **not** work well for long *multi-step* operations. A turn that performs
+It does **not** work well for long _multi-step_ operations. A turn that performs
 many sequential side effects — for example an agent appending many dashboard
 panels through many separate write calls, or any "do N independent mutations in
 a loop" workflow — fails in a characteristic way:
@@ -30,7 +30,7 @@ a loop" workflow — fails in a characteristic way:
   their entire 40s budget re-deciding rather than completing new steps.
 - **Partial or zero net progress.** Because each chunk can be cut mid-step and
   the next chunk may redo earlier steps, the run can churn for many chunks while
-  the *persisted* end state barely moves — or, when nothing reaches a committed
+  the _persisted_ end state barely moves — or, when nothing reaches a committed
   state before each cutoff, moves not at all.
 - **Silent "looked-done" failure.** A tool call that returned a success marker
   (✓) in an aborted chunk does not guarantee its effect was committed and
@@ -83,7 +83,7 @@ raise it. Fix durability above the timeout, not by moving the timeout.**
 ## Approach options
 
 Both options keep the 40s budget and build on the existing `auto_continue`
-mechanism. They differ in *where the long work lives*.
+mechanism. They differ in _where the long work lives_.
 
 ### Option A — Checkpointed / idempotent continuation
 
@@ -111,7 +111,7 @@ Mechanism:
 Interaction with the walls and the 40s budget:
 
 - Fully respects the 40s soft timeout and the gateway/function walls — it never
-  needs a single chunk to outlast them. It just makes the *sequence* of chunks
+  needs a single chunk to outlast them. It just makes the _sequence_ of chunks
   productive.
 - Works hand-in-glove with `auto_continue`: today a continuation can redo work;
   with a checkpoint, a continuation can only advance.
@@ -124,7 +124,7 @@ Tradeoffs:
 - Pro: directly kills re-hydration thrash, the actual failure mode.
 - Con: still bounded by however many continuation chunks the client/turn budget
   allows. A truly enormous job (thousands of steps) can still run out of chunks
-  — but it now ends *truthfully partial and resumable*, not silently empty.
+  — but it now ends _truthfully partial and resumable_, not silently empty.
 - Con: requires per-operation work to define the unit of progress and make
   steps idempotent. Best paid down once at the primitive/action layer (see
   Tie-in) so individual agents don't have to.
@@ -142,13 +142,13 @@ Mechanism:
 - A durable worker (outside the per-request serverless function lifetime — e.g.
   the core run-manager / agent-teams background infrastructure the framework
   already mandates for background agents) runs the job to completion, free of
-  the 45s gateway cap and the ~60s function kill on the *original* request.
+  the 45s gateway cap and the ~60s function kill on the _original_ request.
 - The worker **streams progress** (committed counts, ids, errors) back so the
   UI and the agent can observe and the final state is truthful.
 
 Interaction with the walls and the 40s budget:
 
-- Sidesteps the gateway/function walls for the *long* work by moving it off the
+- Sidesteps the gateway/function walls for the _long_ work by moving it off the
   request path. The walls still apply to each individual model call the worker
   makes, so the worker itself should checkpoint internally (i.e. Option B is
   strongest when it contains Option A).
@@ -174,7 +174,7 @@ cases. Option A delivers the most reliability per unit of effort: it directly
 removes re-hydration thrash and silent looked-done failure for the common case
 (tens of steps), needs no new infrastructure, and makes terminal state truthful
 by construction. Option B is the right ceiling-remover but is a larger build and
-is most valuable *on top of* a checkpointed core (the durable worker should
+is most valuable _on top of_ a checkpointed core (the durable worker should
 itself checkpoint).
 
 ### Phased plan
@@ -183,7 +183,7 @@ itself checkpoint).
    the mitigations in the Tie-in below (one-call atomic primitives,
    self-documenting actions, loud termination, proof-of-done verification).
    These don't fix the ceiling but sharply cut how often multi-step loops are
-   even attempted, and make the failures that remain *loud and truthful* instead
+   even attempted, and make the failures that remain _loud and truthful_ instead
    of silent. Capture the agent-facing half as the `reliable-mutations` skill.
 2. **Phase 1 — Checkpointed continuation (Option A).** Add a SQL-backed progress
    checkpoint for long operations and make their steps idempotent/resumable so
@@ -198,7 +198,7 @@ itself checkpoint).
 
 ## Tie-in: cheaper near-term mitigations reduce, but do not replace, the fix
 
-The following reduce *how often* the 40s ceiling is hit and make the remaining
+The following reduce _how often_ the 40s ceiling is hit and make the remaining
 failures honest. They are valuable and should ship first (Phase 0), but the
 **actual fix is durable/checkpointed runs** (Phases 1–2):
 

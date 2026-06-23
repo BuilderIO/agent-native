@@ -326,7 +326,11 @@ async function restoreRuntimeState(): Promise<void> {
     // mode. If the pre-roll already elapsed, assume the offscreen started the
     // recorder so the icon click does Stop (not Discard).
     setActionPopup("");
-    if (overlayPhase === "countdown" && countdownEndsAtMs > 0 && nowMs() >= countdownEndsAtMs) {
+    if (
+      overlayPhase === "countdown" &&
+      countdownEndsAtMs > 0 &&
+      nowMs() >= countdownEndsAtMs
+    ) {
       overlayPhase = "recording";
       overlayBaseEpochMs = countdownEndsAtMs;
       countdownEndsAtMs = 0;
@@ -858,8 +862,9 @@ async function handlePopupStart(message: PopupStartMessage) {
 }
 
 // Arm a Loom-style in-page recording: show the native picker, create the row,
-// then run the countdown. The MediaRecorder itself only starts once the
-// worker's countdown timer fires (beginNow -> CLIPS_OFFSCREEN_BEGIN).
+// then hand the recorder its pre-roll delay. The MediaRecorder starts inside the
+// offscreen document after that delay, which reports "recording" back here
+// (markRecordingStarted) — reliable even when no overlay can be injected.
 async function armRecording(args: {
   sessionId: string;
   tab: ChromeTab;
@@ -1081,8 +1086,7 @@ async function handleOverlayRestart() {
     sessionId: recording.sessionId,
     recordingId: recording.recordingId,
     uploadUrl: recording.uploadUrl,
-    hasCamera:
-      recording.captureSurface === "camera" || recording.includeCamera,
+    hasCamera: recording.captureSurface === "camera" || recording.includeCamera,
     startDelayMs: COUNTDOWN_SECONDS * 1000,
   }).catch(() => undefined);
   await saveActiveNativeRecording();
@@ -1793,7 +1797,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         message as { settings?: Partial<ExtensionSettings> },
       );
       break;
-    case "CLIPS_OVERLAY_SKIP":
+    case "CLIPS_OVERLAY_COUNTDOWN_DONE":
+      // Skip button on the countdown overlay: start the recorder now.
       task = handleOverlaySkip();
       break;
     case "CLIPS_OVERLAY_PAUSE":

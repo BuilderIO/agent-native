@@ -18,6 +18,7 @@ export default defineConfig({
         "content-script": resolve(root, "src/content-script.ts"),
         offscreen: resolve(root, "src/offscreen.html"),
         overlay: resolve(root, "src/overlay.html"),
+        permission: resolve(root, "src/permission.html"),
         popup: resolve(root, "src/popup.html"),
         options: resolve(root, "src/options.html"),
       },

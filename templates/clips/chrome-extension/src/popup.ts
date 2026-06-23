@@ -228,7 +228,7 @@ function readStoredAuth(
 
 function clearStoredAuth(): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.session.remove("clipsAuth", () => resolve());
+    chrome.storage.local.remove("clipsAuth", () => resolve());
   });
 }
 
@@ -288,6 +288,33 @@ function createTab(url: string): Promise<void> {
   return new Promise((resolve) => {
     chrome.tabs.create({ url }, () => resolve());
   });
+}
+
+async function permissionGranted(
+  name: "camera" | "microphone",
+): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({
+      name: name as PermissionName,
+    });
+    return status.state === "granted";
+  } catch {
+    // Older Chrome can't query these names — don't block; getUserMedia will ask.
+    return true;
+  }
+}
+
+// True when every device the chosen mode needs is already granted to the
+// extension. If not, the caller routes the user to the permission page.
+async function ensureMediaPermission(
+  settings: ExtensionSettings,
+): Promise<boolean> {
+  const needsCamera =
+    settings.captureSurface === "camera" || settings.includeCamera;
+  const needsMic = settings.includeMicrophone;
+  if (needsCamera && !(await permissionGranted("camera"))) return false;
+  if (needsMic && !(await permissionGranted("microphone"))) return false;
+  return true;
 }
 
 async function readAuthStatus(
@@ -782,6 +809,17 @@ async function init(): Promise<void> {
         "error",
       );
       await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
+      window.close();
+      return;
+    }
+    // Gate at record time: if the user wants camera/mic but hasn't granted the
+    // extension access yet, send them to the onboarding page first. Requesting
+    // there (a real extension page) is the only place Chrome reliably shows the
+    // permission dialog and persists the grant for the offscreen recorder + bubble.
+    if (!(await ensureMediaPermission(settings))) {
+      start.disabled = false;
+      setStatus("Allow camera & microphone, then start recording.", "error");
+      await createTab(chrome.runtime.getURL("src/permission.html"));
       window.close();
       return;
     }

@@ -68,6 +68,7 @@ const workspaceSkillIncludes = [
   "real-time-collab",
   "real-time-sync",
   "recurring-jobs",
+  "reliable-mutations",
   "secrets",
   "security",
   "self-modifying-code",

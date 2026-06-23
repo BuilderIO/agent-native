@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enable camera & microphone — Clips</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0b1220;
+        color: #e5e7eb;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 460px;
+        background: #111a2e;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 36px 34px;
+        text-align: center;
+        box-shadow: 0 24px 60px rgba(2, 6, 23, 0.5);
+      }
+      .glyph {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 20px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #ec4899);
+        color: #fff;
+      }
+      .glyph svg {
+        width: 32px;
+        height: 32px;
+      }
+      h1 {
+        font-size: 21px;
+        margin: 0 0 10px;
+      }
+      p {
+        font-size: 15px;
+        line-height: 1.5;
+        color: #9aa5b8;
+        margin: 0 0 24px;
+      }
+      button {
+        appearance: none;
+        border: none;
+        border-radius: 999px;
+        background: #6366f1;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        padding: 13px 22px;
+        width: 100%;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          transform 0.1s ease;
+      }
+      button:hover {
+        background: #4f46e5;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .status {
+        margin-top: 16px;
+        font-size: 13px;
+        min-height: 18px;
+        color: #9aa5b8;
+      }
+      .status.error {
+        color: #f87171;
+      }
+      .rows {
+        margin: 0 0 24px;
+        text-align: left;
+        display: grid;
+        gap: 10px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+        color: #cbd5e1;
+      }
+      .row .check {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(255, 255, 255, 0.2);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #22c55e;
+        flex: none;
+      }
+      .row.granted .check {
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.15);
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="glyph">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M23 7l-7 5 7 5V7z" />
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+        </svg>
+      </div>
+      <h1>Enable camera &amp; microphone</h1>
+      <p>
+        Clips needs permission once so it can show your camera bubble and record
+        your voice. Grant access below — Chrome will still ask before each
+        recording starts.
+      </p>
+      <div class="rows" id="rows">
+        <div class="row" id="row-mic">
+          <span class="check" id="check-mic">●</span>
+          <span>Microphone — record your narration</span>
+        </div>
+        <div class="row" id="row-cam">
+          <span class="check" id="check-cam">●</span>
+          <span>Camera — show your face in recordings</span>
+        </div>
+      </div>
+      <button id="enable">Enable camera &amp; microphone</button>
+      <div class="status" id="status"></div>
+    </div>
+    <script type="module" src="./permission.ts"></script>
+  </body>
+</html>

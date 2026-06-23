@@ -744,6 +744,14 @@ function ModelSelector({
     });
   }, []);
 
+  // The reasoning effort list is collapsed by default — it's a secondary
+  // control most users don't touch, so it stays tucked behind a header that
+  // reveals the current effort at a glance. Reset to collapsed on each open.
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  useEffect(() => {
+    if (open) setReasoningExpanded(false);
+  }, [open]);
+
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
   // user having to paste individual API keys.
@@ -930,24 +938,44 @@ function ModelSelector({
         {effortOptions.length > 0 && (
           <>
             <div className="my-1 border-t border-border" />
-            <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Reasoning
-            </div>
-            {effortOptions.map((option) => (
+            <div className="flex items-center hover:bg-accent/30">
               <button
-                key={option}
                 type="button"
-                onClick={() => onEffortChange?.(option)}
-                className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                aria-expanded={reasoningExpanded}
+                onClick={() => setReasoningExpanded((prev) => !prev)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
               >
-                <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                  {reasoningEffortLabel(option)}
+                {reasoningExpanded ? (
+                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                  Reasoning
                 </span>
-                {option === effort && (
-                  <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                {!reasoningExpanded && (
+                  <span className="text-[11px] text-muted-foreground/80 truncate">
+                    {reasoningEffortLabel(effort)}
+                  </span>
                 )}
               </button>
-            ))}
+            </div>
+            {reasoningExpanded &&
+              effortOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onEffortChange?.(option)}
+                  className="flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {reasoningEffortLabel(option)}
+                  </span>
+                  {option === effort && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
           </>
         )}
       </PopoverContent>
