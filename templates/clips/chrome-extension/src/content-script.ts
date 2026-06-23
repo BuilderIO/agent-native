@@ -89,8 +89,7 @@
       // resize message below.
       Object.assign(frame.style, {
         left: "16px",
-        top: "50%",
-        transform: "translateY(-50%)",
+        top: "calc(50% - 77px)",
         width: "68px",
         height: "154px",
       });
@@ -114,6 +113,7 @@
     if (document.getElementById(partFrameId(part))) return;
     const frame = document.createElement("iframe");
     frame.id = partFrameId(part);
+    if (part === "bubble") frame.allow = "camera; microphone";
     const url = new URL(chrome.runtime.getURL("src/overlay.html"));
     url.searchParams.set("part", part);
     if (part === "countdown") url.searchParams.set("seconds", "3");

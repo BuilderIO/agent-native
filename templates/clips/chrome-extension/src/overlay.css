@@ -39,9 +39,9 @@ body {
   height: 100%;
   border-radius: 50%;
   overflow: hidden;
-  background: #0f172a;
+  background: #18181b;
   box-shadow:
-    0 10px 30px rgba(15, 23, 42, 0.35),
+    0 10px 30px rgba(24, 24, 27, 0.35),
     0 0 0 4px rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
@@ -75,7 +75,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(2, 6, 23, 0.55);
+  background: rgba(9, 9, 11, 0.55);
   backdrop-filter: blur(2px);
 }
 
@@ -126,7 +126,7 @@ body {
   font-size: clamp(96px, 22vmin, 240px);
   font-weight: 700;
   color: #fff;
-  text-shadow: 0 6px 30px rgba(2, 6, 23, 0.6);
+  text-shadow: 0 6px 30px rgba(9, 9, 11, 0.6);
   line-height: 1;
   animation: countdown-pop 1s ease-out forwards;
 }
@@ -163,7 +163,7 @@ body {
   color: rgba(255, 255, 255, 0.85);
   font-size: 15px;
   font-weight: 500;
-  background: rgba(2, 6, 23, 0.45);
+  background: rgba(9, 9, 11, 0.45);
   padding: 8px 16px;
   border-radius: 999px;
 }
@@ -181,19 +181,21 @@ body {
 }
 
 .toolbar-v {
+  /* Top-anchored so Stop/time/pause stay put and the pill grows DOWNWARD on
+     hover (centering shifted the buttons up and caused misclicks). */
   position: absolute;
-  top: 50%;
+  top: 0;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   padding: 9px;
   border-radius: 20px;
-  background: rgba(15, 23, 42, 0.94);
+  background: rgba(24, 24, 27, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
   -webkit-user-select: none;
   user-select: none;
@@ -323,9 +325,9 @@ body {
   gap: 9px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.95);
+  background: rgba(24, 24, 27, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
 }
 
@@ -363,7 +365,7 @@ body {
   height: 100%;
   width: 40%;
   border-radius: 999px;
-  background: #6366f1;
+  background: #d4d4d8;
   animation: saving-indeterminate 1.1s ease-in-out infinite;
 }
 

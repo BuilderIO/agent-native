@@ -512,9 +512,111 @@ function renderSource(settings: ExtensionSettings): void {
   }
 }
 
+// Holds the most recent device enumeration so the menus and labels can render
+// without re-querying on every paint. Refreshed by refreshDevices().
+let inputDevices: { cameras: InputDevice[]; microphones: InputDevice[] } = {
+  cameras: [],
+  microphones: [],
+};
+
+function deviceLabel(
+  devices: InputDevice[],
+  deviceId: string,
+  fallback: string,
+): string {
+  if (!deviceId) return fallback;
+  const match = devices.find((device) => device.deviceId === deviceId);
+  return match ? match.label : fallback;
+}
+
+function renderDeviceMenu(
+  menu: HTMLDivElement,
+  devices: InputDevice[],
+  selectedId: string,
+  defaultLabel: string,
+): void {
+  menu.replaceChildren();
+  const options: InputDevice[] = [
+    { deviceId: "", label: defaultLabel },
+    ...devices,
+  ];
+  for (const option of options) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "row-menu-item";
+    item.dataset.deviceId = option.deviceId;
+    const selected = option.deviceId === selectedId;
+    if (selected) {
+      item.classList.add("selected");
+      item.setAttribute("aria-checked", "true");
+    } else {
+      item.setAttribute("aria-checked", "false");
+    }
+
+    const check = document.createElement("span");
+    check.className = "row-menu-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = selected ? "✓" : "";
+
+    const label = document.createElement("span");
+    label.className = "row-menu-label";
+    label.textContent = option.label;
+
+    item.append(check, label);
+    menu.append(item);
+  }
+}
+
+function renderDevicePickers(settings: ExtensionSettings): void {
+  const cameraButton = byId<HTMLButtonElement>("camera-device-button");
+  const cameraLabel = byId<HTMLSpanElement>("camera-device-label");
+  const cameraMenu = byId<HTMLDivElement>("camera-device-menu");
+  const showCamera =
+    settings.captureSurface === "camera" || settings.includeCamera;
+  cameraButton.hidden = !showCamera;
+  if (showCamera) {
+    cameraLabel.textContent = deviceLabel(
+      inputDevices.cameras,
+      settings.videoDeviceId,
+      "Default camera",
+    );
+    renderDeviceMenu(
+      cameraMenu,
+      inputDevices.cameras,
+      settings.videoDeviceId,
+      "Default camera",
+    );
+  } else {
+    cameraMenu.hidden = true;
+  }
+
+  const micRow = byId<HTMLDivElement>("microphone-row");
+  const micButton = byId<HTMLButtonElement>("microphone-device-button");
+  const micLabel = byId<HTMLSpanElement>("microphone-device-label");
+  const micMenu = byId<HTMLDivElement>("microphone-device-menu");
+  micButton.hidden = !settings.includeMicrophone;
+  if (settings.includeMicrophone) {
+    micLabel.textContent = deviceLabel(
+      inputDevices.microphones,
+      settings.audioDeviceId,
+      "Default mic",
+    );
+    renderDeviceMenu(
+      micMenu,
+      inputDevices.microphones,
+      settings.audioDeviceId,
+      "Default mic",
+    );
+  } else {
+    micMenu.hidden = true;
+  }
+  micRow.hidden = false;
+}
+
 function render(settings: ExtensionSettings): void {
   renderMode(settings);
   renderSource(settings);
+  renderDevicePickers(settings);
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
   const cameraRow = byId<HTMLDivElement>("camera-row");
@@ -598,6 +700,12 @@ async function init(): Promise<void> {
   }
   const sourceButton = byId<HTMLButtonElement>("source-button");
   const sourceMenu = byId<HTMLDivElement>("source-menu");
+  const cameraDeviceButton = byId<HTMLButtonElement>("camera-device-button");
+  const cameraDeviceMenu = byId<HTMLDivElement>("camera-device-menu");
+  const microphoneDeviceButton = byId<HTMLButtonElement>(
+    "microphone-device-button",
+  );
+  const microphoneDeviceMenu = byId<HTMLDivElement>("microphone-device-menu");
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
   const start = byId<HTMLButtonElement>("start");
@@ -672,8 +780,27 @@ async function init(): Promise<void> {
     window.setTimeout(() => feedbackTextarea.focus(), 30);
   };
 
+  // Re-enumerate devices and repaint the pickers. Labels only appear once the
+  // user has granted camera/mic access (via the permission onboarding page), so
+  // this is also re-run when the device list changes.
+  const refreshDevices = async (): Promise<void> => {
+    inputDevices = await enumerateInputDevices();
+    renderDevicePickers(settings);
+  };
+
+  const closeDeviceMenus = (): void => {
+    cameraDeviceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = true;
+  };
+
   await queryActiveTab();
   render(settings);
+  void refreshDevices();
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener("devicechange", () => {
+      void refreshDevices();
+    });
+  }
   const status =
     await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
   activeRecording = status.activeRecording ?? null;
@@ -687,12 +814,14 @@ async function init(): Promise<void> {
   )) {
     button.addEventListener("click", () => {
       applyMode(settings, button.dataset.mode as RecordingModeChoice);
+      closeDeviceMenus();
       render(settings);
       void saveSettings(settings);
     });
   }
 
   sourceButton.addEventListener("click", () => {
+    closeDeviceMenus();
     sourceMenu.hidden = !sourceMenu.hidden;
   });
 
@@ -707,6 +836,66 @@ async function init(): Promise<void> {
     });
   }
 
+  cameraDeviceButton.addEventListener("click", () => {
+    sourceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = true;
+    cameraDeviceMenu.hidden = !cameraDeviceMenu.hidden;
+  });
+
+  cameraDeviceMenu.addEventListener("click", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".row-menu-item",
+    );
+    if (!item) return;
+    settings.videoDeviceId = item.dataset.deviceId ?? "";
+    cameraDeviceMenu.hidden = true;
+    renderDevicePickers(settings);
+    void saveSettings(settings);
+  });
+
+  microphoneDeviceButton.addEventListener("click", () => {
+    sourceMenu.hidden = true;
+    cameraDeviceMenu.hidden = true;
+    microphoneDeviceMenu.hidden = !microphoneDeviceMenu.hidden;
+  });
+
+  microphoneDeviceMenu.addEventListener("click", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".row-menu-item",
+    );
+    if (!item) return;
+    settings.audioDeviceId = item.dataset.deviceId ?? "";
+    microphoneDeviceMenu.hidden = true;
+    renderDevicePickers(settings);
+    void saveSettings(settings);
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (
+      !sourceMenu.hidden &&
+      !sourceMenu.contains(target) &&
+      !sourceButton.contains(target)
+    ) {
+      sourceMenu.hidden = true;
+    }
+    if (
+      !cameraDeviceMenu.hidden &&
+      !cameraDeviceMenu.contains(target) &&
+      !cameraDeviceButton.contains(target)
+    ) {
+      cameraDeviceMenu.hidden = true;
+    }
+    if (
+      !microphoneDeviceMenu.hidden &&
+      !microphoneDeviceMenu.contains(target) &&
+      !microphoneDeviceButton.contains(target)
+    ) {
+      microphoneDeviceMenu.hidden = true;
+    }
+  });
+
   includeCamera.addEventListener("click", () => {
     settings.includeCamera = !settings.includeCamera;
     if (settings.includeCamera && settings.captureSurface === "monitor") {
@@ -715,12 +904,14 @@ async function init(): Promise<void> {
     if (!settings.includeCamera && settings.captureSurface === "camera") {
       settings.captureSurface = "browser";
     }
+    closeDeviceMenus();
     render(settings);
     void saveSettings(settings);
   });
 
   includeMicrophone.addEventListener("click", () => {
     settings.includeMicrophone = !settings.includeMicrophone;
+    closeDeviceMenus();
     render(settings);
     void saveSettings(settings);
   });
