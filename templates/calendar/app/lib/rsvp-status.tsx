@@ -27,6 +27,12 @@ export function getRsvpStatusLabel(status?: string) {
   }
 }
 
+export function canInlineRsvp(
+  event: Pick<CalendarEvent, "source" | "overlayEmail">,
+): boolean {
+  return event.source === "google" && !event.overlayEmail;
+}
+
 export function RsvpStatusIcon({
   status,
   className,

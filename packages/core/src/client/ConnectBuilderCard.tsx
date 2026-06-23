@@ -142,7 +142,16 @@ export function ConnectBuilderCard({
           agentNativePath("/_agent-native/builder/branch-waitlist"),
           origin,
         ).href,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            orgName,
+            pageUrl: window.location.href,
+            source: "connect_builder_card",
+          }),
+        },
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -160,7 +169,7 @@ export function ConnectBuilderCard({
       setWaitlistErr(e instanceof Error ? e.message : "Couldn't join waitlist");
       setJoiningWaitlist(false);
     }
-  }, []);
+  }, [orgName, prompt]);
 
   // Combine connect-flow errors, send errors, and waitlist errors.
   const err = sendErr ?? waitlistErr ?? flow.error;

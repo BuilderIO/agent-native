@@ -19,6 +19,13 @@ vi.mock("../../lib/public-agent-context.js", () => ({
     mockLoadPublicAgentAccess(...args),
   loadRecordingMediaBytes: (...args: unknown[]) =>
     mockLoadRecordingMediaBytes(...args),
+  RecordingMediaFetchError: class RecordingMediaFetchError extends Error {
+    statusCode: number;
+    constructor(message: string, statusCode = 502) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+  },
   queryString: (value: unknown) => {
     if (typeof value === "string") return value;
     if (Array.isArray(value) && typeof value[0] === "string") return value[0];
@@ -38,6 +45,7 @@ vi.mock("../../lib/video-frame.js", () => ({
 }));
 
 import handler from "./agent-frame.jpg.get";
+import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
 
 function makeAccess(overrides: Record<string, unknown> = {}) {
   const { recording: recordingOverrides, ...accessOverrides } = overrides;
@@ -155,5 +163,23 @@ describe("agent-frame.jpg route", () => {
 
     expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
     expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns media fetch status when recording bytes cannot be loaded", async () => {
+    mockLoadRecordingMediaBytes.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media could not be fetched.",
+        502,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(502);
+    expect(result).toEqual({
+      error: "Recording media could not be fetched.",
+    });
+    expect(mockExtractJpegFrame).not.toHaveBeenCalled();
   });
 });

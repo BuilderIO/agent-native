@@ -1394,7 +1394,10 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
-function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
+function waitForCountdownEvent(
+  timeoutMs = 4000,
+  onOneSecond?: () => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unlistens: UnlistenFn[] = [];
@@ -1450,6 +1453,9 @@ function waitForCountdownEvent(timeoutMs = 4000): Promise<void> {
 
     track(listen("clips:countdown-done", () => finish("done")));
     track(listen("clips:countdown-cancel", () => finish("cancel")));
+    if (onOneSecond) {
+      track(listen("clips:countdown-one", () => onOneSecond()));
+    }
 
     timer = setTimeout(() => {
       if (done) return;
@@ -1467,8 +1473,13 @@ async function showRegionGuidesForRecording(wantsScreen: boolean) {
   });
 }
 
-async function runRecordingCountdown(wantsScreen: boolean) {
-  const countdownEvent = waitForCountdownEvent(COUNTDOWN_EVENT_TIMEOUT_MS);
+async function runRecordingCountdown(wantsScreen: boolean, audioCue: AudioCue) {
+  const countdownEvent = waitForCountdownEvent(
+    COUNTDOWN_EVENT_TIMEOUT_MS,
+    () => {
+      void audioCue.playCountdownCue();
+    },
+  );
   await showRegionGuidesForRecording(wantsScreen);
   try {
     await invoke("show_countdown");
@@ -1645,7 +1656,7 @@ async function startNativeFullscreenRecording(
       }).catch((err) => {
         console.warn("[clips-recorder] mic warm failed:", err);
       });
-    const countdownPromise = runRecordingCountdown(true);
+    const countdownPromise = runRecordingCountdown(true, audioCue);
     if (localOnly) {
       id = localFolderName;
       await Promise.all([countdownPromise, warmMic(id)]);
@@ -2425,7 +2436,7 @@ async function startRecordingInner(
       combined,
     });
 
-    const countdownPromise = runRecordingCountdown(wantsScreen);
+    const countdownPromise = runRecordingCountdown(wantsScreen, audioCue);
     const localExportPromise = prepareLocalRecordingExport(targets);
     let localExport: Awaited<ReturnType<typeof prepareLocalRecordingExport>>;
     try {
@@ -2601,7 +2612,7 @@ async function startRecordingInner(
   console.log(
     "[clips-recorder] invoking show_countdown + createServerRecording",
   );
-  const countdownPromise = runRecordingCountdown(wantsScreen);
+  const countdownPromise = runRecordingCountdown(wantsScreen, audioCue);
   console.time("[clips-recorder] createServerRecording duration");
   const recordingPromise = createServerRecording(
     params.serverUrl,

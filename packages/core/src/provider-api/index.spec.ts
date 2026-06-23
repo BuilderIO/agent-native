@@ -330,6 +330,80 @@ describe("provider API runtime", () => {
     expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
 
+  it("tries legacy Google OAuth credentials before deleting grants after a client rotation", async () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "new-google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "new-google-client-secret");
+    vi.stubEnv("GOOGLE_LEGACY_CLIENT_ID", "legacy-google-client-id");
+    vi.stubEnv("GOOGLE_LEGACY_CLIENT_SECRET", "legacy-google-client-secret");
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "docs@example.com",
+        displayName: "Docs Account",
+        tokens: {
+          access_token: "expired-docs-access-token",
+          refresh_token: "old-client-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "unauthorized_client" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "legacy-refreshed-access-token",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ files: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "slides",
+      providerIds: ["google_drive"],
+      getCredentialContext: () => credentialContext,
+      oauthProviderOverrides: {
+        google_drive: "google-docs",
+      },
+    });
+
+    await runtime.executeRequest({
+      provider: "google_drive",
+      path: "/files",
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "client_id=new-google-client-id",
+    );
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain(
+      "client_id=legacy-google-client-id",
+    );
+    expect(deleteOAuthTokens).not.toHaveBeenCalledWith(
+      "google-docs",
+      "docs@example.com",
+    );
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "google-docs",
+      "docs@example.com",
+      expect.objectContaining({
+        access_token: "legacy-refreshed-access-token",
+      }),
+      "ada@example.com",
+    );
+  });
+
   it("rejects paginated requests with both query and body cursor methods", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const runtime = createProviderApiRuntime({

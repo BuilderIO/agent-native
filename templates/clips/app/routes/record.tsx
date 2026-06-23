@@ -43,6 +43,10 @@ import {
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
 import {
+  createCountdownAudioCue,
+  type CountdownAudioCue,
+} from "@/lib/countdown-audio-cue";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -67,6 +71,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { toast } from "sonner";
 
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
@@ -538,13 +543,12 @@ function DesktopRecorderCallout() {
           </p>
         </div>
       </div>
-      <Button
-        asChild
+      <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
       >
-        <Link to="/download">Download desktop app</Link>
-      </Button>
+        Download desktop app
+      </CaptureInstallButton>
     </aside>
   );
 }
@@ -790,6 +794,7 @@ export default function RecordRoute() {
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
+  const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
   // Stable ref to doStop so engine callbacks created during startFlow always
   // call the latest version (avoids stale-closure problems with useCallback deps).
@@ -895,6 +900,8 @@ export default function RecordRoute() {
       startSessionRef.current = session;
       const isStale = () => startSessionRef.current !== session;
 
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = createCountdownAudioCue();
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
@@ -1119,6 +1126,8 @@ export default function RecordRoute() {
         } catch {
           // ignore
         }
+        countdownAudioCueRef.current?.cleanup();
+        countdownAudioCueRef.current = null;
         pendingRef.current = null;
         engineRef.current = null;
         if (pickerDismissed) {
@@ -1220,6 +1229,15 @@ export default function RecordRoute() {
 
       let createdId: string | null = null;
       try {
+        const status = await fetchVideoStorageStatus();
+        if (isStale()) return;
+        markStorageConfigured(status);
+        if (!status.configured) {
+          throw new Error(
+            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+          );
+        }
+
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;
 
@@ -1447,7 +1465,7 @@ export default function RecordRoute() {
         setCompressionProgress(null);
       }
     },
-    [navigate, probeVideoMetadata],
+    [markStorageConfigured, navigate, probeVideoMetadata],
   );
 
   const importLoom = useCallback(
@@ -1559,6 +1577,8 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current =
         extensionCapture && !extensionCapture.developerLogsEnabled
@@ -1584,6 +1604,8 @@ export default function RecordRoute() {
       browserDiagnosticsRef.current = null;
       const message =
         err instanceof Error ? err.message : "Could not start recorder";
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       setError(message);
       setUiState("error");
       showRecordingErrorToast(message);
@@ -1769,6 +1791,8 @@ export default function RecordRoute() {
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
+    countdownAudioCueRef.current?.cleanup();
+    countdownAudioCueRef.current = null;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
@@ -1803,6 +1827,10 @@ export default function RecordRoute() {
     pendingRef.current = null;
     engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
+
+  const playCountdownAudioCue = useCallback(() => {
+    void countdownAudioCueRef.current?.play();
+  }, []);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -2039,7 +2067,7 @@ export default function RecordRoute() {
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}
@@ -2063,6 +2091,7 @@ export default function RecordRoute() {
       {uiState === "countdown" && (
         <CountdownOverlay
           seconds={3}
+          onOneSecond={playCountdownAudioCue}
           onComplete={onCountdownComplete}
           onCancel={doCancel}
         />

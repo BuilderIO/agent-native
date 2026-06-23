@@ -10,7 +10,7 @@ export default function NotFound() {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="flex min-h-full w-full items-center justify-center bg-background px-4 py-12">
       <div className="text-center">
         <h1 className="text-6xl font-bold text-foreground/10 mb-2">404</h1>
         <p className="text-sm text-muted-foreground mb-6">

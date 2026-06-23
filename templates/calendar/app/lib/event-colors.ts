@@ -107,15 +107,12 @@ export function allOtherDeclined(event: CalendarEvent): boolean {
 
 /**
  * Returns a hex color for a calendar event based on its meeting type.
- * Respects user-set colors and overlay colors first.
+ * Respects user-set colors first.
  * For local (non-Google) events without a color, returns CSS var.
  */
 export function getEventAutoColor(event: CalendarEvent): string {
   // User/Google-set color takes priority
   if (event.color) return event.color;
-
-  // Overlay events keep their overlay-assigned color
-  if (event.overlayEmail) return EVENT_CATEGORY_COLORS.fallback;
 
   // Local events without a color use the theme primary
   if (event.source !== "google") return "hsl(var(--primary))";

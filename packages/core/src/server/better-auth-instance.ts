@@ -26,6 +26,7 @@ import { flushTracking, identify, track } from "../tracking/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -802,7 +803,17 @@ async function createBetterAuthInstance(
     ...config?.socialProviders,
   };
 
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  const extraScopes = config?.googleScopes ?? [];
+  const googleCredentials =
+    extraScopes.length > 0
+      ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null
+      : resolveGoogleSignInCredentials();
+  if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect
     // Google" round-trip isn't needed. `accessType: "offline"` plus
@@ -810,12 +821,11 @@ async function createBetterAuthInstance(
     // Google only re-issues a refresh token on consent, so re-signing in
     // (e.g. after switching machines) would otherwise leave us with an
     // access token that can't be refreshed.
-    const extraScopes = config?.googleScopes ?? [];
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: googleCredentials.clientId,
+      clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0
         ? {
             scope: mergedScopes,
@@ -842,6 +852,9 @@ async function createBetterAuthInstance(
   const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
     isEmailConfigured() && !shouldSkipEmailVerification();
+
+  const shouldMirrorGoogleAccountTokens =
+    (config?.googleScopes?.length ?? 0) > 0;
 
   const auth = betterAuth({
     basePath,
@@ -969,6 +982,7 @@ async function createBetterAuthInstance(
         // mirroring work; failures never block sign-in.
         create: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (create)",
@@ -979,6 +993,7 @@ async function createBetterAuthInstance(
         },
         update: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (update)",

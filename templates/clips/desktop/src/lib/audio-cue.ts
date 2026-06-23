@@ -14,6 +14,8 @@
  */
 
 export interface AudioCue {
+  /** Play the cue during the countdown once recording is about one second out. */
+  playCountdownCue(): Promise<void>;
   /**
    * Play the cue (bounded by a timeout) and wait a short settle so the tone
    * sits just before capture rather than inside the recording. Safe to await
@@ -36,6 +38,7 @@ function wait(ms: number): Promise<void> {
 
 /** A cue that does nothing — used when Web Audio is unavailable. */
 const noopAudioCue: AudioCue = {
+  async playCountdownCue() {},
   async playBeforeCapture() {},
   cleanup() {},
 };
@@ -109,6 +112,7 @@ export function createAudioCue(): AudioCue {
 
     const ctx: AudioContext = new AudioCtx();
     let played = false;
+    let playPromise: Promise<void> | null = null;
     let closed = false;
     let idleTimer: ReturnType<typeof window.setTimeout> | null = null;
 
@@ -123,11 +127,14 @@ export function createAudioCue(): AudioCue {
     };
 
     const play = async () => {
-      if (played || closed) return;
+      if (played || closed) return playPromise ?? Promise.resolve();
       played = true;
-      try {
+      playPromise = (async () => {
         if (ctx.state !== "running") await ctx.resume();
         await scheduleTone(ctx);
+      })();
+      try {
+        await playPromise;
       } catch (err) {
         console.warn("[clips-recorder] start cue unavailable:", err);
         cleanup();
@@ -141,6 +148,7 @@ export function createAudioCue(): AudioCue {
     idleTimer = window.setTimeout(cleanup, CUE_IDLE_CLEANUP_MS);
 
     return {
+      playCountdownCue: play,
       playBeforeCapture: () => playBeforeCapture(play, cleanup),
       cleanup,
     };

@@ -4,6 +4,7 @@ description: >-
   How agents call other agents via the A2A (agent-to-agent) JSON-RPC protocol.
   Use when enabling inter-agent communication, exposing agent skills to other
   agents, or calling external agents from scripts.
+scope: dev
 metadata:
   internal: true
 ---

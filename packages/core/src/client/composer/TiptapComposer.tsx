@@ -91,6 +91,36 @@ export function canSubmitComposerContent(options: {
   );
 }
 
+const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+
+function isDocumentAttachment(value: Record<string, unknown>): boolean {
+  if (value.type === "document") return true;
+  const contentType = String(value.contentType ?? "").toLowerCase();
+  const name = String(value.name ?? "").toLowerCase();
+  return contentType === "application/pdf" || name.endsWith(".pdf");
+}
+
+export function getOversizedDocumentAttachmentError(
+  attachments: ReadonlyArray<unknown>,
+): string | null {
+  for (const attachment of attachments) {
+    if (!attachment || typeof attachment !== "object") continue;
+    const candidate = attachment as Record<string, unknown>;
+    if (!isDocumentAttachment(candidate)) continue;
+    const file = candidate.file;
+    if (!(file instanceof File)) continue;
+    if (file.size <= MAX_DOCUMENT_ATTACHMENT_BYTES) continue;
+    const name =
+      typeof candidate.name === "string" && candidate.name.trim()
+        ? candidate.name
+        : file.name;
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    const maxMb = (MAX_DOCUMENT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
+    return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+  }
+  return null;
+}
+
 export function getComposerSubmitIntentForEnterKey(
   event: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey">,
   isMac: boolean,
@@ -1628,6 +1658,12 @@ export function TiptapComposer({
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return;
+      const oversizedDocumentError =
+        getOversizedDocumentAttachmentError(attachments);
+      if (oversizedDocumentError) {
+        onAttachmentErrorRef.current?.(oversizedDocumentError);
+        return;
+      }
       const cancelActiveVoice = () => {
         if (
           voice.state === "recording" ||
@@ -2041,6 +2077,7 @@ export function TiptapComposer({
             <ComposerPlusMenu
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
+              onAttachmentError={onAttachmentError}
             />
           ))}
         {toolbarSlot ?? modeControl}

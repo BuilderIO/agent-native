@@ -4,6 +4,7 @@ description: >-
   How the agent knows what the user is looking at. Use when exposing UI state to
   the agent, implementing view-screen or navigate actions, wiring navigation
   state, or debugging agent context issues.
+scope: dev
 metadata:
   internal: true
 ---

@@ -1133,8 +1133,9 @@ export default function AppSettings({
                       }
                       placeholder="view, optional"
                       aria-label="Shortcut target view"
+                      className="settings-shortcut-view-input"
                     />
-                    <div className="settings-mode-toggle">
+                    <div className="settings-mode-toggle settings-shortcut-behavior">
                       <button
                         type="button"
                         className={`settings-mode-btn${shortcutDraft.behavior === "toggle" ? " settings-mode-btn--active" : ""}`}
@@ -1160,26 +1161,28 @@ export default function AppSettings({
                         Show
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      className="settings-btn settings-btn--primary settings-shortcut-save"
-                      onClick={handleShortcutSave}
-                      disabled={!shortcutDraftValid || shortcutSaving}
-                    >
-                      <IconCheck size={14} />
-                      {shortcutDraft.id ? "Save" : "Add"}
-                    </button>
-                    {shortcutDraft.id && (
+                    <div className="settings-shortcut-form-actions">
                       <button
                         type="button"
-                        className="settings-btn settings-btn--ghost settings-shortcut-cancel"
-                        onClick={() =>
-                          setShortcutDraft(defaultShortcutDraft(apps))
-                        }
+                        className="settings-btn settings-btn--primary settings-shortcut-save"
+                        onClick={handleShortcutSave}
+                        disabled={!shortcutDraftValid || shortcutSaving}
                       >
-                        Cancel
+                        <IconCheck size={14} />
+                        {shortcutDraft.id ? "Save" : "Add"}
                       </button>
-                    )}
+                      {shortcutDraft.id && (
+                        <button
+                          type="button"
+                          className="settings-btn settings-btn--ghost settings-shortcut-cancel"
+                          onClick={() =>
+                            setShortcutDraft(defaultShortcutDraft(apps))
+                          }
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {shortcutMessage && (

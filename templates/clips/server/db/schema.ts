@@ -471,6 +471,41 @@ export const calendarEvents = table("calendar_events", {
 });
 
 // -----------------------------------------------------------------------------
+// Slack app installs — team-level OAuth grants for Clips app unfurls.
+//
+// Slack webhooks arrive without a Clips user session, so this table is not a
+// framework-shareable resource. It stores only provider metadata and secret
+// references; bot tokens live encrypted in app_secrets.
+// -----------------------------------------------------------------------------
+
+export const slackInstallations = table("slack_installations", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull(),
+  teamName: text("team_name"),
+  enterpriseId: text("enterprise_id"),
+  enterpriseName: text("enterprise_name"),
+  apiAppId: text("api_app_id"),
+  botUserId: text("bot_user_id"),
+  botTokenSecretRef: text("bot_token_secret_ref").notNull(),
+  secretScope: text("secret_scope", {
+    enum: ["user", "org", "workspace"],
+  }).notNull(),
+  secretScopeId: text("secret_scope_id").notNull(),
+  scope: text("scope"),
+  installedBySlackUserId: text("installed_by_slack_user_id"),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  status: text("status", {
+    enum: ["connected", "disconnected", "revoked", "error"],
+  })
+    .notNull()
+    .default("connected"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+// -----------------------------------------------------------------------------
 // Dictations — press-and-hold dictation history. Each row is
 // one full press-and-hold session. Lives separately from `recording_*` so
 // the dictations tab can render fast without scanning the recordings table.

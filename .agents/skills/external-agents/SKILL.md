@@ -8,6 +8,7 @@ description: >-
   adding an action's `link` builder or `mcpApp`, wiring the
   `/_agent-native/open` route, exposing an "ingest" action to MCP/A2A, or
   scaffolding apps from an external agent.
+scope: dev
 metadata:
   internal: true
 ---

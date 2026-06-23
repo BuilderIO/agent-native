@@ -158,6 +158,24 @@ import {
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
+const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
+const BUILDER_WAITLIST_FORM_SOURCE = "connect_builder_card";
+const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
+const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
+
+interface BuilderWaitlistFormTarget {
+  formId: string;
+  formsOrigin: string;
+}
+
+interface BuilderWaitlistBody {
+  prompt?: unknown;
+  orgName?: unknown;
+  appUrl?: unknown;
+  pageUrl?: unknown;
+  source?: unknown;
+}
 
 export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
   return Array.from(
@@ -170,6 +188,112 @@ export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
 }
 
 registerBuiltinEngines();
+
+function cleanBuilderWaitlistText(
+  value: unknown,
+  maxLength = BUILDER_WAITLIST_TEXT_LIMIT,
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeHttpOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function isAgentNativeHostedRequest(event: H3Event): boolean {
+  const hostname = getRequestURL(event).hostname.toLowerCase();
+  return (
+    hostname === "agent-native.com" || hostname.endsWith(".agent-native.com")
+  );
+}
+
+export function resolveBuilderWaitlistFormTargetForRequest(
+  event: H3Event,
+): BuilderWaitlistFormTarget | null {
+  if (process.env.AGENT_NATIVE_DISABLE_BUILDER_WAITLIST_FORM === "1") {
+    return null;
+  }
+
+  const envFormId = process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORM_ID?.trim();
+  const envFormsOrigin =
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORMS_ORIGIN?.trim();
+  const hasExplicitTarget = Boolean(envFormId || envFormsOrigin);
+  if (!hasExplicitTarget && !isAgentNativeHostedRequest(event)) {
+    return null;
+  }
+
+  const formId = envFormId || DEFAULT_BUILDER_WAITLIST_FORM_ID;
+  const formsOrigin = normalizeHttpOrigin(
+    envFormsOrigin || DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN,
+  );
+  if (!formsOrigin) {
+    throw new Error("Invalid Builder waitlist Forms origin");
+  }
+
+  return { formId, formsOrigin };
+}
+
+async function submitBuilderWaitlistForm(
+  event: H3Event,
+  sessionEmail: string,
+  body: BuilderWaitlistBody,
+): Promise<{ submitted: boolean; formId?: string }> {
+  const target = resolveBuilderWaitlistFormTargetForRequest(event);
+  if (!target) return { submitted: false };
+
+  const appUrl =
+    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+    getOrigin(event);
+  const source =
+    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    BUILDER_WAITLIST_FORM_TIMEOUT_MS,
+  );
+
+  try {
+    const res = await fetch(
+      `${target.formsOrigin}/api/submit/${encodeURIComponent(target.formId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: {
+            email: sessionEmail,
+            orgName: cleanBuilderWaitlistText(body.orgName, 500),
+            appUrl,
+            prompt: cleanBuilderWaitlistText(body.prompt),
+            source,
+          },
+          _hp: "",
+          _meta: {
+            submitterEmail: sessionEmail,
+            pageUrl: appUrl,
+          },
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Forms waitlist submission failed (${res.status})`);
+    }
+    return { submitted: true, formId: target.formId };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function parseBuilderCallbackBoolean(
   value: string | null | undefined,
@@ -1405,10 +1529,10 @@ export function createCoreRoutesPlugin(
       );
 
       // Branch-creation waitlist signup. Used by ConnectBuilderCard when the
-      // current request has no Builder branch project configured — instead of
-      // the raw 403 from /builder/run, the card surfaces a waitlist CTA that
-      // POSTs here. Recorded as a tracking event so PostHog/Mixpanel/etc.
-      // capture demand without us standing up new storage.
+      // current request has no Builder branch project configured. Hosted
+      // Agent Native deployments submit into the Builder-org Forms waitlist;
+      // local/self-hosted deployments keep the analytics signal without
+      // sending private workspace data to Agent Native.
       getH3App(nitroApp).use(
         `${P}/builder/branch-waitlist`,
         defineEventHandler(async (event: H3Event) => {
@@ -1421,15 +1545,43 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
+          const body = ((await readBody(event).catch(() => ({}))) ??
+            {}) as BuilderWaitlistBody;
+          let formSubmission: { submitted: boolean; formId?: string };
+          try {
+            formSubmission = await submitBuilderWaitlistForm(
+              event,
+              session.email,
+              body,
+            );
+          } catch (err) {
+            await trackBuilderLifecycle(
+              event,
+              "builder branch waitlist form failed",
+              session.email,
+              {
+                reason:
+                  err instanceof Error ? err.message : "unknown_waitlist_error",
+                stage: "waitlist",
+              },
+            );
+            setResponseStatus(event, 502);
+            return {
+              error:
+                "Couldn't join the waitlist. Please try again in a moment.",
+            };
+          }
           await trackBuilderLifecycle(
             event,
             "builder branch waitlist joined",
             session.email,
             {
+              formId: formSubmission.formId ?? null,
+              formSubmitted: formSubmission.submitted,
               stage: "waitlist",
             },
           );
-          return { ok: true };
+          return { ok: true, formSubmitted: formSubmission.submitted };
         }),
       );
 

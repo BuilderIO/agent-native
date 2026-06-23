@@ -29,6 +29,7 @@ type ExtensionSettings = {
   clipsBaseUrl: string;
   captureSurface: CaptureSurface;
   includeCamera: boolean;
+  includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
 };
 
@@ -36,6 +37,14 @@ type PopupStartMessage = {
   type: "CLIPS_POPUP_START";
   settings?: Partial<ExtensionSettings>;
 };
+
+type PopupMessage =
+  | PopupStartMessage
+  | { type: "CLIPS_POPUP_STATUS" }
+  | { type: "CLIPS_POPUP_STOP" }
+  | { type: "CLIPS_POPUP_CANCEL" }
+  | { type: "CLIPS_POPUP_OPEN" }
+  | { type: "CLIPS_POPUP_SIGN_IN"; settings?: Partial<ExtensionSettings> };
 
 type ExternalMessage =
   | {
@@ -52,6 +61,12 @@ type ExternalMessage =
   | {
       type: "CLIPS_CAPTURE_CANCEL";
       sessionId?: string;
+    }
+  | {
+      type: "CLIPS_AUTH_SESSION";
+      token?: string;
+      email?: string;
+      clipsBaseUrl?: string;
     };
 
 type ChromeTab = {
@@ -98,6 +113,40 @@ type BrowserDiagnosticsData = {
   };
 };
 
+type NativeRecordingStatus =
+  | "recording"
+  | "stopping"
+  | "uploading"
+  | "complete"
+  | "error";
+
+type NativeRecording = {
+  sessionId: string;
+  recordingId: string;
+  clipsBaseUrl: string;
+  targetTabId: number;
+  targetTitle: string | null;
+  targetUrl: string | null;
+  startedAt: string;
+  startedAtMs: number;
+  captureSurface: CaptureSurface;
+  includeCamera: boolean;
+  includeMicrophone: boolean;
+  includeDeveloperLogs: boolean;
+  status: NativeRecordingStatus;
+  recordingUrl: string;
+  error: string | null;
+};
+
+type OffscreenStatusMessage = {
+  type: "CLIPS_NATIVE_STATUS";
+  sessionId: string;
+  status: NativeRecordingStatus;
+  recordingId?: string;
+  result?: Record<string, unknown>;
+  error?: string;
+};
+
 type PendingNetworkRequest = {
   requestId: string;
   timestampMs: number;
@@ -128,15 +177,24 @@ type CaptureSession = {
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
 };
 
+type StoredAuth = {
+  token: string;
+  email?: string;
+  clipsBaseUrl: string;
+  savedAt: string;
+};
+
 const DEFAULT_SETTINGS: ExtensionSettings = {
   clipsBaseUrl: DEFAULT_CLIPS_BASE_URL,
   captureSurface: "browser",
   includeCamera: true,
+  includeMicrophone: true,
   includeDeveloperLogs: true,
 };
 
 const sessions = new Map<string, CaptureSession>();
 const tabToSession = new Map<number, string>();
+let activeNativeRecording: NativeRecording | null = null;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -238,6 +296,7 @@ async function readSettings(
     "clipsBaseUrl",
     "captureSurface",
     "includeCamera",
+    "includeMicrophone",
     "includeDeveloperLogs",
   ]);
   return {
@@ -251,11 +310,93 @@ async function readSettings(
       overrides?.includeCamera ?? stored.includeCamera,
       DEFAULT_SETTINGS.includeCamera,
     ),
+    includeMicrophone: normalizeBoolean(
+      overrides?.includeMicrophone ?? stored.includeMicrophone,
+      DEFAULT_SETTINGS.includeMicrophone,
+    ),
     includeDeveloperLogs: normalizeBoolean(
       overrides?.includeDeveloperLogs ?? stored.includeDeveloperLogs,
       DEFAULT_SETTINGS.includeDeveloperLogs,
     ),
   };
+}
+
+function sessionStorageSet(value: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.session.set(value, () => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function sessionStorageGet(keys: string[]): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    chrome.storage.session.get(keys, (value) => resolve(value));
+  });
+}
+
+function sessionStorageRemove(key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.session.remove(key, () => {
+      const error = chromeLastError();
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function originOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+async function saveAuthSession(auth: StoredAuth): Promise<void> {
+  await sessionStorageSet({ clipsAuth: auth });
+}
+
+async function readAuthSession(
+  settings: ExtensionSettings,
+): Promise<StoredAuth | null> {
+  const stored = await sessionStorageGet(["clipsAuth"]);
+  const auth = stored.clipsAuth as Partial<StoredAuth> | undefined;
+  if (
+    !auth ||
+    typeof auth.token !== "string" ||
+    !auth.token.trim() ||
+    typeof auth.clipsBaseUrl !== "string" ||
+    originOf(auth.clipsBaseUrl) !== originOf(settings.clipsBaseUrl)
+  ) {
+    return null;
+  }
+  return {
+    token: auth.token,
+    email: typeof auth.email === "string" ? auth.email : undefined,
+    clipsBaseUrl: normalizeBaseUrl(auth.clipsBaseUrl),
+    savedAt: typeof auth.savedAt === "string" ? auth.savedAt : nowIso(),
+  };
+}
+
+async function authHeaders(
+  settings: ExtensionSettings,
+): Promise<Record<string, string>> {
+  const auth = await readAuthSession(settings);
+  return auth ? { Authorization: `Bearer ${auth.token}` } : {};
+}
+
+async function saveActiveNativeRecording(): Promise<void> {
+  if (!activeNativeRecording) {
+    await sessionStorageRemove("activeNativeRecording").catch(() => undefined);
+    return;
+  }
+  await sessionStorageSet({
+    activeNativeRecording: activeNativeRecording,
+  }).catch(() => undefined);
 }
 
 function queryActiveTab(): Promise<ChromeTab | null> {
@@ -308,6 +449,125 @@ function debuggerSendCommand(
   });
 }
 
+function timezoneHeader(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+function actionUrl(settings: ExtensionSettings, actionName: string): string {
+  return `${settings.clipsBaseUrl}/_agent-native/actions/${actionName}`;
+}
+
+async function postAction<T>(
+  settings: ExtensionSettings,
+  actionName: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Agent-Native-Frontend": "1",
+    ...(await authHeaders(settings)),
+  };
+  const timezone = timezoneHeader();
+  if (timezone) headers["x-user-timezone"] = timezone;
+  const res = await fetch(actionUrl(settings, actionName), {
+    method: "POST",
+    headers,
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify(body),
+  });
+  const text = await res.text().catch(() => "");
+  let data: Record<string, unknown> | null = null;
+  if (text) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const rawMessage =
+      (data && typeof data.error === "string" && data.error) ||
+      (data && typeof data.message === "string" && data.message) ||
+      text ||
+      res.statusText;
+    const authMessage =
+      res.status === 401 || res.status === 403
+        ? "Sign in to Clips, then start the recording again."
+        : rawMessage;
+    const err = new Error(authMessage || `Action ${actionName} failed.`);
+    (err as { status?: number }).status = res.status;
+    throw err;
+  }
+  return (data ?? {}) as T;
+}
+
+function getTabMediaStreamId(tabId: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
+      const error = chromeLastError();
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (!streamId) {
+        reject(new Error("Chrome did not provide a tab capture stream."));
+        return;
+      }
+      resolve(streamId);
+    });
+  });
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const path = "src/offscreen.html";
+  const offscreenUrl = chrome.runtime.getURL(path);
+  const runtimeWithContexts = chrome.runtime as typeof chrome.runtime & {
+    getContexts?: (filter: Record<string, unknown>) => Promise<unknown[]>;
+  };
+  const existing = runtimeWithContexts.getContexts
+    ? await runtimeWithContexts.getContexts({
+        contextTypes: ["OFFSCREEN_DOCUMENT"],
+        documentUrls: [offscreenUrl],
+      })
+    : [];
+  if (existing.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: path,
+    reasons: ["USER_MEDIA"],
+    justification:
+      "Record tab, camera, and microphone streams after the user starts Clips.",
+  });
+}
+
+function sendOffscreenMessage<T>(message: Record<string, unknown>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response: T & { error?: string }) => {
+      const error = chromeLastError();
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (response && typeof response.error === "string") {
+        reject(new Error(response.error));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function recordingUrl(
+  recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
+): string {
+  return `${recording.clipsBaseUrl}/r/${encodeURIComponent(recording.recordingId)}`;
+}
+
 function buildRecordUrl(
   settings: ExtensionSettings,
   sessionId: string,
@@ -330,6 +590,10 @@ function buildRecordUrl(
   recordUrl.searchParams.set(
     "developerLogs",
     settings.includeDeveloperLogs ? "1" : "0",
+  );
+  recordUrl.searchParams.set(
+    "microphone",
+    settings.includeMicrophone ? "1" : "0",
   );
   if (tab.title) recordUrl.searchParams.set("sourceTitle", tab.title);
   if (tab.url) recordUrl.searchParams.set("sourceUrl", tab.url);
@@ -378,11 +642,249 @@ async function handlePopupStart(message: PopupStartMessage) {
   const settings = await readSettings(message.settings);
   await storageSet(settings);
 
+  if (activeNativeRecording) {
+    return {
+      ok: false,
+      error: "Clips is already recording. Stop the active clip first.",
+    };
+  }
+
   const sessionId = crypto.randomUUID();
+  if (
+    settings.captureSurface === "browser" ||
+    settings.captureSurface === "camera"
+  ) {
+    return startNativeRecording({ sessionId, tab, settings });
+  }
+
   createSession(sessionId, tab, settings);
   await createTab(buildRecordUrl(settings, sessionId, tab));
 
   return { ok: true, sessionId };
+}
+
+async function startNativeRecording(args: {
+  sessionId: string;
+  tab: ChromeTab;
+  settings: ExtensionSettings;
+}) {
+  const { sessionId, tab, settings } = args;
+  const streamId =
+    settings.captureSurface === "browser"
+      ? await getTabMediaStreamId(tab.id as number)
+      : undefined;
+  await ensureOffscreenDocument();
+
+  type CreatedRecording = {
+    id?: string;
+    uploadChunkUrl?: string;
+    abortUrl?: string;
+  };
+  const created = await postAction<CreatedRecording>(
+    settings,
+    "create-recording",
+    {
+      title: tab.title || "Untitled recording",
+      titleSource: tab.title ? "context" : "default",
+      sourceAppName: "Chrome",
+      sourceWindowTitle: tab.title ?? null,
+      hasCamera: settings.captureSurface === "camera" || settings.includeCamera,
+      hasAudio:
+        settings.includeMicrophone || settings.captureSurface === "browser",
+      visibility: "public",
+    },
+  );
+  if (!created.id || !created.uploadChunkUrl) {
+    throw new Error("Clips did not create a recording target.");
+  }
+
+  const uploadUrl = `${settings.clipsBaseUrl}${created.uploadChunkUrl}`;
+  const session = createSession(sessionId, tab, settings);
+  session.recordingId = created.id;
+  activeNativeRecording = {
+    sessionId,
+    recordingId: created.id,
+    clipsBaseUrl: settings.clipsBaseUrl,
+    targetTabId: tab.id as number,
+    targetTitle: tab.title?.trim() || null,
+    targetUrl: tab.url?.trim() || null,
+    startedAt: new Date().toISOString(),
+    startedAtMs: nowMs(),
+    captureSurface: settings.captureSurface,
+    includeCamera: settings.includeCamera,
+    includeMicrophone: settings.includeMicrophone,
+    includeDeveloperLogs: settings.includeDeveloperLogs,
+    status: "recording",
+    recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
+    error: null,
+  };
+  await saveActiveNativeRecording();
+
+  try {
+    await sendOffscreenMessage<{
+      ok: boolean;
+      recordingId: string;
+      width: number;
+      height: number;
+      hasAudio: boolean;
+      hasCamera: boolean;
+    }>({
+      type: "CLIPS_OFFSCREEN_START",
+      sessionId,
+      recordingId: created.id,
+      uploadUrl,
+      streamId,
+      captureSurface: settings.captureSurface,
+      includeCamera: settings.includeCamera,
+      includeMicrophone: settings.includeMicrophone,
+      title: tab.title ?? null,
+    });
+    await attachSession(session);
+    await chrome.action.setBadgeBackgroundColor({ color: "#e11d48" });
+    await chrome.action.setBadgeText({ text: "REC" });
+    return {
+      ok: true,
+      sessionId,
+      recordingId: created.id,
+      native: true,
+    };
+  } catch (err) {
+    await deleteSession(sessionId);
+    activeNativeRecording = null;
+    await saveActiveNativeRecording();
+    await chrome.action.setBadgeText({ text: "" });
+    await postAction(settings, "trash-recording", { id: created.id }).catch(
+      () => undefined,
+    );
+    throw err;
+  }
+}
+
+async function saveNativeDiagnostics(
+  recording: NativeRecording,
+): Promise<void> {
+  if (!recording.includeDeveloperLogs) return;
+  const session = sessions.get(recording.sessionId);
+  if (!session) return;
+  const diagnostics = snapshotSession(session);
+  await postAction(
+    {
+      clipsBaseUrl: recording.clipsBaseUrl,
+      captureSurface: recording.captureSurface,
+      includeCamera: recording.includeCamera,
+      includeMicrophone: recording.includeMicrophone,
+      includeDeveloperLogs: recording.includeDeveloperLogs,
+    },
+    "save-browser-diagnostics",
+    {
+      recordingId: recording.recordingId,
+      sessionId: recording.sessionId,
+      source: "extension",
+      phase: "recording",
+      pageUrl: diagnostics.pageUrl,
+      userAgent: diagnostics.userAgent,
+      startedAt: diagnostics.startedAt,
+      endedAt: diagnostics.endedAt,
+      consoleLogs: diagnostics.consoleLogs,
+      networkRequests: diagnostics.networkRequests,
+    },
+  ).catch((err) => {
+    console.warn("[clips-extension] diagnostics save failed:", err);
+  });
+}
+
+async function clearNativeRecording(): Promise<void> {
+  activeNativeRecording = null;
+  await saveActiveNativeRecording();
+  await chrome.action.setBadgeText({ text: "" });
+}
+
+async function handlePopupStatus() {
+  return {
+    ok: true,
+    activeRecording: activeNativeRecording,
+  };
+}
+
+async function handlePopupStop() {
+  const recording = activeNativeRecording;
+  if (!recording) {
+    return { ok: false, error: "No active Clips recording." };
+  }
+  recording.status = "stopping";
+  await saveActiveNativeRecording();
+  try {
+    const response = await sendOffscreenMessage<{
+      ok?: boolean;
+      result?: Record<string, unknown>;
+    }>({
+      type: "CLIPS_OFFSCREEN_STOP",
+      sessionId: recording.sessionId,
+    });
+    recording.status = "complete";
+    recording.error = null;
+    if (response.result && typeof response.result.recordingId === "string") {
+      recording.recordingId = response.result.recordingId;
+    }
+    recording.recordingUrl = recordingUrl(recording);
+    await saveNativeDiagnostics(recording);
+    await deleteSession(recording.sessionId);
+    await clearNativeRecording();
+    await createTab(recording.recordingUrl);
+    return {
+      ok: true,
+      recordingId: recording.recordingId,
+      recordingUrl: recording.recordingUrl,
+    };
+  } catch (err) {
+    recording.status = "error";
+    recording.error =
+      err instanceof Error ? err.message : "Could not stop recording.";
+    await saveActiveNativeRecording();
+    return { ok: false, error: recording.error };
+  }
+}
+
+async function handlePopupCancel() {
+  const recording = activeNativeRecording;
+  if (!recording) return { ok: true };
+  await sendOffscreenMessage({
+    type: "CLIPS_OFFSCREEN_CANCEL",
+    sessionId: recording.sessionId,
+  }).catch(() => undefined);
+  await deleteSession(recording.sessionId);
+  await postAction(
+    {
+      clipsBaseUrl: recording.clipsBaseUrl,
+      captureSurface: recording.captureSurface,
+      includeCamera: recording.includeCamera,
+      includeMicrophone: recording.includeMicrophone,
+      includeDeveloperLogs: recording.includeDeveloperLogs,
+    },
+    "trash-recording",
+    { id: recording.recordingId },
+  ).catch(() => undefined);
+  await clearNativeRecording();
+  return { ok: true };
+}
+
+async function handlePopupOpen() {
+  const recording = activeNativeRecording;
+  if (!recording) return { ok: false, error: "No active recording." };
+  await createTab(recording.recordingUrl);
+  return { ok: true };
+}
+
+async function handlePopupSignIn(message: {
+  settings?: Partial<ExtensionSettings>;
+}) {
+  const settings = await readSettings(message.settings);
+  await storageSet(settings);
+  const signInUrl = new URL(`${settings.clipsBaseUrl}/library`);
+  signInUrl.searchParams.set("clipsExtensionAuth", "1");
+  signInUrl.searchParams.set("clipsExtensionId", chrome.runtime.id);
+  await createTab(signInUrl.toString());
+  return { ok: true };
 }
 
 function summarize(snapshot: {
@@ -759,9 +1261,34 @@ function handleLoadingFailed(session: CaptureSession, params: unknown): void {
   if (requestId) finalizeNetworkRequest(session, requestId, event, errorText);
 }
 
-async function handleExternalMessage(message: ExternalMessage) {
+async function handleExternalMessage(
+  message: ExternalMessage,
+  sender?: chrome.runtime.MessageSender,
+) {
   if (!message || typeof message !== "object") {
     return { ok: false, error: "Invalid message." };
+  }
+
+  if (message.type === "CLIPS_AUTH_SESSION") {
+    const settings = await readSettings();
+    const clipsBaseUrl = normalizeBaseUrl(
+      message.clipsBaseUrl ?? settings.clipsBaseUrl,
+    );
+    const senderOrigin = originOf(sender?.url);
+    if (!senderOrigin || senderOrigin !== originOf(clipsBaseUrl)) {
+      return { ok: false, error: "Auth message came from the wrong origin." };
+    }
+    if (typeof message.token !== "string" || !message.token.trim()) {
+      return { ok: false, error: "Missing auth token." };
+    }
+    await storageSet({ ...settings, clipsBaseUrl });
+    await saveAuthSession({
+      token: message.token,
+      email: typeof message.email === "string" ? message.email : undefined,
+      clipsBaseUrl,
+      savedAt: nowIso(),
+    });
+    return { ok: true };
   }
 
   if (message.type === "CLIPS_CAPTURE_START") {
@@ -806,21 +1333,56 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "CLIPS_POPUP_START") return false;
-  void handlePopupStart(message as PopupStartMessage)
-    .then(sendResponse)
-    .catch((err) => {
-      sendResponse({
-        ok: false,
-        error: err instanceof Error ? err.message : "Could not open Clips.",
-      });
+  if (!message || typeof message !== "object") return false;
+  if ((message as { type?: unknown }).type === "CLIPS_NATIVE_STATUS") {
+    const status = message as OffscreenStatusMessage;
+    if (
+      activeNativeRecording &&
+      activeNativeRecording.sessionId === status.sessionId
+    ) {
+      activeNativeRecording.status = status.status;
+      activeNativeRecording.error =
+        typeof status.error === "string" ? status.error : null;
+      if (typeof status.recordingId === "string") {
+        activeNativeRecording.recordingId = status.recordingId;
+        activeNativeRecording.recordingUrl = recordingUrl(
+          activeNativeRecording,
+        );
+      }
+      void saveActiveNativeRecording();
+    }
+    return false;
+  }
+
+  const popupMessage = message as PopupMessage;
+  let task: Promise<unknown> | null = null;
+  if (popupMessage.type === "CLIPS_POPUP_START") {
+    task = handlePopupStart(popupMessage);
+  } else if (popupMessage.type === "CLIPS_POPUP_STATUS") {
+    task = handlePopupStatus();
+  } else if (popupMessage.type === "CLIPS_POPUP_STOP") {
+    task = handlePopupStop();
+  } else if (popupMessage.type === "CLIPS_POPUP_CANCEL") {
+    task = handlePopupCancel();
+  } else if (popupMessage.type === "CLIPS_POPUP_OPEN") {
+    task = handlePopupOpen();
+  } else if (popupMessage.type === "CLIPS_POPUP_SIGN_IN") {
+    task = handlePopupSignIn(popupMessage);
+  }
+  if (!task) return false;
+
+  void task.then(sendResponse).catch((err) => {
+    sendResponse({
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not use Clips.",
     });
+  });
   return true;
 });
 
 chrome.runtime.onMessageExternal.addListener(
-  (message, _sender, sendResponse) => {
-    void handleExternalMessage(message as ExternalMessage)
+  (message, sender, sendResponse) => {
+    void handleExternalMessage(message as ExternalMessage, sender)
       .then(sendResponse)
       .catch((err) => {
         sendResponse({

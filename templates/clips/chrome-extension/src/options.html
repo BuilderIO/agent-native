@@ -9,7 +9,12 @@
   <body class="options-page">
     <main class="options-shell">
       <header class="options-header">
-        <div class="brand-mark" aria-hidden="true">C</div>
+        <img
+          class="brand-mark"
+          src="/icons/clips-logo.svg"
+          alt=""
+          aria-hidden="true"
+        />
         <div>
           <p class="eyebrow">Clips extension</p>
           <h1>Settings</h1>
@@ -49,6 +54,16 @@
             </span>
           </span>
           <input id="include-camera" type="checkbox" role="switch" />
+        </label>
+
+        <label class="toggle-row" for="include-microphone">
+          <span>
+            <span class="toggle-title">Microphone by default</span>
+            <span class="toggle-subtitle">
+              Captures voiceover with tab audio when available.
+            </span>
+          </span>
+          <input id="include-microphone" type="checkbox" role="switch" />
         </label>
 
         <label class="toggle-row" for="include-developer-logs">
