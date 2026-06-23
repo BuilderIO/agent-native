@@ -1072,6 +1072,18 @@ function AgentPanelInner({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+            {onCollapse && (
+              <>
+                <DropdownMenuItem onSelect={onCollapse}>
+                  <IconLayoutSidebarRightCollapse
+                    size={14}
+                    className="shrink-0"
+                  />
+                  Collapse sidebar
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem onSelect={toggleHistory}>
                 <IconHistory size={14} className="shrink-0" />
@@ -1131,15 +1143,6 @@ function AgentPanelInner({
                   <IconArrowsMaximize size={14} className="shrink-0" />
                 )}
                 {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              </DropdownMenuItem>
-            )}
-            {onCollapse && (
-              <DropdownMenuItem onSelect={onCollapse}>
-                <IconLayoutSidebarRightCollapse
-                  size={14}
-                  className="shrink-0"
-                />
-                Collapse sidebar
               </DropdownMenuItem>
             )}
             {((mode === "chat" && activeTabId) ||
