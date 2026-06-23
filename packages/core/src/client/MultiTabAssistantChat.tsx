@@ -783,10 +783,20 @@ function chatTabStatusFromAgentTeamStatus(
 const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
+const hasOwn = Object.prototype.hasOwnProperty;
 
 export interface ChatThreadUrlSyncOptions {
-  /** Query-string parameter used to address a chat thread. Default: `thread`. */
+  /** Query-string parameter used by the generic URL adapter. Default: `thread`. */
   paramName?: string;
+  /**
+   * Route-owned thread id. Pass `null` for the create route and a string for
+   * thread routes like `/chat/:threadId`.
+   */
+  routeThreadId?: string | null;
+  /** Build the URL path for a thread id, or for create mode when id is null. */
+  getPath?: (threadId: string | null) => string;
+  /** Optional router navigation callback used with `getPath`. */
+  navigate?: (path: string, options?: { replace?: boolean }) => void;
 }
 
 function normalizeUrlThreadId(value: string | null | undefined): string | null {
@@ -797,7 +807,13 @@ function normalizeUrlThreadId(value: string | null | undefined): string | null {
 
 function resolveThreadUrlSync(
   value: MultiTabAssistantChatProps["threadUrlSync"],
-): { enabled: boolean; paramName: string } {
+): {
+  enabled: boolean;
+  paramName: string;
+  routeThreadId?: string | null;
+  getPath?: (threadId: string | null) => string;
+  navigate?: (path: string, options?: { replace?: boolean }) => void;
+} {
   if (!value) return { enabled: false, paramName: DEFAULT_THREAD_URL_PARAM };
   if (value === true) {
     return { enabled: true, paramName: DEFAULT_THREAD_URL_PARAM };
@@ -805,6 +821,11 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
+    ...(hasOwn.call(value, "routeThreadId")
+      ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
+      : {}),
+    ...(value.getPath ? { getPath: value.getPath } : {}),
+    ...(value.navigate ? { navigate: value.navigate } : {}),
   };
 }
 
@@ -887,9 +908,9 @@ export type MultiTabAssistantChatProps = Omit<
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
-   * Keep the active thread in the URL query string. When enabled, `?thread=id`
-   * opens a chat, and the same route without the param is the create/new-chat
-   * state.
+   * Keep the active thread in URL state. `true` uses the generic `?thread=id`
+   * adapter; passing `routeThreadId` + `getPath` lets an app bind chats to
+   * route params such as `/chat/:threadId`.
    */
   threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
   /**
@@ -915,41 +936,91 @@ export function MultiTabAssistantChat({
   scope = null,
   ...props
 }: MultiTabAssistantChatProps) {
-  const { enabled: threadUrlSyncEnabled, paramName: threadUrlParamName } =
-    resolveThreadUrlSync(threadUrlSync);
+  const {
+    enabled: threadUrlSyncEnabled,
+    paramName: threadUrlParamName,
+    routeThreadId,
+    getPath: getThreadPath,
+    navigate: navigateThreadUrl,
+  } = resolveThreadUrlSync(threadUrlSync);
+  const threadRouteControlsActiveThread =
+    threadUrlSyncEnabled &&
+    threadUrlSync !== true &&
+    typeof threadUrlSync === "object" &&
+    hasOwn.call(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
-    threadUrlSyncEnabled ? readUrlThreadId(threadUrlParamName) : null,
+    threadUrlSyncEnabled
+      ? threadRouteControlsActiveThread
+        ? (routeThreadId ?? null)
+        : readUrlThreadId(threadUrlParamName)
+      : null,
   );
 
   useEffect(() => {
-    if (!threadUrlSyncEnabled) return;
+    if (!threadUrlSyncEnabled || threadRouteControlsActiveThread) return;
     const update = () => setUrlThreadId(readUrlThreadId(threadUrlParamName));
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    const dispatchUrlChange = () => {
+      window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
+    };
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      dispatchUrlChange();
+      return result;
+    };
     update();
     window.addEventListener("popstate", update);
     window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
     return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
       window.removeEventListener("popstate", update);
       window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
     };
-  }, [threadUrlParamName, threadUrlSyncEnabled]);
+  }, [
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+  ]);
+
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
+    setUrlThreadId(routeThreadId ?? null);
+  }, [routeThreadId, threadRouteControlsActiveThread, threadUrlSyncEnabled]);
 
   const writeThreadUrl = useCallback(
     (threadId: string | null, options: { replace?: boolean } = {}): void => {
       if (!threadUrlSyncEnabled || typeof window === "undefined") return;
       try {
-        const url = new URL(window.location.href);
         const normalizedThreadId = normalizeUrlThreadId(threadId);
-        if (normalizedThreadId) {
-          url.searchParams.set(threadUrlParamName, normalizedThreadId);
+        let next: string;
+        if (getThreadPath) {
+          next = getThreadPath(normalizedThreadId);
         } else {
-          url.searchParams.delete(threadUrlParamName);
+          const url = new URL(window.location.href);
+          if (normalizedThreadId) {
+            url.searchParams.set(threadUrlParamName, normalizedThreadId);
+          } else {
+            url.searchParams.delete(threadUrlParamName);
+          }
+          if (threadUrlParamName !== "threadId") {
+            url.searchParams.delete("threadId");
+          }
+          next = `${url.pathname}${url.search}${url.hash}`;
         }
-        if (threadUrlParamName !== "threadId") {
-          url.searchParams.delete("threadId");
-        }
-        const next = `${url.pathname}${url.search}${url.hash}`;
         const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         if (next === current) {
+          setUrlThreadId(normalizedThreadId);
+          return;
+        }
+        if (getThreadPath && navigateThreadUrl) {
+          navigateThreadUrl(next, { replace: options.replace === true });
           setUrlThreadId(normalizedThreadId);
           return;
         }
@@ -964,7 +1035,12 @@ export function MultiTabAssistantChat({
         window.dispatchEvent(popstate);
       } catch {}
     },
-    [threadUrlParamName, threadUrlSyncEnabled],
+    [
+      getThreadPath,
+      navigateThreadUrl,
+      threadUrlParamName,
+      threadUrlSyncEnabled,
+    ],
   );
 
   const {

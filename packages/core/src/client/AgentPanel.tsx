@@ -470,7 +470,7 @@ export interface AgentPanelProps extends Omit<
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
-  /** Keep chat thread selection in the URL query string. */
+  /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
@@ -2187,7 +2187,7 @@ export interface AgentSidebarProps {
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
-  /** Keep chat thread selection in the URL query string. */
+  /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
 }
 
