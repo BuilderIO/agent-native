@@ -483,32 +483,53 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+const MCP_IMAGE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+
+function base64ByteLength(data: string) {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
+async function fetchImageContent(url: string, fallbackMimeType: string) {
+  const credentials =
+    typeof window !== "undefined" &&
+    new URL(url, window.location.href).origin === window.location.origin
+      ? "same-origin"
+      : "omit";
+  const response = await fetch(url, { credentials });
+  if (!response.ok) return null;
+  const blob = await response.blob();
+  const detectedMimeType = blob.type.startsWith("image/")
+    ? blob.type
+    : fallbackMimeType;
+  return {
+    type: "image",
+    data: await blobToBase64(blob),
+    mimeType: detectedMimeType,
+  };
+}
+
 async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const mimeType = payload.mimeType?.startsWith("image/")
     ? payload.mimeType
     : "image/png";
   if (!url || payload.mediaType !== "image") return null;
-  try {
-    const credentials =
-      typeof window !== "undefined" &&
-      new URL(url, window.location.href).origin === window.location.origin
-        ? "same-origin"
-        : "omit";
-    const response = await fetch(url, { credentials });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const detectedMimeType = blob.type.startsWith("image/")
-      ? blob.type
-      : mimeType;
-    return {
-      type: "image",
-      data: await blobToBase64(blob),
-      mimeType: detectedMimeType,
-    };
-  } catch {
-    return null;
+  const sources = uniqueSources([url, payload.thumbnailUrl]);
+  for (const source of sources) {
+    try {
+      const content = await fetchImageContent(source, mimeType);
+      if (
+        content &&
+        base64ByteLength(content.data) <= MCP_IMAGE_CONTENT_MAX_BYTES
+      ) {
+        return content;
+      }
+    } catch {
+      // Try the next smaller source.
+    }
   }
+  return null;
 }
 
 function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
