@@ -4,10 +4,15 @@ import {
   isChatGptMcpSandboxOrigin,
   isLocalMcpEmbedOrigin,
   isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "./mcp-embed-headers.js";
 
 describe("MCP embed headers", () => {
+  it("allows frontend action-client headers from embedded apps", () => {
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Frontend");
+  });
+
   it("allows ChatGPT web-sandbox origins", () => {
     const origin =
       "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com";

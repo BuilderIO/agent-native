@@ -204,7 +204,6 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       iframe.contentWindow,
       iframe.contentWindow,
     );
-    setReady(false);
     setError(null);
     bridge.connect(transport).catch((err: any) => {
       if (!closed) {
@@ -214,7 +213,6 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
 
     return () => {
       closed = true;
-      setReady(false);
       void bridge
         .teardownResource({}, { timeout: 500 })
         .catch(() => undefined)
