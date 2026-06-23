@@ -64,6 +64,11 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom";
+import {
+  buildClipsShareMeta,
+  clipsSharePageTitle,
+  displayRecordingTitle,
+} from "../../shared/share-meta";
 
 type SharePageMetaRecording = {
   id: string;
@@ -80,24 +85,9 @@ type SharePageMetaRecording = {
 type SharePageLoaderData = {
   recording: SharePageMetaRecording | null;
   agentContextUrl: string | null;
+  origin: string | null;
+  shareUrl: string | null;
 };
-
-const CLIPS_DEFAULT_TITLE = "Untitled recording";
-
-function hasGeneratedTitle(title: string | null | undefined): boolean {
-  const trimmed = (title ?? "").trim();
-  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
-}
-
-function pageTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title)
-    ? `${title!.trim()} · Clips`
-    : "Clip recording · Clips";
-}
-
-function displayRecordingTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
-}
 
 function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
@@ -130,18 +120,16 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-function metaDescription(recording: SharePageMetaRecording | null): string {
-  const description = recording?.description?.trim();
-  if (description) return description.slice(0, 160);
-  if (hasGeneratedTitle(recording?.title)) {
-    return `Watch "${recording!.title.trim()}" on Clips.`;
-  }
-  return "Watch this screen recording on Clips.";
-}
-
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.shareId;
-  if (!id) return { recording: null, agentContextUrl: null };
+  const requestUrl = new URL(request.url);
+  if (!id)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   const [rec] = await getDb()
     .select({
@@ -161,12 +149,24 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  if (!rec) return { recording: null, agentContextUrl: null };
+  if (!rec)
+    return {
+      recording: null,
+      agentContextUrl: null,
+      origin: requestUrl.origin,
+      shareUrl: null,
+    };
 
   if (rec.visibility !== "public") {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return { recording: null, agentContextUrl: null };
+    if (!access)
+      return {
+        recording: null,
+        agentContextUrl: null,
+        origin: requestUrl.origin,
+        shareUrl: null,
+      };
   }
 
   const recording: SharePageMetaRecording = {
@@ -192,10 +192,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
+    origin: requestUrl.origin,
+    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: new URL(request.url).origin,
+            origin: requestUrl.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -205,26 +207,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const recording = data?.recording ?? null;
-  const title = pageTitle(recording?.title);
-  const description = metaDescription(recording);
-  const image =
-    recording?.animatedThumbnailUrl || recording?.thumbnailUrl || undefined;
-
-  return [
-    { title },
-    { name: "description", content: description },
-    { property: "og:title", content: title },
-    { property: "og:description", content: description },
-    { property: "og:type", content: "video.other" },
-    ...(image ? [{ property: "og:image", content: image }] : []),
-    {
-      name: "twitter:card",
-      content: image ? "summary_large_image" : "summary",
-    },
-    { name: "twitter:title", content: title },
-    { name: "twitter:description", content: description },
-  ];
+  return buildClipsShareMeta({
+    recording: data?.recording ?? null,
+    origin: data?.origin ?? null,
+    shareUrl: data?.shareUrl ?? null,
+  });
 };
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
@@ -359,7 +346,7 @@ export default function ShareRoute() {
 
   useEffect(() => {
     if (!recording) return;
-    document.title = pageTitle(recording.title);
+    document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the

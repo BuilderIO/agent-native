@@ -549,6 +549,8 @@ async function executeCodexCliRun(options: {
   const outputPath = path.join(outputDir, "last-message.txt");
   const model = normalizeCodexCliModel(options.model);
   const args = [
+    "--ask-for-approval",
+    "never",
     "exec",
     "--cd",
     cwd,
@@ -557,8 +559,6 @@ async function executeCodexCliRun(options: {
     "--skip-git-repo-check",
     "--sandbox",
     codexSandboxForPermissionMode(options.permissionMode),
-    "--ask-for-approval",
-    "never",
     "--output-last-message",
     outputPath,
   ];

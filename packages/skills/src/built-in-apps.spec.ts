@@ -39,6 +39,15 @@ describe("resolveAppForSkill", () => {
     expect(app?.authMode).toBe("oauth");
   });
 
+  it("maps content to the agent-native-content server", () => {
+    const app = resolveAppForSkill("content");
+    expect(app?.appId).toBe("content");
+    expect(app?.serverName).toBe("agent-native-content");
+    expect(app?.mcpUrl).toBe(
+      "https://content.agent-native.com/_agent-native/mcp",
+    );
+  });
+
   it("maps design-exploration to the agent-native-design server", () => {
     const app = resolveAppForSkill("design-exploration");
     expect(app?.appId).toBe("design");
@@ -71,6 +80,7 @@ describe("appHasMcp", () => {
     expect(appHasMcp("visual-plan")).toBe(true);
     expect(appHasMcp("visual-recap")).toBe(true);
     expect(appHasMcp("assets")).toBe(true);
+    expect(appHasMcp("content")).toBe(true);
     expect(appHasMcp("design-exploration")).toBe(true);
     expect(appHasMcp("context-xray")).toBe(true);
     expect(appHasMcp("nope")).toBe(false);

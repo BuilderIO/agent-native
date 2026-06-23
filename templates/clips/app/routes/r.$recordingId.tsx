@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, NavLink, useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   IconShare3,
@@ -8,6 +9,10 @@ import {
   IconCalendar,
   IconScissors,
   IconAlertTriangle,
+  IconHelpCircle,
+  IconClipboardCopy,
+  IconFileText,
+  IconSparkles,
 } from "@tabler/icons-react";
 import {
   useActionMutation,
@@ -16,8 +21,11 @@ import {
   AgentPanel,
   agentNativePath,
   getBrowserTabId,
+  readClientAppState,
+  useChangeVersions,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
@@ -30,6 +38,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   VideoPlayer,
@@ -58,6 +71,32 @@ export function meta() {
 }
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
+type WorkflowKind = "pr" | "sop" | "ticket" | "email";
+
+const WORKFLOW_MENU_ITEMS: Array<{
+  kind: WorkflowKind;
+  label: string;
+  tooltip?: string;
+}> = [
+  { kind: "pr", label: "Generate PR summary" },
+  {
+    kind: "sop",
+    label: "Generate SOP",
+    tooltip:
+      "SOP means Standard Operating Procedure: a reusable step-by-step runbook generated from this clip.",
+  },
+  { kind: "ticket", label: "Generate ticket" },
+  { kind: "email", label: "Generate email" },
+];
+
+interface GeneratedWorkflowState {
+  kind?: WorkflowKind;
+  status?: "generating" | "ready" | "failed" | string;
+  content?: string;
+  recordingId?: string;
+  requestedAt?: string;
+  error?: string;
+}
 
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
@@ -201,6 +240,30 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const appStateVersion = useChangeVersions(["app-state", "action"]);
+  const generatedWorkflowQ = useQuery<GeneratedWorkflowState | null>({
+    queryKey: [
+      "app-state",
+      "clips-workflow",
+      recording?.id ?? "",
+      appStateVersion,
+    ],
+    enabled: Boolean(recording?.id),
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) =>
+      query.state.data?.status === "generating" ? 2000 : false,
+    queryFn: async ({ signal }) => {
+      if (!recording?.id) return null;
+      return readClientAppState<GeneratedWorkflowState>(
+        `clips-workflow-${recording.id}`,
+        { signal },
+      );
+    },
+  });
+  const generatedWorkflow =
+    generatedWorkflowQ.data?.recordingId === recording?.id
+      ? generatedWorkflowQ.data
+      : null;
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
@@ -305,9 +368,24 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
-    onSuccess: () => toast.success("Workflow request queued"),
+    onSuccess: () => {
+      toast.success("Workflow request queued");
+      void generatedWorkflowQ.refetch();
+    },
     onError: handleAiError,
   });
+  function handleGenerateWorkflow(kind: WorkflowKind) {
+    if (!recording) return;
+    setEditing(false);
+    setPanel("agent");
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
+    );
+    generateWorkflow.mutate({
+      recordingId: recording.id,
+      kind,
+    } as any);
+  }
 
   useEffect(() => {
     if (recording && panel === "settings" && !canEdit) setPanel("agent");
@@ -657,50 +735,42 @@ export default function RecordingPage() {
                   Remove silences (&gt;1.2s)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "pr",
-                    } as any)
+                {WORKFLOW_MENU_ITEMS.map((item) => {
+                  const menuItem = (
+                    <DropdownMenuItem
+                      key={item.kind}
+                      disabled={generateWorkflow.isPending}
+                      onSelect={() => handleGenerateWorkflow(item.kind)}
+                      className={
+                        item.tooltip ? "justify-between gap-3" : undefined
+                      }
+                    >
+                      <span>{item.label}</span>
+                      {item.tooltip ? (
+                        <IconHelpCircle
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                        />
+                      ) : null}
+                    </DropdownMenuItem>
+                  );
+
+                  if (!item.tooltip) {
+                    return menuItem;
                   }
-                >
-                  Generate PR summary
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "sop",
-                    } as any)
-                  }
-                >
-                  Generate SOP
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "ticket",
-                    } as any)
-                  }
-                >
-                  Generate ticket
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={generateWorkflow.isPending}
-                  onSelect={() =>
-                    generateWorkflow.mutate({
-                      recordingId: recording.id,
-                      kind: "email",
-                    } as any)
-                  }
-                >
-                  Generate email
-                </DropdownMenuItem>
+
+                  return (
+                    <Tooltip key={item.kind}>
+                      <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                      <TooltipContent
+                        side="left"
+                        className="max-w-64 text-xs leading-5"
+                      >
+                        {item.tooltip}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -889,6 +959,11 @@ export default function RecordingPage() {
                 browserTabId={getBrowserTabId()}
                 emptyStateText="Ask about this clip…"
                 dynamicSuggestions={false}
+                chatNotice={
+                  generatedWorkflow ? (
+                    <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+                  ) : null
+                }
                 suggestions={
                   canEdit
                     ? [
@@ -1001,6 +1076,122 @@ export default function RecordingPage() {
       ) : null}
     </div>
   );
+}
+
+function GeneratedWorkflowNotice({
+  workflow,
+}: {
+  workflow: GeneratedWorkflowState;
+}) {
+  const [copied, setCopied] = useState(false);
+  const status = workflow.status ?? (workflow.content ? "ready" : "generating");
+  const content =
+    typeof workflow.content === "string" ? workflow.content.trim() : "";
+  const isReady = status === "ready" && content.length > 0;
+  const isFailed = status === "failed";
+  const title = workflowTitle(workflow.kind);
+
+  async function handleCopy() {
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      toast.success(`${title} copied`);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error("Couldn't copy generated output");
+    }
+  }
+
+  return (
+    <div className="bg-background px-3 py-2.5">
+      <div className="overflow-hidden rounded-md border border-border bg-muted/20">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+              {isReady ? (
+                <IconFileText className="h-3.5 w-3.5" />
+              ) : (
+                <IconSparkles className="h-3.5 w-3.5" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-foreground">
+                {title}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {isReady
+                  ? "Generated from this clip"
+                  : isFailed
+                    ? workflow.error ||
+                      "The agent could not finish this output."
+                    : "The agent is writing this output now."}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Badge
+              variant={
+                isFailed ? "destructive" : isReady ? "secondary" : "outline"
+              }
+              className="px-1.5 py-0 text-[10px] font-medium"
+            >
+              {workflowStatusLabel(status, isReady)}
+            </Badge>
+            {content ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px]"
+                onClick={handleCopy}
+              >
+                <IconClipboardCopy className="h-3.5 w-3.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        {content ? (
+          <div className="max-h-48 overflow-auto px-3 py-2">
+            <div className="whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
+              {content}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+            {isFailed ? null : <Spinner className="h-3.5 w-3.5" />}
+            <span>
+              {isFailed
+                ? workflow.error || "No generated output was saved."
+                : "Generated output will appear here when it is ready."}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function workflowTitle(kind: GeneratedWorkflowState["kind"]) {
+  switch (kind) {
+    case "pr":
+      return "Generated PR Summary";
+    case "sop":
+      return "Generated SOP";
+    case "ticket":
+      return "Generated Ticket";
+    case "email":
+      return "Generated Email";
+    default:
+      return "Generated Output";
+  }
+}
+
+function workflowStatusLabel(status: string, isReady: boolean) {
+  if (isReady) return "Ready";
+  if (status === "failed") return "Failed";
+  return "Generating";
 }
 
 function capitalize(s: string) {

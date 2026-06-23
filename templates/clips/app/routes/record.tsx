@@ -33,6 +33,11 @@ import {
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
 import {
+  createBrowserDiagnosticsCapture,
+  type BrowserDiagnosticsCapture,
+} from "@/lib/browser-diagnostics-capture";
+import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
+import {
   buildCaptureTitle,
   defaultRecordingTitle,
   inferWindowTitleFromDisplayStream,
@@ -60,16 +65,6 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
@@ -113,6 +108,19 @@ type UiState =
   | "complete"
   | "error";
 
+type ClipsExtensionCapture = {
+  extensionId: string;
+  sessionId: string;
+  sourceUrl: string | null;
+  developerLogsEnabled: boolean;
+};
+
+type ClipsExtensionDiagnosticsResponse = {
+  ok?: boolean;
+  diagnostics?: BrowserDiagnosticsData;
+  error?: string;
+};
+
 const MAC_SCREEN_RECORDING_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 const MAC_CAMERA_PREF_URL =
@@ -144,6 +152,32 @@ function openUrlFromUserGesture(url: string): void {
   if (!opened) {
     window.location.href = url;
   }
+}
+
+function sendClipsExtensionMessage<T>(
+  extensionId: string,
+  message: Record<string, unknown>,
+): Promise<T | null> {
+  const runtime = (globalThis as { chrome?: any }).chrome?.runtime;
+  if (!runtime?.sendMessage) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      runtime.sendMessage(extensionId, message, (response: T | undefined) => {
+        if (runtime.lastError) {
+          console.warn("[recorder] Clips extension message failed:", {
+            message: runtime.lastError.message,
+            type: message.type,
+          });
+          resolve(null);
+          return;
+        }
+        resolve(response ?? null);
+      });
+    } catch (err) {
+      console.warn("[recorder] Clips extension message failed:", err);
+      resolve(null);
+    }
+  });
 }
 
 function capturePolicy(): BrowserDocumentPolicy | null {
@@ -679,7 +713,6 @@ export default function RecordRoute() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
@@ -719,6 +752,19 @@ export default function RecordRoute() {
       surface: getDisplaySurfaceParam(surface),
     };
   }, [location.search]);
+  const extensionCapture = useMemo<ClipsExtensionCapture | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const extensionId = params.get("clipsExtensionId")?.trim();
+    const sessionId = params.get("clipsCaptureSessionId")?.trim();
+    if (!extensionId || !sessionId) return null;
+    const developerLogs = params.get("developerLogs");
+    return {
+      extensionId,
+      sessionId,
+      sourceUrl: params.get("sourceUrl")?.trim() || null,
+      developerLogsEnabled: developerLogs !== "0",
+    };
+  }, [location.search]);
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -743,10 +789,6 @@ export default function RecordRoute() {
   // Stable ref to doStop so engine callbacks created during startFlow always
   // call the latest version (avoids stale-closure problems with useCallback deps).
   const doStopRef = useRef<() => Promise<void>>(async () => {});
-  // Tracks whether opening the stop-confirm dialog auto-paused a live
-  // recording — so closing the dialog without choosing an action resumes
-  // it, but doesn't unpause a recording the user had paused themselves.
-  const autoPausedForStopConfirmRef = useRef(false);
   const pendingStartOptsRef = useRef<{
     mode: RecordingMode;
     displaySurface: DisplaySurface;
@@ -756,6 +798,7 @@ export default function RecordRoute() {
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
+  const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
 
@@ -1447,6 +1490,53 @@ export default function RecordRoute() {
     [folderIdFromUrl, navigate, spaceIdFromUrl],
   );
 
+  const saveBrowserDiagnostics = useCallback(
+    async (recordingId: string) => {
+      const capture = browserDiagnosticsRef.current;
+      browserDiagnosticsRef.current = null;
+      if (extensionCapture && !extensionCapture.developerLogsEnabled) {
+        capture?.dispose();
+        return;
+      }
+      const localSnapshot = capture?.stop() ?? null;
+      const extensionResponse = extensionCapture
+        ? await sendClipsExtensionMessage<ClipsExtensionDiagnosticsResponse>(
+            extensionCapture.extensionId,
+            {
+              type: "CLIPS_CAPTURE_STOP",
+              sessionId: extensionCapture.sessionId,
+              recordingId,
+            },
+          )
+        : null;
+      const extensionSnapshot =
+        extensionResponse?.ok && extensionResponse.diagnostics
+          ? extensionResponse.diagnostics
+          : null;
+      const snapshot = extensionSnapshot ?? localSnapshot;
+      if (!snapshot) return;
+      try {
+        await callAction(
+          "save-browser-diagnostics" as any,
+          {
+            recordingId,
+            source: extensionSnapshot ? "extension" : "browser-recorder",
+            phase: "recording",
+            pageUrl: snapshot.pageUrl,
+            userAgent: snapshot.userAgent,
+            startedAt: snapshot.startedAt,
+            endedAt: snapshot.endedAt,
+            consoleLogs: snapshot.consoleLogs,
+            networkRequests: snapshot.networkRequests,
+          } as any,
+        );
+      } catch (err) {
+        console.warn("[recorder] browser diagnostics save failed:", err);
+      }
+    },
+    [extensionCapture],
+  );
+
   // -------------------------------------------------------------------------
   // After countdown → actually start MediaRecorder.
   // -------------------------------------------------------------------------
@@ -1455,16 +1545,36 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current =
+        extensionCapture && !extensionCapture.developerLogsEnabled
+          ? null
+          : createBrowserDiagnosticsCapture();
+      const recordingId = pendingRef.current?.id;
+      if (
+        extensionCapture &&
+        extensionCapture.developerLogsEnabled &&
+        recordingId
+      ) {
+        void sendClipsExtensionMessage(extensionCapture.extensionId, {
+          type: "CLIPS_CAPTURE_START",
+          sessionId: extensionCapture.sessionId,
+          recordingId,
+          pageUrl: extensionCapture.sourceUrl ?? window.location.href,
+        });
+      }
       setUiState("recording");
       setIsPaused(false);
     } catch (err) {
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = null;
       const message =
         err instanceof Error ? err.message : "Could not start recorder";
       setError(message);
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [showRecordingErrorToast]);
+  }, [extensionCapture, showRecordingErrorToast]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
@@ -1551,6 +1661,7 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
+      await saveBrowserDiagnostics(pending.id);
       await finishSavedRecording(pending.id, stopResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
@@ -1574,6 +1685,7 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
+      await saveBrowserDiagnostics(pending.id);
       fetch(pending.abortUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1586,7 +1698,7 @@ export default function RecordRoute() {
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording, liveTranscription]);
+  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
@@ -1640,30 +1752,6 @@ export default function RecordRoute() {
     toast.success("Recording download started");
   }, []);
 
-  const requestStop = useCallback(() => {
-    const engine = engineRef.current;
-    if (engine && engine.getState() === "recording") {
-      engine.pause();
-      setIsPaused(true);
-      autoPausedForStopConfirmRef.current = true;
-    } else {
-      autoPausedForStopConfirmRef.current = false;
-    }
-    setShowStopConfirm(true);
-  }, []);
-
-  const onStopConfirmOpenChange = useCallback((open: boolean) => {
-    setShowStopConfirm(open);
-    if (!open && autoPausedForStopConfirmRef.current) {
-      const engine = engineRef.current;
-      if (engine && engine.getState() === "paused") {
-        engine.resume();
-        setIsPaused(false);
-      }
-      autoPausedForStopConfirmRef.current = false;
-    }
-  }, []);
-
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
@@ -1674,6 +1762,14 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();
+    browserDiagnosticsRef.current?.dispose();
+    browserDiagnosticsRef.current = null;
+    if (extensionCapture) {
+      void sendClipsExtensionMessage(extensionCapture.extensionId, {
+        type: "CLIPS_CAPTURE_CANCEL",
+        sessionId: extensionCapture.sessionId,
+      });
+    }
     try {
       await engine?.cancel();
     } catch {
@@ -1692,7 +1788,7 @@ export default function RecordRoute() {
     setUiState("idle");
     pendingRef.current = null;
     engineRef.current = null;
-  }, [liveTranscription]);
+  }, [extensionCapture, liveTranscription]);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -1731,8 +1827,8 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc cancels the pre-record countdown. Once recording is live, it opens
-      // the stop confirmation instead.
+      // Esc cancels the pre-record countdown. Once recording is live, it
+      // finishes the clip just like the stop button.
       if (e.key === "Escape") {
         if (uiState === "countdown") {
           e.preventDefault();
@@ -1740,14 +1836,10 @@ export default function RecordRoute() {
           void doCancel();
           return;
         }
-        if (!showStopConfirm && uiState === "recording") {
+        if (uiState === "recording") {
           e.preventDefault();
-          // Stop propagation so the same Esc keydown doesn't also trigger
-          // the AlertDialog's built-in Esc-to-close handler, which would
-          // immediately dismiss the dialog the moment it opens — leaving
-          // the user trapped in recording state with a flickering dialog.
           e.stopPropagation();
-          requestStop();
+          void doStop();
           return;
         }
       }
@@ -1790,15 +1882,7 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    uiState,
-    showStopConfirm,
-    togglePause,
-    doCancel,
-    restart,
-    fireConfetti,
-    requestStop,
-  ]);
+  }, [uiState, togglePause, doCancel, doStop, restart, fireConfetti]);
 
   // Query params can preselect recorder controls, but browser capture must
   // still start from the user's Start click. Calling getDisplayMedia from an
@@ -1816,6 +1900,14 @@ export default function RecordRoute() {
         fileUploadAbortRef.current = null;
       }
       stopLiveTranscription();
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = null;
+      if (extensionCapture) {
+        void sendClipsExtensionMessage(extensionCapture.extensionId, {
+          type: "CLIPS_CAPTURE_CANCEL",
+          sessionId: extensionCapture.sessionId,
+        });
+      }
       const engine = engineRef.current;
       engineRef.current = null;
       pendingRef.current = null;
@@ -1836,7 +1928,7 @@ export default function RecordRoute() {
       window.removeEventListener("beforeunload", warnBeforeDiscard);
       releaseCapture();
     };
-  }, [stopLiveTranscription]);
+  }, [extensionCapture, stopLiveTranscription]);
 
   // -------------------------------------------------------------------------
   // Render.
@@ -2002,9 +2094,9 @@ export default function RecordRoute() {
           elapsedMs={elapsedMs}
           isPaused={isPaused}
           onTogglePause={togglePause}
-          onStop={requestStop}
+          onStop={() => void doStop()}
           onConfetti={fireConfetti}
-          onCancel={requestStop}
+          onCancel={() => void doCancel()}
         />
       )}
 
@@ -2099,54 +2191,6 @@ export default function RecordRoute() {
           )}
         </div>
       )}
-
-      {/* Stop confirmation */}
-      <AlertDialog
-        open={showStopConfirm}
-        onOpenChange={onStopConfirmOpenChange}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Stop recording?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Save this recording to your library, discard it, or keep going.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel>Keep recording</AlertDialogCancel>
-            <Button
-              variant="outline"
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void doCancel();
-              }}
-            >
-              Discard
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void restart();
-              }}
-            >
-              Restart
-            </Button>
-            <AlertDialogAction
-              onClick={() => {
-                autoPausedForStopConfirmRef.current = false;
-                setShowStopConfirm(false);
-                void doStop();
-              }}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Stop and save
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

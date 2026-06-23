@@ -63,15 +63,17 @@ function enqueue(
   const queue = getQueue();
   queue.push({ url, body, headers });
   if (queue.length >= MAX_BATCH_SIZE) {
-    drainQueue();
+    void drainQueue();
   } else if (!getTimer()) {
-    const timer = setTimeout(drainQueue, BATCH_INTERVAL_MS);
+    const timer = setTimeout(() => {
+      void drainQueue();
+    }, BATCH_INTERVAL_MS);
     if (timer.unref) timer.unref();
     setTimer(timer);
   }
 }
 
-function drainQueue(): void {
+function drainQueue(): Promise<void[]> {
   const t = getTimer();
   if (t) {
     clearTimeout(t);
@@ -79,13 +81,18 @@ function drainQueue(): void {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  for (const item of batch) {
-    fetch(item.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...item.headers },
-      body: item.body,
-    }).catch(() => {});
-  }
+  return Promise.all(
+    batch.map((item) =>
+      fetch(item.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...item.headers },
+        body: item.body,
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
+    ),
+  );
 }
 
 function isLocalhostUrl(value: string | undefined): boolean {
@@ -156,8 +163,7 @@ function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -190,8 +196,7 @@ function createMixpanelProvider(token: string): TrackingProvider {
       enqueue("https://api.mixpanel.com/engage", JSON.stringify([data]));
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -231,8 +236,7 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
       enqueue("https://api2.amplitude.com/2/httpapi", JSON.stringify(data));
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -271,8 +275,7 @@ function createWebhookProvider(
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -310,8 +313,7 @@ function createAgentNativeAnalyticsProvider(
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }

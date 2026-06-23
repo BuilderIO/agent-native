@@ -45,7 +45,7 @@ features. Prefer this app's own `AGENTS.md` for app-specific rules.
 Run actions from this app root:
 
 ```bash
-pnpm action hello --name Builder
+pnpm action hello '{"name":"Builder"}'
 ```
 
 Run the app-agent loop against those actions:

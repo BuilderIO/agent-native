@@ -24,6 +24,7 @@ import {
   getActiveOrganizationId,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 
 interface NavigationState {
   view?: string;
@@ -118,6 +119,16 @@ async function fetchComments(recordingId: string) {
     resolved: Boolean(c.resolved),
     createdAt: c.createdAt,
   }));
+}
+
+async function fetchBrowserDiagnosticsSummary(recordingId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.recordingBrowserDiagnostics)
+    .where(eq(schema.recordingBrowserDiagnostics.recordingId, recordingId))
+    .limit(1);
+  return parseBrowserDiagnosticsRow(row)?.summary ?? null;
 }
 
 async function fetchLibrary(folderId?: string) {
@@ -447,10 +458,12 @@ export default defineAction({
         if (nav.recordingId) {
           const recording = await fetchRecording(nav.recordingId);
           if (recording) {
-            const [transcript, comments] = await Promise.all([
-              fetchTranscript(nav.recordingId),
-              fetchComments(nav.recordingId),
-            ]);
+            const [transcript, comments, browserDiagnosticsSummary] =
+              await Promise.all([
+                fetchTranscript(nav.recordingId),
+                fetchComments(nav.recordingId),
+                fetchBrowserDiagnosticsSummary(nav.recordingId),
+              ]);
             screen.recording = recording;
             if (transcript) {
               // Ambient snapshot only — embed a short fullText snippet and the
@@ -473,6 +486,12 @@ export default defineAction({
               };
             }
             screen.comments = comments.slice(0, 50);
+            if (browserDiagnosticsSummary) {
+              screen.browserDiagnostics = {
+                summary: browserDiagnosticsSummary,
+                note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
+              };
+            }
           }
         }
         break;

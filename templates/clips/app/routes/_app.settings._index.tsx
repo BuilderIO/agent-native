@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import {
+  IconBrain,
   IconCloud,
+  IconExternalLink,
+  IconKey,
   IconLoader2,
   IconServer,
   IconUser,
 } from "@tabler/icons-react";
-import { useSession, agentNativePath } from "@agent-native/core/client";
+import {
+  useSession,
+  agentNativePath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -285,6 +292,56 @@ export default function SettingsIndexRoute() {
                 )}
                 Save storage
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card id="ai-providers" className="scroll-mt-16">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <IconBrain className="size-4 text-primary" />
+              AI setup
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <IconKey className="h-4 w-4 text-muted-foreground" />
+                  Builder.io is the easiest setup
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Connect Builder first for included AI credits, object storage,
+                  uploads, and managed transcription. BYOK is still available
+                  from the agent sidebar.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  openBuilderConnectPopup({
+                    source: "clips_settings_ai_providers",
+                  });
+                  toast.message("Finish connecting Builder.io in the popup.");
+                }}
+              >
+                <IconExternalLink className="h-4 w-4" />
+                Connect Builder.io
+              </Button>
+            </div>
+
+            <div className="rounded-md border border-border p-3">
+              <div className="text-sm font-medium">
+                Bring your own provider key
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open the agent sidebar menu, then API Keys & Connections, to add
+                Anthropic, OpenAI, Gemini, Groq, or other supported keys. Usage
+                bills to the provider account you connect.
+              </p>
             </div>
           </CardContent>
         </Card>

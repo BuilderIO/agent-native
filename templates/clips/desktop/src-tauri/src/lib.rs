@@ -69,6 +69,7 @@ pub fn run() {
             clips::show_region_guides,
             clips::hide_region_guides,
             clips::show_region_guide_editor,
+            clips::show_region_capture_selector,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
@@ -97,7 +98,8 @@ pub fn run() {
             native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
-            native_screen::native_fullscreen_recording_start,
+            native_screen::native_fullscreen_recording_warm,
+            native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,

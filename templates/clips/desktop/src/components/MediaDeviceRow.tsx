@@ -135,7 +135,10 @@ export function MediaDeviceRow({
       </button>
       <Toggle
         on={on}
-        onChange={onToggle}
+        onChange={(v) => {
+          if (!v) setOpen(false);
+          onToggle(v);
+        }}
         label={kind === "camera" ? "Camera" : "Microphone"}
       />
       {open ? (

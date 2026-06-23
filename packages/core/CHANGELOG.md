@@ -1,5 +1,43 @@
 # @agent-native/core
 
+## 0.66.9
+
+### Patch Changes
+
+- 11a28e7: Track first-time Google OAuth signups and flush server-side signup tracking
+  before auth returns so low-volume events are delivered reliably from serverless
+  deployments.
+
+## 0.66.8
+
+### Patch Changes
+
+- f514c12: Add the Content app-backed skill and a `skills add content --mode local-files`
+  install path that writes Content local-file workspace defaults to
+  `agent-native.json`.
+- f514c12: Pass Codex CLI approval policy before the `exec` subcommand so local Code runs
+  work with current Codex CLI argument parsing.
+- f514c12: Allow `pnpm action <name> '{"arg":"value"}'` to pass a positional JSON object
+  to defineAction and package actions while preserving existing flag arguments.
+- f514c12: Show the onboarding setup prompt in the agent sidebar on normal deployed app surfaces so required Builder/BYOK setup is visible to users.
+- f514c12: Prefer inline Builder connect guidance for chat attachment upload recovery.
+
+## 0.66.7
+
+### Patch Changes
+
+- 3d7df7d: Normalize exhausted provider rate-limit errors in agent chat and keep raw 429
+  provider messages in diagnostics instead of the primary UI copy.
+- 3d7df7d: Dismiss code annotation hover cards on layout changes and outside interactions.
+
+## 0.66.6
+
+### Patch Changes
+
+- 337bcc5: Fix visual plan layout polish: compact question previews, mark wide-eligible tabs for diff-like content, align drag handles with wide blocks, and theme custom HTML iframes for dark mode.
+- 337bcc5: Move the sidebar Connect AI setup card above the composer and stack its actions.
+- 337bcc5: Keep the wireframe style toggle outside the Rough.js measurement scope so sketch mode no longer draws a ghost outline for the hidden Clean button.
+
 ## 0.66.5
 
 ### Patch Changes

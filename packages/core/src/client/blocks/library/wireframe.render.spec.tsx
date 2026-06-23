@@ -55,6 +55,28 @@ function fitWrapperStyle(html: string): string {
   return innerTag.match(/style="([^"]*)"/)?.[1] ?? "";
 }
 
+function roughScopeInnerHtml(html: string): string {
+  const marker = 'data-rough-scope="wireframe"';
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return "";
+  const tagEnd = html.indexOf(">", markerIndex);
+  if (tagEnd < 0) return "";
+
+  let depth = 1;
+  const tagRe = /<\/?div\b[^>]*>/g;
+  tagRe.lastIndex = tagEnd + 1;
+  for (let match = tagRe.exec(html); match; match = tagRe.exec(html)) {
+    const tag = match[0];
+    if (tag.startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) return html.slice(tagEnd + 1, match.index);
+    } else if (!tag.endsWith("/>")) {
+      depth += 1;
+    }
+  }
+  return "";
+}
+
 describe("wireframe auto-height frame", () => {
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
     const html = render({
@@ -130,6 +152,19 @@ describe("wireframe auto-height frame", () => {
 
     expect(html).toContain('aria-label="Switch to clean visual style"');
     expect(html).toContain(">Clean</span>");
+  });
+
+  it("keeps the visual style toggle outside the rough.js measurement scope", () => {
+    const html = render({
+      surface: "browser",
+      html: "<button>Authored mock button</button>",
+    });
+
+    const buttonMarker = 'data-wireframe-style-toggle="true"';
+    expect(html).toContain('data-rough-scope="wireframe"');
+    expect(html).toContain(buttonMarker);
+    expect(html).toContain('data-rough="none"');
+    expect(roughScopeInnerHtml(html)).not.toContain(buttonMarker);
   });
 
   it("renders allowlisted icon markers as inline Tabler-style SVG icons", () => {
