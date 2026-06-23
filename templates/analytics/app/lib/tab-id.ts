@@ -1,1 +1,3 @@
-export const TAB_ID = Math.random().toString(36).slice(2, 10);
+import { getBrowserTabId } from "@agent-native/core/client";
+
+export const TAB_ID = getBrowserTabId();

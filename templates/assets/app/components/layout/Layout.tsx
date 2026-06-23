@@ -7,6 +7,7 @@ import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   focusAgentChat,
+  getBrowserTabId,
   isEmbedAuthActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
@@ -15,7 +16,6 @@ import {
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
-import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
@@ -122,7 +122,7 @@ export function Layout({ children }: LayoutProps) {
         position="right"
         chatViewTransition
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        browserTabId={TAB_ID}
+        browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
         emptyStateText="Describe the asset you want to make"

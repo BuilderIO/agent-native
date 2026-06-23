@@ -4,6 +4,8 @@ import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();
 
+export { getBrowserTabId } from "./browser-tab-id.js";
+
 export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,

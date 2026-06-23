@@ -9,13 +9,13 @@ import {
   appPath,
   configureTracking,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -79,7 +79,7 @@ function DbSyncSetup() {
       "app-state",
       "extensions",
     ],
-    ignoreSource: TAB_ID,
+    ignoreSource: getBrowserTabId(),
   });
   return null;
 }

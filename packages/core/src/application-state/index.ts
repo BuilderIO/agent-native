@@ -34,4 +34,8 @@ export {
   deleteAppState,
   listAppState,
   deleteAppStateByPrefix,
+  readAppStateForCurrentTab,
+  writeAppStateForCurrentTab,
+  appStateKeyForBrowserTab,
+  getCurrentRequestBrowserTabId,
 } from "./script-helpers.js";
