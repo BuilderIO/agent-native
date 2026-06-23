@@ -106,3 +106,6 @@ templates/*/.env.local
 templates/*/.env.*.local
 test-reports/
 *.tsbuildinfo
+
+# tsup transient bundled config artifacts
+tsup.config.bundled_*.mjs
