@@ -477,7 +477,8 @@ installed as plain text and no MCP tools are registered after discovery, run
 `npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
 file first. The CLI command calls the public no-auth `get-plan-blocks` route and
 sends no plan/recap content. If network access is unavailable, use the bundled
-references and validate with `plan local check` / `plan local serve`.
+references and validate with `plan local check`; run `plan local serve` only
+when the hosted Plan UI is reachable or a local Plan app is already running.
 
 The catalog returns the authoritative, always-current block vocabulary generated
 live from the app's own block registry — the same config the renderer and MDX

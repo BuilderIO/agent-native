@@ -9,6 +9,7 @@ import {
   appBasePath,
   appPath,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client";
 import {
   Popover,
