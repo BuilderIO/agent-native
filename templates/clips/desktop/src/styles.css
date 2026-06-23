@@ -2106,8 +2106,18 @@ body[data-clips-route="recording-pill"] #root {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  -webkit-text-stroke: 1px rgba(17, 24, 39, 0.22);
+  /*
+   * Do NOT use -webkit-text-stroke here: it joins with a hard miter and no way
+   * to set stroke-linejoin, so at this size/weight the sharp concave corner of
+   * the "2" (where the curved top meets the flat bottom bar) sprouts star-shaped
+   * miter spikes. We fake a soft dark edge with a 4-direction 1px shadow halo
+   * instead, which has no join geometry and cannot spike.
+   */
   text-shadow:
+    1px 0 1px rgba(17, 24, 39, 0.22),
+    -1px 0 1px rgba(17, 24, 39, 0.22),
+    0 1px 1px rgba(17, 24, 39, 0.22),
+    0 -1px 1px rgba(17, 24, 39, 0.22),
     0 2px 4px rgba(0, 0, 0, 0.48),
     0 12px 34px rgba(0, 0, 0, 0.36),
     0 0 2px rgba(0, 0, 0, 0.72);
@@ -2420,8 +2430,12 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  /* Pin content to the top in BOTH states. The primary controls are
+     centered inside their own fixed-height zone (.toolbar-v-primary), so
+     the collapsed→expanded growth only adds room BELOW them. Without this,
+     flipping justify-content center→flex-start on hover yanked the Stop
+     button up toward the bar's top edge. */
+  justify-content: flex-start;
   /* Equal inset on all four sides from the pill edge to the buttons. */
   padding: 10px;
   overflow: hidden;
@@ -2440,13 +2454,27 @@ body[data-clips-route="recording-pill"] #root {
 
 .toolbar-v:hover,
 .toolbar-v:focus-within {
-  height: 234px;
-  justify-content: flex-start;
+  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 130px primary
+     zone + 88px hover actions (+2 margin) + 20px vertical padding. */
+  height: 240px;
   border-radius: 26px;
 }
 
 .toolbar-v:active {
   cursor: grabbing;
+}
+
+/* Fixed-height home for Stop / time / Pause. Its height equals the collapsed
+   pill's content box (150px − 20px vertical padding = 130px), so the trio is
+   centered exactly as before when collapsed and never shifts when the pill
+   grows on hover — the extra height flows into .toolbar-v-hover-actions below. */
+.toolbar-v-primary {
+  flex: 0 0 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .toolbar-v-stop {

@@ -47,12 +47,6 @@ export function Countdown() {
   }, [closeWithEvent]);
 
   useEffect(() => {
-    if (n === 1) {
-      emit("clips:countdown-one").catch(() => {});
-    }
-  }, [n]);
-
-  useEffect(() => {
     if (n <= 0) {
       closeWithEvent("clips:countdown-done");
       return;

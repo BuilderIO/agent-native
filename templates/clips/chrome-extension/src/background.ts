@@ -210,7 +210,11 @@ type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
+// Bubble during the countdown preview (any camera). During recording, the face
+// is composited into the video by the offscreen for screen+camera, so we only
+// show the on-page bubble for camera-only mode (recordingShowsBubble).
 let overlayShowsBubble = false;
+let recordingShowsBubble = false;
 let countdownEndsAtMs = 0;
 
 function desiredParts(): OverlayPart[] {
@@ -221,7 +225,7 @@ function desiredParts(): OverlayPart[] {
     return overlayShowsBubble ? ["bubble", "countdown"] : ["countdown"];
   }
   if (overlayPhase === "recording" || overlayPhase === "paused") {
-    return overlayShowsBubble ? ["bubble", "toolbar"] : ["toolbar"];
+    return recordingShowsBubble ? ["bubble", "toolbar"] : ["toolbar"];
   }
   if (overlayPhase === "saving") {
     return ["saving"];
@@ -286,6 +290,7 @@ function persistOverlay(): Promise<void> {
       baseElapsedMs: overlayBaseElapsedMs,
       baseEpochMs: overlayBaseEpochMs,
       showsBubble: overlayShowsBubble,
+      recordingShowsBubble,
       countdownEndsAtMs,
     },
   }).catch(() => undefined);
@@ -316,6 +321,7 @@ async function restoreRuntimeState(): Promise<void> {
     overlayBaseEpochMs =
       typeof rt.baseEpochMs === "number" ? rt.baseEpochMs : 0;
     overlayShowsBubble = Boolean(rt.showsBubble);
+    recordingShowsBubble = Boolean(rt.recordingShowsBubble);
     countdownEndsAtMs =
       typeof rt.countdownEndsAtMs === "number" ? rt.countdownEndsAtMs : 0;
   }
@@ -413,6 +419,7 @@ function resetOverlay(): void {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = 0;
   overlayShowsBubble = false;
+  recordingShowsBubble = false;
   clearCountdownTimer();
   setRecordingFlag(false);
   // Bring back the toolbar popup now that we're idle again.
@@ -893,6 +900,7 @@ async function armRecording(args: {
     mode,
     surface,
     includeMicrophone: settings.includeMicrophone,
+    includeCamera: settings.includeCamera,
   });
   console.log("[clips-bg] arm: acquired stream", acq);
 
@@ -959,6 +967,7 @@ async function armRecording(args: {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
   overlayShowsBubble = mode === "camera" || settings.includeCamera;
+  recordingShowsBubble = mode === "camera";
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
   setRecordingFlag(true);
   // Clicking the icon now stops & saves immediately instead of opening the popup.
