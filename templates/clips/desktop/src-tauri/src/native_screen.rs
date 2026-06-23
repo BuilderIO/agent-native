@@ -258,6 +258,9 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
         let tick_ms = 500u64;
         let ticks_per_check = (DISK_MONITOR_INTERVAL_SECS * 1000) / tick_ms;
         let mut ticks = 0u64;
+        // True once a warning/critical event has been emitted; used to gate the
+        // recovery ok event so we only emit it on actual state transitions.
+        let mut was_elevated = false;
         loop {
             std::thread::sleep(Duration::from_millis(tick_ms));
             if stop_clone.load(Ordering::Relaxed) {
@@ -279,6 +282,7 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
                         "clips:disk-space-critical",
                         serde_json::json!({ "freeMb": free_mb }),
                     );
+                    was_elevated = true;
                 } else if free < DISK_MONITOR_WARN_BYTES {
                     eprintln!(
                         "[clips-tray] disk space low during recording: {} free",
@@ -288,12 +292,14 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
                         "clips:disk-space-warning",
                         serde_json::json!({ "freeMb": free_mb }),
                     );
-                } else {
-                    // Space is adequate — clear any previous warning in the UI.
+                    was_elevated = true;
+                } else if was_elevated {
+                    // Space recovered — notify the UI to clear its warning.
                     let _ = app.emit(
                         "clips:disk-space-ok",
                         serde_json::json!({ "freeMb": free_mb }),
                     );
+                    was_elevated = false;
                 }
             }
         }
@@ -728,8 +734,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     if let Err(stop_err) = &stop_outcome {
         saved.last_error = Some(stop_err.clone());
-        // Gate the corrupt flag on both the error string AND actual file
-        // validation — a transient finalize error that still produces a valid
+        // Only mark corrupt when the SCK delegate explicitly reported failure
+        // (recording_did_fail) AND the file is missing its moov atom. A
+        // transient remove_recording_output error that still produces a valid
         // MP4 should remain retryable rather than forcing a re-record.
         if mp4_has_moov(&saved.file_path) == Some(false) {
             saved.corrupt = true;
@@ -738,11 +745,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             );
         }
     } else if mp4_has_moov(&saved.file_path) == Some(false) {
-        // stop_outcome was Ok but the finalize callback may have timed out,
-        // leaving the file without a moov atom. Mark corrupt so the UI
-        // surfaces this immediately rather than queuing retries.
-        saved.corrupt = true;
-        eprintln!("[clips-tray] recording marked corrupt: missing moov atom despite Ok stop outcome (likely finalize timeout)");
+        // stop_outcome was Ok but the finalize callback timed out — SCK may
+        // still be flushing the moov atom. Keep the file retryable rather
+        // than marking it permanently corrupt on this first check.
+        saved.last_error = Some(
+            "Recorded MP4 is missing playback metadata. Please retry the recording."
+                .to_string(),
+        );
+        eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — leaving retryable");
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
     }
@@ -824,20 +834,30 @@ pub async fn native_fullscreen_recording_stop_and_save(
             ));
         }
     }
-    // If the finalization callback reported an error AND the file is missing
-    // a moov atom, the exported MP4 would be unplayable. Fail now rather than
-    // handing the user a broken local file with no server-side backstop.
-    // Check for a missing moov atom regardless of the stop_outcome string:
-    // finalize can also time out and return Ok(()), leaving the file corrupt.
-    if mp4_has_moov(&session.path) == Some(false) {
+    // Gate corruption actions on the definitive outcome:
+    //  - Explicit SCK error (recording_did_fail) + missing moov → file is permanently
+    //    unrecoverable; delete it so it doesn't accumulate on disk and fail hard.
+    //  - Timeout path (stop_outcome Ok but moov absent) → SCK may still be flushing;
+    //    reject the export but keep the file so the user can attempt recovery.
+    if let Err(_) = &stop_outcome {
+        if mp4_has_moov(&session.path) == Some(false) {
+            eprintln!(
+                "[clips-tray] native local recording corrupt (finalize error + missing moov) — not exporting"
+            );
+            let _ = std::fs::remove_file(&session.path);
+            return Err(
+                "Recorded file is corrupted — the video is incomplete and cannot be saved. \
+                 Please record again."
+                    .into(),
+            );
+        }
+    } else if mp4_has_moov(&session.path) == Some(false) {
         eprintln!(
-            "[clips-tray] native local recording corrupt (missing moov atom) — not exporting; stop_outcome_ok={}",
-            stop_outcome.is_ok()
+            "[clips-tray] native local recording has no moov after finalize timeout — rejecting export without deleting file"
         );
-        let _ = std::fs::remove_file(&session.path);
         return Err(
-            "Recorded file is corrupted — the video is incomplete and cannot be saved. \
-             Please record again."
+            "Recording could not be saved — video finalization timed out and the file may be \
+             incomplete. The raw file has been kept in the Clips pending folder."
                 .into(),
         );
     }
