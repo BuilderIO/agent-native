@@ -1531,6 +1531,7 @@ export async function createMCPServerForRequest(
           userEmail: getRequestUserEmail(),
           orgId: getRequestOrgId() ?? null,
           caller: "mcp",
+          actionName: name,
         });
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;

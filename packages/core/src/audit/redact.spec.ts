@@ -27,6 +27,22 @@ describe("redactArgsToJson", () => {
     expect(JSON.parse(json!).note).toBe("[redacted]");
   });
 
+  it("redacts webhook URLs under a generic field, regardless of key", () => {
+    expect(
+      __test.looksSecret(
+        "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
+      ),
+    ).toBe(true);
+    expect(
+      __test.looksSecret("https://discord.com/api/webhooks/123/abcDEF"),
+    ).toBe(true);
+    // A vault-style payload puts the secret under a generic `value` key.
+    const json = redactArgsToJson({
+      value: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
+    });
+    expect(JSON.parse(json!).value).toBe("[redacted]");
+  });
+
   it("truncates very long (non-secret) strings", () => {
     // Spaces make it clearly prose, not an opaque token, so it is truncated
     // rather than redacted as a secret.

@@ -195,6 +195,23 @@ describe("audit store filters + ordering", () => {
   });
 });
 
+describe("input payload projection", () => {
+  it("omits the input blob from list results but returns it from get-by-id", async () => {
+    await insertAuditEvent(
+      makeEvent({ id: "with-input", input: '{"title":"hi"}' }),
+    );
+
+    const list = await queryAuditEvents({ userEmail: "alice@x.com" });
+    expect(list).toHaveLength(1);
+    expect(list[0].input).toBeNull(); // not streamed in bulk
+
+    const detail = await getAuditEventById("with-input", {
+      userEmail: "alice@x.com",
+    });
+    expect(detail?.input).toBe('{"title":"hi"}'); // available on demand
+  });
+});
+
 describe("audit retention purge", () => {
   it("deletes only rows older than the cutoff", async () => {
     await insertAuditEvent(makeEvent({ createdAt: 100 }));

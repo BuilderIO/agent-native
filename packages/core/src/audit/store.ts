@@ -151,6 +151,14 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 
+// Columns returned by the list surface — deliberately EXCLUDES `input` so a
+// timeline query never streams every event's (redacted) request body in bulk.
+// Fetch the full payload one event at a time via `getAuditEventById`.
+const LIST_COLUMNS =
+  "id, created_at, action, caller, actor_kind, actor_email, org_id, " +
+  "thread_id, turn_id, target_type, target_id, status, summary, " +
+  "error_code, owner_email, visibility";
+
 export async function queryAuditEvents(
   scope: AuditReadScope,
   filters: AuditQueryFilters = {},
@@ -185,7 +193,7 @@ export async function queryAuditEvents(
   );
 
   const result = await client.execute({
-    sql: `SELECT * FROM agent_audit_log
+    sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
           ORDER BY created_at DESC
           LIMIT ?`,

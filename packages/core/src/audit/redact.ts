@@ -30,6 +30,15 @@ function looksSecret(value: string): boolean {
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
+  // Webhook URLs carry their secret in the path — redact regardless of the key
+  // they arrive under (e.g. a generic `value` field holding a Slack webhook).
+  if (
+    /^https?:\/\/(hooks\.slack\.com\/|[^/]*\.webhook\.office\.com\/|(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/|hooks\.zapier\.com\/|maker\.ifttt\.com\/|discord\.com\/api\/webhooks\/)/i.test(
+      value,
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
