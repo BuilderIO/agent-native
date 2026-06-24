@@ -1,0 +1,111 @@
+---
+title: "Registro de auditoria"
+description: "Um registro durável, apenas anexado, de quem alterou quais dados do aplicativo, quando e se foi você ou o agente, capturado automaticamente no processo de ação."
+---
+
+# Registro de auditoria
+
+Cada aplicativo nativo do agente recebe um log de auditoria pronto para uso: um registro durável, completo, com escopo de acesso e somente acréscimo de **quem alterou quais dados do aplicativo, quando, de onde e - quando foi o agente - em qual execução.** A captura é automática no processo de ação; você não escreve nenhum código para isso.
+
+Como o agente pode alterar dados em seu nome, a pergunta principal que um registro de auditoria responde aqui não é apenas "quem editou este registro" — é **"fui eu ou o agente, e qual turno causou isso?"** Nenhum outro sistema na estrutura pode responder a isso.
+
+## Auditoria x observabilidade x rastreamento {#which}
+
+Três sistemas registram “o que aconteceu”, por três razões diferentes. Escolha pela pergunta que você está fazendo:
+
+| Sistema                                  | A pergunta que ele responde                          | Fidelidade                          | Público                                  |
+| ---------------------------------------- | ---------------------------------------------------- | ----------------------------------- | ---------------------------------------- |
+| **Registro de auditoria** (esta página)  | "Quem alterou este registro, quando e foi o agente?" | **Completo, durável, com escopo**   | Usuário, administrador, o próprio agente |
+| **[Observability](/docs/observability)** | "Por que o agente fez isso e quanto custou?"         | Telemetria de intervalo amostrado   | Desenvolvedor                            |
+| **[Tracking](/docs/tracking)**           | "Como as pessoas estão usando o produto?"            | Dispare e esqueça para SaaS externo | PM / crescimento                         |
+
+Um registro de auditoria que é amostrado ou enviado para um provedor de análise é inútil — o ponto principal é que ele seja completo, local e consultável. Portanto, é um subsistema próprio, não um modo dos outros dois.
+
+## O que é capturado automaticamente {#captured}
+
+Quando qualquer ação de **mutação** é executada (qualquer coisa que não seja um `GET` somente leitura), a estrutura anexa uma linha a `agent_audit_log` com:
+
+- **Ação** — o nome da ação (por exemplo, `delete-recording`).
+- **Ator** — `agent`, `human` ou `system`, além do e-mail do ator — preenchido **mesmo para chamadas de agente**, para que você obtenha "o agente, atuando em nome de alice@, …".
+- **Run linkage** — o agente `threadId` / `turnId` que acionou a chamada (uma chamada de ferramenta), portanto, uma mutação remonta ao turno exato do agente.
+- **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp` ou `a2a`.
+- **Resultado** — `success`, `error` (com um código de erro) ou `denied` (bloqueado por um portão de aprovação humana).
+- **Entradas** — os argumentos da chamada, com valores em formato de credencial [redacted](#privacy).
+- **Destino e proprietário** — o recurso que a ação alterou, usado para [scope reads](#reading).
+
+Não é necessária fiação — a captura se conecta ao `defineAction` de forma transparente. actions somente leitura são ignorados, e algumas estruturas de alta frequência actions (sincronização de estado do aplicativo, raio X de contexto, navegação) são ignoradas por padrão para evitar inundar o log.
+
+## Declare o que uma ação mudou {#target}
+
+Por padrão, um evento tem como escopo o **ator** — você vê suas próprias alterações e as alterações do agente em seu nome. Para fazer com que uma alteração em um recurso _compartilhado_ também apareça na trilha do **proprietário** e para rotular eventos por recurso, declare um `target`:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({
+      type: "recording",
+      id: args.id,
+      // Optional — defaults to the actor. Set when editing someone else's resource.
+      ownerEmail: result?.ownerEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Tudo em `audit` é opcional. A adição mínima útil é `target: () => ({ type, id })`.
+
+### Captura de ajuste {#tuning}
+
+| Opção                | Efeito                                                                       |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `audit.target`       | Rotule o evento com o recurso e as leituras do escopo para seu proprietário. |
+| `audit.summary`      | Uma linha curta e legível para o evento.                                     |
+| `audit.onRead`       | Audite uma **leitura** confidencial (acesso secreto, exportação em massa).   |
+| `audit.enabled`      | `true` força captura; `false` desativa uma mutação barulhenta.               |
+| `audit.recordInputs` | `false` ignora a captura dos argumentos (já redigidos).                      |
+
+## Lendo a trilha {#reading}
+
+Duas leituras actions estão disponíveis para o agente **e** o frontend em cada aplicativo, com escopo SQL para o chamador — eles nunca retornam as linhas de outro locatário:
+
+- **`list-audit-events`** — filtrar por `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` e `limit`.
+- **`get-audit-event`** — um evento por ID, incluindo sua carga útil de entrada editada.
+
+Crie um feed de atividades ou uma linha "quem mudou isto" chamando `list-audit-events` do UI com `useActionQuery` — nunca escreva manualmente uma busca na tabela de auditoria:
+
+```tsx
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data } = useActionQuery("list-audit-events", {
+  targetType: "recording",
+  targetId: recordingId,
+});
+// data.events → [{ action, actorKind, actorEmail, turnId, status, summary, createdAt }, …]
+```
+
+O agente pode chamar a mesma ação - pergunte "o que você mudou nesta gravação?" e responde pela trilha.
+
+## Privacidade e retenção {#privacy}
+
+- **Redação** — antes de qualquer entrada ser armazenada, chaves e valores em formato de credencial (tokens, segredos, senhas, strings de portador) são removidos e cargas úteis superdimensionadas são truncadas. O log de auditoria nunca se torna um armazenamento secundário de segredos. Mantenha o texto `summary` livre de dados confidenciais também.
+- **Apenas acréscimo** — não há ação de atualização ou exclusão para linhas de auditoria. A única exclusão é a eliminação da retenção, o que torna o registro confiável como trilha de auditoria.
+- **Isolamento do locatário** — as leituras têm como escopo a identidade e a organização do chamador; sem identidade, nada corresponde.
+
+Configurar via ambiente:
+
+- `AGENT_NATIVE_AUDIT_RETENTION_DAYS` — por quanto tempo as linhas são mantidas (padrão `365`; `0` = manter para sempre).
+- `AGENT_NATIVE_AUDIT_ENABLED=false` — interruptor de interrupção global.
+
+## O que vem a seguir
+
+- [**Actions**](/docs/actions) — a costura `defineAction` onde a captura acontece
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — actions fechado, registrado como `denied`
+- [**Security & Data Scoping**](/docs/security) — a auditoria do modelo de propriedade indica reutilização
+- [**Observability**](/docs/observability) — telemetria executada pelo agente (o outro "o que aconteceu")

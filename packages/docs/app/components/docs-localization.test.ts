@@ -45,23 +45,16 @@ describe("localized docs fallback", () => {
     expect(resolveLayoutLocale("/docs")).toBe("en-US");
   });
 
-  it("redirects missing localized markdown to the English canonical route", async () => {
-    expect(hasLocalizedDoc("fr-FR", "getting-started")).toBe(false);
+  it("loads localized markdown for every translated docs page", async () => {
+    expect(hasLocalizedDoc("fr-FR", "getting-started")).toBe(true);
 
     const doc = await loadDoc("getting-started", "fr-FR");
-    expect(doc).toBeUndefined();
+    expect(doc?.slug).toBe("getting-started");
 
-    let response: Response | undefined;
-    try {
-      await localizedDocLoader(
-        loaderArgs({ locale: "fr-FR", slug: "getting-started" }),
-      );
-    } catch (error) {
-      response = error as Response;
-    }
-
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/docs");
+    const loaderDoc = await localizedDocLoader(
+      loaderArgs({ locale: "fr-FR", slug: "getting-started" }),
+    );
+    expect(loaderDoc?.slug).toBe("getting-started");
   });
 
   it("loads localized markdown when an override exists", async () => {
@@ -85,7 +78,9 @@ describe("localized docs fallback", () => {
     }
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/docs");
+    expect(response?.headers.get("Location")).toBe(
+      "/docs/fr-FR/getting-started",
+    );
   });
 
   it("loads default docs slugs instead of treating them as locales", async () => {
@@ -94,29 +89,25 @@ describe("localized docs fallback", () => {
     expect(doc?.slug).toBe("agent-surfaces");
   });
 
-  it("uses localized nav links only for translated pages", () => {
+  it("uses localized nav links for translated pages", () => {
     const items = getDocsNavItems("fr-FR");
 
     expect(items.find((item) => item.id === "getting-started")?.to).toBe(
-      "/docs",
+      "/docs/fr-FR/getting-started",
     );
     expect(items.find((item) => item.id === "creating-templates")?.to).toBe(
-      "/docs/creating-templates",
+      "/docs/fr-FR/creating-templates",
     );
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
       "/docs/fr-FR/internationalization",
     );
   });
 
-  it("keeps untranslated docs searchable at English canonical paths", async () => {
+  it("indexes translated docs at localized canonical paths", async () => {
     const index = await buildSearchIndexAsync("fr-FR");
 
     expect(
-      index.some(
-        (entry) =>
-          entry.path === "/docs" &&
-          entry.page.toLowerCase().includes("getting started"),
-      ),
+      index.some((entry) => entry.path === "/docs/fr-FR/getting-started"),
     ).toBe(true);
     expect(
       index.some((entry) => entry.path === "/docs/fr-FR/internationalization"),

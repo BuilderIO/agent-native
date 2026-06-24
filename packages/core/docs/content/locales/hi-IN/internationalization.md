@@ -1,15 +1,18 @@
 ---
-title: "अंतरराष्ट्रीयकरण"
-description: "shared locale catalogs, language picker, browser-language fallback और locale-aware docs content के साथ Agent Native apps को localize करें।"
+title: "अंतर्राष्ट्रीयकरण"
+description: "साझा स्थानीय कैटलॉग, एक भाषा पिकर, ब्राउज़र-भाषा फ़ॉलबैक और स्थानीय-जागरूक डॉक्स सामग्री के साथ Agent Native ऐप्स को स्थानीयकृत करें।"
 ---
 
-# अंतरराष्ट्रीयकरण
+# अंतर्राष्ट्रीयकरण
 
-Agent Native apps shared `@agent-native/core/client/i18n` runtime के जरिए framework और template UI को localize कर सकते हैं। framework उपयोगकर्ता की भाषा पसंद को SQL settings में store करता है, उसे actions के रूप में expose करता है, और जब किसी app में कोई string translate नहीं होती तो English पर fallback करता है।
+Agent Native ऐप्स साझा के माध्यम से फ्रेमवर्क और टेम्पलेट UI को स्थानीयकृत कर सकते हैं
+`@agent-native/core/client/i18n` रनटाइम। फ़्रेमवर्क उपयोगकर्ता को संग्रहीत करता है
+SQL सेटिंग्स में भाषा का चयन, इसे actions के रूप में प्रदर्शित करता है, और वापस आ जाता है
+अंग्रेजी जब किसी ऐप ने अभी तक किसी स्ट्रिंग का अनुवाद नहीं किया है।
 
-## Runtime {#runtime}
+## रनटाइम
 
-Provider को `AppProviders` के जरिए इस्तेमाल करें:
+`AppProviders` के माध्यम से प्रदाता का उपयोग करें:
 
 ```tsx
 import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
@@ -27,11 +30,14 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 </AppProviders>;
 ```
 
-`getLocaleInitScript()` React hydration से पहले शुरुआती `lang`, `dir`, और `window.__AGENT_NATIVE_LOCALE__` सेट करता है। Public SSR routes `@agent-native/core/server` से `resolveLocaleFromRequest()` call कर सकते हैं और resolved locale/catalog को script में pass कर सकते हैं ताकि hydration mismatch न हो।
+`getLocaleInitScript()` प्रारंभिक `lang`, `dir`, और
+React हाइड्रेट होने से पहले `window.__AGENT_NATIVE_LOCALE__`। सार्वजनिक SSR मार्ग
+`@agent-native/core/server` से `resolveLocaleFromRequest()` को कॉल करें और पास करें
+हाइड्रेशन बेमेल से बचने के लिए उस स्क्रिप्ट में लोकेल/कैटलॉग को हल किया गया।
 
-## Catalogs {#catalogs}
+## कैटलॉग
 
-हर localized template catalogs को `app/i18n/` में रखता है:
+प्रत्येक स्थानीयकृत टेम्पलेट कैटलॉग को `app/i18n/` के अंतर्गत रखता है:
 
 ```ts
 // app/i18n/index.ts
@@ -52,51 +58,88 @@ export const i18nCatalog = {
 } satisfies AgentNativeI18nCatalog;
 ```
 
-हमेशा `en-US` bundle करें। Non-English catalogs को dynamic import करें ताकि users केवल active locale download करें। Supported locale codes हैं `en-US`, `zh-CN`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, और `ar-SA`।
+हमेशा `en-US` को बंडल करें। डायनामिक-आयात गैर-अंग्रेज़ी कैटलॉग केवल उपयोगकर्ताओं के लिए
+सक्रिय लोकेल डाउनलोड करें। समर्थित स्थानीय कोड `en-US`, `zh-CN`,
+`es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, और `ar-SA`।
 
-## UI {#ui}
+## UI
 
-Interface strings के लिए `useT()` और settings में `<LanguagePicker />` इस्तेमाल करें:
+इंटरफ़ेस स्ट्रिंग्स के लिए `useT()` का उपयोग करें और ऐप पर `<LanguagePicker />` डालें
+`/settings` पेज। साइडबार ऐप्स को ऐप साइडबार में **सेटिंग्स** को प्रदर्शित करना चाहिए;
+हेडर भाषा आइकन केवल एक शॉर्टकट है।
 
 ```tsx
-import { LanguagePicker, useT } from "@agent-native/core/client";
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
 
-function SettingsLanguageCard() {
+function SettingsPage() {
   const t = useT();
   return (
     <>
       <h2>{t("settings.languageTitle")}</h2>
       <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
     </>
   );
 }
 ```
 
-Dates, numbers, relative time और lists के लिए `useFormatters()` इस्तेमाल करें। Locale-sensitive date/number formatting को translation strings में embed न करें।
+"एजेंट सेटिंग" नियंत्रण को सही एजेंट साइडबार का सेटिंग टैब खोलना चाहिए
+मॉडल, API कुंजी, स्वचालन, आवाज और अन्य फ्रेमवर्क-स्तरीय नियंत्रणों के लिए।
+ऐप्स अपने स्वयं के सेटिंग पेज में उच्च-मूल्य फ़्रेमवर्क सेटिंग्स की नकल कर सकते हैं
+जब सेटिंग ऐप के केंद्र में होती है, लेकिन साइडबार सेटिंग टैब
+सत्य का स्रोत।
 
-## Docs site content {#docs-site-content}
+तिथि, संख्या, सापेक्ष समय और सूचियों के लिए `useFormatters()` का उपयोग करें। मत डालो
+अनुवाद स्ट्रिंग के अंदर स्थान-संवेदनशील दिनांक/संख्या स्वरूपण।
 
-Public docs pages वही core provider इस्तेमाल करते हैं, लेकिन `persistPreference={false}` के साथ, ताकि anonymous docs traffic SQL settings actions की जगह localStorage और browser language इस्तेमाल करे। English source `packages/core/docs/content/*.md` में रहता है। Localized page overrides `packages/core/docs/content/locales/<locale>/<slug>.md` में रहते हैं।
+## दस्तावेज़ साइट सामग्री {#docs-site-content}
 
-App catalogs जैसे ही BCP-47 locale codes इस्तेमाल करें। English source जैसा slug रखें, translated headings पर `{#anchor}` से stable anchors preserve करें, और routes, action names, protocol fields, env vars या provider names translate न करें। अगर किसी locale में किसी page का translated Markdown नहीं है, docs site उस page के लिए English fallback करेगा और navigation/chrome फिर भी localize रहेगा।
+सार्वजनिक दस्तावेज़ पृष्ठ समान मूल प्रदाता का उपयोग करते हैं, लेकिन
+`persistPreference={false}` इसलिए अनाम दस्तावेज़ ट्रैफ़िक लोकलस्टोरेज और का उपयोग करता है
+SQL सेटिंग्स actions के बजाय ब्राउज़र भाषा। अंग्रेजी स्रोत
+`packages/core/docs/content/*.md`. स्थानीयकृत पृष्ठ
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
 
-## Actions और persistence {#actions-and-persistence}
+ऐप कैटलॉग के रूप में समान BCP-47 लोकेल कोड का उपयोग करें। स्लग को
+अंग्रेजी स्रोत, अनुवादित शीर्षकों पर `{#anchor}` के साथ स्थिर एंकर सुरक्षित रखें,
+और मार्ग, क्रिया नाम, प्रोटोकॉल फ़ील्ड, एनवी संस्करण और प्रदाता नाम छोड़ दें
+अअनुवादित. यदि किसी लोकेल में किसी पेज के लिए कोई अनुवादित Markdown नहीं है, तो डॉक्स साइट
+नेविगेशन और क्रोम को स्थानीयकृत करते समय उस पृष्ठ के लिए अंग्रेजी में वापस आ जाता है।
 
-हर app को मिलता है:
+## Actions और दृढ़ता
 
-- `get-localization-preference` — current user का `{ locale }` पढ़ता है
-- `set-localization-preference` — `"system"` या supported locale सेट करता है
+प्रत्येक ऐप को ये विरासत मिलती है:
 
-Durable value user-scoped SQL settings में `localization` key के तहत रहता है। `localStorage` केवल pre-hydration और anonymous fallback के लिए है। Active locale application state में ambient context के रूप में mirror होता है ताकि agents current interface language देख सकें।
+- `get-localization-preference` — वर्तमान उपयोगकर्ता का `{ locale }` पढ़ें
+- `set-localization-preference` - `"system"` या एक समर्थित लोकेल सेट करें
 
-## Guard {#guard}
+टिकाऊ मान `localization` के अंतर्गत उपयोगकर्ता-स्कोप वाली SQL सेटिंग्स में रहता है।
+`localStorage` का उपयोग केवल प्री-हाइड्रेशन और अनाम फ़ॉलबैक के लिए किया जाता है। सक्रिय
+लोकेल को परिवेशीय संदर्भ के रूप में एप्लिकेशन स्थिति में प्रतिबिंबित किया जाता है ताकि एजेंट देख सकें
+वर्तमान इंटरफ़ेस भाषा।
 
-चलाएं:
+## रक्षक
+
+चलाएँ:
 
 ```bash
 pnpm guard:i18n-catalogs
 ```
 
-Guard supported locale filenames, key parity, placeholder parity, stale keys, और `Intl.PluralRules` के जरिए CLDR plural categories verify करता है। यह structure check करता है, translation quality नहीं; high-visibility strings को human review चाहिए।
+गार्ड समर्थित स्थानीय फ़ाइल नाम, कुंजी समता, प्लेसहोल्डर समता, का सत्यापन करता है
+बासी कुंजियाँ, और `Intl.PluralRules` के माध्यम से CLDR बहुवचन श्रेणियाँ। यह जाँच करता है
+संरचना, अनुवाद गुणवत्ता नहीं; उच्च-दृश्यता वाले तारों को अभी भी मानव की आवश्यकता है
+समीक्षा.
 
-Stable identifiers जैसे action names, routes, enum values, app-state keys, database values, protocol fields, env var names या provider names translate न करें।
+कार्य नाम, मार्ग, एनम मान जैसे स्थिर पहचानकर्ताओं का अनुवाद न करें
+ऐप-स्टेट कुंजी, डेटाबेस मान, प्रोटोकॉल फ़ील्ड, env var नाम, या प्रदाता
+नाम.

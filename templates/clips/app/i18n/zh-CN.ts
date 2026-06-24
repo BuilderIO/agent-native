@@ -79,6 +79,21 @@ const messages = {
       body: "尝试其他搜索词，或检查你的筛选条件。",
     },
   },
+  trashRoute: {
+    title: "废纸篓",
+    selected: "已选择 {{count}} 项",
+    deselectAll: "取消全选",
+    selectAll: "全选",
+    restore: "恢复",
+    deleteForever: "永久删除",
+    deleteForeverTitle: "永久删除？",
+    bulkDeleteDescription: "{{count}} 个录制将被永久移除。此操作无法撤销。",
+    singleDeleteDescription: "此录制将被永久移除。此操作无法撤销。",
+    restored: "已恢复",
+    restoreFailed: "恢复失败",
+    permanentlyDeleted: "已永久删除",
+    deleteFailed: "删除失败",
+  },
   settings: {
     openAgentSettings: "打开代理设置",
     agentDescription:

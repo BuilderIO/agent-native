@@ -16,6 +16,16 @@ const enUS = {
     openSidebar: "Open sidebar",
     settings: "Settings",
   },
+  team: {
+    metaTitle: "Workspace access - Content",
+    pageTitle: "Workspace access",
+    heading: "Shared document workspace",
+    description:
+      "Workspaces are the shared spaces where collaborators can access the same Content documents.",
+    peopleTitle: "People and access",
+    createOrgDescription:
+      "Create a shared workspace for Content documents. You can invite collaborators after setup.",
+  },
   settings: {
     title: "Settings",
     description: "Language and workspace preferences for Content.",
@@ -59,6 +69,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
+    team: { ...enUS.team, ...overrides.team },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
     empty: { ...enUS.empty, ...overrides.empty },
@@ -76,6 +87,15 @@ export const messagesByLocale = {
     },
     theme: { system: "系统主题", light: "浅色主题", dark: "深色主题" },
     navigation: { openSidebar: "打开侧边栏", settings: "设置" },
+    team: {
+      metaTitle: "工作区访问 - Content",
+      pageTitle: "工作区访问",
+      heading: "共享文档工作区",
+      description: "工作区是协作者访问同一组 Content 文档的共享空间。",
+      peopleTitle: "人员和访问权限",
+      createOrgDescription:
+        "为 Content 文档创建共享工作区。设置完成后即可邀请协作者。",
+    },
     settings: {
       title: "设置",
       description: "Content 的语言和工作区偏好设置。",
@@ -121,6 +141,16 @@ export const messagesByLocale = {
       dark: "Tema oscuro",
     },
     navigation: { openSidebar: "Abrir barra lateral", settings: "Ajustes" },
+    team: {
+      metaTitle: "Acceso al espacio de trabajo - Content",
+      pageTitle: "Acceso al espacio de trabajo",
+      heading: "Espacio de documentos compartidos",
+      description:
+        "Los espacios de trabajo son lugares compartidos donde los colaboradores pueden acceder a los mismos documentos de Content.",
+      peopleTitle: "Personas y acceso",
+      createOrgDescription:
+        "Crea un espacio compartido para documentos de Content. Puedes invitar colaboradores después de configurarlo.",
+    },
     settings: {
       title: "Ajustes",
       description: "Preferencias de idioma y espacio de trabajo para Content.",
@@ -171,6 +201,16 @@ export const messagesByLocale = {
     navigation: {
       openSidebar: "Ouvrir la barre latérale",
       settings: "Paramètres",
+    },
+    team: {
+      metaTitle: "Accès à l’espace de travail - Content",
+      pageTitle: "Accès à l’espace de travail",
+      heading: "Espace documentaire partagé",
+      description:
+        "Les espaces de travail sont des espaces partagés où les collaborateurs peuvent accéder aux mêmes documents Content.",
+      peopleTitle: "Personnes et accès",
+      createOrgDescription:
+        "Créez un espace partagé pour les documents Content. Vous pourrez inviter des collaborateurs après la configuration.",
     },
     settings: {
       title: "Paramètres",
@@ -223,6 +263,16 @@ export const messagesByLocale = {
       openSidebar: "Seitenleiste öffnen",
       settings: "Einstellungen",
     },
+    team: {
+      metaTitle: "Arbeitsbereichszugriff - Content",
+      pageTitle: "Arbeitsbereichszugriff",
+      heading: "Gemeinsamer Dokumentenarbeitsbereich",
+      description:
+        "Arbeitsbereiche sind gemeinsame Räume, in denen Mitwirkende auf dieselben Content-Dokumente zugreifen können.",
+      peopleTitle: "Personen und Zugriff",
+      createOrgDescription:
+        "Erstelle einen gemeinsamen Arbeitsbereich für Content-Dokumente. Nach der Einrichtung kannst du Mitwirkende einladen.",
+    },
     settings: {
       title: "Einstellungen",
       description: "Sprach- und Arbeitsbereichseinstellungen für Content.",
@@ -271,6 +321,16 @@ export const messagesByLocale = {
       dark: "ダークテーマ",
     },
     navigation: { openSidebar: "サイドバーを開く", settings: "設定" },
+    team: {
+      metaTitle: "ワークスペースアクセス - Content",
+      pageTitle: "ワークスペースアクセス",
+      heading: "共有ドキュメントワークスペース",
+      description:
+        "ワークスペースは、共同編集者が同じ Content ドキュメントにアクセスできる共有スペースです。",
+      peopleTitle: "メンバーとアクセス",
+      createOrgDescription:
+        "Content ドキュメント用の共有ワークスペースを作成します。設定後に共同編集者を招待できます。",
+    },
     settings: {
       title: "設定",
       description: "Content の言語とワークスペース設定。",
@@ -315,6 +375,16 @@ export const messagesByLocale = {
     },
     theme: { system: "시스템 테마", light: "라이트 테마", dark: "다크 테마" },
     navigation: { openSidebar: "사이드바 열기", settings: "설정" },
+    team: {
+      metaTitle: "워크스페이스 접근 - Content",
+      pageTitle: "워크스페이스 접근",
+      heading: "공유 문서 워크스페이스",
+      description:
+        "워크스페이스는 공동 작업자가 같은 Content 문서에 접근할 수 있는 공유 공간입니다.",
+      peopleTitle: "사람 및 접근 권한",
+      createOrgDescription:
+        "Content 문서를 위한 공유 워크스페이스를 만드세요. 설정 후 공동 작업자를 초대할 수 있습니다.",
+    },
     settings: {
       title: "설정",
       description: "Content의 언어 및 워크스페이스 환경설정입니다.",
@@ -364,6 +434,16 @@ export const messagesByLocale = {
       openSidebar: "Abrir barra lateral",
       settings: "Configurações",
     },
+    team: {
+      metaTitle: "Acesso ao workspace - Content",
+      pageTitle: "Acesso ao workspace",
+      heading: "Workspace de documentos compartilhados",
+      description:
+        "Workspaces são espaços compartilhados onde colaboradores acessam os mesmos documentos do Content.",
+      peopleTitle: "Pessoas e acesso",
+      createOrgDescription:
+        "Crie um workspace compartilhado para documentos do Content. Você pode convidar colaboradores depois da configuração.",
+    },
     settings: {
       title: "Configurações",
       description: "Preferências de idioma e espaço de trabalho do Content.",
@@ -408,6 +488,16 @@ export const messagesByLocale = {
     },
     theme: { system: "सिस्टम थीम", light: "लाइट थीम", dark: "डार्क थीम" },
     navigation: { openSidebar: "साइडबार खोलें", settings: "सेटिंग्स" },
+    team: {
+      metaTitle: "कार्यस्थान पहुंच - Content",
+      pageTitle: "कार्यस्थान पहुंच",
+      heading: "साझा दस्तावेज़ कार्यस्थान",
+      description:
+        "कार्यस्थान वे साझा जगहें हैं जहां सहयोगी समान Content दस्तावेज़ों तक पहुंच सकते हैं।",
+      peopleTitle: "लोग और पहुंच",
+      createOrgDescription:
+        "Content दस्तावेज़ों के लिए साझा कार्यस्थान बनाएं। सेटअप के बाद आप सहयोगियों को आमंत्रित कर सकते हैं।",
+    },
     settings: {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
@@ -455,6 +545,16 @@ export const messagesByLocale = {
       dark: "السمة الداكنة",
     },
     navigation: { openSidebar: "فتح الشريط الجانبي", settings: "الإعدادات" },
+    team: {
+      metaTitle: "الوصول إلى مساحة العمل - Content",
+      pageTitle: "الوصول إلى مساحة العمل",
+      heading: "مساحة مستندات مشتركة",
+      description:
+        "مساحات العمل هي الأماكن المشتركة التي يستطيع المتعاونون الوصول فيها إلى مستندات Content نفسها.",
+      peopleTitle: "الأشخاص والوصول",
+      createOrgDescription:
+        "أنشئ مساحة عمل مشتركة لمستندات Content. يمكنك دعوة المتعاونين بعد الإعداد.",
+    },
     settings: {
       title: "الإعدادات",
       description: "تفضيلات اللغة ومساحة العمل في Content.",

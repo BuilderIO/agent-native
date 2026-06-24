@@ -80,6 +80,23 @@ const messages = {
       body: "कोई दूसरा खोज शब्द आज़माएँ या अपने फ़िल्टर जाँचें।",
     },
   },
+  trashRoute: {
+    title: "ट्रैश",
+    selected: "{{count}} चयनित",
+    deselectAll: "सभी अचयनित करें",
+    selectAll: "सभी चुनें",
+    restore: "पुनर्स्थापित करें",
+    deleteForever: "हमेशा के लिए हटाएं",
+    deleteForeverTitle: "हमेशा के लिए हटाएं?",
+    bulkDeleteDescription:
+      "स्थायी रूप से हटाई जाने वाली रिकॉर्डिंग: {{count}}। इसे पूर्ववत नहीं किया जा सकता।",
+    singleDeleteDescription:
+      "यह रिकॉर्डिंग स्थायी रूप से हटाई जाएगी। इसे पूर्ववत नहीं किया जा सकता।",
+    restored: "पुनर्स्थापित किया गया",
+    restoreFailed: "पुनर्स्थापना विफल",
+    permanentlyDeleted: "स्थायी रूप से हटाया गया",
+    deleteFailed: "हटाना विफल",
+  },
   settings: {
     openAgentSettings: "एजेंट सेटिंग्स खोलें",
     agentDescription:

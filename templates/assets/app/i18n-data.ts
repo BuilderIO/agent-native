@@ -33,6 +33,49 @@ const enUS = {
     languageDescription:
       "Choose the interface language for this Assets workspace.",
     languageLabel: "Interface language",
+    setupTitle: "Assets setup",
+    setupDescription: "Two essentials: generation and durable storage.",
+    setupReady: "ready",
+    builderDescriptionReady: "Connected for managed generation.",
+    builderDescriptionManaged:
+      "Managed image generation and storage, no provider keys.",
+    builderDescriptionDisabled: "Disabled for this deployment.",
+    optional: "Optional",
+    reconnect: "Reconnect",
+    generation: "Generation",
+    generationReady: "Ready",
+    generationNeedsSetup: "Needs setup",
+    manualGenerationKeys: "Manual generation keys",
+    manualGenerationDescription:
+      "Add Gemini for video generation, or OpenAI/Gemini as image fallbacks.",
+    storage: "Storage",
+    storageReady:
+      "Originals, thumbnails, videos, and exports have a durable home.",
+    storageNeedsSetup:
+      "Add S3-compatible storage for production assets and exports.",
+    objectStorage: "Object storage",
+    objectStorageDescription:
+      "Use S3, R2, Spaces, Tigris, MinIO, or another compatible provider.",
+    brandKits: "Brand Kits",
+    available: "Available",
+    connect: "Connect",
+    connected: "Connected",
+    connecting: "Connecting",
+    configure: "Configure",
+    manualKeys: "Manual keys",
+    provider: "Provider",
+    chooseProvider: "Choose a provider",
+    saveSettings: "Save settings",
+    saveKey: "Save key",
+    saving: "Saving",
+    noManualOptions: "No manual setup options are available for this item.",
+    builderManaged: "Builder is handling managed image generation.",
+    providerConfigured: "{{providers}} configured.",
+    addGeminiOrOpenAI: "Add Gemini or OpenAI before generating new assets.",
+    addBuilderGeminiOrOpenAI:
+      "Add Builder, Gemini, or OpenAI before generating new assets.",
+    enterValueFirst: "Enter a value first.",
+    saveFailed: "Save failed",
   },
   chat: {
     emptyState: "Describe the asset you want to make",
@@ -68,6 +111,62 @@ const enUS = {
       refine: "refine",
     },
   },
+  assetDetail: {
+    loading: "Loading asset...",
+    unavailableTitle: "Asset unavailable",
+    unavailableDescription:
+      "This generated image may have been cleared before it was saved, or the link may point to an asset you no longer have access to.",
+    backToLibrary: "Back to library",
+    library: "Library",
+    brandKit: "Brand Kit",
+    videoAsset: "Video asset",
+    asset: "Asset",
+    contentOnly: "content only",
+    styleReference: "style reference",
+    video: "Video",
+    dimensions: "Dimensions",
+    folder: "Folder",
+    unfiled: "Unfiled",
+    description: "Description",
+    noDescription: "No description stored",
+    prompt: "Prompt",
+    noPrompt: "No prompt stored",
+    continueRefining: "Continue refining this asset.",
+    refineInstruction:
+      "Ask what should change, then refine this active image and show the new preview.",
+    makeVideoVariation: "Make video variation",
+    makeVariations: "Make variations",
+    handoff: "Handoff",
+    download: "Download",
+    copyUrl: "Copy URL",
+    delete: "Delete",
+    deleteTitle: "Delete asset?",
+    deleteDescription:
+      "This removes the asset from the library. Existing exports that already use this URL may stop rendering.",
+    cancel: "Cancel",
+    copiedPrompt: "Copied prompt",
+    copiedUrl: "Copied URL",
+    copyFailed: "Could not copy to clipboard.",
+    previewUnavailable: "Preview unavailable",
+  },
+  brandKits: {
+    title: "Brand Kits",
+    description:
+      "Organize references, generated assets, folders, and reusable style guidance.",
+    yourBrandKits: "Your brand kits",
+    yourBrandKitsDescription:
+      "Brand references, product imagery, videos, diagrams, and generated candidates that other agents can reuse",
+    searchPlaceholder: "Search brand kits",
+    newBrandKit: "New Brand Kit",
+    newBrandKitLower: "New brand kit",
+    createAsset: "Create asset",
+    emptyTitle: "No brand kits yet",
+    emptyDescription:
+      "Start with a default style brand kit or create your own references and style guidance.",
+    presetCreateFailed: "Could not create preset brand kit.",
+    duplicateCreated: "Private brand kit copy created",
+    duplicateFailed: "Could not duplicate brand kit.",
+  },
 };
 
 type Messages = typeof enUS;
@@ -91,6 +190,8 @@ function mergeMessages(overrides: PartialMessages): Messages {
         ...overrides.create?.starters,
       },
     },
+    assetDetail: { ...enUS.assetDetail, ...overrides.assetDetail },
+    brandKits: { ...enUS.brandKits, ...overrides.brandKits },
   };
 }
 

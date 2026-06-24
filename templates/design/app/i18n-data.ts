@@ -27,6 +27,12 @@ const enUS = {
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
   },
+  pages: {
+    presentEmpty: "No content to present",
+    presentBackToEditor: "Back to editor",
+    teamCreateOrgDescription:
+      "Set up a team to share designs with your colleagues.",
+  },
   chat: {
     emptyState: "Describe a design to create",
     suggestionLandingPage: "Design a landing page for my startup",
@@ -43,6 +49,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     root: { ...enUS.root, ...overrides.root },
     navigation: { ...enUS.navigation, ...overrides.navigation },
     settings: { ...enUS.settings, ...overrides.settings },
+    pages: { ...enUS.pages, ...overrides.pages },
     chat: { ...enUS.chat, ...overrides.chat },
   };
 }
@@ -75,6 +82,11 @@ export const messagesByLocale = {
       languageTitle: "语言",
       languageDescription: "选择 Design 的界面语言。",
       languageLabel: "界面语言",
+    },
+    pages: {
+      presentEmpty: "没有可演示的内容",
+      presentBackToEditor: "返回编辑器",
+      teamCreateOrgDescription: "设置团队，与同事共享设计。",
     },
     chat: {
       emptyState: "描述要创建的设计",
@@ -109,6 +121,12 @@ export const messagesByLocale = {
       languageDescription: "Elige el idioma de la interfaz de Design.",
       languageLabel: "Idioma de la interfaz",
     },
+    pages: {
+      presentEmpty: "No hay contenido para presentar",
+      presentBackToEditor: "Volver al editor",
+      teamCreateOrgDescription:
+        "Configura un equipo para compartir diseños con tus compañeros.",
+    },
     chat: {
       emptyState: "Describe el diseño que quieres crear",
       suggestionLandingPage: "Diseña una landing page para mi startup",
@@ -141,6 +159,12 @@ export const messagesByLocale = {
       languageTitle: "Langue",
       languageDescription: "Choisissez la langue de l'interface de Design.",
       languageLabel: "Langue de l'interface",
+    },
+    pages: {
+      presentEmpty: "Aucun contenu à présenter",
+      presentBackToEditor: "Retour à l’éditeur",
+      teamCreateOrgDescription:
+        "Configurez une équipe pour partager des designs avec vos collègues.",
     },
     chat: {
       emptyState: "Décrivez un design à créer",
@@ -175,6 +199,12 @@ export const messagesByLocale = {
       languageDescription: "Wähle die Oberflächensprache für Design.",
       languageLabel: "Oberflächensprache",
     },
+    pages: {
+      presentEmpty: "Keine Inhalte zum Präsentieren",
+      presentBackToEditor: "Zurück zum Editor",
+      teamCreateOrgDescription:
+        "Richte ein Team ein, um Designs mit deinen Kollegen zu teilen.",
+    },
     chat: {
       emptyState: "Beschreibe ein Design, das erstellt werden soll",
       suggestionLandingPage: "Entwirf eine Landingpage für mein Startup",
@@ -207,6 +237,12 @@ export const messagesByLocale = {
       languageTitle: "言語",
       languageDescription: "Design のインターフェース言語を選択します。",
       languageLabel: "インターフェース言語",
+    },
+    pages: {
+      presentEmpty: "プレゼンするコンテンツがありません",
+      presentBackToEditor: "エディターに戻る",
+      teamCreateOrgDescription:
+        "同僚とデザインを共有するためのチームを設定します。",
     },
     chat: {
       emptyState: "作成したいデザインを説明してください",
@@ -241,6 +277,11 @@ export const messagesByLocale = {
       languageDescription: "Design의 인터페이스 언어를 선택하세요.",
       languageLabel: "인터페이스 언어",
     },
+    pages: {
+      presentEmpty: "발표할 콘텐츠가 없습니다",
+      presentBackToEditor: "편집기로 돌아가기",
+      teamCreateOrgDescription: "동료와 디자인을 공유할 팀을 설정하세요.",
+    },
     chat: {
       emptyState: "만들 디자인을 설명하세요",
       suggestionLandingPage: "내 스타트업 랜딩 페이지 디자인",
@@ -273,6 +314,12 @@ export const messagesByLocale = {
       languageTitle: "Idioma",
       languageDescription: "Escolha o idioma da interface do Design.",
       languageLabel: "Idioma da interface",
+    },
+    pages: {
+      presentEmpty: "Nenhum conteúdo para apresentar",
+      presentBackToEditor: "Voltar ao editor",
+      teamCreateOrgDescription:
+        "Configure uma equipe para compartilhar designs com seus colegas.",
     },
     chat: {
       emptyState: "Descreva um design para criar",
@@ -307,6 +354,12 @@ export const messagesByLocale = {
       languageDescription: "Design की interface भाषा चुनें।",
       languageLabel: "इंटरफ़ेस भाषा",
     },
+    pages: {
+      presentEmpty: "प्रस्तुत करने के लिए कोई सामग्री नहीं",
+      presentBackToEditor: "संपादक पर वापस जाएं",
+      teamCreateOrgDescription:
+        "डिज़ाइन को अपने सहयोगियों के साथ साझा करने के लिए टीम सेट करें।",
+    },
     chat: {
       emptyState: "बनाने के लिए design का वर्णन करें",
       suggestionLandingPage: "मेरे startup के लिए landing page design करें",
@@ -339,6 +392,11 @@ export const messagesByLocale = {
       languageTitle: "اللغة",
       languageDescription: "اختر لغة واجهة Design.",
       languageLabel: "لغة الواجهة",
+    },
+    pages: {
+      presentEmpty: "لا يوجد محتوى للعرض",
+      presentBackToEditor: "العودة إلى المحرر",
+      teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
     },
     chat: {
       emptyState: "صف تصميمًا لإنشائه",

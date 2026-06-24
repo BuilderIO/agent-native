@@ -26,6 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
@@ -329,6 +330,7 @@ function EmbeddedToolMenu({
   toolName: string;
   canDelete?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
@@ -381,13 +383,15 @@ function EmbeddedToolMenu({
               <button
                 type="button"
                 className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-md bg-background/60 text-muted-foreground/60 opacity-0 hover:bg-accent hover:text-foreground hover:opacity-100 group-hover/embedded-extension:opacity-100 cursor-pointer transition-opacity"
-                aria-label={`${toolName} options`}
+                aria-label={t("extensions.optionsFor", { name: toolName })}
               >
                 <IconDots className="h-3.5 w-3.5" />
               </button>
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent>{`${toolName} options`}</TooltipContent>
+          <TooltipContent>
+            {t("extensions.optionsFor", { name: toolName })}
+          </TooltipContent>
         </Tooltip>
       </TooltipProvider>
       <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
@@ -402,7 +406,7 @@ function EmbeddedToolMenu({
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
             >
               <IconExternalLink className="h-3.5 w-3.5" />
-              <span>Open full view</span>
+              <span>{t("extensions.openFullView")}</span>
             </button>
             <button
               type="button"
@@ -410,7 +414,7 @@ function EmbeddedToolMenu({
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
             >
               <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-              <span>Remove from this widget area</span>
+              <span>{t("extensions.removeFromWidgetArea")}</span>
             </button>
             {canDelete !== false && (
               <>
@@ -421,7 +425,7 @@ function EmbeddedToolMenu({
                   className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
                 >
                   <IconTrash className="h-3.5 w-3.5" />
-                  <span>Delete extension...</span>
+                  <span>{t("extensions.deleteExtensionEllipsis")}</span>
                 </button>
               </>
             )}
@@ -429,8 +433,8 @@ function EmbeddedToolMenu({
         ) : (
           <div className="flex flex-col gap-2 p-2">
             <p className="text-[12px]">
-              Delete <span className="font-medium">{toolName}</span>? This
-              removes the extension everywhere, for everyone it's shared with.
+              {t("extensions.deleteQuestion", { name: toolName })}{" "}
+              {t("extensions.deleteEverywhereConfirmation")}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -438,14 +442,14 @@ function EmbeddedToolMenu({
                 onClick={() => setConfirmingDelete(false)}
                 className="rounded-md px-2 py-1 text-[12px] hover:bg-accent cursor-pointer"
               >
-                Cancel
+                {t("extensions.cancel")}
               </button>
               <button
                 type="button"
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                Delete
+                {t("extensions.delete")}
               </button>
             </div>
           </div>

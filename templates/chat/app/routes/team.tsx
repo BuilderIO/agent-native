@@ -1,4 +1,5 @@
 import { TeamPage } from "@agent-native/core/client/org";
+import { useT } from "@agent-native/core/client";
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { APP_TITLE } from "@/lib/app-config";
 
@@ -7,10 +8,11 @@ export function meta() {
 }
 
 export default function TeamRoute() {
-  useSetPageTitle("Team");
+  const t = useT();
+  useSetPageTitle(t("pages.teamTitle"));
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
-      <TeamPage createOrgDescription="Set up a team to share this app with your colleagues." />
+      <TeamPage createOrgDescription={t("pages.teamCreateOrgDescription")} />
     </main>
   );
 }

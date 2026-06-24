@@ -749,6 +749,7 @@ html.dark .shiki span {
 
 .templates-side-scroll {
   align-items: stretch;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 

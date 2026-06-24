@@ -81,6 +81,23 @@ const messages = {
       body: "Prueba con otro término de búsqueda o revisa los filtros.",
     },
   },
+  trashRoute: {
+    title: "Papelera",
+    selected: "{{count}} seleccionados",
+    deselectAll: "Deseleccionar todo",
+    selectAll: "Seleccionar todo",
+    restore: "Restaurar",
+    deleteForever: "Eliminar para siempre",
+    deleteForeverTitle: "¿Eliminar para siempre?",
+    bulkDeleteDescription:
+      "Grabaciones que se eliminarán permanentemente: {{count}}. Esto no se puede deshacer.",
+    singleDeleteDescription:
+      "Esta grabación se eliminará permanentemente. Esto no se puede deshacer.",
+    restored: "Restaurado",
+    restoreFailed: "Error al restaurar",
+    permanentlyDeleted: "Eliminado permanentemente",
+    deleteFailed: "Error al eliminar",
+  },
   settings: {
     openAgentSettings: "Abrir ajustes del agente",
     agentDescription:

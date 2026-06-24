@@ -81,6 +81,23 @@ const messages = {
       body: "Versuche einen anderen Suchbegriff oder prüfe deine Filter.",
     },
   },
+  trashRoute: {
+    title: "Papierkorb",
+    selected: "{{count}} ausgewählt",
+    deselectAll: "Auswahl aufheben",
+    selectAll: "Alle auswählen",
+    restore: "Wiederherstellen",
+    deleteForever: "Endgültig löschen",
+    deleteForeverTitle: "Endgültig löschen?",
+    bulkDeleteDescription:
+      "Endgültig zu löschende Aufnahmen: {{count}}. Dies kann nicht rückgängig gemacht werden.",
+    singleDeleteDescription:
+      "Diese Aufnahme wird endgültig entfernt. Dies kann nicht rückgängig gemacht werden.",
+    restored: "Wiederhergestellt",
+    restoreFailed: "Wiederherstellung fehlgeschlagen",
+    permanentlyDeleted: "Endgültig gelöscht",
+    deleteFailed: "Löschen fehlgeschlagen",
+  },
   settings: {
     openAgentSettings: "Agent-Einstellungen öffnen",
     agentDescription:

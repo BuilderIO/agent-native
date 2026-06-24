@@ -58,7 +58,7 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
-import type { ShareRole } from "../sharing/schema.js";
+import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 
 export function createExtensionsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -464,14 +464,9 @@ async function handleExtensionDataList(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  const localExtension = extension
-    ? null
-    : await getLocalExtension(extensionId);
-  if (!extension && !localExtension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "viewer");
+  if (!access.ok) return access.response;
+
   const client = getDbExec();
   const url = event.url;
   const limitParam = url?.searchParams?.get("limit");
@@ -528,14 +523,9 @@ async function handleExtensionDataUpsert(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  const localExtension = extension
-    ? null
-    : await getLocalExtension(extensionId);
-  if (!extension && !localExtension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "editor");
+  if (!access.ok) return access.response;
+
   const body = await readBody(event);
   if (body.data === undefined) {
     setResponseStatus(event, 400);
@@ -601,14 +591,9 @@ async function handleExtensionDataDelete(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  const localExtension = extension
-    ? null
-    : await getLocalExtension(extensionId);
-  if (!extension && !localExtension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "editor");
+  if (!access.ok) return access.response;
+
   const url = event.url;
   const scope = url?.searchParams?.get("scope") || "user";
   const orgId = getRequestOrgId();
@@ -631,6 +616,41 @@ async function handleExtensionDataDelete(
     args: [itemId, extensionId, collection, userEmail],
   });
   return { ok: true };
+}
+
+async function requireExtensionDataAccess(
+  event: H3Event,
+  extensionId: string,
+  minRole: ShareRole,
+): Promise<{ ok: true } | { ok: false; response: unknown }> {
+  const access = await resolveAccess("extension", extensionId);
+  if (access) {
+    if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {
+      setResponseStatus(event, 403);
+      return {
+        ok: false,
+        response: {
+          error: `Requires ${minRole} role on extension ${extensionId} (have ${access.role})`,
+        },
+      };
+    }
+    return { ok: true };
+  }
+
+  const localExtension = await getLocalExtension(extensionId);
+  if (localExtension) {
+    if (!localExtension.source.permissions.extensionData) {
+      setResponseStatus(event, 403);
+      return {
+        ok: false,
+        response: { error: "extensionData is disabled for this extension" },
+      };
+    }
+    return { ok: true };
+  }
+
+  setResponseStatus(event, 404);
+  return { ok: false, response: { error: "Extension not found" } };
 }
 
 async function handleProxy(

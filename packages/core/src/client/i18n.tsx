@@ -461,12 +461,97 @@ export function useLocale(): LocaleContextValue {
   return value;
 }
 
+const CORE_FALLBACK_MESSAGES: Record<string, string> = {
+  "runsTray.runs": "Runs",
+  "runsTray.agentRuns": "Agent runs",
+  "runsTray.activeRun_one": "{{count}} active run",
+  "runsTray.activeRun_other": "{{count}} active runs",
+  "runsTray.failedRun_one": "{{count}} failed run",
+  "runsTray.failedRun_other": "{{count}} failed runs",
+  "runsTray.recentRuns": "Recent runs",
+  "runsTray.noRecentRuns": "No recent runs",
+  "runsTray.ariaAgentRuns": "Agent runs, {{label}}",
+  "runsTray.summaryRunning": "{{activeCount}} running",
+  "runsTray.summaryRunningRecent":
+    "{{activeCount}} running · {{terminalCount}} recent",
+  "runsTray.summaryRecent_one": "{{count}} recent run",
+  "runsTray.summaryRecent_other": "{{count}} recent runs",
+  "runsTray.noTrackedWorkYet": "No tracked work yet",
+  "runsTray.emptyDescription":
+    "Background agent work will appear here while it runs and after it finishes.",
+  "runsTray.open": "Open",
+  "runsTray.stopRun": "Stop {{title}}",
+  "runsTray.hideRun": "Hide {{title}}",
+  "runsTray.statusRunning": "Running",
+  "runsTray.statusDone": "Done",
+  "runsTray.statusFailed": "Failed",
+  "runsTray.statusStopped": "Stopped",
+  "runsTray.updatedJustNow": "Updated just now",
+  "runsTray.finishedJustNow": "Finished just now",
+  "runsTray.updatedMinutes": "Updated {{count}}m ago",
+  "runsTray.finishedMinutes": "Finished {{count}}m ago",
+  "runsTray.updatedHours": "Updated {{count}}h ago",
+  "runsTray.finishedHours": "Finished {{count}}h ago",
+  "runsTray.updatedDate": "Updated {{date}}",
+  "runsTray.finishedDate": "Finished {{date}}",
+  "codeRequired.fallbackDetail":
+    "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
+  "codeRequired.defaultFeature": "Make the requested code changes to this app",
+  "codeRequired.branchError": "Failed to create branch",
+  "codeRequired.title": "Code changes required",
+  "codeRequired.subtitleWithFeature":
+    '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
+  "codeRequired.subtitle":
+    "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
+  "codeRequired.desktopTitle": "Use Agent Native Desktop",
+  "codeRequired.desktopDescription":
+    "Open the project in the desktop app to enable source edits and CLI access.",
+  "codeRequired.builderAgentTitle": "Use Builder.io Agent",
+  "codeRequired.builderAgentDescription":
+    "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
+  "codeRequired.codeChangeTitle": "This requires a code change",
+  "codeRequired.codeChangeBadge": "Code change",
+  "codeRequired.connectBuilderTitle": "Connect Builder.io",
+  "codeRequired.connectBuilderDescription":
+    "Connect Builder to enable cloud-based code changes from this app.",
+  "codeRequired.setupRequired": "Setup required",
+  "codeRequired.branchCreated": "Branch created",
+  "codeRequired.close": "Close",
+};
+
+function interpolateFallbackMessage(
+  template: string,
+  options?: Record<string, unknown>,
+) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => {
+    const value = options?.[name];
+    return value == null ? "" : String(value);
+  });
+}
+
+function fallbackMessage(key: string, options?: Record<string, unknown>) {
+  const count = Number(options?.count);
+  const pluralKey =
+    Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
+  const template =
+    CORE_FALLBACK_MESSAGES[pluralKey] ?? CORE_FALLBACK_MESSAGES[key];
+  return template ? interpolateFallbackMessage(template, options) : key;
+}
+
 export function useT() {
-  return useTranslation().t;
+  const { t } = useTranslation();
+  return useCallback(
+    (key: string, options?: Record<string, unknown>) => {
+      const translated = t(key, options);
+      return translated === key ? fallbackMessage(key, options) : translated;
+    },
+    [t],
+  );
 }
 
 export function useFormatters() {
-  const { locale } = useLocale();
+  const context = useContext(LocaleContext);
+  const locale = context?.locale ?? DEFAULT_LOCALE;
   return useMemo(
     () => ({
       formatDate(

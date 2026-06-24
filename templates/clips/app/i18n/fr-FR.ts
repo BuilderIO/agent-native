@@ -81,6 +81,23 @@ const messages = {
       body: "Essayez un autre terme de recherche ou vérifiez vos filtres.",
     },
   },
+  trashRoute: {
+    title: "Corbeille",
+    selected: "{{count}} sélectionné(s)",
+    deselectAll: "Tout désélectionner",
+    selectAll: "Tout sélectionner",
+    restore: "Restaurer",
+    deleteForever: "Supprimer définitivement",
+    deleteForeverTitle: "Supprimer définitivement ?",
+    bulkDeleteDescription:
+      "Enregistrements à supprimer définitivement : {{count}}. Cette action est irréversible.",
+    singleDeleteDescription:
+      "Cet enregistrement sera supprimé définitivement. Cette action est irréversible.",
+    restored: "Restauré",
+    restoreFailed: "Échec de la restauration",
+    permanentlyDeleted: "Supprimé définitivement",
+    deleteFailed: "Échec de la suppression",
+  },
   settings: {
     openAgentSettings: "Ouvrir les paramètres de l’agent",
     agentDescription:

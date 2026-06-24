@@ -67,6 +67,20 @@ const messages = {
     title: "تركيبة جديدة",
     description: "صف الفيديو الذي تريد إنشاءه",
     placeholder: "صف الفيديو الذي تريد إنشاءه...",
+    timedOut:
+      "The composition request timed out. Please try again from the sidebar.",
+    generating: "Generating...",
+  },
+  notFound: {
+    message: "This page doesn't exist yet. Continue prompting to build it out.",
+    backToStudio: "Back to Studio",
+  },
+  designSystems: {
+    new: "New Design System",
+    setupBrand: "Set up your brand",
+    emptyTitle: "Set up your brand identity",
+    emptyDescription:
+      "Create a design system with your brand colors, typography, and logos. Every new composition will follow your visual identity.",
   },
 };
 

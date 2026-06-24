@@ -69,6 +69,23 @@ const messages = {
     collapseSidebar: "折叠侧边栏",
     signIn: "登录",
   },
+  chat: {
+    suggestionShipped: "What shipped in the last week?",
+    suggestionUi: "What does the new checkout UI look like?",
+    suggestionAuth: "When did the auth API change?",
+    suggestionApi: "What is the shape of the billing API?",
+    emptyState: "Ask Plan",
+    placeholder:
+      "Ask what shipped, what changed, or what the current code shows...",
+    heading: "Ask Plan",
+    description:
+      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+  },
+  guest: {
+    banner:
+      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
+    signIn: "Sign in",
+  },
 };
 
 export default messages;

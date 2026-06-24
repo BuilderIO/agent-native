@@ -41,6 +41,21 @@ const enUS = {
     suggestionAnomalies: "Analyze the HubSpot Sales dashboard for anomalies",
     suggestionMrr: "Compare MRR between enterprise and SMB",
   },
+  dialogs: {
+    newDashboard: "New Dashboard",
+    newDashboardTitle: "New dashboard",
+    newDashboardPlaceholder: "Describe the dashboard you want to create...",
+    newAnalysis: "New Analysis",
+    newAnalysisTitle: "New analysis",
+    checkingDataSources: "Checking data sources",
+    sourcesConfigured: "{{count}} source{{plural}} configured",
+    noDataSourcesConfigured: "No data sources configured",
+    more: "+{{count}} more",
+    connectSourceFirst:
+      "Connect a source first, or ask the agent to help wire one up.",
+    manageSources: "Manage sources",
+    newAnalysisPlaceholder: "Describe the question you want to investigate...",
+  },
 };
 
 type Messages = typeof enUS;
@@ -53,6 +68,7 @@ function mergeMessages(overrides: {
     navigation: { ...enUS.navigation, ...overrides.navigation },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
+    dialogs: { ...enUS.dialogs, ...overrides.dialogs },
   };
 }
 

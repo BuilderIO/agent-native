@@ -1,0 +1,111 @@
+---
+title: "审核日志"
+description: "持久的、仅附加的记录，记录谁更改了哪些应用数据、何时以及是您还是代理 - 在操作接缝处自动捕获。"
+---
+
+# 审核日志
+
+每个代理本机应用程序都会获得开箱即用的审核日志：一个持久的、完整的、访问范围的、仅附加的记录，记录**谁改变了哪些应用程序数据、何时、从哪里以及（何时是代理）在哪个运行中。** 捕获在操作接缝处自动进行；您无需为其编写任何代码。
+
+由于代理可以代表您更改数据，因此审核日志在这里回答的标题问题不仅仅是“谁编辑了此记录”，而是 **“是我还是代理，以及哪个轮次导致了它？”** 框架中没有其他系统可以回答这个问题。
+
+## 审计与可观察性与跟踪 {#which}
+
+三个系统出于三个不同的原因记录“发生了什么”。根据您要问的问题进行选择：
+
+| 系统                                     | 它回答的问题                           | 保真度                 | 观众                   |
+| ---------------------------------------- | -------------------------------------- | ---------------------- | ---------------------- |
+| **审核日志**（本页）                     | “谁更改了此记录，何时更改，是代理吗？” | **完整、耐用、有范围** | 用户、管理员、代理本身 |
+| **[Observability](/docs/observability)** | “代理为什么要这样做，花费了多少？”     | 采样跨度遥测           | 开发人员               |
+| **[Tracking](/docs/tracking)**           | “人们如何使用该产品？”                 | 即发即忘外部 SaaS      | PM/增长                |
+
+采样或发送给分析提供商的审核日志是无用的 - 重点是它是完整的、本地的且可查询的。所以它是它自己的子系统，而不是其他两个的模式。
+
+## 自动捕获的内容 {#captured}
+
+当任何 **mutating** 操作运行时（任何不是只读 `GET` 的操作），框架都会向 `agent_audit_log` 追加一行：
+
+- **操作** — 操作名称（例如 `delete-recording`）。
+- **演员** - `agent`、`human` 或 `system`，加上演员的电子邮件 - 填充**即使是代理呼叫**，因此您会得到“代理，代表 alice@，...”。
+- **运行链接** - 触发调用（工具调用）的代理 `threadId` / `turnId`，因此突变可以追溯到确切的代理回合。
+- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp` 或 `a2a`。
+- **结果** — `success`、`error`（带有错误代码）或 `denied`（被人工审批门阻止）。
+- **输入** — 调用参数，具有凭证形状的值 [redacted](#privacy)。
+- **目标和所有者** — 操作更改的资源，用于 [scope reads](#reading)。
+
+无需接线 - 捕获透明地连接到 `defineAction`。只读的actions会被跳过，并且默认会跳过一些高频框架actions（app-statesync、context-xray、navigation）以避免日志泛滥。
+
+## 声明操作更改了什么 {#target}
+
+默认情况下，事件的范围仅限于 **参与者** - 您可以看到自己的更改以及代理代表您所做的更改。要对*shared*资源进行更改也出现在**所有者的**跟踪中，并按资源标记事件，请声明`target`：
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({
+      type: "recording",
+      id: args.id,
+      // Optional — defaults to the actor. Set when editing someone else's resource.
+      ownerEmail: result?.ownerEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+`audit` 中的所有内容都是可选的。最小有用的添加是 `target: () => ({ type, id })`。
+
+### 调整捕获 {#tuning}
+
+| 选项                 | 效果                                         |
+| -------------------- | -------------------------------------------- |
+| `audit.target`       | 使用向其所有者读取的资源和范围来标记事件。   |
+| `audit.summary`      | 该事件的人类可读的简短行。                   |
+| `audit.onRead`       | 审核敏感的**读取**（秘密访问、批量导出）。   |
+| `audit.enabled`      | `true` 强制捕获； `false` 选择排除噪声突变。 |
+| `audit.recordInputs` | `false` 跳过捕获（已编辑的）参数。           |
+
+## 阅读踪迹 {#reading}
+
+每个应用程序中的代理**和**前端都可以使用两个读取的actions，调用者的范围在SQL中 - 它们永远不会返回其他租户的行：
+
+- **`list-audit-events`** — 按 `targetType` / `targetId`、`actorKind` (`agent` | `human` | `system`)、`status`、`threadId` / `turnId`、`action` 过滤， `sinceMs`、`limit`。
+- **`get-audit-event`** — 按 id 的一个事件，包括其经过编辑的输入负载。
+
+通过使用 `useActionQuery` 从 UI 调用 `list-audit-events` 来构建活动源或“谁更改了此”行 - 切勿手写对审核表的提取：
+
+```tsx
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data } = useActionQuery("list-audit-events", {
+  targetType: "recording",
+  targetId: recordingId,
+});
+// data.events → [{ action, actorKind, actorEmail, turnId, status, summary, createdAt }, …]
+```
+
+代理可以调用​​相同的操作 - 询问它“你对此录音做了什么更改？”它会从踪迹中回答。
+
+## 隐私和保留 {#privacy}
+
+- **编辑** - 在存储任何输入之前，凭证形状的密钥和值（令牌、秘密、密码、承载字符串）将被剥离，并截断超大的有效负载。审核日志永远不会成为秘密的辅助存储。也不要让 `summary` 文本包含敏感数据。
+- **仅追加** — 审核行没有更新或删除操作。唯一的删除是保留清除，这使得日志作为审计跟踪值得信赖。
+- **租户隔离** — 读取范围仅限于调用者的身份和组织；没有身份，没有任何匹配。
+
+通过环境配置：
+
+- `AGENT_NATIVE_AUDIT_RETENTION_DAYS` — 行保留多长时间（默认 `365`；`0` = 永远保留）。
+- `AGENT_NATIVE_AUDIT_ENABLED=false` — 全局终止开关。
+
+## 下一步是什么
+
+- [**Actions**](/docs/actions) — 捕获发生的 `defineAction` 接缝
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — 门控 actions，记录为 `denied`
+- [**Security & Data Scoping**](/docs/security) — 所有权模型审核读取重用
+- [**Observability**](/docs/observability) - 代理运行的遥测（另一个“发生了什么”）

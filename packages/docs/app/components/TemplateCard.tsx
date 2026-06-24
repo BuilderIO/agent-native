@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Link } from "react-router";
-import { trackEvent } from "@agent-native/core/client";
+import { trackEvent, useT } from "@agent-native/core/client";
 import { TemplateDocsLink } from "./template-docs";
 
 export { trackEvent };
@@ -208,6 +208,7 @@ export const featuredTemplates = templates.filter(
 
 function CliPopoverContent({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);
+  const t = useT();
 
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
@@ -228,7 +229,7 @@ function CliPopoverContent({ template }: { template: Template }) {
         <button
           onClick={handleCopy}
           className="shrink-0 rounded-md p-1 text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
-          aria-label="Copy command"
+          aria-label={t("common.copyCommand")}
         >
           {copied ? (
             <svg
@@ -261,13 +262,13 @@ function CliPopoverContent({ template }: { template: Template }) {
         </button>
       </div>
       <div className="border-t border-[var(--code-border)] px-3 py-1.5 text-[10px] text-[var(--fg-secondary)]">
-        Paste into your terminal.{" "}
+        {t("templateCard.pasteIntoTerminal")}{" "}
         <Link
           data-an-prefetch="render"
           to="/docs/getting-started"
           className="text-[var(--docs-accent)] no-underline hover:underline"
         >
-          New to the CLI?
+          {t("templateCard.newToCli")}
         </Link>
       </div>
     </>
@@ -276,6 +277,7 @@ function CliPopoverContent({ template }: { template: Template }) {
 
 function TemplateLaunchButton({ template }: { template: Template }) {
   const [showCli, setShowCli] = useState(false);
+  const t = useT();
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
@@ -307,7 +309,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             <polyline points="15 3 21 3 21 9" />
             <line x1="10" y1="14" x2="21" y2="3" />
           </svg>
-          Try It
+          {t("common.tryIt")}
         </a>
       )}
       <div className="flex gap-2">
@@ -324,7 +326,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         >
           <Popover.Trigger asChild>
             <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]">
-              Run Locally
+              {t("common.runLocally")}
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -349,6 +351,10 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 }
 
 export function TemplateCard({ template }: { template: Template }) {
+  const t = useT();
+  const replaces = t(`templates.${template.slug}.replaces`);
+  const description = t(`templates.${template.slug}.description`);
+
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
       <Link
@@ -365,7 +371,7 @@ export function TemplateCard({ template }: { template: Template }) {
         {template.screenshot ? (
           <img
             src={template.screenshot}
-            alt={`${template.name} template screenshot`}
+            alt={t("templateCard.screenshotAlt", { name: template.name })}
             className="h-full w-full object-cover object-top"
           />
         ) : (
@@ -390,11 +396,9 @@ export function TemplateCard({ template }: { template: Template }) {
           {template.name}
         </Link>
       </h3>
-      <p className="m-0 text-xs text-[var(--docs-accent)]">
-        {template.replaces}
-      </p>
+      <p className="m-0 text-xs text-[var(--docs-accent)]">{replaces}</p>
       <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-        {template.description}
+        {description}
       </p>
       <TemplateLaunchButton template={template} />
     </div>
