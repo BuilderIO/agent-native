@@ -23,6 +23,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => ({}),
@@ -77,6 +78,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => ({}),
@@ -116,6 +118,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => ({}),
@@ -154,6 +157,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => db,
@@ -217,6 +221,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => db,
@@ -285,6 +290,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => db,
@@ -357,6 +363,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => db,
@@ -414,6 +421,7 @@ describe("extensions/store", () => {
       intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+      widenIntColumnsToBigInt: async () => {},
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => db,
