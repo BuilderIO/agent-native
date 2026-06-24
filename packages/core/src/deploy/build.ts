@@ -2123,11 +2123,11 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 
-  // Durable background agent runs (default-ON; opt out with a falsy
+  // Durable background agent runs (default-OFF / opt-in; enable with a truthy
   // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
   // function whose name ends in `-background` re-exporting the same handler
   // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-  // function. When explicitly opted out this is a no-op and the single-function
+  // function. When not opted in this is a no-op and the single-function
   // deploy is byte-for-byte unchanged.
   if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
     try {
