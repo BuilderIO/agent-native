@@ -10,6 +10,7 @@ describe("widenIntColumnsToBigInt", () => {
     originalEnv = { ...process.env };
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     process.env = originalEnv;
     vi.resetModules();
   });
