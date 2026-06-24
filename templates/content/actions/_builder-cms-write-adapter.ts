@@ -1,4 +1,5 @@
 import type {
+  BuilderCmsPublicationTransitionIntent,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecutionState,
@@ -7,10 +8,12 @@ import type {
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
 
-export type BuilderCmsWriteIntent =
-  | "autosave_revision"
-  | "save_draft"
-  | "publish";
+export type BuilderCmsWriteEffect =
+  | "autosave"
+  | "update_in_place"
+  | "create_draft"
+  | "publish"
+  | "unpublish";
 
 export interface BuilderCmsExecutionOperation {
   sourceFieldKey: string;
@@ -24,7 +27,7 @@ export interface BuilderCmsExecutionPayload {
   sourceTable: string;
   changeSetId: string;
   pushMode: ContentDatabaseSourcePushMode;
-  intent: BuilderCmsWriteIntent;
+  effect: BuilderCmsWriteEffect;
   target: {
     model: string;
     entryId: string | null;
@@ -71,12 +74,16 @@ export function builderCmsExecutionIdempotencyKey(args: {
   return `builder-cms:${args.sourceId}:${args.changeSetId}:${args.pushMode}`;
 }
 
-function builderIntentForPushMode(
-  pushMode: ContentDatabaseSourcePushMode,
-): BuilderCmsWriteIntent {
-  if (pushMode === "draft") return "save_draft";
-  if (pushMode === "publish") return "publish";
-  return "autosave_revision";
+function builderEffectForWrite(args: {
+  pushMode: ContentDatabaseSourcePushMode;
+  entryId: string | null;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
+}): BuilderCmsWriteEffect {
+  if (!args.entryId) return "create_draft";
+  if (args.publicationTransition === "publish") return "publish";
+  if (args.publicationTransition === "unpublish") return "unpublish";
+  if (args.pushMode === "autosave") return "autosave";
+  return "update_in_place";
 }
 
 function nestedBuilderPatch(
@@ -98,15 +105,15 @@ function nestedBuilderPatch(
   return body;
 }
 
-function builderRequestForIntent(args: {
-  intent: BuilderCmsWriteIntent;
+function builderRequestForEffect(args: {
+  effect: BuilderCmsWriteEffect;
   model: string;
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
 }): BuilderCmsExecutionPayload["request"] {
   const entryPath = args.entryId ? `/${encodeURIComponent(args.entryId)}` : "";
   const basePath = `/api/v1/write/${encodeURIComponent(args.model)}${entryPath}`;
-  if (args.intent === "autosave_revision") {
+  if (args.effect === "autosave") {
     return {
       method: "PATCH",
       path: basePath,
@@ -117,12 +124,22 @@ function builderRequestForIntent(args: {
       body: args.bodyPatch,
     };
   }
-  if (args.intent === "publish") {
+  if (args.effect === "update_in_place") {
+    return {
+      method: "PATCH",
+      path: basePath,
+      query: {
+        triggerWebhooks: "true",
+      },
+      body: args.bodyPatch,
+    };
+  }
+  if (args.effect === "publish") {
     return {
       method: args.entryId ? "PATCH" : "POST",
       path: basePath,
       query: {
-        triggerWebhooks: "false",
+        triggerWebhooks: "true",
       },
       body: {
         ...args.bodyPatch,
@@ -130,8 +147,21 @@ function builderRequestForIntent(args: {
       },
     };
   }
+  if (args.effect === "unpublish") {
+    return {
+      method: "PATCH",
+      path: basePath,
+      query: {
+        triggerWebhooks: "true",
+      },
+      body: {
+        ...args.bodyPatch,
+        published: "draft",
+      },
+    };
+  }
   return {
-    method: args.entryId ? "PATCH" : "POST",
+    method: "POST",
     path: basePath,
     query: {
       triggerWebhooks: "false",
@@ -147,7 +177,9 @@ function builderSafetyChecks(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
   pushMode: ContentDatabaseSourcePushMode;
-  intent: BuilderCmsWriteIntent;
+  effect: BuilderCmsWriteEffect;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
+  confirmUnpublish?: boolean;
   entryId: string | null;
   syntheticFixtureTarget: boolean;
   operations: BuilderCmsExecutionOperation[];
@@ -155,7 +187,6 @@ function builderSafetyChecks(args: {
   const checks = [
     "Requires explicit approval before execution.",
     "Uses the stored execution idempotency key.",
-    "Does not run while live Builder writes are disabled.",
   ];
   const blockers: string[] = [];
 
@@ -165,28 +196,41 @@ function builderSafetyChecks(args: {
   if (args.changeSet.bodyChange) {
     blockers.push("Builder body diffs are not executable in this slice.");
   }
-  if (args.intent === "autosave_revision") {
-    checks.push("Autosave keeps published state unchanged.");
+  if (args.effect === "autosave" || args.effect === "update_in_place") {
+    const label = args.effect === "autosave" ? "Autosave" : "Update in place";
+    checks.push(
+      `${label} preserves publication state — no published field is sent.`,
+    );
     if (args.syntheticFixtureTarget) {
       blockers.push(
         "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
       );
     } else if (!args.entryId) {
-      blockers.push("Autosave requires an existing Builder entry ID.");
+      blockers.push(`${label} requires an existing Builder entry ID.`);
     }
   }
-  if (args.intent === "save_draft") {
-    checks.push("Draft writes set Builder published state to draft.");
-    if (args.source.metadata.allowDraftWrites !== true) {
+  if (args.effect === "create_draft") {
+    checks.push(
+      "Create draft writes a new Builder entry with published state set to draft.",
+    );
+    if (args.syntheticFixtureTarget) {
       blockers.push(
-        "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
+        "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
       );
     }
   }
-  if (args.intent === "publish") {
-    checks.push("Publish writes set Builder published state to published.");
-    if (args.source.metadata.allowPublishWrites !== true) {
-      blockers.push("Publish writes require explicit adapter opt-in.");
+  if (args.effect === "publish") {
+    checks.push(
+      "Publish transition sets Builder published state to published.",
+    );
+    if (args.publicationTransition !== "publish") {
+      blockers.push("Publish requires an explicit publication transition.");
+    }
+  }
+  if (args.effect === "unpublish") {
+    checks.push("Unpublish transition sets Builder published state to draft.");
+    if (args.confirmUnpublish !== true) {
+      blockers.push("Unpublish requires explicit confirmation.");
     }
   }
 
@@ -202,6 +246,18 @@ function builderSafetyChecks(args: {
       `Live Builder writes are only allowed for ${SAFE_WRITE_MODEL}.`,
     );
   }
+  if (args.source.capabilities.liveWritesEnabled !== true) {
+    checks.push("Does not run while live Builder writes are disabled.");
+    if (
+      args.effect === "update_in_place" ||
+      args.effect === "publish" ||
+      args.effect === "unpublish"
+    ) {
+      blockers.push(
+        `${args.effect} requires live Builder writes to be enabled.`,
+      );
+    }
+  }
 
   return { checks, blockers };
 }
@@ -210,6 +266,8 @@ export function buildBuilderCmsExecutionPlan(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
   pushModeConfirmation?: ContentDatabaseSourcePushMode | null;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
+  confirmUnpublish?: boolean;
 }): BuilderCmsExecutionPlan {
   if (args.source.sourceType !== "builder-cms") {
     throw new Error("Builder execution plans require a Builder CMS source.");
@@ -236,7 +294,6 @@ export function buildBuilderCmsExecutionPlan(args: {
     );
   }
 
-  const intent = builderIntentForPushMode(pushMode);
   const targetRow =
     args.source.rows.find(
       (row) =>
@@ -254,14 +311,22 @@ export function buildBuilderCmsExecutionPlan(args: {
   const targetSourceQualifiedId = target?.isSyntheticFixture
     ? null
     : (target?.sourceQualifiedId ?? null);
+  const effect = builderEffectForWrite({
+    pushMode,
+    entryId: targetEntryId,
+    publicationTransition: args.publicationTransition,
+  });
   const operations = args.changeSet.fieldChanges.map((field) => ({
     sourceFieldKey: field.sourceFieldKey,
     localFieldKey: field.localFieldKey,
     value: field.proposedValue,
   }));
   const bodyPatch = nestedBuilderPatch(operations);
-  const request = builderRequestForIntent({
-    intent,
+  // State-preserving effects must not include `published` in the body. Builder
+  // PATCH preserves omitted publication state, so only transition/create effects
+  // are allowed to set it.
+  const request = builderRequestForEffect({
+    effect,
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
@@ -270,7 +335,9 @@ export function buildBuilderCmsExecutionPlan(args: {
     source: args.source,
     changeSet: args.changeSet,
     pushMode,
-    intent,
+    effect,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
     entryId: targetEntryId,
     syntheticFixtureTarget:
       args.source.capabilities.liveWritesEnabled === true &&
@@ -313,7 +380,7 @@ export function buildBuilderCmsExecutionPlan(args: {
       databaseId: args.source.databaseId,
       sourceTable: args.source.sourceTable,
       changeSetId: args.changeSet.id,
-      intent,
+      effect,
       target: {
         model: args.source.sourceTable,
         entryId: targetEntryId,
@@ -384,9 +451,9 @@ export function validateBuilderCmsExecutionDryRun(args: {
       "Stored Builder operations no longer match the approved change.",
     );
   }
-  if (storedComparable.intent !== planComparable.intent) {
+  if (storedComparable.effect !== planComparable.effect) {
     mismatches.push(
-      "Stored Builder intent no longer matches the approved push mode.",
+      "Stored Builder effect no longer matches the approved write mode.",
     );
   }
   if (
@@ -414,7 +481,7 @@ export function validateBuilderCmsExecutionDryRun(args: {
       validatedAt: args.now,
       checks: [
         "Rebuilt execution plan from current source state.",
-        "Compared request, operations, intent, and target against stored gate.",
+        "Compared request, operations, effect, and target against stored gate.",
         "No Builder API call was made.",
       ],
       mismatches,

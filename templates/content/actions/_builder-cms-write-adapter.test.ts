@@ -108,20 +108,20 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("prepares a write-disabled execution plan by default", () => {
-    expect(
-      buildBuilderCmsExecutionPlan({
-        source: source(false),
-        changeSet: approvedChangeSet(),
-        pushModeConfirmation: "autosave",
-      }),
-    ).toMatchObject({
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(false),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
       adapter: "builder-cms",
       pushMode: "autosave",
       state: "write_disabled",
       idempotencyKey: "builder-cms:source-1:change-1:autosave",
       payload: {
         sourceTable: "blog_article",
-        intent: "autosave_revision",
+        effect: "autosave",
         target: {
           entryId: "builder-entry-1",
         },
@@ -153,23 +153,34 @@ describe("Builder CMS write adapter plan", () => {
       },
       lastError: "Live Builder writes are disabled for this source.",
     });
+    expect(plan.payload.request.body).not.toHaveProperty("published");
   });
 
   it("returns ready when live writes are configured for the safe Builder test model", () => {
-    expect(
-      buildBuilderCmsExecutionPlan({
-        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
-        changeSet: approvedChangeSet(),
-        pushModeConfirmation: "autosave",
-      }),
-    ).toMatchObject({
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
       state: "ready",
       summary: "Prepared Builder autosave execution. Ready to send to Builder.",
       payload: {
+        effect: "autosave",
         sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
         request: {
           method: "PATCH",
           path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
+          query: {
+            autoSaveOnly: "true",
+            triggerWebhooks: "false",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+          },
         },
         safety: {
           liveWritesEnabled: true,
@@ -178,6 +189,186 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
       lastError: null,
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("published");
+  });
+
+  it("prepares update-in-place for existing live-write edits without a transition", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "update_in_place",
+        request: {
+          method: "PATCH",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
+          query: {
+            triggerWebhooks: "true",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+          },
+        },
+        safety: {
+          blockers: [],
+          checks: expect.arrayContaining([
+            "Update in place preserves publication state — no published field is sent.",
+          ]),
+        },
+      },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("published");
+  });
+
+  it("prepares create-draft for new Builder entries", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "create_draft",
+        target: {
+          entryId: null,
+        },
+        request: {
+          method: "POST",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}`,
+          query: {
+            triggerWebhooks: "false",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+            published: "draft",
+          },
+        },
+        safety: {
+          blockers: [],
+        },
+      },
+    });
+  });
+
+  it("prepares explicit publish transitions", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+      publicationTransition: "publish",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "publish",
+        request: {
+          method: "PATCH",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
+          query: {
+            triggerWebhooks: "true",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+            published: "published",
+          },
+        },
+        safety: {
+          blockers: [],
+        },
+      },
+    });
+  });
+
+  it("blocks unpublish transitions without explicit confirmation", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+      publicationTransition: "unpublish",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      lastError: "Unpublish requires explicit confirmation.",
+      payload: {
+        effect: "unpublish",
+        request: {
+          method: "PATCH",
+          query: {
+            triggerWebhooks: "true",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+            published: "draft",
+          },
+        },
+        safety: {
+          blockers: ["Unpublish requires explicit confirmation."],
+        },
+      },
+    });
+  });
+
+  it("prepares confirmed unpublish transitions", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+      publicationTransition: "unpublish",
+      confirmUnpublish: true,
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "unpublish",
+        request: {
+          method: "PATCH",
+          query: {
+            triggerWebhooks: "true",
+          },
+          body: {
+            published: "draft",
+          },
+        },
+        safety: {
+          blockers: [],
+        },
+      },
     });
   });
 
@@ -203,7 +394,7 @@ describe("Builder CMS write adapter plan", () => {
     );
   });
 
-  it("blocks live autosave for unmatched legacy fixture-wrapped Builder rows", () => {
+  it("blocks live writes for unmatched legacy fixture-wrapped Builder rows", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
@@ -234,16 +425,16 @@ describe("Builder CMS write adapter plan", () => {
           sourceQualifiedId: null,
         },
         request: {
-          method: "PATCH",
+          method: "POST",
           path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}`,
           query: {
-            autoSaveOnly: "true",
             triggerWebhooks: "false",
           },
           body: {
             data: {
               title: "New title",
             },
+            published: "draft",
           },
         },
         safety: {
@@ -278,116 +469,81 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("blocks autosave execution when the Builder entry ID is missing", () => {
+  it("blocks publication transitions for Builder models outside the safe test collection", () => {
     expect(
       buildBuilderCmsExecutionPlan({
-        source: {
-          ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
-          rows: [],
-        },
-        changeSet: approvedChangeSet(),
-        pushModeConfirmation: "autosave",
-      }),
-    ).toMatchObject({
-      state: "blocked",
-      lastError: "Autosave requires an existing Builder entry ID.",
-      payload: {
-        safety: {
-          blockers: ["Autosave requires an existing Builder entry ID."],
-        },
-      },
-    });
-  });
-
-  it("keeps publish blocked without explicit adapter opt-in", () => {
-    expect(
-      buildBuilderCmsExecutionPlan({
-        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
-        changeSet: {
-          ...approvedChangeSet(),
-          pushMode: "publish",
-        },
-        pushModeConfirmation: "publish",
-      }),
-    ).toMatchObject({
-      state: "blocked",
-      lastError: "Publish writes require explicit adapter opt-in.",
-      payload: {
-        intent: "publish",
-        request: {
-          body: {
-            data: {
-              title: "New title",
-            },
-            published: "published",
-          },
-        },
-        safety: {
-          blockers: ["Publish writes require explicit adapter opt-in."],
-        },
-      },
-    });
-  });
-
-  it("keeps draft blocked for existing entries without explicit adapter opt-in", () => {
-    expect(
-      buildBuilderCmsExecutionPlan({
-        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        source: source(true, "blog_article"),
         changeSet: {
           ...approvedChangeSet(),
           pushMode: "draft",
         },
         pushModeConfirmation: "draft",
+        publicationTransition: "publish",
       }),
     ).toMatchObject({
       state: "blocked",
-      lastError:
-        "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
       payload: {
-        intent: "save_draft",
-        request: {
-          body: {
-            data: {
-              title: "New title",
-            },
-            published: "draft",
-          },
+        effect: "publish",
+        safety: {
+          blockers: [
+            `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+          ],
         },
       },
     });
   });
 
-  it("keeps draft blocked for new entries without explicit adapter opt-in", () => {
+  it("keeps legacy publish push mode state-preserving without a transition", () => {
     const plan = buildBuilderCmsExecutionPlan({
-      source: {
-        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
-        rows: [],
-      },
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
       changeSet: {
         ...approvedChangeSet(),
-        pushMode: "draft",
+        pushMode: "publish",
       },
-      pushModeConfirmation: "draft",
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "update_in_place",
+        request: {
+          query: {
+            triggerWebhooks: "true",
+          },
+          body: {
+            data: {
+              title: "New title",
+            },
+          },
+        },
+      },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("published");
+  });
+
+  it("keeps body diffs and empty field operations blocked", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: {
+        ...approvedChangeSet(),
+        fieldChanges: [],
+        bodyChange: {
+          summary: "Body changed",
+          currentExcerpt: "Old",
+          proposedExcerpt: "New",
+        },
+      },
+      pushModeConfirmation: "autosave",
     });
 
     expect(plan).toMatchObject({
       state: "blocked",
-      lastError:
-        "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
       payload: {
-        intent: "save_draft",
-        target: {
-          entryId: null,
-        },
-        request: {
-          method: "POST",
-          body: {
-            published: "draft",
-          },
-        },
         safety: {
           blockers: [
-            "Draft writes require explicit adapter opt-in because draft can affect already-live content.",
+            "No field operations are available for this Builder change.",
+            "Builder body diffs are not executable in this slice.",
           ],
         },
       },
@@ -469,7 +625,7 @@ describe("Builder CMS write adapter plan", () => {
 
     const payload = validateBuilderCmsExecutionDryRun({
       storedPayload: {
-        intent: plan.payload.intent,
+        effect: plan.payload.effect,
         target: plan.payload.target,
         operations: plan.payload.operations,
       },
@@ -498,7 +654,7 @@ describe("Builder CMS write adapter plan", () => {
     expect(
       validateBuilderCmsExecutionDryRun({
         storedPayload: {
-          intent: plan.payload.intent,
+          effect: plan.payload.effect,
           target: plan.payload.target,
           operations: plan.payload.operations,
         },

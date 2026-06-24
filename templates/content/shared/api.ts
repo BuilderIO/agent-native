@@ -345,6 +345,7 @@ export type ContentDatabaseSourcePushMode =
   | "autosave"
   | "draft"
   | "publish";
+export type BuilderCmsPublicationTransitionIntent = "publish" | "unpublish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
 export type ContentDatabaseSourceChangeDirection = "outbound";
 export type ContentDatabaseSourceChangeState =
@@ -739,6 +740,8 @@ export interface PrepareBuilderSourceExecutionRequest {
   documentId?: string;
   changeSetId: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface ValidateBuilderSourceExecutionRequest {
@@ -754,6 +757,8 @@ export interface ExecuteBuilderSourceExecutionRequest {
   changeSetId: string;
   idempotencyKey?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface SetContentDatabaseSourceWriteModeRequest {
@@ -769,6 +774,8 @@ export interface PrepareBuilderSourceReviewRequest {
   databaseId?: string;
   documentId?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewRowSummary {

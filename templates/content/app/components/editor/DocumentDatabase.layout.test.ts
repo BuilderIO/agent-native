@@ -162,9 +162,10 @@ describe("document database layout", () => {
   it("reduces the connected source panel to read-only status plus a diff slot", () => {
     const source = readDatabaseSource();
 
-    // Read-only is the headline signal; live writes flip the same badge.
+    // Read-only is the headline signal for non-safe models; the safe write
+    // model exposes an explicit "Enable live writes" control instead of a badge.
     expect(source).toContain("Read-only");
-    expect(source).toContain("Live writes on");
+    expect(source).toContain("Enable live writes (autosave)");
     // The dormant diff slot is the single push-review entry point.
     expect(source).toContain("Review diff");
     // A failed sync surfaces inline instead of silently going stale.
