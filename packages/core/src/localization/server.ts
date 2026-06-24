@@ -102,6 +102,7 @@ export function resolveLocaleFromRequest(
 
 export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
   const safeLocale = normalizeLocaleCode(options.locale) ?? DEFAULT_LOCALE;
+  const shouldStorePreference = options.preference !== undefined;
   const safePreference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
   );
@@ -116,13 +117,15 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
     SUPPORTED_LOCALES,
   )};var payload=${JSON.stringify(
     payload,
+  )};var shouldStorePreference=${JSON.stringify(
+    shouldStorePreference,
   )};function valid(x){return supported.indexOf(x)>=0}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}function storageSet(k,v){try{window.localStorage.setItem(k,v)}catch(e){}}var stored=storageGet(${JSON.stringify(
     LOCALE_STORAGE_KEY,
   )});var pref=payload.preference&&payload.preference.locale;var locale=payload.locale;if(!valid(locale)){locale=null}if(!locale&&stored&&stored!=='system'){locale=canon(stored)}if(!locale&&pref&&pref!=='system'){locale=canon(pref)}if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
     DEFAULT_LOCALE,
   )};var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',locale==='ar-SA'?'rtl':'ltr');root.setAttribute('data-locale',locale);payload.locale=locale;payload.dir=locale==='ar-SA'?'rtl':'ltr';window[${JSON.stringify(
     LOCALE_HYDRATION_GLOBAL,
-  )}]=payload;if(pref){storageSet(${JSON.stringify(
+  )}]=payload;if(shouldStorePreference&&pref){storageSet(${JSON.stringify(
     LOCALE_STORAGE_KEY,
   )},pref)}}catch(e){}})();`;
 }

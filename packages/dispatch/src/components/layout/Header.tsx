@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton, LanguagePicker } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { Button } from "@/components/ui/button";
 import { IconLayoutSidebar } from "@tabler/icons-react";
@@ -80,6 +80,7 @@ export function Header({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <LanguagePicker variant="icon" />
         <RunsTray limit={8} onOpenThread={openRunThread} />
         {showAgentToggle ? (
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />

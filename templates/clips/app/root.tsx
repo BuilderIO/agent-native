@@ -4,7 +4,9 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLoaderData,
   useLocation,
+  useRouteLoaderData,
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -18,9 +20,13 @@ import {
   createAgentNativeQueryClient,
   getLocaleInitScript,
   getThemeInitScript,
+  type LocaleCode,
+  type LocaleMessages,
+  type LocalizationPreference,
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import changelog from "../CHANGELOG.md?raw";
@@ -34,10 +40,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { LinksFunction } from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
-import { i18nCatalog } from "./i18n";
+import { i18nCatalog, loadI18nMessages } from "./i18n";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -50,12 +56,77 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
-const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+interface RootLoaderData {
+  locale: LocaleCode;
+  preference: LocalizationPreference;
+  dir: "ltr" | "rtl";
+  messages: LocaleMessages;
+}
+
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<RootLoaderData> {
+  const resolved = resolveLocaleFromRequest({ request });
+  const messages =
+    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+  return {
+    locale: resolved.locale,
+    preference: resolved.preference,
+    dir: resolved.dir,
+    messages,
+  };
+}
+
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+function getHydrationStableLocaleInitScript(
+  options: Parameters<typeof getLocaleInitScript>[0],
+) {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript(options);
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+
+const DEFAULT_LOADER_DATA: RootLoaderData = {
+  locale: "en-US",
+  preference: { locale: "system" },
+  dir: "ltr",
+  messages: i18nCatalog.messages,
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData =
+    useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
+  const localeInitScript = getHydrationStableLocaleInitScript({
+    locale: loaderData.locale,
+    preference: loaderData.preference,
+    messages: loaderData.messages,
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang={loaderData.locale}
+      dir={loaderData.dir}
+      data-locale={loaderData.locale}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -63,13 +134,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
         <script
           data-agent-native-locale-init
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
@@ -303,6 +375,7 @@ function AppContent() {
  */
 export default function Root() {
   const location = useLocation();
+  const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppProviders
@@ -310,6 +383,9 @@ export default function Root() {
       isPublicPath={isStandalonePublicPath(location.pathname)}
       i18n={{
         catalog: i18nCatalog,
+        initialLocale: loaderData.locale,
+        initialPreference: loaderData.preference,
+        initialMessages: loaderData.messages,
         persistPreference: !isStandalonePublicPath(location.pathname),
       }}
     >

@@ -12,6 +12,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  useT,
 } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
@@ -21,9 +22,13 @@ import {
 } from "@/components/ui/tooltip";
 
 const navItems = [
-  { icon: IconStack2, label: "Decks", href: "/" },
-  { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
-  { icon: IconUsers, label: "Team", href: "/team" },
+  { icon: IconStack2, labelKey: "navigation.decks", href: "/" },
+  {
+    icon: IconPalette,
+    labelKey: "navigation.designSystems",
+    href: "/design-systems",
+  },
+  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 
 interface SidebarProps {
@@ -35,6 +40,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const location = useLocation();
+  const t = useT();
 
   const isItemActive = (href: string) =>
     href === "/"
@@ -49,13 +55,15 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             <TooltipTrigger asChild>
               <button
                 onClick={onToggleCollapsed}
-                aria-label="Expand sidebar"
+                aria-label={t("sidebar.expandSidebar")}
                 className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
                 <IconLayoutSidebarLeftExpand className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">Expand sidebar</TooltipContent>
+            <TooltipContent side="right">
+              {t("sidebar.expandSidebar")}
+            </TooltipContent>
           </Tooltip>
         )}
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
@@ -67,7 +75,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 <TooltipTrigger asChild>
                   <Link
                     to={item.href}
-                    aria-label={item.label}
+                    aria-label={t(item.labelKey)}
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
                       isActive
@@ -78,7 +86,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                     <Icon className="h-4 w-4" />
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
               </Tooltip>
             );
           })}
@@ -103,20 +111,22 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             aria-hidden="true"
             className="hidden h-4 w-auto dark:block"
           />
-          <span className="text-sm font-semibold tracking-tight">Slides</span>
+          <span className="text-sm font-semibold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </div>
         {onToggleCollapsed && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={onToggleCollapsed}
-                aria-label="Collapse sidebar"
+                aria-label={t("sidebar.collapseSidebar")}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
                 <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.collapseSidebar")}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -138,7 +148,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}

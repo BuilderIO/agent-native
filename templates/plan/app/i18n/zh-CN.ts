@@ -1,0 +1,58 @@
+const messages = {
+  root: {
+    commandActions: "操作",
+    askPlan: "询问 Plan",
+    openPlans: "打开计划",
+    openRecaps: "打开回顾",
+    commandAppearance: "外观",
+    toggleTheme: "切换主题",
+  },
+  header: {
+    plan: "Plan",
+    settings: "设置",
+    team: "团队",
+    extensions: "扩展",
+  },
+  navigation: {
+    ask: "询问",
+    plan: "计划",
+  },
+  agent: {
+    emptyState:
+      "让 Plan 代理搜索已合并的 PR 回顾、检查此文档、添加图表，或以可视化计划回答代码问题。",
+    suggestionShipped: "上周发布了什么？",
+    suggestionUi: "这个界面现在是什么样？",
+    suggestionApi: "这个 API 的结构是什么？",
+  },
+  sidebar: {
+    openNavigation: "打开导航",
+    navigation: "导航",
+    navigationDescription: "应用导航链接",
+    chats: "聊天",
+    newPlanChat: "新建 Plan 聊天",
+    newChat: "新建聊天",
+    renameChat: "重命名聊天",
+    unpinChat: "取消置顶聊天",
+    pinChat: "置顶聊天",
+    archiveChat: "归档聊天",
+    planSection: "计划",
+    newPlan: "新建计划",
+    signInCreatePlan: "登录以创建计划",
+    signInToCreate: "登录以创建",
+    signInKeepPlans: "登录即可创建并保留计划。",
+    noPlans: "还没有计划。",
+    recapBadge: "回顾",
+    viewAllPlans: "查看所有计划...",
+    brandingSentLocal: "已将品牌请求发送给本地代码代理",
+    brandingSent: "已将品牌请求发送给代码代理",
+    customizePlanBranding: "自定义 Plan 品牌",
+    customizeBranding: "自定义品牌",
+    customizeBrandingDescription: "描述要在 Plan 中应用的品牌更改。",
+    customizeBrandingPlaceholder: "使用我们的徽标、更改应用名称、更新颜色...",
+    expandSidebar: "展开侧边栏",
+    collapseSidebar: "折叠侧边栏",
+    signIn: "登录",
+  },
+};
+
+export default messages;

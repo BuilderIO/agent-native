@@ -18,6 +18,7 @@ import {
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
 } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -39,6 +41,7 @@ export const links: LinksFunction = () => [
 ];
 
 const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 function getHydrationStableThemeInitScript() {
   if (typeof document !== "undefined") {
@@ -50,7 +53,18 @@ function getHydrationStableThemeInitScript() {
   return getThemeInitScript();
 }
 
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -65,6 +79,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -262,6 +281,7 @@ export default function Root() {
       themeAttribute={["class", "data-theme"]}
       tooltipDelayDuration={300}
       toaster={MAIL_TOASTER}
+      i18n={{ catalog: i18nCatalog }}
     >
       <RequireSession bypass={isMcpEmbedSurface()}>
         <AutoFocus />

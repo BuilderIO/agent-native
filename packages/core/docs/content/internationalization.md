@@ -1,3 +1,8 @@
+---
+title: "Internationalization"
+description: "Localize Agent Native apps with shared locale catalogs, a language picker, browser-language fallback, and locale-aware docs content."
+---
+
 # Internationalization
 
 Agent Native apps can localize framework and template UI through the shared
@@ -77,6 +82,20 @@ function SettingsLanguageCard() {
 
 Use `useFormatters()` for dates, numbers, relative time, and lists. Do not put
 locale-sensitive date/number formatting inside translation strings.
+
+## Docs Site Content {#docs-site-content}
+
+Public docs pages use the same core provider, but with
+`persistPreference={false}` so anonymous docs traffic uses localStorage and the
+browser language instead of SQL settings actions. The English source remains in
+`packages/core/docs/content/*.md`. Localized page overrides live next to it under
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+Use the same BCP-47 locale codes as app catalogs. Keep the same slug as the
+English source, preserve stable anchors with `{#anchor}` on translated headings,
+and leave routes, action names, protocol fields, env vars, and provider names
+untranslated. If a locale has no translated Markdown for a page, the docs site
+falls back to English for that page while still localizing navigation and chrome.
 
 ## Actions And Persistence
 

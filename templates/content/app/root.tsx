@@ -21,8 +21,10 @@ import {
   appPath,
   CommandMenu,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
@@ -30,6 +32,7 @@ import changelog from "../CHANGELOG.md?raw";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -43,6 +46,7 @@ export const links: LinksFunction = () => [
 
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 const themeOptions = [
   { value: "system", label: "System", icon: IconDeviceDesktop },
@@ -102,6 +106,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+        />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -132,6 +141,7 @@ function AppSetup() {
 
 function ThemeToggleItem() {
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
 
   useEffect(() => {
@@ -156,9 +166,9 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "system", "mode"]}
     >
       <ActiveIcon size={16} />
-      Toggle theme
+      {t("root.toggleTheme")}
       <span className="ml-auto text-xs text-muted-foreground">
-        {activeOption.label}
+        {t(`theme.${activeOption.value}`)}
       </span>
     </CommandMenu.Item>
   );
@@ -166,6 +176,7 @@ function ThemeToggleItem() {
 
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  const t = useT();
 
   useEffect(() => setMounted(true), []);
 
@@ -195,15 +206,42 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
       position="right"
       defaultOpen
       defaultSidebarWidth={420}
-      emptyStateText="Ask me anything about this document"
+      emptyStateText={t("chat.publicEmptyState")}
       suggestions={[
-        "Summarize this document",
-        "What are the key takeaways?",
-        "Turn this into an action plan",
+        t("chat.publicSuggestionSummary"),
+        t("chat.publicSuggestionTakeaways"),
+        t("chat.publicSuggestionActionPlan"),
       ]}
     >
       {content}
     </AgentSidebar>
+  );
+}
+
+function ContentCommandMenu({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  return (
+    <CommandMenu
+      open={open}
+      onOpenChange={onOpenChange}
+      changelog={changelog}
+      changelogKey="content"
+    >
+      <CommandMenu.Group heading={t("root.commandContent")}>
+        <CommandMenu.Item onSelect={() => {}}>
+          {t("root.commandSearchDocuments")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+      <CommandMenu.Group heading={t("root.commandAppearance")}>
+        <ThemeToggleItem />
+      </CommandMenu.Group>
+    </CommandMenu>
   );
 }
 
@@ -231,6 +269,7 @@ export default function Root() {
         isPublicPath
         disableThemeTransitions={false}
         toaster={contentToaster}
+        i18n={{ catalog: i18nCatalog }}
       >
         <Toaster />
         <PublicAgentShell>
@@ -245,24 +284,11 @@ export default function Root() {
       queryClient={queryClient}
       disableThemeTransitions={false}
       toaster={contentToaster}
+      i18n={{ catalog: i18nCatalog }}
     >
       <AppSetup />
       <Toaster />
-      <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
-        changelog={changelog}
-        changelogKey="content"
-      >
-        <CommandMenu.Group heading="Content">
-          <CommandMenu.Item onSelect={() => {}}>
-            Search documents
-          </CommandMenu.Item>
-        </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
-          <ThemeToggleItem />
-        </CommandMenu.Group>
-      </CommandMenu>
+      <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       <Outlet />
     </AppProviders>
   );

@@ -1,0 +1,179 @@
+const messages = {
+  common: {
+    cancel: "Cancelar",
+    create: "Crear",
+    save: "Guardar",
+    saving: "Guardando…",
+    saveChanges: "Guardar cambios",
+    connected: "Conectado",
+    notConnected: "No conectado",
+    disconnect: "Desconectar",
+    disconnecting: "Desconectando...",
+  },
+  root: {
+    commandActions: "Acciones",
+    commandSearch: "Buscar",
+    commandAppearance: "Apariencia",
+    toggleTheme: "Cambiar tema",
+    extensionSignedInTitle: "Sesión iniciada",
+    extensionSignedInDescription:
+      "Abre de nuevo la extensión de Clips para empezar a grabar.",
+    gotIt: "Entendido",
+  },
+  navigation: {
+    brand: "Clips",
+    library: "Biblioteca",
+    spaces: "Espacios",
+    meetings: "Reuniones",
+    dictate: "Dictar",
+    archive: "Archivo",
+    trash: "Papelera",
+    settings: "Ajustes",
+    notifications: "Notificaciones",
+    insights: "Información",
+    space: "Espacio",
+    folder: "Carpeta",
+    extensions: "Extensiones",
+    newRecording: "Nueva grabación",
+    folders: "Carpetas",
+    newFolder: "Nueva carpeta",
+    noSpaces: "Aún no hay espacios",
+    desktopCta: "Obtener la app de escritorio",
+    desktopTitle: "Obtén la app de escritorio de Clips.",
+    desktopBody:
+      "Graba desde la barra de menús, con atajo global y actualizaciones automáticas.",
+    expandSidebar: "Expandir barra lateral",
+    collapseSidebar: "Contraer barra lateral",
+    agentEmptyState: "¿Cómo puedo ayudarte con tus grabaciones?",
+    agentSuggestionSummary: "Resume mi última grabación",
+    agentSuggestionPricing: "Encuentra dónde mencioné precios",
+    agentSuggestionFiller: "Quita las muletillas de este clip",
+    createFolderError: "Error al crear",
+    folderCreated: "Carpeta creada",
+    folderNamePlaceholder: "Nombre de la carpeta",
+  },
+  empty: {
+    library: {
+      title: "Tu biblioteca está vacía",
+      body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
+      cta: "Grabar tu primer Clip",
+    },
+    folder: {
+      title: "Esta carpeta está vacía",
+      body: "Arrastra grabaciones aquí o pulsa grabar para empezar algo nuevo en esta carpeta.",
+      cta: "Grabar aquí",
+    },
+    space: {
+      title: "Aún no hay grabaciones en este espacio",
+      body: "Comparte una grabación con el espacio o graba algo nuevo; tu equipo lo verá aquí.",
+      cta: "Grabar para este espacio",
+    },
+    archive: {
+      title: "No hay nada archivado",
+      body: "Las grabaciones archivadas se ocultan de la biblioteca, pero se conservan. Siempre puedes restaurarlas más tarde.",
+    },
+    trash: {
+      title: "La papelera está vacía",
+      body: "Las grabaciones eliminadas aparecen aquí durante 30 días antes de eliminarse permanentemente.",
+    },
+    search: {
+      title: "Sin coincidencias",
+      body: "Prueba con otro término de búsqueda o revisa los filtros.",
+    },
+  },
+  settings: {
+    title: "Ajustes",
+    intro: "Preferencias y servicios conectados para este espacio de Clips.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
+    languageLabel: "Idioma de la interfaz",
+    profile: "Perfil",
+    email: "Correo electrónico",
+    displayName: "Nombre visible",
+    displayNamePlaceholder: "Tu nombre",
+    playback: "Reproducción",
+    defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
+    playbackDescription:
+      "Se aplica automáticamente cuando abres una grabación.",
+    transcript: "Transcripción",
+    transcriptCleanup: "Limpieza en segundo plano",
+    transcriptCleanupDescription:
+      "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
+    notifications: "Notificaciones",
+    emailNotifications: "Notificaciones por correo",
+    emailNotificationsDescription:
+      "Recibe un correo cuando alguien comenta, reacciona o comparte una grabación contigo.",
+    saved: "Ajustes guardados",
+    saveFailed: "No se pudo guardar",
+    builderConnectedToast: "Builder.io conectado",
+    videoStorage: "Almacenamiento de vídeo",
+    videoStorageDescription:
+      "Builder.io es la ruta principal de almacenamiento para las subidas de Clips. S3 está disponible si necesitas usar tu propio bucket.",
+    checkingBuilder: "Comprobando Builder.io",
+    builderConnected: "Builder.io conectado",
+    connectBuilder: "Conectar Builder.io",
+    builderConnectedFor: "Usando Builder.io para {{orgName}}.",
+    builderConnectedGeneric:
+      "Los clips nuevos usan el proveedor Builder.io conectado.",
+    builderIncludes:
+      "Incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
+    s3Title: "Almacenamiento compatible con S3",
+    secondary: "Secundario",
+    active: "Activo",
+    s3BuilderConnectedDescription:
+      "Úsalo solo si este espacio debe subir a tu propio bucket en lugar de Builder.io.",
+    s3CurrentProvider: "Usando actualmente {{providerName}}.",
+    s3OwnBucketDescription:
+      "Usa tu propio bucket si no quieres almacenamiento de Builder.io.",
+    configureS3: "Configurar S3",
+    hideS3: "Ocultar S3",
+    saveStorage: "Guardar almacenamiento",
+    storageSaved: "Ajustes de almacenamiento guardados",
+    storageRequired: "Endpoint, bucket, access key y secret son obligatorios.",
+    apiSetup: "Configuración de IA",
+    apiSetupDescription:
+      "Builder.io es la ruta predeterminada para créditos de IA gestionados. Las claves de proveedor son opcionales y pueden añadirse aquí.",
+    builderEasySetup: "Builder.io es la configuración más sencilla",
+    builderAiAvailable:
+      "Los créditos de IA incluidos y la transcripción gestionada están disponibles para Clips.",
+    builderAiDescription:
+      "Conecta Builder primero para usar créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
+    providerKeyTitle: "Usar tu propia clave de proveedor",
+    providerKeyDescription:
+      "Añade claves de Anthropic, OpenAI, Gemini, Groq u OpenRouter para uso facturado por proveedor.",
+    providerKeysSet: "{{count}} configuradas",
+    checkingProviderKeys: "Comprobando claves de proveedor…",
+    keySet: "Configurada",
+    replaceKey: "Reemplazar clave…",
+    pasteProviderKey: "Pega primero una clave de proveedor.",
+    apiKeySaved: "Clave de API guardada",
+    apiKeyFailed: "No se pudo guardar la clave",
+    slackTitle: "Agent-Native Clips para Slack",
+    slackDescription:
+      "Comparte un clip público, pega el enlace en Slack y se reproducirá en línea, sin pasos adicionales para quienes lo vean. Conecta cada espacio una sola vez.",
+    checkingSlack: "Comprobando Slack",
+    slackConnected_one: "{{count}} espacio conectado",
+    slackConnected_many: "{{count}} espacios conectados",
+    slackConnected_other: "{{count}} espacios conectados",
+    slackOauthNeeded: "Se necesitan credenciales OAuth",
+    slackPreviewDescription:
+      "Los enlaces públicos de Clips pueden mostrarse como vistas previas reproducibles en Slack.",
+    connectSlack: "Conectar Slack",
+    slackClientMissing:
+      "Configura SLACK_CLIENT_ID y SLACK_CLIENT_SECRET para este despliegue antes de conectar espacios.",
+    slackSigningMissing:
+      "Configura SLACK_SIGNING_SECRET para verificar los callbacks de eventos de Slack.",
+    connectedBy: "Conectado por {{email}}",
+    disconnectSlackLabel: "Desconectar {{team}}",
+    slackConnectedToast: "Slack conectado",
+    slackCheckedToast: "Conexión de Slack comprobada",
+    slackDisconnectedToast: "Slack desconectado",
+    disconnectSlackTitle: "¿Desconectar Slack?",
+    disconnectSlackDescription:
+      "Clips eliminará el token de bot almacenado para {{team}} y dejará de enviar vistas previas reproducibles de Slack.",
+    thisWorkspace: "este espacio",
+  },
+};
+
+export default messages;

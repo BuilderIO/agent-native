@@ -42,4 +42,23 @@ describe("localization server helpers", () => {
         .__AGENT_NATIVE_LOCALE__?.locale,
     ).toBe("ar-SA");
   });
+
+  it("does not overwrite stored preference unless a preference is provided", () => {
+    window.localStorage.setItem("agent-native:locale-preference", "zh-CN");
+
+    new Function(getLocaleInitScript({ locale: "fr-FR" }))();
+    expect(window.localStorage.getItem("agent-native:locale-preference")).toBe(
+      "zh-CN",
+    );
+
+    new Function(
+      getLocaleInitScript({
+        locale: "de-DE",
+        preference: { locale: "de-DE" },
+      }),
+    )();
+    expect(window.localStorage.getItem("agent-native:locale-preference")).toBe(
+      "de-DE",
+    );
+  });
 });

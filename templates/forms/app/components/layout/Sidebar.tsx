@@ -27,6 +27,7 @@ import {
   appPath,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
+  useT,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,13 +49,13 @@ const statusDots: Record<string, string> = {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const { data: formsData, isLoading: formsLoading } = useForms();
   const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
   const promptRun = useAgentPromptRun({
-    staleMessage:
-      "Form generation is taking longer than expected. You can try again.",
+    staleMessage: t("sidebar.formGenerationStale"),
   });
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -74,7 +75,7 @@ export function Sidebar() {
     const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
     navigate(`/forms/${tempId}`);
     createForm.mutate(
-      { title: "Untitled Form" },
+      { title: t("sidebar.untitledForm") },
       { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
     );
   }
@@ -108,7 +109,7 @@ export function Sidebar() {
     <PopoverTrigger asChild>
       <button className="cursor-pointer flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
         <IconPlus size={14} className="shrink-0" />
-        <span>New form</span>
+        <span>{t("sidebar.newForm")}</span>
       </button>
     </PopoverTrigger>
   );
@@ -121,7 +122,7 @@ export function Sidebar() {
       className="w-80 p-0 rounded-xl"
     >
       <div className="p-4 pb-3">
-        <p className="text-sm font-semibold">New form</p>
+        <p className="text-sm font-semibold">{t("sidebar.newForm")}</p>
         <Textarea
           ref={textareaRef}
           value={prompt}
@@ -132,7 +133,7 @@ export function Sidebar() {
               handleSubmitPrompt();
             }
           }}
-          placeholder="Describe your form..."
+          placeholder={t("sidebar.describeFormPlaceholder")}
           className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 border-none shadow-none"
           rows={4}
         />
@@ -146,11 +147,11 @@ export function Sidebar() {
             className="h-auto p-0 text-xs text-muted-foreground"
             onClick={handleSkip}
           >
-            Skip prompt
+            {t("sidebar.skipPrompt")}
           </Button>
           <span className="text-[11px] text-muted-foreground/70">
             {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-            +Enter to submit
+            {t("sidebar.submitShortcutSuffix")}
           </span>
           <Button
             variant="secondary"
@@ -158,7 +159,7 @@ export function Sidebar() {
             className="h-7 w-7"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
-            aria-label="Send prompt"
+            aria-label={t("sidebar.sendPrompt")}
           >
             <IconArrowUp size={14} />
           </Button>
@@ -181,7 +182,7 @@ export function Sidebar() {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="Open Ask Forms full screen"
+                aria-label={t("sidebar.openAskFullScreen")}
                 className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={toggleLogoView}
               >
@@ -197,11 +198,11 @@ export function Sidebar() {
                   aria-hidden="true"
                   className="hidden h-4 w-auto shrink-0 dark:block"
                 />
-                <span className="truncate">Forms</span>
+                <span className="truncate">{t("navigation.brand")}</span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              Open Ask Forms full screen
+              {t("sidebar.openAskFullScreen")}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -235,7 +236,9 @@ export function Sidebar() {
             )}
           >
             <IconMessageCircle size={14} className="shrink-0" />
-            <span className="min-w-0 flex-1 basis-0 truncate">Ask Forms</span>
+            <span className="min-w-0 flex-1 basis-0 truncate">
+              {t("navigation.askForms")}
+            </span>
           </Link>
 
           {formsLoading && forms.length === 0
@@ -267,7 +270,7 @@ export function Sidebar() {
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
-                title={form.title || "Untitled Form"}
+                title={form.title || t("sidebar.untitledForm")}
               >
                 <span
                   className={cn(
@@ -276,7 +279,7 @@ export function Sidebar() {
                   )}
                 />
                 <span className="min-w-0 flex-1 basis-0 truncate">
-                  {form.title || "Untitled Form"}
+                  {form.title || t("sidebar.untitledForm")}
                 </span>
               </Link>
             );
@@ -302,7 +305,7 @@ export function Sidebar() {
           )}
         >
           <IconUsers size={14} className="shrink-0" />
-          <span>Team</span>
+          <span>{t("navigation.team")}</span>
         </Link>
       </div>
 
@@ -331,7 +334,7 @@ export function Sidebar() {
           size="icon"
           className="fixed top-2 left-2 z-40 h-10 w-10 md:hidden"
           onClick={() => setMobileOpen(true)}
-          aria-label="Open sidebar"
+          aria-label={t("sidebar.openSidebar")}
         >
           <IconMenu2 size={20} />
         </Button>

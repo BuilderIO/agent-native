@@ -73,6 +73,7 @@ export interface AgentNativeI18nProviderProps {
   catalog?: AgentNativeI18nCatalog;
   initialLocale?: LocaleCode;
   initialPreference?: LocalizationPreference | LocalePreference;
+  initialMessages?: LocaleMessages | null;
   persistPreference?: boolean;
 }
 
@@ -92,6 +93,62 @@ declare global {
 }
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
+
+const LANGUAGE_PICKER_COPY: Record<
+  LocaleCode,
+  { label: string; system: string; systemDescription: string }
+> = {
+  "en-US": {
+    label: "Language",
+    system: "System",
+    systemDescription: "Use your browser language",
+  },
+  "zh-CN": {
+    label: "语言",
+    system: "系统",
+    systemDescription: "使用浏览器语言",
+  },
+  "es-ES": {
+    label: "Idioma",
+    system: "Sistema",
+    systemDescription: "Usar el idioma del navegador",
+  },
+  "fr-FR": {
+    label: "Langue",
+    system: "Système",
+    systemDescription: "Utiliser la langue du navigateur",
+  },
+  "de-DE": {
+    label: "Sprache",
+    system: "System",
+    systemDescription: "Browsersprache verwenden",
+  },
+  "ja-JP": {
+    label: "言語",
+    system: "システム",
+    systemDescription: "ブラウザーの言語を使用",
+  },
+  "ko-KR": {
+    label: "언어",
+    system: "시스템",
+    systemDescription: "브라우저 언어 사용",
+  },
+  "pt-BR": {
+    label: "Idioma",
+    system: "Sistema",
+    systemDescription: "Usar o idioma do navegador",
+  },
+  "hi-IN": {
+    label: "भाषा",
+    system: "सिस्टम",
+    systemDescription: "ब्राउज़र की भाषा का उपयोग करें",
+  },
+  "ar-SA": {
+    label: "اللغة",
+    system: "النظام",
+    systemDescription: "استخدام لغة المتصفح",
+  },
+};
 
 function browserLanguageCandidates(): string[] {
   if (typeof navigator === "undefined") return [];
@@ -160,14 +217,21 @@ function createI18nInstance(args: {
   sourceLocale: LocaleCode;
   messages: LocaleMessages;
   initialLocale: LocaleCode;
+  initialMessages?: LocaleMessages | null;
 }): I18nInstance {
   const instance = i18next.createInstance();
-  void instance.use(initReactI18next).init({
-    resources: {
-      [args.sourceLocale]: {
-        [args.namespace]: args.messages,
-      },
+  const resources: Record<string, Record<string, LocaleMessages>> = {
+    [args.sourceLocale]: {
+      [args.namespace]: args.messages,
     },
+  };
+  if (args.initialLocale !== args.sourceLocale && args.initialMessages) {
+    resources[args.initialLocale] = {
+      [args.namespace]: args.initialMessages,
+    };
+  }
+  void instance.use(initReactI18next).init({
+    resources,
     lng: args.initialLocale,
     fallbackLng: args.sourceLocale,
     defaultNS: args.namespace,
@@ -185,6 +249,7 @@ export function AgentNativeI18nProvider({
   catalog,
   initialLocale,
   initialPreference,
+  initialMessages,
   persistPreference = true,
 }: AgentNativeI18nProviderProps) {
   const namespace = catalog?.namespace ?? "translation";
@@ -203,6 +268,11 @@ export function AgentNativeI18nProvider({
   const i18nRef = useRef<I18nInstance | null>(null);
 
   if (!i18nRef.current) {
+    const preloadedMessages = normalizeLoadedMessages(
+      hydration.locale === initialState.locale && hydration.messages
+        ? hydration.messages
+        : initialMessages,
+    );
     i18nRef.current = createI18nInstance({
       namespace,
       sourceLocale,
@@ -211,6 +281,7 @@ export function AgentNativeI18nProvider({
           ? hydration.messages
           : sourceMessages,
       initialLocale: initialState.locale,
+      initialMessages: preloadedMessages,
     });
   }
 
@@ -246,10 +317,13 @@ export function AgentNativeI18nProvider({
           locale !== sourceLocale &&
           !i18n.hasResourceBundle(locale, namespace)
         ) {
-          const loaded =
+          const preloaded =
             hydration.locale === locale && hydration.messages
               ? hydration.messages
-              : await catalog?.loadMessages?.(locale);
+              : initialLocale === locale && initialMessages
+                ? initialMessages
+                : null;
+          const loaded = preloaded ?? (await catalog?.loadMessages?.(locale));
           const messages = normalizeLoadedMessages(loaded);
           if (messages) {
             i18n.addResourceBundle(locale, namespace, messages, true, true);
@@ -272,6 +346,8 @@ export function AgentNativeI18nProvider({
     hydration.locale,
     hydration.messages,
     i18n,
+    initialLocale,
+    initialMessages,
     locale,
     namespace,
     sourceLocale,
@@ -421,20 +497,25 @@ export function useFormatters() {
 export function LanguagePicker({
   className,
   includeSystem = true,
-  label = "Language",
+  label,
+  variant = "select",
 }: {
   className?: string;
   includeSystem?: boolean;
   label?: string;
+  variant?: "select" | "icon";
 }) {
-  const { preference, setPreference } = useLocale();
+  const { locale, preference, setPreference } = useLocale();
+  const copy =
+    LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
+  const resolvedLabel = label ?? copy.label;
   const options = [
     ...(includeSystem
       ? [
           {
             value: "system" as const,
-            label: "System",
-            description: "Use your browser language",
+            label: copy.system,
+            description: copy.systemDescription,
           },
         ]
       : []),
@@ -458,24 +539,39 @@ export function LanguagePicker({
         }
       >
         <SelectPrimitive.Trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-          aria-label={label}
+          className={
+            variant === "icon"
+              ? "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+          }
+          aria-label={resolvedLabel}
+          title={selected?.label ?? resolvedLabel}
         >
           <span className="flex min-w-0 items-center gap-2">
             <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <SelectPrimitive.Value>
-              <span className="truncate">{selected?.label ?? preference}</span>
-            </SelectPrimitive.Value>
+            {variant === "select" ? (
+              <SelectPrimitive.Value>
+                <span className="truncate">
+                  {selected?.label ?? preference}
+                </span>
+              </SelectPrimitive.Value>
+            ) : null}
           </span>
-          <SelectPrimitive.Icon asChild>
-            <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </SelectPrimitive.Icon>
+          {variant === "select" ? (
+            <SelectPrimitive.Icon asChild>
+              <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </SelectPrimitive.Icon>
+          ) : null}
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
           <SelectPrimitive.Content
             position="popper"
             sideOffset={6}
-            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+            className={
+              variant === "icon"
+                ? "z-[9999] min-w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+                : "z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+            }
           >
             <SelectPrimitive.Viewport className="p-1">
               {options.map((option) => (

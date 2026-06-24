@@ -16,8 +16,10 @@ import {
   CommandMenu,
   appPath,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -27,6 +29,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import changelog from "../CHANGELOG.md?raw";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { i18nCatalog } from "./i18n";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -52,6 +55,7 @@ function getHydrationStableThemeInitScript() {
 }
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -66,6 +70,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181b" />
@@ -120,6 +129,7 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -127,7 +137,7 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle {isDark ? "light" : "dark"} mode
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
 }
@@ -135,6 +145,7 @@ function ThemeToggleItem() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -144,33 +155,33 @@ function AppContent() {
         changelog={changelog}
         changelogKey="brain"
       >
-        <CommandMenu.Group heading="Navigate">
+        <CommandMenu.Group heading={t("root.commandNavigate")}>
           <CommandMenu.Item onSelect={() => navigate("/")}>
-            Ask Brain
+            {t("navigation.askBrain")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/search")}>
-            Search
+            {t("navigation.search")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/knowledge")}>
-            Knowledge
+            {t("navigation.knowledge")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/review")}>
-            Review queue
+            {t("navigation.reviewQueue")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/sources")}>
-            Sources
+            {t("navigation.sources")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
-            Ops
+            {t("navigation.ops")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/extensions")}>
-            Extensions
+            {t("navigation.extensions")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            Settings
+            {t("navigation.settings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
@@ -201,7 +212,11 @@ export default function Root() {
   );
 
   return (
-    <AppProviders queryClient={queryClient} tooltipDelayDuration={250}>
+    <AppProviders
+      queryClient={queryClient}
+      tooltipDelayDuration={250}
+      i18n={{ catalog: i18nCatalog }}
+    >
       <DbSyncSetup />
       <AppContent />
     </AppProviders>

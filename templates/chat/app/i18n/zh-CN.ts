@@ -1,0 +1,41 @@
+const messages = {
+  chat: {
+    archiveChat: "Archive Chat",
+    archiveFailed: "Archive Failed",
+    chats: "Chats",
+    composerPlaceholder: "Ask the agent...",
+    emptyState: "Ask me anything",
+    heroDescription: "Ask the agent to inspect, explain, or change this app.",
+    heroTitle: "How can I help?",
+    inspectEmptyState: "Ask me anything about this app",
+    inspectSuggestionAction: "Show available actions",
+    inspectSuggestionCapabilities: "What can this app do?",
+    inspectSuggestionHello: "Help me get started",
+    newChat: "New Chat",
+    optionsFor: "Options For",
+    pinChat: "Pin Chat",
+    renameChat: "Rename Chat",
+    renameFailed: "Rename Failed",
+    renameThread: "Rename Thread",
+    suggestionActions: "Show me the available actions",
+    suggestionCapabilities: "What can this app do?",
+    suggestionCustomize: "Help me customize this app",
+    unpinChat: "Unpin Chat",
+  },
+  navigation: {
+    collapseSidebar: "Collapse Sidebar",
+    expandSidebar: "Expand Sidebar",
+    extensions: "扩展",
+    navigation: "导航",
+    navigationDescription: "主导航",
+    openNavigation: "打开导航",
+  },
+  root: {
+    commandActions: "操作",
+    commandAppearance: "外观",
+    commandSearch: "搜索",
+    toggleTheme: "切换主题",
+  },
+};
+
+export default messages;

@@ -3,7 +3,7 @@ import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ function pageHasOwnToolbar(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
@@ -66,11 +67,11 @@ export function Layout({ children }: LayoutProps) {
       <AgentSidebar
         position="right"
         defaultOpen
-        emptyStateText="Ask me anything about your presentations"
+        emptyStateText={t("agent.emptyState")}
         suggestions={[
-          "Build a 10-slide pitch from this doc",
-          "Apply our brand to this deck",
-          "Generate a hero image for this slide",
+          t("agent.suggestionPitch"),
+          t("agent.suggestionBrand"),
+          t("agent.suggestionHero"),
         ]}
         scope={deckScope}
         browserTabId={TAB_ID}
@@ -110,7 +111,7 @@ export function Layout({ children }: LayoutProps) {
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
-                  aria-label="Open navigation"
+                  aria-label={t("sidebar.openNavigation")}
                 >
                   <IconMenu2 className="h-4 w-4" />
                 </button>

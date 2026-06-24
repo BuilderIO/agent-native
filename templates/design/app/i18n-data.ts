@@ -1,0 +1,310 @@
+import type { LocaleCode } from "@agent-native/core/client";
+
+const enUS = {
+  root: {
+    commandActions: "Actions",
+    commandSearch: "Search",
+    commandAppearance: "Appearance",
+    toggleTheme: "Toggle theme",
+  },
+  navigation: {
+    brand: "Design",
+    designs: "Designs",
+    templates: "Templates",
+    designSystems: "Design Systems",
+    setupDesignSystem: "Set up design system",
+    settings: "Settings",
+    openNavigation: "Open navigation",
+    expandSidebar: "Expand sidebar",
+    collapseSidebar: "Collapse sidebar",
+  },
+  settings: {
+    languageTitle: "Language",
+    languageDescription: "Choose the interface language for Design.",
+    languageLabel: "Interface language",
+  },
+  chat: {
+    emptyState: "Describe a design to create",
+    suggestionLandingPage: "Design a landing page for my startup",
+    suggestionBrandMatch: "Make this match our brand",
+    suggestionMobile: "Add a mobile version of this",
+  },
+};
+
+type Messages = typeof enUS;
+type PartialMessages = { [K in keyof Messages]?: Partial<Messages[K]> };
+
+function mergeMessages(overrides: PartialMessages): Messages {
+  return {
+    root: { ...enUS.root, ...overrides.root },
+    navigation: { ...enUS.navigation, ...overrides.navigation },
+    settings: { ...enUS.settings, ...overrides.settings },
+    chat: { ...enUS.chat, ...overrides.chat },
+  };
+}
+
+export const messagesByLocale = {
+  "en-US": enUS,
+  "zh-CN": mergeMessages({
+    root: {
+      commandActions: "操作",
+      commandSearch: "搜索",
+      commandAppearance: "外观",
+      toggleTheme: "切换主题",
+    },
+    navigation: {
+      brand: "Design",
+      designs: "设计",
+      templates: "模板",
+      designSystems: "设计系统",
+      setupDesignSystem: "设置设计系统",
+      settings: "设置",
+      openNavigation: "打开导航",
+      expandSidebar: "展开侧边栏",
+      collapseSidebar: "收起侧边栏",
+    },
+    settings: {
+      languageTitle: "语言",
+      languageDescription: "选择 Design 的界面语言。",
+      languageLabel: "界面语言",
+    },
+    chat: {
+      emptyState: "描述要创建的设计",
+      suggestionLandingPage: "为我的初创公司设计落地页",
+      suggestionBrandMatch: "让它匹配我们的品牌",
+      suggestionMobile: "添加移动端版本",
+    },
+  }),
+  "es-ES": mergeMessages({
+    root: {
+      commandActions: "Acciones",
+      commandSearch: "Buscar",
+      commandAppearance: "Apariencia",
+      toggleTheme: "Cambiar tema",
+    },
+    navigation: {
+      designs: "Diseños",
+      templates: "Plantillas",
+      designSystems: "Sistemas de diseño",
+      setupDesignSystem: "Configurar sistema de diseño",
+      settings: "Ajustes",
+      openNavigation: "Abrir navegación",
+      expandSidebar: "Expandir barra lateral",
+      collapseSidebar: "Contraer barra lateral",
+    },
+    settings: {
+      languageTitle: "Idioma",
+      languageDescription: "Elige el idioma de la interfaz de Design.",
+      languageLabel: "Idioma de la interfaz",
+    },
+    chat: {
+      emptyState: "Describe el diseño que quieres crear",
+      suggestionLandingPage: "Diseña una landing page para mi startup",
+      suggestionBrandMatch: "Haz que coincida con nuestra marca",
+      suggestionMobile: "Añade una versión móvil",
+    },
+  }),
+  "fr-FR": mergeMessages({
+    root: {
+      commandActions: "Actions",
+      commandSearch: "Rechercher",
+      commandAppearance: "Apparence",
+      toggleTheme: "Changer de thème",
+    },
+    navigation: {
+      designs: "Designs",
+      templates: "Modèles",
+      designSystems: "Systèmes de design",
+      setupDesignSystem: "Configurer le système de design",
+      settings: "Paramètres",
+      openNavigation: "Ouvrir la navigation",
+      expandSidebar: "Développer la barre latérale",
+      collapseSidebar: "Réduire la barre latérale",
+    },
+    settings: {
+      languageTitle: "Langue",
+      languageDescription: "Choisissez la langue de l'interface de Design.",
+      languageLabel: "Langue de l'interface",
+    },
+    chat: {
+      emptyState: "Décrivez un design à créer",
+      suggestionLandingPage: "Conçois une landing page pour ma startup",
+      suggestionBrandMatch: "Adapte ceci à notre marque",
+      suggestionMobile: "Ajoute une version mobile",
+    },
+  }),
+  "de-DE": mergeMessages({
+    root: {
+      commandActions: "Aktionen",
+      commandSearch: "Suchen",
+      commandAppearance: "Darstellung",
+      toggleTheme: "Theme wechseln",
+    },
+    navigation: {
+      designs: "Designs",
+      templates: "Vorlagen",
+      designSystems: "Designsysteme",
+      setupDesignSystem: "Designsystem einrichten",
+      settings: "Einstellungen",
+      openNavigation: "Navigation öffnen",
+      expandSidebar: "Seitenleiste erweitern",
+      collapseSidebar: "Seitenleiste einklappen",
+    },
+    settings: {
+      languageTitle: "Sprache",
+      languageDescription: "Wähle die Oberflächensprache für Design.",
+      languageLabel: "Oberflächensprache",
+    },
+    chat: {
+      emptyState: "Beschreibe ein Design, das erstellt werden soll",
+      suggestionLandingPage: "Entwirf eine Landingpage für mein Startup",
+      suggestionBrandMatch: "Passe dies an unsere Marke an",
+      suggestionMobile: "Füge eine mobile Version hinzu",
+    },
+  }),
+  "ja-JP": mergeMessages({
+    root: {
+      commandActions: "操作",
+      commandSearch: "検索",
+      commandAppearance: "外観",
+      toggleTheme: "テーマを切り替え",
+    },
+    navigation: {
+      designs: "デザイン",
+      templates: "テンプレート",
+      designSystems: "デザインシステム",
+      setupDesignSystem: "デザインシステムを設定",
+      settings: "設定",
+      openNavigation: "ナビゲーションを開く",
+      expandSidebar: "サイドバーを展開",
+      collapseSidebar: "サイドバーを折りたたむ",
+    },
+    settings: {
+      languageTitle: "言語",
+      languageDescription: "Design のインターフェース言語を選択します。",
+      languageLabel: "インターフェース言語",
+    },
+    chat: {
+      emptyState: "作成したいデザインを説明してください",
+      suggestionLandingPage: "スタートアップ向けのランディングページをデザイン",
+      suggestionBrandMatch: "これをブランドに合わせる",
+      suggestionMobile: "モバイル版を追加",
+    },
+  }),
+  "ko-KR": mergeMessages({
+    root: {
+      commandActions: "작업",
+      commandSearch: "검색",
+      commandAppearance: "모양",
+      toggleTheme: "테마 전환",
+    },
+    navigation: {
+      designs: "디자인",
+      templates: "템플릿",
+      designSystems: "디자인 시스템",
+      setupDesignSystem: "디자인 시스템 설정",
+      settings: "설정",
+      openNavigation: "탐색 열기",
+      expandSidebar: "사이드바 펼치기",
+      collapseSidebar: "사이드바 접기",
+    },
+    settings: {
+      languageTitle: "언어",
+      languageDescription: "Design의 인터페이스 언어를 선택하세요.",
+      languageLabel: "인터페이스 언어",
+    },
+    chat: {
+      emptyState: "만들 디자인을 설명하세요",
+      suggestionLandingPage: "내 스타트업 랜딩 페이지 디자인",
+      suggestionBrandMatch: "우리 브랜드에 맞게 만들기",
+      suggestionMobile: "모바일 버전 추가",
+    },
+  }),
+  "pt-BR": mergeMessages({
+    root: {
+      commandActions: "Ações",
+      commandSearch: "Buscar",
+      commandAppearance: "Aparência",
+      toggleTheme: "Alternar tema",
+    },
+    navigation: {
+      designs: "Designs",
+      templates: "Modelos",
+      designSystems: "Sistemas de design",
+      setupDesignSystem: "Configurar sistema de design",
+      settings: "Configurações",
+      openNavigation: "Abrir navegação",
+      expandSidebar: "Expandir barra lateral",
+      collapseSidebar: "Recolher barra lateral",
+    },
+    settings: {
+      languageTitle: "Idioma",
+      languageDescription: "Escolha o idioma da interface do Design.",
+      languageLabel: "Idioma da interface",
+    },
+    chat: {
+      emptyState: "Descreva um design para criar",
+      suggestionLandingPage: "Crie uma landing page para minha startup",
+      suggestionBrandMatch: "Faça isto combinar com nossa marca",
+      suggestionMobile: "Adicione uma versão mobile",
+    },
+  }),
+  "hi-IN": mergeMessages({
+    root: {
+      commandActions: "क्रियाएं",
+      commandSearch: "खोजें",
+      commandAppearance: "रूप",
+      toggleTheme: "थीम बदलें",
+    },
+    navigation: {
+      designs: "डिज़ाइन",
+      templates: "टेम्पलेट",
+      designSystems: "डिज़ाइन सिस्टम",
+      setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
+      settings: "सेटिंग्स",
+      openNavigation: "नेविगेशन खोलें",
+      expandSidebar: "साइडबार फैलाएं",
+      collapseSidebar: "साइडबार समेटें",
+    },
+    settings: {
+      languageTitle: "भाषा",
+      languageDescription: "Design की interface भाषा चुनें।",
+      languageLabel: "इंटरफ़ेस भाषा",
+    },
+    chat: {
+      emptyState: "बनाने के लिए design का वर्णन करें",
+      suggestionLandingPage: "मेरे startup के लिए landing page design करें",
+      suggestionBrandMatch: "इसे हमारे brand से match करें",
+      suggestionMobile: "इसका mobile version जोड़ें",
+    },
+  }),
+  "ar-SA": mergeMessages({
+    root: {
+      commandActions: "الإجراءات",
+      commandSearch: "بحث",
+      commandAppearance: "المظهر",
+      toggleTheme: "تبديل السمة",
+    },
+    navigation: {
+      designs: "التصاميم",
+      templates: "القوالب",
+      designSystems: "أنظمة التصميم",
+      setupDesignSystem: "إعداد نظام التصميم",
+      settings: "الإعدادات",
+      openNavigation: "فتح التنقل",
+      expandSidebar: "توسيع الشريط الجانبي",
+      collapseSidebar: "طي الشريط الجانبي",
+    },
+    settings: {
+      languageTitle: "اللغة",
+      languageDescription: "اختر لغة واجهة Design.",
+      languageLabel: "لغة الواجهة",
+    },
+    chat: {
+      emptyState: "صف تصميمًا لإنشائه",
+      suggestionLandingPage: "صمم صفحة هبوط لشركتي الناشئة",
+      suggestionBrandMatch: "اجعل هذا مطابقًا لعلامتنا",
+      suggestionMobile: "أضف نسخة للجوال",
+    },
+  }),
+} satisfies Record<LocaleCode, Messages>;

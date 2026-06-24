@@ -1,7 +1,11 @@
-import { useParams, redirect, type LoaderFunctionArgs } from "react-router";
+import {
+  redirect,
+  useLoaderData,
+  type LoaderFunctionArgs,
+} from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import DocContent from "../components/DocContent";
-import { getDoc } from "../components/docs-content";
+import { getDoc, type DocEntry } from "../components/docs-content";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
@@ -18,14 +22,21 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (target) {
     throw redirect(`/docs/${target}`, 301);
   }
-  if (!getDoc(slug)) {
+  const doc = getDoc(slug);
+  if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
-  return null;
+  return doc;
 }
 
-export const meta = ({ params }: { params: { slug: string } }) => {
-  const doc = getDoc(params.slug);
+export const meta = ({
+  data,
+  params,
+}: {
+  data?: DocEntry;
+  params: { slug: string };
+}) => {
+  const doc = data ?? getDoc(params.slug);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(
@@ -41,12 +52,7 @@ export const meta = ({ params }: { params: { slug: string } }) => {
 };
 
 export default function DocPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const doc = getDoc(slug!);
-
-  // Loader already throws 404 for unknown slugs; this is just a type-narrowing
-  // guard for the TypeScript type — should never be reached at runtime.
-  if (!doc) return null;
+  const doc = useLoaderData<typeof loader>();
 
   const toc = doc.headings.map((h) => ({
     id: h.id,

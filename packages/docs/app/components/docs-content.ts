@@ -4,12 +4,30 @@
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsPathForSlug,
+  isDocsLocale,
+  type DocsLocale,
+} from "./docs-locale";
+
 // Import all .md files from core's docs as raw strings
 const mdModules = import.meta.glob("../../../core/docs/content/*.md", {
   query: "?raw",
   import: "default",
   eager: true,
 }) as Record<string, string>;
+
+// Optional locale-specific docs live under packages/core/docs/content/locales/.
+// Keep these lazy. Translated Markdown should load per locale + route, not all
+// at startup, so non-English docs do not bloat the initial docs bundle.
+const localizedMdLoaders = import.meta.glob(
+  "../../../core/docs/content/locales/*/*.md",
+  {
+    query: "?raw",
+    import: "default",
+  },
+) as Record<string, () => Promise<string>>;
 
 export interface DocEntry {
   slug: string;
@@ -64,38 +82,113 @@ function extractHeadings(
   return headings;
 }
 
-// Build the docs map once
 const docs = new Map<string, DocEntry>();
+const localizedDocs = new Map<DocsLocale, Map<string, DocEntry>>();
+const localizedDocPromises = new Map<string, Promise<DocEntry | undefined>>();
 
-for (const [path, raw] of Object.entries(mdModules)) {
+function docEntryFromPath(path: string, raw: string): DocEntry {
   const filename = path.split("/").pop()!;
   const slug = filename.replace(/\.md$/, "");
   const { data, body } = parseFrontmatter(raw);
   const headings = extractHeadings(body);
-  docs.set(slug, {
+  return {
     slug,
     title: data.title || slug,
     description: data.description || "",
     search: data.search || "",
     body,
     headings,
-  });
+  };
 }
 
-export function getDoc(slug: string): DocEntry | undefined {
+// Build the docs maps once.
+for (const [path, raw] of Object.entries(mdModules)) {
+  const entry = docEntryFromPath(path, raw);
+  docs.set(entry.slug, entry);
+}
+
+function normalizeDocsLocale(locale: unknown): DocsLocale {
+  return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
+}
+
+function localizedDocKey(locale: DocsLocale, slug: string) {
+  return `../../../core/docs/content/locales/${locale}/${slug}.md`;
+}
+
+function cacheLocalizedDoc(locale: DocsLocale, entry: DocEntry) {
+  const localeDocs = localizedDocs.get(locale) ?? new Map<string, DocEntry>();
+  localeDocs.set(entry.slug, entry);
+  localizedDocs.set(locale, localeDocs);
+}
+
+export function getDoc(
+  slug: string,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): DocEntry | undefined {
+  const docsLocale = normalizeDocsLocale(locale);
+  if (docsLocale !== DEFAULT_DOCS_LOCALE) {
+    const localized = localizedDocs.get(docsLocale)?.get(slug);
+    if (localized) return localized;
+  }
   return docs.get(slug);
 }
 
-export function getAllDocs(): DocEntry[] {
-  return Array.from(docs.values());
+export async function loadDoc(
+  slug: string,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): Promise<DocEntry | undefined> {
+  const docsLocale = normalizeDocsLocale(locale);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.get(slug);
+
+  const cached = localizedDocs.get(docsLocale)?.get(slug);
+  if (cached) return cached;
+
+  const key = localizedDocKey(docsLocale, slug);
+  const loader = localizedMdLoaders[key];
+  if (!loader) return undefined;
+
+  const existingPromise = localizedDocPromises.get(key);
+  if (existingPromise) return existingPromise;
+
+  const promise = loader()
+    .then((raw) => {
+      const entry = docEntryFromPath(key, raw);
+      cacheLocalizedDoc(docsLocale, entry);
+      return entry;
+    })
+    .catch(() => undefined);
+  localizedDocPromises.set(key, promise);
+  return promise;
+}
+
+export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
+  const docsLocale = normalizeDocsLocale(locale);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.has(slug);
+  return Boolean(
+    localizedDocs.get(docsLocale)?.has(slug) ||
+      localizedMdLoaders[localizedDocKey(docsLocale, slug)],
+  );
+}
+
+export function getAllDocs(locale: unknown = DEFAULT_DOCS_LOCALE): DocEntry[] {
+  const docsLocale = normalizeDocsLocale(locale);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) return Array.from(docs.values());
+
+  const overrides = localizedDocs.get(docsLocale);
+  if (!overrides) return Array.from(docs.values());
+
+  return Array.from(docs.values()).map((doc) => overrides.get(doc.slug) ?? doc);
 }
 
 /** Build a search index from all markdown content */
-export function buildSearchIndex(): SearchEntry[] {
+export function buildSearchIndex(
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): SearchEntry[] {
   const entries: SearchEntry[] = [];
+  const docsLocale = normalizeDocsLocale(locale);
 
-  for (const doc of docs.values()) {
-    const path = doc.slug === "getting-started" ? "/docs" : `/docs/${doc.slug}`;
+  for (const doc of getAllDocs(docsLocale)) {
+    const path = docsPathForSlug(doc.slug, docsLocale);
     const lines = doc.body.split("\n");
     const sections: { id: string; label: string; startLine: number }[] = [];
 

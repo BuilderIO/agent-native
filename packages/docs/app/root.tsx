@@ -11,9 +11,20 @@ import {
 } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AgentSidebar, configureTracking } from "@agent-native/core/client";
+import {
+  AgentNativeI18nProvider,
+  AgentSidebar,
+  configureTracking,
+  useT,
+} from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsLocaleFromPathname,
+  localeDirection,
+} from "./components/docs-locale";
+import { docsI18nCatalog } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
@@ -103,6 +114,24 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
       {children}
       <Footer />
     </div>
+  );
+}
+
+function DocsI18nProvider({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const routeLocale =
+    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+
+  return (
+    <AgentNativeI18nProvider
+      key={routeLocale}
+      catalog={docsI18nCatalog}
+      initialLocale={routeLocale}
+      initialPreference={routeLocale}
+      persistPreference={false}
+    >
+      {children}
+    </AgentNativeI18nProvider>
   );
 }
 
@@ -242,8 +271,12 @@ function ScrollManager() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const locale =
+    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -308,46 +341,53 @@ export default function Root() {
     };
   }, [mounted]);
 
+  return (
+    <QueryClientProvider client={queryClient}>
+      <DocsI18nProvider>
+        <RootShell mounted={mounted} />
+      </DocsI18nProvider>
+    </QueryClientProvider>
+  );
+}
+
+function RootShell({ mounted }: { mounted: boolean }) {
+  const t = useT();
   const content = (
     <DocsChrome>
       <Outlet />
     </DocsChrome>
   );
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      {mounted ? (
-        <AgentSidebar
-          storageKey="docs"
-          position="right"
-          defaultOpen={false}
-          defaultSidebarWidth={400}
-          emptyStateText="Ask me anything about Agent-Native"
-          suggestions={[
-            "How do I get started with Agent-Native?",
-            "How do actions work?",
-            "Explain the polling sync model",
-            "How do I deploy to production?",
-          ]}
-        >
-          {content}
-        </AgentSidebar>
-      ) : (
-        // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
-        // with an overflow-auto child) so swapping in the real sidebar after
-        // hydration doesn't shift the scrollbar and re-anchor centered content.
-        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
-            {content}
-          </div>
-        </div>
-      )}
-    </QueryClientProvider>
+  return mounted ? (
+    <AgentSidebar
+      storageKey="docs"
+      position="right"
+      defaultOpen={false}
+      defaultSidebarWidth={400}
+      emptyStateText={t("agent.emptyState")}
+      suggestions={[
+        t("agent.suggestionGettingStarted"),
+        t("agent.suggestionActions"),
+        t("agent.suggestionPolling"),
+        t("agent.suggestionDeploy"),
+      ]}
+    >
+      {content}
+    </AgentSidebar>
+  ) : (
+    // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
+    // with an overflow-auto child) so swapping in the real sidebar after
+    // hydration doesn't shift the scrollbar and re-anchor centered content.
+    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        {content}
+      </div>
+    </div>
   );
 }
 
-export function ErrorBoundary() {
-  const error = useRouteError();
+function LocalizedError({ error }: { error: unknown }) {
+  const t = useT();
 
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (
@@ -357,10 +397,10 @@ export function ErrorBoundary() {
             404
           </div>
           <h1 className="mb-3 text-2xl font-semibold tracking-tight">
-            Page not found
+            {t("errors.notFoundTitle")}
           </h1>
           <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
-            The page you're looking for doesn't exist or has been moved.
+            {t("errors.notFoundBody")}
           </p>
           <div className="flex items-center gap-3">
             <Link
@@ -368,14 +408,14 @@ export function ErrorBoundary() {
               to="/"
               className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
-              Go home
+              {t("errors.goHome")}
             </Link>
             <Link
               data-an-prefetch="render"
               to="/docs"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
-              Read the docs
+              {t("errors.readDocs")}
             </Link>
           </div>
         </main>
@@ -387,19 +427,29 @@ export function ErrorBoundary() {
     <DocsChrome>
       <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
         <h1 className="mb-3 text-2xl font-semibold tracking-tight">
-          Something went wrong
+          {t("errors.genericTitle")}
         </h1>
         <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
-          An unexpected error occurred.
+          {t("errors.genericBody")}
         </p>
         <Link
           data-an-prefetch="render"
           to="/"
           className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
-          Go home
+          {t("errors.goHome")}
         </Link>
       </main>
     </DocsChrome>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  return (
+    <DocsI18nProvider>
+      <LocalizedError error={error} />
+    </DocsI18nProvider>
   );
 }

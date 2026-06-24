@@ -1,5 +1,9 @@
 import { useTheme } from "next-themes";
-import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  LanguagePicker,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "{{APP_TITLE}}" }];
@@ -27,6 +31,10 @@ export default function IndexPage() {
         </div>
 
         <div className="h-px bg-border" />
+
+        <div className="flex justify-center">
+          <LanguagePicker className="w-full max-w-xs" />
+        </div>
 
         <div className="rounded-lg border border-border/50 px-4 py-3 text-left">
           <p className="text-[13px] font-medium text-foreground">
