@@ -75,21 +75,82 @@ function send(type: string, extra: Record<string, unknown> = {}): void {
 
 /* ---------------------------------------------------------------- bubble --- */
 
+function postBubble(kind: string, extra: Record<string, unknown> = {}): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind, part: "bubble", ...extra },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
 async function initBubble(): Promise<void> {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   const ring = document.createElement("div");
   ring.className = "bubble-ring";
   bubble.appendChild(ring);
+
+  // Drag: the content script owns the iframe position, so we just signal the
+  // start of a drag and it captures the pointer page-wide.
+  bubble.style.cursor = "grab";
+  bubble.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    e.preventDefault();
+    bubble.style.cursor = "grabbing";
+    postBubble("bubble-drag-start");
+    const restore = (): void => {
+      bubble.style.cursor = "grab";
+      window.removeEventListener("pointerup", restore);
+    };
+    window.addEventListener("pointerup", restore);
+  });
+
+  // Size dots (small / large), revealed on hover — like the desktop bubble.
+  const sizes = document.createElement("div");
+  sizes.className = "bubble-sizes";
+  sizes.setAttribute("data-no-drag", "");
+  for (const key of ["sm", "lg"] as const) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = `bubble-size-dot bubble-size-${key}`;
+    dot.title = key === "sm" ? "Small" : "Large";
+    dot.setAttribute(
+      "aria-label",
+      key === "sm" ? "Small bubble" : "Large bubble",
+    );
+    dot.setAttribute("data-no-drag", "");
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      postBubble("bubble-size", { size: key });
+    });
+    sizes.appendChild(dot);
+  }
+  bubble.appendChild(sizes);
+
   root.appendChild(bubble);
 
   try {
+    const videoDeviceId = await new Promise<string>((resolve) => {
+      try {
+        chrome.storage.sync.get("videoDeviceId", (v) =>
+          resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
+        );
+      } catch {
+        resolve("");
+      }
+    });
+    const videoConstraint: MediaTrackConstraints = {
+      width: { ideal: 640 },
+      height: { ideal: 640 },
+    };
+    if (videoDeviceId) videoConstraint.deviceId = { exact: videoDeviceId };
+    else videoConstraint.facingMode = "user";
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 640 },
-        height: { ideal: 640 },
-        facingMode: "user",
-      },
+      video: videoConstraint,
       audio: false,
     });
     const video = document.createElement("video");
@@ -99,7 +160,9 @@ async function initBubble(): Promise<void> {
     video.srcObject = stream;
     ring.appendChild(video);
     await video.play().catch(() => undefined);
-  } catch {
+    console.log("[clips-overlay] camera bubble live");
+  } catch (err) {
+    console.warn("[clips-overlay] camera getUserMedia failed:", err);
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
@@ -148,14 +211,20 @@ function initCountdown(): void {
   root.appendChild(wrap);
 
   let lastShown = "";
+  // Compute the fallback end-time ONCE (if the worker's countdownEndsAtMs never
+  // arrives) — recomputing it every frame froze the number on "3".
+  let fallbackEndsAt = 0;
   const render = (): void => {
-    const fallback =
-      Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
-      COUNTDOWN_FALLBACK;
-    const endsAt =
-      state.countdownEndsAtMs > 0
-        ? state.countdownEndsAtMs
-        : Date.now() + fallback * 1000;
+    let endsAt = state.countdownEndsAtMs;
+    if (endsAt <= 0) {
+      if (fallbackEndsAt === 0) {
+        const fallback =
+          Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
+          COUNTDOWN_FALLBACK;
+        fallbackEndsAt = Date.now() + fallback * 1000;
+      }
+      endsAt = fallbackEndsAt;
+    }
     const remainingMs = endsAt - Date.now();
     if (state.phase !== "countdown" || remainingMs <= 0) {
       if (lastShown !== "Go") {

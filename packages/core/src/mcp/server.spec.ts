@@ -1412,6 +1412,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(JSON.stringify(tools)).not.toContain("openai/outputTemplate");
     expect(JSON.stringify(tools)).not.toContain("ui://mail/");
+
+    // A tool *call* result must not carry the render trigger either.
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 44,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(call.error).toBeUndefined();
+    expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
   });
 
   it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {

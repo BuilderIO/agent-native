@@ -87,6 +87,9 @@ pub fn run() {
             clips::set_recording_state,
             clips::reset_state,
             clips::save_bubble_position,
+            clips::bubble_drag_start,
+            clips::bubble_drag_move,
+            clips::bubble_drag_end,
             clips::set_bubble_size,
             clips::load_bubble_size,
             // config commands

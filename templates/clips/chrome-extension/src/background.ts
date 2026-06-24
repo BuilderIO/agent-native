@@ -210,7 +210,11 @@ type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
+// Bubble during the countdown preview (any camera). During recording, the face
+// is composited into the video by the offscreen for screen+camera, so we only
+// show the on-page bubble for camera-only mode (recordingShowsBubble).
 let overlayShowsBubble = false;
+let recordingShowsBubble = false;
 let countdownEndsAtMs = 0;
 
 function desiredParts(): OverlayPart[] {
@@ -221,7 +225,7 @@ function desiredParts(): OverlayPart[] {
     return overlayShowsBubble ? ["bubble", "countdown"] : ["countdown"];
   }
   if (overlayPhase === "recording" || overlayPhase === "paused") {
-    return overlayShowsBubble ? ["bubble", "toolbar"] : ["toolbar"];
+    return recordingShowsBubble ? ["bubble", "toolbar"] : ["toolbar"];
   }
   if (overlayPhase === "saving") {
     return ["saving"];
@@ -286,6 +290,7 @@ function persistOverlay(): Promise<void> {
       baseElapsedMs: overlayBaseElapsedMs,
       baseEpochMs: overlayBaseEpochMs,
       showsBubble: overlayShowsBubble,
+      recordingShowsBubble,
       countdownEndsAtMs,
     },
   }).catch(() => undefined);
@@ -306,6 +311,7 @@ async function restoreRuntimeState(): Promise<void> {
         baseElapsedMs?: number;
         baseEpochMs?: number;
         showsBubble?: boolean;
+        recordingShowsBubble?: boolean;
         countdownEndsAtMs?: number;
       }
     | undefined;
@@ -316,6 +322,7 @@ async function restoreRuntimeState(): Promise<void> {
     overlayBaseEpochMs =
       typeof rt.baseEpochMs === "number" ? rt.baseEpochMs : 0;
     overlayShowsBubble = Boolean(rt.showsBubble);
+    recordingShowsBubble = Boolean(rt.recordingShowsBubble);
     countdownEndsAtMs =
       typeof rt.countdownEndsAtMs === "number" ? rt.countdownEndsAtMs : 0;
   }
@@ -413,11 +420,47 @@ function resetOverlay(): void {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = 0;
   overlayShowsBubble = false;
+  recordingShowsBubble = false;
   clearCountdownTimer();
   setRecordingFlag(false);
   // Bring back the toolbar popup now that we're idle again.
   setActionPopup("src/popup.html");
   void persistOverlay();
+}
+
+// ----- Pre-record camera preview --------------------------------------------
+// While the popup is open and idle, show the live face bubble on the active tab
+// (like the desktop app's pre-record bubble). The popup holds a runtime port
+// open; its disconnect (popup closed) tears the preview down.
+let previewTabId: number | null = null;
+
+async function startPreview(wantsCamera: boolean): Promise<void> {
+  await ensureRestored();
+  // Never show a preview over an active recording (the recording overlay owns
+  // the tab then). If the camera is off, make sure any preview is removed.
+  if (overlayPhase !== "idle" || !wantsCamera) {
+    await stopPreview();
+    return;
+  }
+  const tab = await queryActiveTab();
+  if (!tab || typeof tab.id !== "number") return;
+  if (previewTabId !== null && previewTabId !== tab.id) await stopPreview();
+  previewTabId = tab.id;
+  await ensureContentScript(tab.id);
+  // Injection / send fail silently on unsupported pages (chrome://, etc.).
+  await sendTabMessage(tab.id, {
+    type: "CLIPS_OVERLAY_MOUNT",
+    parts: ["bubble"],
+  });
+}
+
+async function stopPreview(): Promise<void> {
+  const tabId = previewTabId;
+  previewTabId = null;
+  if (tabId === null) return;
+  // Don't tear down a recording overlay that took over this tab.
+  if (overlayPhase !== "idle") return;
+  await sendTabMessage(tabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
 }
 
 // Mirrored into chrome.storage.local so content scripts can cheaply tell whether
@@ -875,6 +918,7 @@ async function armRecording(args: {
     settings.captureSurface === "camera" ? "camera" : "screen";
   const surface: "browser" | "window" | "monitor" =
     settings.captureSurface === "camera" ? "browser" : settings.captureSurface;
+  console.log("[clips-bg] arm: start", { mode, surface, tabId: tab.id });
 
   // Pre-warmed on popup open, so this is effectively instant and keeps the
   // getDisplayMedia() call close to the user's click.
@@ -882,15 +926,51 @@ async function armRecording(args: {
 
   // 1) Native "Choose what to share" picker. Do this before any network round
   //    trip so the picker stays tied to the user gesture. Throws if cancelled.
-  await sendOffscreenMessage<{ ok: boolean; width: number; height: number }>({
+  const acq = await sendOffscreenMessage<{
+    ok: boolean;
+    width: number;
+    height: number;
+  }>({
     type: "CLIPS_OFFSCREEN_ACQUIRE",
     sessionId,
     mode,
     surface,
     includeMicrophone: settings.includeMicrophone,
+    includeCamera: settings.includeCamera,
   });
+  console.log("[clips-bg] arm: acquired stream", acq);
 
-  // 2) Create the recording row now that we know the user picked a source.
+  // 2) Show the countdown overlay IMMEDIATELY — before the network round-trip —
+  //    so the 3-2-1 runs full-length and the dim/blur clears exactly when the
+  //    recorder starts. The on-page bubble shows during countdown AND recording
+  //    (the face is captured in the display; we do not composite).
+  const cameraInvolved = mode === "camera" || settings.includeCamera;
+  overlayPhase = "countdown";
+  overlayBaseElapsedMs = 0;
+  overlayBaseEpochMs = nowMs();
+  overlayShowsBubble = cameraInvolved;
+  recordingShowsBubble = cameraInvolved;
+  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
+  // The recording overlay now owns this tab's bubble — hand off from any preview
+  // so the popup-close disconnect won't tear down the live recording overlay.
+  previewTabId = null;
+  setRecordingFlag(true);
+  // Clicking the icon now stops & saves immediately instead of opening the popup.
+  setActionPopup("");
+  await mountOverlayOnTab(tab.id as number);
+  broadcastOverlayState();
+
+  const abortArming = async (): Promise<void> => {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId,
+    }).catch(() => undefined);
+    resetOverlay();
+    await broadcastUnmount();
+    await chrome.action.setBadgeText({ text: "" });
+  };
+
+  // 3) Create the recording row (happens during the countdown).
   type CreatedRecording = {
     id?: string;
     uploadChunkUrl?: string;
@@ -903,23 +983,17 @@ async function armRecording(args: {
       titleSource: tab.title ? "context" : "default",
       sourceAppName: "Chrome",
       sourceWindowTitle: tab.title ?? null,
-      hasCamera: settings.captureSurface === "camera" || settings.includeCamera,
+      hasCamera: cameraInvolved,
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
       visibility: "public",
     });
   } catch (err) {
-    await sendOffscreenMessage({
-      type: "CLIPS_OFFSCREEN_CANCEL",
-      sessionId,
-    }).catch(() => undefined);
+    await abortArming();
     throw err;
   }
   if (!created.id || !created.uploadChunkUrl) {
-    await sendOffscreenMessage({
-      type: "CLIPS_OFFSCREEN_CANCEL",
-      sessionId,
-    }).catch(() => undefined);
+    await abortArming();
     throw new Error("Clips did not create a recording target.");
   }
 
@@ -946,35 +1020,24 @@ async function armRecording(args: {
     error: null,
   };
 
-  // 3) Enter the countdown phase and show the overlay on the launch tab. The
-  //    camera bubble shows whenever a camera is involved: as the picture-in-
-  //    picture for screen+camera, or as a live self-preview for camera-only.
-  overlayPhase = "countdown";
-  overlayBaseElapsedMs = 0;
-  overlayBaseEpochMs = nowMs();
-  overlayShowsBubble = mode === "camera" || settings.includeCamera;
-  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
-  setRecordingFlag(true);
-  // Clicking the icon now stops & saves immediately instead of opening the popup.
-  setActionPopup("");
-
-  // Hand the recorder its targets plus the pre-roll delay. The offscreen document
-  // (a reliable context, unlike the suspendable worker) owns the countdown timer
-  // and reports "recording" back when the recorder actually starts — that status
-  // flip (markRecordingStarted) advances our phase, so recording begins even on
-  // pages where no overlay can be injected (chrome://, the New Tab page, etc.).
+  // 4) Start the recorder when the (already-running) countdown ends. The
+  //    offscreen owns the pre-roll timer (a reliable context, unlike the
+  //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
+  console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
+  const startDelayMs = Math.max(0, countdownEndsAtMs - nowMs());
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
       sessionId,
       recordingId: created.id,
       uploadUrl,
-      hasCamera: mode === "camera" || settings.includeCamera,
-      startDelayMs: COUNTDOWN_SECONDS * 1000,
+      hasCamera: cameraInvolved,
+      startDelayMs,
       authToken,
     });
   } catch (err) {
+    console.error("[clips-bg] arm: BEGIN failed", err);
     await cancelRecording();
     throw err;
   }
@@ -985,10 +1048,10 @@ async function armRecording(args: {
     await attachSession(session);
   }
 
-  await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
   await chrome.action.setBadgeBackgroundColor({ color: "#e11d48" });
   await chrome.action.setBadgeText({ text: "REC" });
+  console.log("[clips-bg] arm: done — countdown, parts:", desiredParts());
 
   return { ok: true, sessionId, recordingId: created.id, native: true };
 }
@@ -998,6 +1061,7 @@ async function armRecording(args: {
 // on-page timer. Idempotent.
 async function markRecordingStarted() {
   if (overlayPhase !== "countdown") return;
+  console.log("[clips-bg] recorder started → phase=recording");
   clearCountdownTimer();
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
@@ -1178,6 +1242,7 @@ async function finishSaving(
 
 async function stopRecording() {
   const recording = activeNativeRecording;
+  console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
   recording.status = "stopping";
   // Keep an overlay up: swap the recording controls/bubble for a "Saving…" card
@@ -1821,6 +1886,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
       response = await dispatchRuntimeMessage(message);
     } catch (err) {
+      console.error(
+        "[clips-bg] message failed:",
+        (message as { type?: unknown })?.type,
+        err,
+      );
       response = {
         ok: false,
         error: err instanceof Error ? err.message : "Could not use Clips.",
@@ -1841,6 +1911,13 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
+    console.log(
+      "[clips-bg] status:",
+      status.status,
+      status.error ?? "",
+      "phase:",
+      overlayPhase,
+    );
     if (
       activeNativeRecording &&
       activeNativeRecording.sessionId === status.sessionId
@@ -1909,6 +1986,11 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     return { ok: true };
   }
 
+  if (type === "CLIPS_PREVIEW") {
+    await startPreview(Boolean((message as { camera?: unknown }).camera));
+    return { ok: true };
+  }
+
   switch (type) {
     case "CLIPS_POPUP_START":
       return handlePopupStart(message as PopupStartMessage);
@@ -1961,12 +2043,28 @@ chrome.action.onClicked.addListener(() => {
     // Await restore — the click may have woken the worker, leaving the module
     // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
+    console.log(
+      "[clips-bg] icon clicked — phase:",
+      overlayPhase,
+      "active:",
+      !!activeNativeRecording,
+    );
     if (!activeNativeRecording) return;
     if (overlayPhase === "countdown") await cancelRecording();
     else if (overlayPhase === "recording" || overlayPhase === "paused") {
       await stopRecording();
     }
   })();
+});
+
+// The popup opens a port for as long as it is visible; its disconnect (popup
+// closed) is our reliable signal to remove the pre-record preview bubble.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "clips-preview") return;
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError;
+    void stopPreview();
+  });
 });
 
 chrome.runtime.onMessageExternal.addListener(

@@ -39,10 +39,9 @@ body {
   height: 100%;
   border-radius: 50%;
   overflow: hidden;
-  background: #0f172a;
-  box-shadow:
-    0 10px 30px rgba(15, 23, 42, 0.35),
-    0 0 0 4px rgba(255, 255, 255, 0.92);
+  background: #18181b;
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(9, 9, 11, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -75,7 +74,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(2, 6, 23, 0.55);
+  background: rgba(9, 9, 11, 0.55);
   backdrop-filter: blur(2px);
 }
 
@@ -126,9 +125,9 @@ body {
   font-size: clamp(96px, 22vmin, 240px);
   font-weight: 700;
   color: #fff;
-  text-shadow: 0 6px 30px rgba(2, 6, 23, 0.6);
+  text-shadow: 0 6px 30px rgba(9, 9, 11, 0.6);
   line-height: 1;
-  animation: countdown-pop 1s ease-out forwards;
+  animation: countdown-pop 0.45s ease-out forwards;
 }
 
 .countdown-go {
@@ -138,20 +137,16 @@ body {
 
 @keyframes countdown-pop {
   0% {
-    transform: scale(0.45);
+    transform: scale(0.55);
     opacity: 0;
   }
-  25% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  70% {
-    transform: scale(1);
+  45% {
+    transform: scale(1.08);
     opacity: 1;
   }
   100% {
-    transform: scale(1.25);
-    opacity: 0;
+    transform: scale(1);
+    opacity: 1;
   }
 }
 
@@ -163,7 +158,7 @@ body {
   color: rgba(255, 255, 255, 0.85);
   font-size: 15px;
   font-weight: 500;
-  background: rgba(2, 6, 23, 0.45);
+  background: rgba(9, 9, 11, 0.45);
   padding: 8px 16px;
   border-radius: 999px;
 }
@@ -181,19 +176,21 @@ body {
 }
 
 .toolbar-v {
+  /* Top-anchored so Stop/time/pause stay put and the pill grows DOWNWARD on
+     hover (centering shifted the buttons up and caused misclicks). */
   position: absolute;
-  top: 50%;
+  top: 0;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   padding: 9px;
   border-radius: 20px;
-  background: rgba(15, 23, 42, 0.94);
+  background: rgba(24, 24, 27, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
   -webkit-user-select: none;
   user-select: none;
@@ -323,9 +320,9 @@ body {
   gap: 9px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.95);
+  background: rgba(24, 24, 27, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
 }
 
@@ -363,7 +360,7 @@ body {
   height: 100%;
   width: 40%;
   border-radius: 999px;
-  background: #6366f1;
+  background: #d4d4d8;
   animation: saving-indeterminate 1.1s ease-in-out infinite;
 }
 
@@ -374,4 +371,57 @@ body {
   100% {
     margin-left: 100%;
   }
+}
+
+/* Bubble size dots (small / large), revealed on hover — desktop-style. */
+.bubble-sizes {
+  position: absolute;
+  bottom: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(9, 9, 11, 0.55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.bubble:hover .bubble-sizes {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bubble-size-dot {
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.1s ease;
+}
+
+.bubble-size-dot:hover {
+  background: #fff;
+}
+
+.bubble-size-dot:active {
+  transform: scale(0.9);
+}
+
+.bubble-size-sm {
+  width: 8px;
+  height: 8px;
+}
+
+.bubble-size-lg {
+  width: 13px;
+  height: 13px;
 }

@@ -34,6 +34,7 @@ import {
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -1476,6 +1477,85 @@ export function findInstalledResvgPackages(
     .map(([packageName, packageDir]) => ({ packageName, packageDir }));
 }
 
+/**
+ * Deploy-time gate for emitting the second `-background` Netlify function.
+ * Reads the same env flag the runtime gate uses
+ * (`AGENT_CHAT_DURABLE_BACKGROUND`). Off by default — when off, the deploy
+ * emits exactly one function (today's behavior, byte-for-byte).
+ */
+export function isDurableBackgroundDeployEnabled(): boolean {
+  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  if (raw == null) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/**
+ * Single-template Netlify build: emit a SECOND function whose name ends in
+ * `-background`, re-exporting the same `main.mjs` handler bundle, so the chat
+ * `_process-run` POST lands on Netlify's async (15-min) function instead of the
+ * synchronous one. Additive + flag-gated (see `isDurableBackgroundDeployEnabled`).
+ *
+ * Nitro's `netlify` preset emits a single function at
+ * `.netlify/functions-internal/server` (`server.mjs` → `main.mjs`). We copy
+ * that directory to a sibling `<...>-background` function and write an entry
+ * with a `config.path` of the process-run route.
+ *
+ * ⚠️ REAL-DEPLOY VERIFICATION REQUIRED. Whether Netlify routes
+ * `/_agent-native/agent-chat/_process-run` to this `-background` function (and
+ * invokes it asynchronously with the 15-min budget) vs the synchronous Nitro
+ * function cannot be verified in this environment — Nitro owns the primary
+ * function's routing manifest, and the precedence between the two functions for
+ * that path is a Netlify runtime behavior. If routing resolves to the
+ * synchronous function, the run still completes via the existing 40s
+ * soft-timeout path (no durable win, no regression). See
+ * docs/design/durable-agent-runs.md (Open risks #1).
+ */
+export function emitSingleTemplateNetlifyBackgroundFunction(
+  projectCwd: string,
+): void {
+  const functionsDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverDir = path.join(functionsDir, "server");
+  if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
+    // Nitro output layout differs from what we expected — skip rather than
+    // guess. The single-function deploy is unaffected.
+    console.warn(
+      "[build] Durable-background emit skipped: expected Nitro Netlify function " +
+        "at .netlify/functions-internal/server/main.mjs was not found.",
+    );
+    return;
+  }
+  const backgroundName = "server-agent-background";
+  const dest = path.join(functionsDir, backgroundName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(serverDir, dest);
+  // Drop the original Nitro entry so our background entry is the entrypoint.
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+
+  const entry = `let cachedHandler;
+
+export default async function handler(...args) {
+  cachedHandler ??= (await import("./main.mjs")).default;
+  return cachedHandler(...args);
+}
+
+export const config = {
+  name: "agent background handler",
+  generator: "agent-native build",
+  path: ${JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH])},
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
+  console.log(
+    `[build] Emitted durable-background function "${backgroundName}" ` +
+      `(path ${AGENT_CHAT_PROCESS_RUN_PATH}). REQUIRES real-deploy verification ` +
+      `of Netlify async routing — see docs/design/durable-agent-runs.md.`,
+  );
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -1936,6 +2016,22 @@ export default bundle;
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+  }
+
+  // Durable background agent runs (off by default). Additive ONLY: emits a
+  // SECOND Netlify function whose name ends in `-background` re-exporting the
+  // same handler bundle, so the chat `_process-run` POST lands on Netlify's
+  // async (15-min) function. When the flag is off this is a no-op and the
+  // single-function deploy is byte-for-byte unchanged.
+  if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
+    try {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    } catch (err) {
+      console.warn(
+        "[build] Failed to emit durable-background Netlify function (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

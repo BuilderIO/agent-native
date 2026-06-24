@@ -36,6 +36,8 @@ vi.mock("./run-store.js", () => ({
 
 import {
   abortRun,
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
@@ -311,6 +313,60 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
+  });
+
+  // ── Durable background soft-timeout (opt-in `backgroundFunction`) ─────────
+  // The foreground/interactive path is unchanged (40s clamp); only an explicit
+  // background-function invocation lifts the ceiling to the host-natural budget.
+
+  it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
+    process.env.NETLIFY = "true";
+    // No backgroundFunction flag — this is the normal interactive path.
+    expect(resolveRunSoftTimeoutMs(240_000)).toBe(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+    expect(HOSTED_SOFT_TIMEOUT_CEILING_MS).toBe(40_000);
+  });
+
+  it("BACKGROUND hosted run uses the host-natural ~13min budget by default", () => {
+    process.env.NETLIFY = "true";
+    expect(
+      resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
+    ).toBe(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS);
+    // Sanity: that default is well above the 40s interactive clamp.
+    expect(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS).toBe(
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+    );
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+  });
+
+  it("BACKGROUND hosted run clamps to the 13min ceiling, NOT the 40s one", () => {
+    process.env.NETLIFY = "true";
+    // An override that exceeds the background ceiling clamps down to ~13min,
+    // but is NOT pulled down to the foreground 40s clamp.
+    const resolved = resolveRunSoftTimeoutMs(60 * 60_000, {
+      backgroundFunction: true,
+    });
+    expect(resolved).toBe(BACKGROUND_SOFT_TIMEOUT_CEILING_MS);
+    expect(resolved).toBeGreaterThan(HOSTED_SOFT_TIMEOUT_CEILING_MS);
+  });
+
+  it("BACKGROUND override below the ceiling is honored as-is on hosted", () => {
+    process.env.NETLIFY = "true";
+    // A short serverless host that DOES have a wall keeps its small budget and
+    // would chain — the background ceiling is a max, not a floor.
+    expect(
+      resolveRunSoftTimeoutMs(5 * 60_000, { backgroundFunction: true }),
+    ).toBe(5 * 60_000);
+  });
+
+  it("BACKGROUND on a non-hosted (long-lived) runtime is effectively unbounded (0)", () => {
+    // Local / self-hosted Node: one chunk, no host wall, no framework timeout.
+    expect(
+      resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
+    ).toBe(0);
   });
 
   it("keeps persisted run events for a day by default", () => {

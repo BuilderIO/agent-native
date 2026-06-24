@@ -83,6 +83,14 @@ details live in `.agents/skills/`.
 
 ## Dashboard Template Catalog
 
+- To build or extend a LARGE first-party dashboard, prefer `compose-dashboard`:
+  name the metrics and the server generates the validated SQL/config for every
+  panel in ONE fast call. Do NOT hand-author big `update-dashboard` configs
+  panel-by-panel or loop `update-dashboard` — streaming a giant multi-panel
+  argument inside the ~40s budget fails and thrashes. Unknown metric keys are
+  skipped and reported; per-panel SQL validates independently; existing
+  dashboards append by default (`overwrite: true` replaces). Report the returned
+  `panelCount` as proof-of-done.
 - `list-dashboard-templates` lists source-controlled dashboard templates with
   `id`, category, data sources, panel count, and installed dashboard IDs.
 - `install-dashboard-template` installs a catalog template into normal

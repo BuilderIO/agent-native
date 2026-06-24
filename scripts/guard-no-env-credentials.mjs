@@ -97,6 +97,10 @@ const ALLOWLIST_EXACT = new Set([
   "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "AUTH_SECRET",
+  // Inter-agent (A2A) HMAC handoff secret. Deploy-level framework secret used
+  // to sign/verify internal self-dispatch tokens (durable background runs,
+  // agent-teams). NOT a user credential — it lives at deployment scope.
+  "A2A_SECRET",
   // Framework auth gate
   "ACCESS_TOKEN",
   // Server bind
