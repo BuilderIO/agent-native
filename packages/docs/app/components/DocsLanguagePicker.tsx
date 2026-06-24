@@ -13,10 +13,8 @@ import {
   docsSlugFromPathname,
   isDocsPath,
   localizedDocsPath,
-  DEFAULT_DOCS_LOCALE,
   type DocsLocale,
 } from "./docs-locale";
-import { hasLocalizedDoc } from "./docs-content";
 
 function localeOptionLabel(locale: DocsLocale) {
   const metadata = DOCS_LOCALE_METADATA[locale];
@@ -37,14 +35,9 @@ export default function DocsLanguagePicker() {
     const nextLocale =
       nextPreference === "system" ? browserDocsLocale() : nextPreference;
     const slug = docsSlugFromPathname(location.pathname);
-    const targetLocale =
-      slug && hasLocalizedDoc(nextLocale, slug)
-        ? nextLocale
-        : DEFAULT_DOCS_LOCALE;
-    const path =
-      slug && targetLocale === DEFAULT_DOCS_LOCALE
-        ? docsPathForSlug(slug, DEFAULT_DOCS_LOCALE)
-        : localizedDocsPath(location.pathname, targetLocale);
+    const path = slug
+      ? docsPathForSlug(slug, nextLocale)
+      : localizedDocsPath(location.pathname, nextLocale);
     navigate(`${path}${location.search}${location.hash}`);
   }
 
