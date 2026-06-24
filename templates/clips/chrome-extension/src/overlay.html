@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="color-scheme" content="light dark" />
+    <!-- Must be "normal": a dark color-scheme makes Chrome paint the iframe's
+         canvas an OPAQUE dark color (ignoring the transparent body), which shows
+         as a gray square around the round bubble. This meta overrides the CSS,
+         so it has to be normal too. -->
+    <meta name="color-scheme" content="normal" />
     <title>Clips overlay</title>
   </head>
   <body>
