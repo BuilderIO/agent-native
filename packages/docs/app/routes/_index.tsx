@@ -190,7 +190,10 @@ const featureCloudRows = [
       { label: "Permissions", className: "text-xl uppercase opacity-[0.18]" },
       { label: "RBAC", className: "text-lg uppercase opacity-[0.18]" },
       { label: "Organizations", className: "text-2xl opacity-[0.24]" },
-      { label: "Workspace secrets", className: "text-lg uppercase opacity-[0.16]" },
+      {
+        label: "Workspace secrets",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
       { label: "Docs search", className: "text-xl uppercase opacity-[0.18]" },
       { label: "Source search", className: "text-xl uppercase opacity-[0.18]" },
     ],
@@ -212,17 +215,28 @@ const featureCloudRows = [
         label: "Multi-tenancy",
         className: "text-xl uppercase opacity-[0.22]",
       },
+      { label: "Data loaders", className: "text-lg uppercase opacity-[0.18]" },
+      { label: "Live queries", className: "text-xl uppercase opacity-[0.18]" },
     ],
   },
   {
     className: "-translate-x-14",
     words: [
-      { label: "Agent instructions", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Provider grants", className: "text-lg uppercase opacity-[0.16]" },
+      {
+        label: "Agent instructions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Provider grants",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
       { label: "Notifications", className: "text-2xl opacity-[0.24]" },
       { label: "Comments", className: "text-xl uppercase opacity-[0.18]" },
       { label: "Review links", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Privacy controls", className: "text-lg uppercase opacity-[0.16]" },
+      {
+        label: "Privacy controls",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
     ],
   },
   {
@@ -243,24 +257,32 @@ const featureCloudRows = [
         label: "MCP apps",
         className: "text-xl uppercase opacity-[0.20]",
       },
+      { label: "Tool calls", className: "text-2xl opacity-[0.26]" },
+      { label: "Agent sidebar", className: "text-xl uppercase opacity-[0.18]" },
     ],
   },
   {
     className: "feature-cloud-center-row",
     words: [
+      { label: "Shared actions", className: "text-2xl opacity-[0.30]" },
+      { label: "UI surfaces", className: "text-xl uppercase opacity-[0.20]" },
       { label: "i18n", className: "text-5xl opacity-[0.92]" },
       { label: "MCP Auth", className: "text-2xl opacity-[0.44]" },
       {
         label: "Battle-tested components",
         className:
-          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-[#151515] px-6 py-5 text-center text-2xl opacity-100 shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
       },
       { label: "MCP + A2A", className: "text-5xl opacity-[0.92]" },
+      { label: "External agents", className: "text-2xl opacity-[0.32]" },
+      { label: "A2A handoffs", className: "text-xl uppercase opacity-[0.20]" },
     ],
   },
   {
     className: "translate-x-6",
     words: [
+      { label: "Human handoff", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Agent context", className: "text-2xl opacity-[0.26]" },
       {
         label: "Durable resume",
         className: "text-xl uppercase opacity-[0.18]",
@@ -276,11 +298,14 @@ const featureCloudRows = [
         label: "OAuth",
         className: "text-lg uppercase opacity-[0.20]",
       },
+      { label: "MCP servers", className: "text-2xl opacity-[0.28]" },
+      { label: "Agent teams", className: "text-xl uppercase opacity-[0.18]" },
     ],
   },
   {
     className: "-translate-x-8",
     words: [
+      { label: "Scoped access", className: "text-xl uppercase opacity-[0.18]" },
       {
         label: "DB adapters",
         className: "text-lg uppercase opacity-[0.22]",
@@ -294,6 +319,11 @@ const featureCloudRows = [
         label: "AG-UI",
         className: "text-lg uppercase opacity-[0.20]",
       },
+      { label: "Dispatch", className: "text-2xl opacity-[0.28]" },
+      {
+        label: "Background runs",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
     ],
   },
   {
@@ -301,10 +331,16 @@ const featureCloudRows = [
     words: [
       { label: "Rate limits", className: "text-lg uppercase opacity-[0.16]" },
       { label: "Queues", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Cron schedules", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "Cron schedules",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
       { label: "Analytics", className: "text-2xl opacity-[0.28]" },
       { label: "Experiments", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Feedback loops", className: "text-lg uppercase opacity-[0.16]" },
+      {
+        label: "Feedback loops",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
     ],
   },
   {
@@ -321,6 +357,11 @@ const featureCloudRows = [
         label: "Agent web surfaces",
         className: "text-xl uppercase opacity-[0.18]",
       },
+      {
+        label: "Template skills",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "One-click forks", className: "text-2xl opacity-[0.24]" },
     ],
   },
   {
@@ -359,10 +400,22 @@ const featureCloudRows = [
   {
     className: "translate-x-16",
     words: [
-      { label: "Schema migrations", className: "text-lg uppercase opacity-[0.16]" },
-      { label: "Hosted deploys", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Environment setup", className: "text-lg uppercase opacity-[0.16]" },
-      { label: "OAuth callbacks", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "Schema migrations",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "Hosted deploys",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Environment setup",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "OAuth callbacks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
       { label: "Exports", className: "text-xl uppercase opacity-[0.18]" },
       { label: "Dashboards", className: "text-2xl opacity-[0.24]" },
     ],
@@ -493,10 +546,10 @@ function BidirectionalTabs() {
 function FeatureWordCloud({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`feature-cloud pointer-events-none overflow-hidden bg-black ${className}`}
+      className={`feature-cloud pointer-events-none overflow-hidden bg-white dark:bg-black ${className}`}
       aria-hidden="true"
     >
-      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[780px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[960px] sm:scale-[0.78] sm:gap-8 lg:w-[1240px] lg:scale-[0.72] lg:gap-10">
+      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[860px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[1080px] sm:scale-[0.78] sm:gap-8 lg:w-[1740px] lg:scale-[0.68] lg:gap-10">
         {featureCloudRows.map((row, rowIndex) => (
           <div
             key={rowIndex}
@@ -505,7 +558,7 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
             {row.words.map((word) => (
               <span
                 key={word.label}
-                className={`feature-cloud-word font-semibold leading-none text-white ${word.className}`}
+                className={`feature-cloud-word font-semibold leading-none text-neutral-950 dark:text-white ${word.className}`}
               >
                 {word.label}
               </span>
@@ -519,16 +572,19 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
 
 function BatteriesIncludedCloud() {
   return (
-    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-black px-6 py-24 text-white sm:py-28 lg:min-h-[680px] lg:py-36">
-      <FeatureWordCloud className="absolute inset-y-0 left-[28%] right-[-24vw] z-0 hidden lg:block" />
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[62%] bg-gradient-to-r from-black via-black via-75% to-transparent lg:block" />
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:min-h-[680px] lg:py-36">
+      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden lg:block" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
 
       <div className="relative z-10 mx-auto max-w-[1200px]">
-        <div className="max-w-[410px]">
-          <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
-            Batteries included, battle-tested
+        <div className="max-w-[410px] text-left">
+          <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
+            Batteries included
+            <span className="block text-[var(--docs-accent)]">
+              battle-tested
+            </span>
           </h2>
-          <p className="mb-5 text-base leading-relaxed text-white/58">
+          <p className="mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58">
             Instead of starting from a blank prompt and a pile of improvised
             code, Agent-Native gives agents the battle-tested parts and best
             practices they need to build real app software.

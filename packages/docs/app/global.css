@@ -778,14 +778,20 @@ html.dark .shiki span {
 
 .feature-cloud {
   isolation: isolate;
-}
-
-.batteries-cloud-section h2 {
-  color: #fff;
-}
-
-.batteries-cloud-section p {
-  color: rgba(255, 255, 255, 0.58);
+  -webkit-mask-image: radial-gradient(
+    ellipse at 54% 50%,
+    #000 0%,
+    #000 46%,
+    rgba(0, 0, 0, 0.62) 62%,
+    transparent 82%
+  );
+  mask-image: radial-gradient(
+    ellipse at 54% 50%,
+    #000 0%,
+    #000 46%,
+    rgba(0, 0, 0, 0.62) 62%,
+    transparent 82%
+  );
 }
 
 .feature-cloud-word {
@@ -793,8 +799,34 @@ html.dark .shiki span {
   pointer-events: none;
   letter-spacing: 0;
   text-shadow:
+    0 1px 18px rgba(255, 255, 255, 0.9),
+    0 0 1px #fff;
+}
+
+:is(.dark) .feature-cloud-word {
+  text-shadow:
     0 1px 18px rgba(0, 0, 0, 0.9),
     0 0 1px #000;
+}
+
+.feature-cloud-row:nth-child(1),
+.feature-cloud-row:nth-child(12) {
+  opacity: 0.55;
+}
+
+.feature-cloud-row:nth-child(2),
+.feature-cloud-row:nth-child(11) {
+  opacity: 0.68;
+}
+
+.feature-cloud-row:nth-child(3),
+.feature-cloud-row:nth-child(10) {
+  opacity: 0.78;
+}
+
+.feature-cloud-row:nth-child(4),
+.feature-cloud-row:nth-child(9) {
+  opacity: 0.88;
 }
 
 .hero-gradient-text {
