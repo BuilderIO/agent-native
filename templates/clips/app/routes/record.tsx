@@ -794,6 +794,8 @@ export default function RecordRoute() {
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
+    cameraBlur: boolean;
+    cameraBlurRadius: number;
   } | null>(null);
   const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -869,6 +871,8 @@ export default function RecordRoute() {
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
       cameraDeviceId: string | null;
+      cameraBlur: boolean;
+      cameraBlurRadius: number;
     }) => {
       const blockedFeature = isEmbeddedWindow()
         ? getPolicyBlockedCaptureLabel({
@@ -909,6 +913,8 @@ export default function RecordRoute() {
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
+          cameraBlur: opts.cameraBlur,
+          cameraBlurRadius: opts.cameraBlurRadius,
           uploadUrl: "",
           abortUrl: "",
           onError: (err) => {

@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import {
+  IconBlur,
   IconBrowser,
   IconCamera,
   IconChevronDown,
@@ -39,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
   NO_CAMERA_DEVICE_ID,
@@ -54,12 +56,18 @@ import {
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
 
+const DEFAULT_CAMERA_BLUR_RADIUS = 12;
+const MIN_CAMERA_BLUR_RADIUS = 2;
+const MAX_CAMERA_BLUR_RADIUS = 30;
+
 export interface PreRecordPanelProps {
   onStart: (opts: {
     mode: RecordingMode;
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
     cameraDeviceId: string | null;
+    cameraBlur: boolean;
+    cameraBlurRadius: number;
   }) => void;
   initialMode?: RecordingMode | null;
   initialDisplaySurface?: DisplaySurface | null;
@@ -198,6 +206,10 @@ export function PreRecordPanel({
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>("default");
   const [cameraId, setCameraId] = useState<string>("default");
+  const [cameraBlur, setCameraBlur] = useState(false);
+  const [cameraBlurRadius, setCameraBlurRadius] = useState(
+    DEFAULT_CAMERA_BLUR_RADIUS,
+  );
   const [enumError, setEnumError] = useState<string | null>(null);
   const [micAccessStatus, setMicAccessStatus] =
     useState<DeviceAccessStatus>("idle");
@@ -776,11 +788,58 @@ export function PreRecordPanel({
                     <CameraVisualizer
                       deviceId={cameraId === "default" ? null : cameraId}
                       disabled={busy}
+                      blur={cameraBlur}
+                      blurRadius={cameraBlurRadius}
                       size={cameraSize}
                       onSizeChange={onCameraSizeChange}
                       onStatusChange={handleCameraStatusChange}
                       onPreviewChange={handleCameraPreviewChange}
                     />
+                  ) : null}
+
+                  {needsCamera ? (
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-muted/45">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <IconBlur className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm">Blur background</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Keep yourself sharp, blur what's behind you
+                        </p>
+                      </div>
+                      <Switch
+                        checked={cameraBlur}
+                        onCheckedChange={setCameraBlur}
+                        disabled={busy}
+                        aria-label="Blur the camera background"
+                      />
+                    </label>
+                  ) : null}
+
+                  {needsCamera && cameraBlur ? (
+                    <div className="flex items-center gap-3 px-1 pb-1">
+                      <span className="w-14 shrink-0 text-[11px] text-muted-foreground">
+                        Intensity
+                      </span>
+                      <Slider
+                        value={[cameraBlurRadius]}
+                        min={MIN_CAMERA_BLUR_RADIUS}
+                        max={MAX_CAMERA_BLUR_RADIUS}
+                        step={1}
+                        disabled={busy}
+                        onValueChange={(value) =>
+                          setCameraBlurRadius(
+                            value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
+                          )
+                        }
+                        aria-label="Background blur intensity"
+                        className="flex-1"
+                      />
+                      <span className="w-8 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                        {cameraBlurRadius}
+                      </span>
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -820,6 +879,8 @@ export function PreRecordPanel({
                 micDeviceId: micId === "default" ? null : micId,
                 cameraDeviceId:
                   needsCamera && cameraId !== "default" ? cameraId : null,
+                cameraBlur: needsCamera ? cameraBlur : false,
+                cameraBlurRadius,
               })
             }
             className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}

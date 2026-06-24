@@ -19,6 +19,10 @@ import {
   createCameraCompositeStream,
   type CameraCompositeHandle,
 } from "@/lib/camera-composite";
+import {
+  createBackgroundBlurStream,
+  type CameraBlurHandle,
+} from "@/lib/camera-blur";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
@@ -66,6 +70,15 @@ export interface RecorderEngineOptions {
   cameraDeviceId?: string | null;
   /** Camera bubble size selected in the pre-record UI. */
   cameraBubbleSize?: "sm" | "md" | "lg";
+  /**
+   * Blur the camera background (sharp person, blurred surroundings) for both the
+   * live preview bubble and the baked-in recording composite. Resolved at
+   * `acquire()` time. Silently no-ops (records un-blurred) if segmentation is
+   * unavailable in the browser.
+   */
+  cameraBlur?: boolean;
+  /** Background blur radius in px when `cameraBlur` is on. Defaults to ~12. */
+  cameraBlurRadius?: number;
   /** Chunk size in ms (MediaRecorder timeslice). Default 2000. */
   chunkIntervalMs?: number;
   /** Base URL for the chunk upload endpoint. Default `/api/uploads/:id/chunk`. */
@@ -351,6 +364,14 @@ export class RecorderEngine {
 
   private displayStream: MediaStream | null = null;
   private cameraStream: MediaStream | null = null;
+  /**
+   * Raw getUserMedia camera stream. When background blur is active,
+   * `cameraStream` points at the processed (blurred) derivative and this field
+   * keeps the original so teardown stops the real camera tracks and the
+   * disconnect handler can observe the hardware ending.
+   */
+  private rawCameraStream: MediaStream | null = null;
+  private cameraBlur: CameraBlurHandle | null = null;
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
@@ -638,6 +659,19 @@ export class RecorderEngine {
             this.onMicTrackEnded();
           });
         }
+      }
+
+      // Apply background blur once, after the disconnect listeners are bound to
+      // the raw hardware tracks above. Both the preview bubble and the recording
+      // composite read `this.cameraStream`, so swapping it to the blurred
+      // derivative here means "what you see is what's recorded". Never throws:
+      // on any failure it returns a passthrough handle wrapping the raw stream.
+      if (this.opts.cameraBlur && this.cameraStream) {
+        this.rawCameraStream = this.cameraStream;
+        this.cameraBlur = await createBackgroundBlurStream(this.cameraStream, {
+          blurPx: this.opts.cameraBlurRadius,
+        });
+        this.cameraStream = this.cameraBlur.stream;
       }
 
       this.previewStream =
@@ -1634,9 +1668,15 @@ export class RecorderEngine {
     this.audioMixCtx = null;
     this.cameraComposite?.cleanup();
     this.cameraComposite = null;
+    // Tear down the blur pipeline (segmenter, hidden video, processed capture)
+    // before stopping streams. `rawCameraStream` holds the real hardware tracks
+    // when blur is active; stop those so the camera indicator clears.
+    this.cameraBlur?.cleanup();
+    this.cameraBlur = null;
     for (const s of [
       this.displayStream,
       this.cameraStream,
+      this.rawCameraStream,
       this.micStream,
       this.combinedStream,
     ]) {
@@ -1651,6 +1691,7 @@ export class RecorderEngine {
     }
     this.displayStream = null;
     this.cameraStream = null;
+    this.rawCameraStream = null;
     this.micStream = null;
     this.combinedStream = null;
     this.previewStream = null;
@@ -1691,7 +1732,17 @@ export class RecorderEngine {
     if (this.state !== "recording" && this.state !== "paused") return;
     if (this.cameraDisconnectNotified) return;
     this.cameraDisconnectNotified = true;
-    for (const track of this.cameraStream?.getVideoTracks() ?? []) {
+    // When blur is active the disconnect fires on the raw hardware tracks; tear
+    // the blur pipeline down so the composite's camera <video> sees its (blurred)
+    // track end and self-hides the bubble, instead of freezing on a black frame.
+    if (this.cameraBlur) {
+      this.cameraBlur.cleanup();
+      this.cameraBlur = null;
+    }
+    for (const track of [
+      ...(this.rawCameraStream?.getVideoTracks() ?? []),
+      ...(this.cameraStream?.getVideoTracks() ?? []),
+    ]) {
       try {
         track.stop();
       } catch {

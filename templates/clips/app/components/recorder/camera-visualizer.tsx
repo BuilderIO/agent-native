@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  createBackgroundBlurStream,
+  type CameraBlurHandle,
+} from "@/lib/camera-blur";
 import type { CameraBubbleSize } from "./camera-bubble";
 
 export type CameraTestStatus = "idle" | "starting" | "live" | "error";
@@ -10,6 +14,10 @@ export interface CameraVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
   className?: string;
+  /** Mirror the recording's background-blur setting in the live test preview. */
+  blur?: boolean;
+  /** Background blur radius (px) reflected live in the test preview. */
+  blurRadius?: number;
   size?: CameraBubbleSize;
   onSizeChange?: (size: CameraBubbleSize) => void;
   onStatusChange?: (
@@ -119,6 +127,8 @@ export function CameraVisualizer({
   deviceId,
   disabled,
   className,
+  blur = false,
+  blurRadius = 12,
   size = "md",
   onSizeChange,
   onStatusChange,
@@ -126,8 +136,11 @@ export function CameraVisualizer({
 }: CameraVisualizerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const blurHandleRef = useRef<CameraBlurHandle | null>(null);
+  const blurRadiusRef = useRef(blurRadius);
   const runIdRef = useRef(0);
   const previousDeviceIdRef = useRef(deviceId);
+  const previousBlurRef = useRef(blur);
 
   const [status, setStatus] = useState<CameraTestStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -144,10 +157,47 @@ export function CameraVisualizer({
   }, [onPreviewChange]);
 
   const stopCurrent = useCallback(() => {
+    blurHandleRef.current?.cleanup();
+    blurHandleRef.current = null;
     stopStream(streamRef.current);
     streamRef.current = null;
     clearVideo();
   }, [clearVideo]);
+
+  // Bind either the raw camera or its background-blurred derivative to the
+  // <video>, depending on the current `blur` setting. The blur pipeline reads
+  // from the raw test stream, so the preview matches what recording will bake
+  // in. Guarded by `runId` so a stale async build can't clobber a newer run.
+  const attachPreview = useCallback(
+    async (runId: number) => {
+      const raw = streamRef.current;
+      const video = videoRef.current;
+      if (!raw || !video) return;
+
+      let display: MediaStream = raw;
+      if (blur) {
+        // Rebuild from scratch so a previous handle never leaks.
+        blurHandleRef.current?.cleanup();
+        blurHandleRef.current = null;
+        const handle = await createBackgroundBlurStream(raw, {
+          blurPx: blurRadiusRef.current,
+        });
+        if (runIdRef.current !== runId || streamRef.current !== raw) {
+          handle.cleanup();
+          return;
+        }
+        blurHandleRef.current = handle;
+        display = handle.stream;
+      } else {
+        blurHandleRef.current?.cleanup();
+        blurHandleRef.current = null;
+      }
+
+      if (video.srcObject !== display) video.srcObject = display;
+      await video.play().catch(() => {});
+    },
+    [blur],
+  );
 
   const stopTest = useCallback(() => {
     runIdRef.current += 1;
@@ -216,12 +266,8 @@ export function CameraVisualizer({
       }
 
       streamRef.current = stream;
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        await video.play().catch(() => {});
-      }
-      // Re-check after play()'s await so a newer startTest can't be clobbered.
+      await attachPreview(runId);
+      // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
         stopCurrent();
         return;
@@ -239,7 +285,14 @@ export function CameraVisualizer({
       onStatusChange?.("error", { error: message });
       clearVideo();
     }
-  }, [clearVideo, deviceId, disabled, onStatusChange, stopCurrent]);
+  }, [
+    attachPreview,
+    clearVideo,
+    deviceId,
+    disabled,
+    onStatusChange,
+    stopCurrent,
+  ]);
 
   useEffect(() => {
     if (disabled) {
@@ -270,10 +323,10 @@ export function CameraVisualizer({
   useEffect(() => {
     if (status !== "live" && status !== "starting") return;
     const video = videoRef.current;
-    const stream = streamRef.current;
-    if (!video || !stream) return;
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
+    const display = blurHandleRef.current?.stream ?? streamRef.current;
+    if (!video || !display) return;
+    if (video.srcObject !== display) {
+      video.srcObject = display;
     }
     const tryPlay = () => {
       video.play().catch(() => undefined);
@@ -284,6 +337,24 @@ export function CameraVisualizer({
       video.removeEventListener("loadedmetadata", tryPlay);
     };
   }, [status]);
+
+  // Toggling blur while the test is live swaps the preview source in place,
+  // without restarting the camera. Skips the initial mount (startTest already
+  // binds with the right setting).
+  useEffect(() => {
+    if (previousBlurRef.current === blur) return;
+    previousBlurRef.current = blur;
+    if (status !== "live" && status !== "starting") return;
+    if (!streamRef.current) return;
+    void attachPreview(runIdRef.current);
+  }, [blur, status, attachPreview]);
+
+  // Dragging the radius slider updates the active blur pipeline in place,
+  // without rebuilding the segmenter.
+  useEffect(() => {
+    blurRadiusRef.current = blurRadius;
+    blurHandleRef.current?.setBlurPx(blurRadius);
+  }, [blurRadius]);
 
   const live = status === "live";
   const starting = status === "starting";
