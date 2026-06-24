@@ -17,8 +17,10 @@
  *
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
- * path. The flag is only ever true when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is a truthy value.
+ * path. The gate is true only when ALL of these hold:
+ *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is not explicitly disabled. It is
+ *      DEFAULT-ON: unset/empty counts as enabled; set it to a falsy value
+ *      (`false`/`0`/`no`/`off`) to opt a specific app back out.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
@@ -41,7 +43,10 @@ import {
 export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
-/** Env flag (off by default) that opts an app into durable background runs. */
+/**
+ * Env flag for durable background runs. DEFAULT-ON: unset means enabled; an app
+ * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`).
+ */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";
 
@@ -87,21 +92,29 @@ function isFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
+  //
+  // DEFAULT-ON: durable background runs are the desired behavior for every
+  // hosted app (verified in prod — long multi-step runs complete past the 40s
+  // soft-timeout with no thrash). So an unset flag means ON; an app opts OUT
+  // only with an explicit falsy value. This still composes with the hosted +
+  // A2A_SECRET gates below, so non-hosted / unconfigured apps stay synchronous.
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return false;
+  if (raw == null) return true;
   const normalized = raw.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
+  return !(
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "no" ||
+    normalized === "off"
   );
 }
 
 /**
- * The single gate. True only when the flag is on AND the runtime is hosted AND
- * A2A_SECRET is configured. False otherwise — and false means the current
- * synchronous behavior is used, unchanged.
+ * The single gate. True when the flag is not explicitly disabled (default-on)
+ * AND the runtime is hosted AND A2A_SECRET is configured. False otherwise — and
+ * false means the current synchronous behavior is used, unchanged. So a local /
+ * non-hosted / unconfigured app stays synchronous even with the flag defaulting
+ * on; durable only engages where the runtime actually supports it.
  */
 export function isAgentChatDurableBackgroundEnabled(): boolean {
   return (

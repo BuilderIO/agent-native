@@ -1,7 +1,9 @@
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 import {
-  IconBrowser,
+  IconBrandApple,
+  IconBrandChrome,
+  IconBrandWindows,
   IconChevronDown,
   IconDeviceDesktop,
   IconExternalLink,
@@ -35,8 +37,22 @@ type CaptureInstallInlineLinkProps = PopoverPlacement & {
   desktopHref?: string;
 };
 
+/**
+ * The desktop-app tile shows the icon for the visitor's current OS — Apple on
+ * macOS, Windows on Windows — and falls back to a neutral desktop glyph on other
+ * platforms or during SSR. The Chrome tile always uses the Chrome brand icon.
+ */
+function desktopOsIcon(): typeof IconDeviceDesktop {
+  if (typeof navigator === "undefined") return IconDeviceDesktop;
+  const ua = navigator.userAgent;
+  if (/Windows/i.test(ua)) return IconBrandWindows;
+  if (/Mac|iPhone|iPad/i.test(ua)) return IconBrandApple;
+  return IconDeviceDesktop;
+}
+
 function InstallOptionsContent({ desktopHref = "/download" }) {
   const chromeAvailable = Boolean(clipsChromeExtensionUrl);
+  const DesktopIcon = desktopOsIcon();
 
   return (
     <div className="grid gap-2">
@@ -57,7 +73,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
           rel="noreferrer"
           className="flex items-start gap-3 rounded-md border border-border p-3 text-left transition hover:bg-accent"
         >
-          <IconBrowser className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">Chrome extension</span>
             <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
@@ -69,7 +85,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         </a>
       ) : (
         <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-left opacity-70">
-          <IconBrowser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">Chrome extension</span>
             <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
@@ -83,7 +99,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         to={desktopHref}
         className="flex items-start gap-3 rounded-md border border-border p-3 text-left transition hover:bg-accent"
       >
-        <IconDeviceDesktop className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">Desktop app</span>
           <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">

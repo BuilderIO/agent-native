@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ComponentProps,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import {
   AgentChatSurface,
@@ -48,6 +54,20 @@ function dispatchNavTarget(path: string): string {
   return routerHasBasename ? path : appPath(path);
 }
 
+interface DispatchThreadUrlSync {
+  routeThreadId: string | null;
+  getPath: (threadId: string | null) => string;
+  navigate: (path: string, options?: { replace?: boolean }) => void;
+}
+
+type DispatchAgentChatSurfaceProps = ComponentProps<typeof AgentChatSurface> & {
+  threadUrlSync?: DispatchThreadUrlSync;
+};
+
+function DispatchAgentChatSurface(props: DispatchAgentChatSurfaceProps) {
+  return <AgentChatSurface {...props} />;
+}
+
 interface DispatchChatLocationState {
   dispatchPrompt?: {
     id?: string | number;
@@ -75,7 +95,7 @@ export default function ChatRoute() {
       navigate(dispatchNavTarget(path), options),
     [navigate],
   );
-  const threadUrlSync = useMemo(
+  const threadUrlSync = useMemo<DispatchThreadUrlSync>(
     () => ({
       routeThreadId: routeThreadId ?? null,
       getPath: chatThreadPath,
@@ -143,7 +163,7 @@ export default function ChatRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
+      <DispatchAgentChatSurface
         mode="page"
         chatViewTransition
         className="dispatch-chat-panel"

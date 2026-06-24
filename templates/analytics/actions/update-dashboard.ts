@@ -265,9 +265,8 @@ function validateDashboardConfig(
     if (!p || typeof p !== "object") {
       return `panel[${i}] must be an object`;
     }
-    // Section panels are pure layout dividers — they have no query, so source
-    // and sql are optional. They still need id/title/chartType/width so the
-    // grid renders them.
+    // Section panels are pure layout dividers, so source and sql are optional.
+    // Width stays required for backward-compatible dashboard payloads.
     const isSection = p.chartType === "section";
     const required = isSection
       ? (["id", "title", "chartType", "width"] as const)
@@ -276,7 +275,7 @@ function validateDashboardConfig(
       const v = p[field];
       if (field === "width") {
         if (!isValidColumnCount(v)) {
-          return `panel[${i}].width must be an integer between 1 and 6 (number of grid columns to span)`;
+          return `panel[${i}].width must be an integer between 1 and 6 (legacy layout field)`;
         }
         continue;
       }

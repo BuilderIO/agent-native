@@ -7,6 +7,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
+    "skills:update": "agent-native skills update scaffold --project",
     "fmt:check": "prettier --check .",
     "lint": "pnpm fmt:check"
   },

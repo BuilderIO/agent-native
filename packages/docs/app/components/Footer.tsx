@@ -20,6 +20,12 @@ export default function Footer() {
           >
             Privacy
           </Link>
+          <Link
+            to="/terms"
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            Terms
+          </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"
             target="_blank"

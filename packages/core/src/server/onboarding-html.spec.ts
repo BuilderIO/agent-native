@@ -131,6 +131,46 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("omits hosted terms and privacy links on unhosted email signup", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain("https://www.agent-native.com/terms");
+    expect(html).not.toContain("https://www.agent-native.com/privacy");
+    expect(html).toContain(".legal-note");
+  });
+
+  it("shows a secondary terms and privacy notice on hosted email signup", () => {
+    const html = getOnboardingHtml({
+      requestHost: "calendar.agent-native.com",
+    });
+
+    expect(html).toContain(
+      'By signing up, you accept our <a href="https://www.agent-native.com/terms"',
+    );
+    expect(html).toContain(
+      '<a href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>',
+    );
+    expect(html).toContain(".legal-note");
+  });
+
+  it("shows configured terms and privacy links on custom email signup", () => {
+    const html = getOnboardingHtml({
+      signupLegalNotice: {
+        termsUrl: "https://example.com/legal/terms",
+        privacyUrl: "https://example.com/legal/privacy",
+        termsLabel: "Service Terms",
+        privacyLabel: "Privacy Notice",
+      },
+    });
+
+    expect(html).toContain(
+      '<a href="https://example.com/legal/terms" target="_blank" rel="noreferrer">Service Terms</a>',
+    );
+    expect(html).toContain(
+      '<a href="https://example.com/legal/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>',
+    );
+  });
+
   it("normalizes sign-in return targets before redirect and preserves hashes", () => {
     const html = getOnboardingHtml();
 

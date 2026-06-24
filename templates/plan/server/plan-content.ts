@@ -424,6 +424,17 @@ function sanitizeMaybeBlocks(blocks: unknown) {
         sanitizeMaybeBlocks((tab as Record<string, unknown>).blocks);
       }
     }
+    // `columns` is the recommended before/after recap primitive and nests child
+    // blocks (commonly wireframes). It must recurse like `tabs` does — otherwise
+    // a nested wireframe authored as a full HTML document never gets its
+    // scaffold stripped and the whole columns block degrades to an "Unsupported
+    // block" card at validation time.
+    if (record.type === "columns" && data && Array.isArray(data.columns)) {
+      for (const column of data.columns) {
+        if (!column || typeof column !== "object") continue;
+        sanitizeMaybeBlocks((column as Record<string, unknown>).blocks);
+      }
+    }
   }
 }
 
@@ -454,9 +465,29 @@ function preSanitizePlanContentInput(input: unknown): unknown {
   return content;
 }
 
+/**
+ * Coerce a full HTML document into a bounded fragment. Wireframe, custom-html,
+ * and diagram blocks must be bounded fragments (the renderer owns the
+ * surrounding document, theme, and styling), so the schema rejects any value
+ * carrying document scaffolding. Agents frequently author one of these blocks
+ * as a standalone page anyway; rather than degrade the whole block to an
+ * "Unsupported block" card, drop the scaffold and keep the body content. The
+ * `<head>` is removed wholesale because its `<style>`/`<meta>`/`<link>` are
+ * renderer-owned and stripped elsewhere regardless. Fragments without
+ * scaffolding pass through untouched.
+ */
+function stripDocumentScaffold(value: string): string {
+  if (!/<!doctype|<\s*\/?\s*(?:html|head|body)\b/i.test(value)) return value;
+  return value
+    .replace(/<!doctype[^>]*>/gi, "")
+    .replace(/<head\b[^>]*>[\s\S]*?<\/\s*head\s*>/gi, "")
+    .replace(/<\/?\s*(?:html|head|body)\b[^>]*>/gi, "")
+    .trim();
+}
+
 /** Strip the dangerous surface from a stored custom-html / css string. */
 export function sanitizeCustomHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   // Iterate element-stripping so nested / sequential cases collapse fully.
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(FORBIDDEN_ELEMENT, "");
@@ -479,7 +510,7 @@ export function sanitizeCustomHtml(value: string): string {
 }
 
 export function sanitizeDiagramHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(DIAGRAM_FORBIDDEN_ELEMENT, "");
     if (next === out) break;
@@ -611,6 +642,18 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
         tabs: block.data.tabs.map((tab) => ({
           ...tab,
           blocks: tab.blocks.map(sanitizeBlock),
+        })),
+      },
+    };
+  }
+  if (block.type === "columns") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        columns: block.data.columns.map((column) => ({
+          ...column,
+          blocks: column.blocks.map(sanitizeBlock),
         })),
       },
     };

@@ -27,6 +27,10 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
+After updating `@agent-native/core`, run `pnpm skills:update` or
+`npx @agent-native/core@latest skills update scaffold --project` from the
+workspace root to refresh framework-provided shared skills and repair
+`CLAUDE.md` / `.claude/skills` compatibility links.
 
 ## Core Agent Rule
 

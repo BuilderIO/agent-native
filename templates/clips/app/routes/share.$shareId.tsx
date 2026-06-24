@@ -253,7 +253,7 @@ function AgentDiscovery({
     title: recording.title,
     agentContextUrl,
     instructions:
-      "Fetch agentContextUrl for timestamped transcript segments and frame API links.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 
   return (

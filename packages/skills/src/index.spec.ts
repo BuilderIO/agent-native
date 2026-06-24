@@ -98,6 +98,17 @@ describe("@agent-native/skills", () => {
     });
   });
 
+  it("parses scaffold update commands for generated workspaces", () => {
+    expect(
+      parseSkillsCliArgs(["update", "scaffold", "--project"]),
+    ).toMatchObject({
+      command: "update",
+      source: "scaffold",
+      scope: "project",
+      scopeExplicit: true,
+    });
+  });
+
   it("rejects public source arguments outside the BuilderIO skills collection", () => {
     expect(() => parseSkillsCliArgs(["add", "someone/else"])).toThrow(
       "installs the BuilderIO skills collection",
@@ -192,6 +203,17 @@ describe("@agent-native/skills", () => {
         path.join(project, ".agents", "skills", "efficient-frontier"),
       ),
     ).toBe(false);
+  });
+
+  it("forwards scaffold update commands through the shared core flow", async () => {
+    await runSkillsCli(["update", "scaffold", "--project"], {
+      isInteractive: () => false,
+    });
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      ["update", "scaffold", "--scope", "project"],
+      expect.objectContaining({ catalogMode: "all" }),
+    );
   });
 
   it("installs every plain source skill directly when no skill is explicit", async () => {

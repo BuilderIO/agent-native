@@ -31,13 +31,14 @@ import {
 } from "./context-xray-local.js";
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
+import { setupAgentSymlinks } from "./setup-agents.js";
 
 const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
   npx @agent-native/core@latest skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
@@ -52,6 +53,7 @@ Examples:
   npx @agent-native/core@latest skills add visual-plan --mode self-hosted --mcp-url https://my-plan-app.example.com
   npx @agent-native/core@latest skills status visual-plan
   npx @agent-native/core@latest skills update visual-plan
+  npx @agent-native/core@latest skills update scaffold --project
   npx @agent-native/core@latest skills add visual-plan --no-connect
   npx @agent-native/core@latest skills add context-xray --client all
   npx @agent-native/core@latest skills add assets --client claude-code
@@ -101,7 +103,10 @@ run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest
 verify GitHub Actions. Docs: https://www.agent-native.com/docs/pr-visual-recap.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
-their instruction files from the current @agent-native/core package.`;
+their instruction files from the current @agent-native/core package. In generated
+apps/workspaces, "skills update scaffold --project" refreshes the framework
+skills copied into the scaffold and repairs AGENTS.md / CLAUDE.md and
+.agents/skills / .claude/skills compatibility links.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -2844,6 +2849,19 @@ interface SkillInstallState {
   managed: boolean;
 }
 
+interface ScaffoldGuidanceState {
+  kind: "workspace-core" | "standalone";
+  displayName: string;
+  templateName: "workspace-core" | "headless" | "default";
+  path: string;
+  sourcePath: string;
+  projectRoot: string;
+  workspaceRoot?: string;
+  sharedPackageDir?: string;
+  current: boolean;
+  skillCount: number;
+}
+
 interface SkillInstallTarget {
   id: string;
   displayName: string;
@@ -3591,7 +3609,368 @@ function skillSearchRoots(input: {
   });
 }
 
+const SCAFFOLD_GUIDANCE_TARGETS = new Set([
+  "scaffold",
+  "generated",
+  "generated-app",
+  "generated-workspace",
+  "workspace",
+  "workspace-core",
+  "framework-guidance",
+]);
+
+function isScaffoldGuidanceTarget(value: string | undefined): boolean {
+  if (!value) return false;
+  return SCAFFOLD_GUIDANCE_TARGETS.has(value.trim().toLowerCase());
+}
+
+function corePackageRootDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, "../..");
+}
+
+function bundledScaffoldSkillsDir(
+  templateName: ScaffoldGuidanceState["templateName"],
+): string {
+  return path.join(
+    corePackageRootDir(),
+    "src",
+    "templates",
+    templateName,
+    ".agents",
+    "skills",
+  );
+}
+
+function readJsonRecord(file: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {}
+  return undefined;
+}
+
+function readPackageJson(dir: string): Record<string, unknown> | undefined {
+  return readJsonRecord(path.join(dir, "package.json"));
+}
+
+function packageName(pkg: Record<string, unknown> | undefined): string | null {
+  return typeof pkg?.name === "string" ? pkg.name : null;
+}
+
+function workspaceCorePackageName(
+  pkg: Record<string, unknown> | undefined,
+): string | null {
+  const agentNative = pkg?.["agent-native"];
+  if (
+    agentNative &&
+    typeof agentNative === "object" &&
+    !Array.isArray(agentNative) &&
+    typeof (agentNative as Record<string, unknown>).workspaceCore === "string"
+  ) {
+    return (agentNative as Record<string, string>).workspaceCore;
+  }
+  return null;
+}
+
+function hasAgentNativeCoreDependency(
+  pkg: Record<string, unknown> | undefined,
+): boolean {
+  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+    const deps = pkg?.[field];
+    if (
+      deps &&
+      typeof deps === "object" &&
+      !Array.isArray(deps) &&
+      "@agent-native/core" in deps
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findWorkspaceCorePackageDir(
+  workspaceRoot: string,
+  workspaceCoreName: string,
+): string | undefined {
+  const packagesDir = path.join(workspaceRoot, "packages");
+  if (!fs.existsSync(packagesDir)) return undefined;
+  for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(packagesDir, entry.name);
+    if (packageName(readPackageJson(candidate)) === workspaceCoreName) {
+      return candidate;
+    }
+  }
+  const fallback = path.join(workspaceRoot, "packages", "shared");
+  return fs.existsSync(path.join(fallback, "package.json"))
+    ? fallback
+    : undefined;
+}
+
+function findGeneratedWorkspace(startDir: string):
+  | {
+      workspaceRoot: string;
+      sharedPackageDir: string;
+    }
+  | undefined {
+  let current = path.resolve(startDir);
+  while (true) {
+    const pkg = readPackageJson(current);
+    const workspaceCoreName = workspaceCorePackageName(pkg);
+    if (workspaceCoreName && fs.existsSync(path.join(current, "apps"))) {
+      const sharedPackageDir = findWorkspaceCorePackageDir(
+        current,
+        workspaceCoreName,
+      );
+      if (sharedPackageDir) {
+        return { workspaceRoot: current, sharedPackageDir };
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+function detectStandaloneScaffoldTemplate(
+  projectRoot: string,
+): "headless" | "default" | undefined {
+  const pkg = readPackageJson(projectRoot);
+  if (!hasAgentNativeCoreDependency(pkg)) return undefined;
+  if (!fs.existsSync(path.join(projectRoot, ".agents", "skills"))) {
+    return undefined;
+  }
+
+  const hasAppDir = fs.existsSync(path.join(projectRoot, "app"));
+  const hasHeadlessHello = fs.existsSync(
+    path.join(projectRoot, "actions", "hello.ts"),
+  );
+  if (!hasAppDir && hasHeadlessHello) return "headless";
+
+  const looksLikeDefaultTemplate =
+    fs.existsSync(path.join(projectRoot, "app", "routes", "database.tsx")) &&
+    fs.existsSync(path.join(projectRoot, "app", "routes", "_index.tsx")) &&
+    fs.existsSync(path.join(projectRoot, "actions", "view-screen.ts"));
+  return looksLikeDefaultTemplate ? "default" : undefined;
+}
+
+function listImmediateSkillDirs(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
+  const expected = listSkillFolderFiles(sourceDir);
+  const actual = listSkillFolderFiles(targetDir);
+  const expectedFiles = Object.keys(expected).sort();
+  const actualFiles = Object.keys(actual).sort();
+  if (expectedFiles.length !== actualFiles.length) return false;
+  for (let i = 0; i < expectedFiles.length; i += 1) {
+    if (expectedFiles[i] !== actualFiles[i]) return false;
+  }
+  return expectedFiles.every((file) => expected[file] === actual[file]);
+}
+
+function scaffoldGuidanceCurrent(
+  sourceRoot: string,
+  targetRoot: string,
+): boolean {
+  const skills = listImmediateSkillDirs(sourceRoot);
+  if (skills.length === 0) return false;
+  return skills.every((skill) =>
+    skillDirContentsMatch(
+      path.join(sourceRoot, skill),
+      path.join(targetRoot, skill),
+    ),
+  );
+}
+
+function collectScaffoldGuidanceStates(
+  parsed: ParsedSkillsArgs,
+  options: RunSkillsOptions,
+): ScaffoldGuidanceState[] {
+  if (parsed.target && !isScaffoldGuidanceTarget(parsed.target)) return [];
+  if (parsed.scopeExplicit && parsed.scope !== "project") return [];
+
+  const baseDir = path.resolve(options.baseDir ?? process.cwd());
+  const workspace = findGeneratedWorkspace(baseDir);
+  if (workspace) {
+    const sourcePath = bundledScaffoldSkillsDir("workspace-core");
+    const targetPath = path.join(
+      workspace.sharedPackageDir,
+      ".agents",
+      "skills",
+    );
+    if (!fs.existsSync(sourcePath)) return [];
+    return [
+      {
+        kind: "workspace-core",
+        displayName: "Generated workspace framework skills",
+        templateName: "workspace-core",
+        path: targetPath,
+        sourcePath,
+        projectRoot: workspace.workspaceRoot,
+        workspaceRoot: workspace.workspaceRoot,
+        sharedPackageDir: workspace.sharedPackageDir,
+        current: scaffoldGuidanceCurrent(sourcePath, targetPath),
+        skillCount: listImmediateSkillDirs(sourcePath).length,
+      },
+    ];
+  }
+
+  const templateName = detectStandaloneScaffoldTemplate(baseDir);
+  if (!templateName) return [];
+  const sourcePath = bundledScaffoldSkillsDir(templateName);
+  const targetPath = path.join(baseDir, ".agents", "skills");
+  if (!fs.existsSync(sourcePath)) return [];
+  return [
+    {
+      kind: "standalone",
+      displayName: `Generated ${templateName} app framework skills`,
+      templateName,
+      path: targetPath,
+      sourcePath,
+      projectRoot: baseDir,
+      current: scaffoldGuidanceCurrent(sourcePath, targetPath),
+      skillCount: listImmediateSkillDirs(sourcePath).length,
+    },
+  ];
+}
+
+function copyScaffoldGuidanceSkills(
+  sourceRoot: string,
+  targetRoot: string,
+): void {
+  fs.mkdirSync(targetRoot, { recursive: true });
+  for (const skill of listImmediateSkillDirs(sourceRoot)) {
+    const targetSkillDir = path.join(targetRoot, skill);
+    if (
+      fs.existsSync(targetSkillDir) &&
+      fs.lstatSync(targetSkillDir).isSymbolicLink()
+    ) {
+      continue;
+    }
+    fs.rmSync(targetSkillDir, { recursive: true, force: true });
+    fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
+      recursive: true,
+    });
+  }
+}
+
+function updateScaffoldGuidanceStates(
+  states: ScaffoldGuidanceState[],
+  dryRun: boolean,
+): ScaffoldGuidanceState[] {
+  const updated: ScaffoldGuidanceState[] = [];
+  for (const state of states) {
+    if (state.current) continue;
+    if (!dryRun) {
+      copyScaffoldGuidanceSkills(state.sourcePath, state.path);
+    }
+    updated.push({
+      ...state,
+      current: !dryRun,
+    });
+  }
+  return updated;
+}
+
+function ensureWorkspaceRootSkillsLink(
+  workspaceRoot: string,
+  sharedPackageDir: string,
+): void {
+  const sharedSkillsDir = path.join(sharedPackageDir, ".agents", "skills");
+  if (!fs.existsSync(sharedSkillsDir)) return;
+
+  const agentsDir = path.join(workspaceRoot, ".agents");
+  const linkPath = path.join(agentsDir, "skills");
+  const target = path.relative(agentsDir, sharedSkillsDir);
+
+  fs.mkdirSync(agentsDir, { recursive: true });
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink()) {
+      if (fs.readlinkSync(linkPath) === target) return;
+      fs.unlinkSync(linkPath);
+    } else {
+      copyScaffoldGuidanceSkills(sharedSkillsDir, linkPath);
+      return;
+    }
+  } catch {}
+
+  try {
+    fs.symlinkSync(
+      target,
+      linkPath,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  } catch {
+    try {
+      fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });
+    } catch {}
+  }
+}
+
+function refreshCopiedClaudeSkills(projectRoot: string): void {
+  const agentsSkillsDir = path.join(projectRoot, ".agents", "skills");
+  const claudeSkillsDir = path.join(projectRoot, ".claude", "skills");
+  if (!fs.existsSync(agentsSkillsDir) || !fs.existsSync(claudeSkillsDir)) {
+    return;
+  }
+  try {
+    if (fs.lstatSync(claudeSkillsDir).isSymbolicLink()) return;
+    copyScaffoldGuidanceSkills(agentsSkillsDir, claudeSkillsDir);
+  } catch {}
+}
+
+function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
+  const seen = new Set<string>();
+  for (const state of states) {
+    if (state.workspaceRoot && state.sharedPackageDir) {
+      const key = `workspace:${state.workspaceRoot}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ensureWorkspaceRootSkillsLink(
+        state.workspaceRoot,
+        state.sharedPackageDir,
+      );
+      setupAgentSymlinks(state.workspaceRoot);
+      refreshCopiedClaudeSkills(state.workspaceRoot);
+      setupAgentSymlinks(state.sharedPackageDir);
+      refreshCopiedClaudeSkills(state.sharedPackageDir);
+      const appsDir = path.join(state.workspaceRoot, "apps");
+      if (fs.existsSync(appsDir)) {
+        for (const entry of fs.readdirSync(appsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const appDir = path.join(appsDir, entry.name);
+          if (fs.existsSync(path.join(appDir, "package.json"))) {
+            setupAgentSymlinks(appDir);
+            refreshCopiedClaudeSkills(appDir);
+          }
+        }
+      }
+      continue;
+    }
+
+    const key = `standalone:${state.projectRoot}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    setupAgentSymlinks(state.projectRoot);
+    refreshCopiedClaudeSkills(state.projectRoot);
+  }
+}
+
 function targetIdsForStatus(parsed: ParsedSkillsArgs): BuiltInAppSkillId[] {
+  if (isScaffoldGuidanceTarget(parsed.target)) return [];
   if (!parsed.target) {
     return (Object.keys(BUILT_IN_APP_SKILLS) as BuiltInAppSkillId[]).filter(
       (id) => !isLocalOnlyBuiltInSkill(BUILT_IN_APP_SKILLS[id]),
@@ -5423,6 +5802,27 @@ function formatSkillState(state: SkillInstallState): string {
   return `${state.skillName.padEnd(22)} ${status.padEnd(7)} ${state.scope}/${state.client} ${managed}${hashes}\n  ${state.path}`;
 }
 
+function scaffoldStateJson(state: ScaffoldGuidanceState) {
+  return {
+    kind: state.kind,
+    displayName: state.displayName,
+    templateName: state.templateName,
+    path: state.path,
+    sourcePath: state.sourcePath,
+    projectRoot: state.projectRoot,
+    workspaceRoot: state.workspaceRoot,
+    sharedPackageDir: state.sharedPackageDir,
+    skillCount: state.skillCount,
+    status: state.current ? "current" : "stale",
+    managed: true,
+  };
+}
+
+function formatScaffoldState(state: ScaffoldGuidanceState): string {
+  const status = state.current ? "current" : "stale";
+  return `${"scaffold".padEnd(22)} ${status.padEnd(7)} project/${state.kind} managed (${state.skillCount} skills)\n  ${state.path}`;
+}
+
 function planModeSummary(mode: PlanInstallMode): string {
   if (mode === "local-files")
     return "Local files - no hosted writes by default";
@@ -5503,25 +5903,46 @@ function runSkillsStatusOrUpdate(
   options: RunSkillsOptions,
   update: boolean,
 ): void {
-  const before = collectSkillInstallStates(parsed, options);
-  const changed = update ? updateSkillInstallStates(before, parsed.dryRun) : [];
-  const after =
+  const skillBefore = collectSkillInstallStates(parsed, options);
+  const scaffoldBefore = collectScaffoldGuidanceStates(parsed, options);
+  const skillChanged = update
+    ? updateSkillInstallStates(skillBefore, parsed.dryRun)
+    : [];
+  const scaffoldChanged = update
+    ? updateScaffoldGuidanceStates(scaffoldBefore, parsed.dryRun)
+    : [];
+  if (update && !parsed.dryRun && scaffoldChanged.length > 0) {
+    repairScaffoldAgentLinks(scaffoldChanged);
+  }
+  const skillAfter =
     update && !parsed.dryRun
       ? collectSkillInstallStates(parsed, options)
-      : before;
+      : skillBefore;
+  const scaffoldAfter =
+    update && !parsed.dryRun
+      ? collectScaffoldGuidanceStates(parsed, options)
+      : scaffoldBefore;
+  const beforeCount = skillBefore.length + scaffoldBefore.length;
+  const changedCount = skillChanged.length + scaffoldChanged.length;
 
   if (parsed.printJson) {
-    const outputStates = update && !parsed.dryRun ? after : before;
+    const outputSkillStates =
+      update && !parsed.dryRun ? skillAfter : skillBefore;
+    const outputScaffoldStates =
+      update && !parsed.dryRun ? scaffoldAfter : scaffoldBefore;
     process.stdout.write(
       `${JSON.stringify(
         {
           ok: true,
           command: parsed.command,
           dryRun: parsed.dryRun,
-          found: before.length,
-          stale: outputStates.filter((state) => !state.current).length,
-          updated: changed.length,
-          skills: outputStates.map(skillStateJson),
+          found: beforeCount,
+          stale:
+            outputSkillStates.filter((state) => !state.current).length +
+            outputScaffoldStates.filter((state) => !state.current).length,
+          updated: changedCount,
+          skills: outputSkillStates.map(skillStateJson),
+          scaffold: outputScaffoldStates.map(scaffoldStateJson),
         },
         null,
         2,
@@ -5530,10 +5951,13 @@ function runSkillsStatusOrUpdate(
     return;
   }
 
-  if (before.length === 0) {
+  if (beforeCount === 0) {
     const target = parsed.target ? ` for ${parsed.target}` : "";
+    const hint = isScaffoldGuidanceTarget(parsed.target)
+      ? `Run this from a generated Agent Native app or workspace root.\n`
+      : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
-      `No installed Agent Native skill copies found${target}.\nRun "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`,
+      `No installed Agent Native skill copies found${target}.\n${hint}`,
     );
     return;
   }
@@ -5541,20 +5965,27 @@ function runSkillsStatusOrUpdate(
   if (update) {
     if (parsed.dryRun) {
       process.stdout.write(
-        changed.length
-          ? `Would update ${changed.length} skill folder${changed.length === 1 ? "" : "s"}:\n`
+        changedCount
+          ? `Would update ${changedCount} skill folder${changedCount === 1 ? "" : "s"}:\n`
           : "All discovered skill folders are already current.\n",
       );
     } else {
       process.stdout.write(
-        changed.length
-          ? `Updated ${changed.length} skill folder${changed.length === 1 ? "" : "s"}.\n`
+        changedCount
+          ? `Updated ${changedCount} skill folder${changedCount === 1 ? "" : "s"}.\n`
           : "All discovered skill folders are already current.\n",
       );
     }
   }
 
-  const rows = (update && parsed.dryRun ? before : after).map(formatSkillState);
+  const rows = [
+    ...(update && parsed.dryRun ? skillBefore : skillAfter).map(
+      formatSkillState,
+    ),
+    ...(update && parsed.dryRun ? scaffoldBefore : scaffoldAfter).map(
+      formatScaffoldState,
+    ),
+  ];
   process.stdout.write(`${rows.join("\n")}\n`);
 }
 

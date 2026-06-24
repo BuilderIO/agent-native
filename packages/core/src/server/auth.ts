@@ -263,6 +263,12 @@ export interface AuthOptions {
     cancelLabel?: string;
   };
   /**
+   * Optional email signup legal copy for the built-in login page.
+   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * pass false to suppress, or pass URLs for custom/self-hosted policies.
+   */
+  signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
+  /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
    * - `'auto'` — popup in normal browsers and Builder web iframes, redirect in
@@ -1013,6 +1019,7 @@ function getOnboardingHtmlOptions(
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
+    signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,

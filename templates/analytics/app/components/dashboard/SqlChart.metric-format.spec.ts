@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMetricValue } from "./SqlChart";
+import { formatMetricValue, sortTooltipPayloadItems } from "./SqlChart";
 
 // Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
 // numbers). The metric renderer used to only format `typeof raw === "number"`,
@@ -42,5 +42,23 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
+  });
+});
+
+describe("sortTooltipPayloadItems", () => {
+  it("sorts numeric tooltip rows descending while keeping ties stable", () => {
+    const items = [
+      { name: "analytics", value: 69 },
+      { name: "docs", value: "1025" },
+      { name: "forms", value: 25 },
+      { name: "content", value: 69 },
+    ];
+
+    expect(sortTooltipPayloadItems(items).map((item) => item.name)).toEqual([
+      "docs",
+      "analytics",
+      "content",
+      "forms",
+    ]);
   });
 });

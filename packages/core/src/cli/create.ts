@@ -1893,7 +1893,7 @@ function copyDir(src: string, dest: string, root?: string): void {
 
 function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   if (
-    name === "settings.json" &&
+    /^settings(?:\..*)?\.json$/.test(name) &&
     srcPath?.split(path.sep).includes(".claude")
   ) {
     return true;

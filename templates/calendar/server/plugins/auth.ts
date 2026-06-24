@@ -16,6 +16,18 @@ export default createAuthPlugin({
       "Manages availability and booking links automatically",
       "Answers schedule questions and resolves conflicts instantly",
     ],
+    runLocalCommand:
+      "npx @agent-native/core@latest create my-calendar-app --template calendar",
+  },
+  googleSignInNotice: {
+    host: "calendar.agent-native.com",
+    title: "Google may show a warning",
+    body: [
+      "You'll see this screen because this demo uses Agent-Native's Google app, not a Google-reviewed public app.",
+      "It's safe to continue: click Advanced, then “Go to … (unsafe)” to finish signing in.",
+    ],
+    continueLabel: "Continue to Google",
+    cancelLabel: "Run locally",
   },
   publicPaths: [
     "/book",

@@ -264,3 +264,17 @@ npx @agent-native/core@latest skills update visual-plan
 the copied folder hash to the latest bundled skill, and rewrites stale folders in
 place. Newly copied Agent Native skills include an `agent-native-skill.json`
 marker so future status output can identify the source and hash.
+
+Generated Agent Native apps and workspaces also include framework-provided
+skills under `.agents/skills` (or `packages/shared/.agents/skills` in a
+workspace). Refresh those scaffolded skills from the current/latest CLI with:
+
+```bash
+npm run skills:update
+# or, without relying on the local package script:
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+`AGENTS.md` and `.agents/skills` stay canonical. The update command also repairs
+Claude compatibility links (`CLAUDE.md` and `.claude/skills`) so Claude Code sees
+the same instructions without maintaining a second copy.

@@ -88,6 +88,18 @@ function fixed(sql: string): (window?: MetricWindow) => string {
   return () => sql;
 }
 
+const SIGNUP_TEMPLATE_EXPR =
+  "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')";
+const DASHBOARD_TIME_RANGE_FILTER =
+  "('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))";
+const DASHBOARD_EMAIL_FILTER =
+  "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))";
+const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
+const SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY timestamp) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT substr(timestamp, 1, 10) AS date, ${SIGNUP_TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
+const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${SIGNUP_TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= to_char(CURRENT_DATE - INTERVAL '1 day', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${SIGNUP_TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${SIGNUP_TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${SIGNUP_TEMPLATE_EXPR} ORDER BY count DESC`;
+
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
  * metrics; callers can reorder by listing keys in the order they want.
@@ -96,19 +108,16 @@ const ENTRIES: FirstPartyMetric[] = [
   // --- Signups -------------------------------------------------------------
   {
     key: "total-signups",
-    title: "Signups",
+    title: "Total Signups",
     chartType: "metric",
     source: "first-party",
     width: 1,
     windowed: false,
-    buildSql: fixed(
-      "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup'",
-    ),
+    buildSql: fixed(TOTAL_SIGNUPS_SQL),
     config: {
-      yKey: "count",
+      yKey: "signups",
       yFormatter: "number",
-      description:
-        "Better Auth user creation events from all Agent Native templates",
+      description: "Total signup events in the selected time range.",
     },
   },
   {
@@ -118,14 +127,18 @@ const ENTRIES: FirstPartyMetric[] = [
     source: "first-party",
     width: 2,
     windowed: false,
-    buildSql: fixed(
-      "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
-    ),
+    buildSql: fixed(SIGNUPS_OVER_TIME_SQL),
     config: {
       xKey: "date",
       yKey: "count",
-      color: "#8b5cf6",
-      description: "Daily signup events across all Agent Native templates",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+      description: "Daily signup events stacked by inferred template/app.",
     },
   },
   {
@@ -133,16 +146,15 @@ const ENTRIES: FirstPartyMetric[] = [
     title: "Signups by Template",
     chartType: "bar",
     source: "first-party",
-    width: 1,
+    width: 2,
     windowed: false,
-    buildSql: fixed(
-      "SELECT COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' GROUP BY COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
-    ),
+    buildSql: fixed(SIGNUPS_BY_TEMPLATE_SQL),
     config: {
       xKey: "template",
       yKey: "count",
-      color: "#8b5cf6",
-      description: "Signup events grouped by inferred template/app",
+      yFormatter: "number",
+      color: "var(--brand-purple)",
+      description: "Signup events grouped by inferred template/app.",
     },
   },
 
@@ -253,45 +265,85 @@ const ENTRIES: FirstPartyMetric[] = [
     width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
     ),
-    config: { xKey: "date", yKey: "count", color: "var(--brand-blue)" },
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+    },
   },
   {
     key: "clicks-by-template",
-    title: "Clicks by Template",
-    chartType: "bar",
+    title: "Clicks by Template Over Time",
+    chartType: "area",
     source: "first-party",
-    width: 1,
+    width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
     ),
-    config: { xKey: "template", yKey: "count", color: "var(--brand-blue)" },
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+    },
   },
   {
     key: "demo-clicks-by-template",
-    title: "Try-Demo Clicks by Template",
-    chartType: "bar",
+    title: "Try-Demo Clicks Over Time",
+    chartType: "area",
     source: "first-party",
-    width: 1,
+    width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
     ),
-    config: { xKey: "template", yKey: "count", color: "var(--brand-teal)" },
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+    },
   },
   {
     key: "cli-copies-by-template",
-    title: "CLI Copies by Template",
-    chartType: "bar",
+    title: "CLI Copies by Template Over Time",
+    chartType: "area",
     source: "first-party",
-    width: 1,
+    width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
     ),
-    config: { xKey: "template", yKey: "count", color: "#06b6d4" },
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+    },
   },
   {
     key: "cli-copies-over-time",
@@ -301,9 +353,19 @@ const ENTRIES: FirstPartyMetric[] = [
     width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
     ),
-    config: { xKey: "date", yKey: "count", color: "#06b6d4" },
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+    },
   },
 
   // --- Activity / pageviews ------------------------------------------------
@@ -314,17 +376,200 @@ const ENTRIES: FirstPartyMetric[] = [
     source: "first-party",
     width: 2,
     windowed: false,
-    // First-party tracking has no distinct `pageview` event; total tracked
-    // events per day is the honest activity/pageviews proxy over analytics_events.
+    // Browser telemetry emits explicit `pageview` events with URL context, so
+    // keep pageview panels scoped to that event instead of all tracked events.
     buildSql: fixed(
-      "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      `SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'pageview' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY date, template`,
     ),
     config: {
       xKey: "date",
       yKey: "count",
-      color: "var(--brand-blue)",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "count",
+      },
+      stacked: true,
+      description: "Pageview events per day stacked by inferred template/app.",
+    },
+  },
+  {
+    key: "top-visited-urls",
+    title: "Top Visited URLs",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(
+      `WITH pageviews AS (SELECT COALESCE(CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') END, NULLIF(url, ''), NULLIF(path, ''), 'unknown') AS url, CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN NULLIF(url, '') LIKE 'http%' THEN url ELSE COALESCE(NULLIF(url, ''), NULLIF(path, ''), '') END AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM analytics_events WHERE event_name = 'pageview' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY 1, 2) SELECT url, views, users, last_seen, href FROM pageviews ORDER BY views DESC LIMIT 25`,
+    ),
+    config: {
       description:
-        "Total first-party tracked events per day (activity proxy — there is no distinct pageview event in /track data).",
+        "Most-viewed URLs in the selected time range. Links open in a new tab.",
+      sortable: true,
+      limit: 25,
+      columns: [
+        { key: "url", label: "URL", format: "link", linkKey: "href" },
+        { key: "views", label: "Views", format: "number" },
+        { key: "users", label: "Users", format: "number" },
+        { key: "last_seen", label: "Last seen", format: "date" },
+        { key: "href", hidden: true },
+      ],
+    },
+  },
+  {
+    key: "top-visited-clips",
+    title: "Top Visited Clips",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(
+      `WITH clip_events AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'recording_id', ''), NULLIF(path, ''), NULLIF(url, ''), 'unknown') AS clip_key, CASE WHEN NULLIF(url, '') LIKE 'http%' THEN url WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN NULLIF(path, '') LIKE '/%' THEN 'https://clips.agent-native.com' || path ELSE COALESCE(NULLIF(url, ''), '') END AS href, user_id, anonymous_id, timestamp FROM analytics_events WHERE event_name = 'share_view' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND COALESCE(NULLIF(properties::jsonb ->> 'surface', ''), 'clip') = 'clip'), clip_views AS (SELECT clip_key, COALESCE(MAX(NULLIF(href, '')), clip_key) AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM clip_events GROUP BY clip_key) SELECT CASE WHEN href LIKE 'http%' THEN href ELSE clip_key END AS clip, views, users, last_seen, href FROM clip_views ORDER BY views DESC LIMIT 25`,
+    ),
+    config: {
+      description: "Most-viewed shared Clips pages in the selected time range.",
+      sortable: true,
+      limit: 25,
+      columns: [
+        { key: "clip", label: "Clip URL", format: "link", linkKey: "href" },
+        { key: "views", label: "Views", format: "number" },
+        { key: "users", label: "Users", format: "number" },
+        { key: "last_seen", label: "Last seen", format: "date" },
+        { key: "href", hidden: true },
+      ],
+    },
+  },
+  {
+    key: "repeat-users",
+    title: "Repeat Users",
+    chartType: "metric",
+    source: "first-party",
+    width: 1,
+    windowed: false,
+    buildSql: fixed(
+      "WITH user_days AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, COUNT(DISTINCT substr(timestamp, 1, 10)) AS active_days FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) SELECT COUNT(*) AS count FROM user_days WHERE active_days >= 2",
+    ),
+    config: {
+      yKey: "count",
+      yFormatter: "number",
+      description:
+        "Distinct users with activity on at least two days in the selected time range. Uses user_id first, then anonymous_id.",
+    },
+  },
+  {
+    key: "retention-over-time",
+    title: "1d / 7d Retention Over Time",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(
+      "WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), cohorts AS (SELECT user_key, cohort_date FROM first_seen WHERE cohort_date <= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))), retention AS (SELECT c.cohort_date AS date, '1d retention' AS period, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key GROUP BY c.cohort_date UNION ALL SELECT c.cohort_date AS date, '7d retention' AS period, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key GROUP BY c.cohort_date) SELECT date, period, rate FROM retention ORDER BY date, period",
+    ),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "period",
+        valueKey: "rate",
+      },
+      colors: ["#10b981", "#8b5cf6"],
+      description:
+        "First-seen daily cohorts in the selected range. Cohorts must be at least seven days old so both lines are mature.",
+    },
+  },
+  {
+    key: "one-day-retention-by-template",
+    title: "1d Retention by Template",
+    chartType: "line",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(ONE_DAY_RETENTION_BY_TEMPLATE_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "rate",
+      },
+      description:
+        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template the next day.",
+    },
+  },
+  {
+    key: "seven-day-retention-by-template",
+    title: "7d Retention by Template",
+    chartType: "line",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "rate",
+      },
+      description:
+        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template seven days later.",
+    },
+  },
+  {
+    key: "dau-over-time",
+    title: "DAU by Template",
+    chartType: "area",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(
+      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY date, template",
+    ),
+    config: {
+      xKey: "date",
+      yKey: "users",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "users",
+      },
+      stacked: true,
+      description:
+        "Distinct active users per day in the selected time range, stacked by template. Uses user_id first, then anonymous_id.",
+    },
+  },
+  {
+    key: "wau-over-time",
+    title: "WAU by Template",
+    chartType: "area",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(
+      "WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))) SELECT d.date, b.template, COUNT(DISTINCT b.user_key) AS users FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template",
+    ),
+    config: {
+      xKey: "date",
+      yKey: "users",
+      yFormatter: "number",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "users",
+      },
+      stacked: true,
+      description:
+        "Trailing 7-day distinct active users for each active date in the selected time range, stacked by template.",
     },
   },
 

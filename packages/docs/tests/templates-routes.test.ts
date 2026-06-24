@@ -155,6 +155,7 @@ describe("template routes", () => {
     expect(paths).toContain("/templates");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
+    expect(paths).toContain("/terms");
 
     for (const docPath of docPaths) {
       expect(paths).toContain(docPath);

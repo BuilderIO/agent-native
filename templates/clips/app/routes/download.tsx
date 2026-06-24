@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  IconBrowser,
+  IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
   IconExternalLink,
@@ -248,7 +248,7 @@ export default function DownloadPage() {
             <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <IconBrowser className="h-4 w-4" />
+                  <IconBrandChrome className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold text-foreground">

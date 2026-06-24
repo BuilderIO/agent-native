@@ -39,7 +39,10 @@ export default createAuthPlugin({
   googleSignInNotice: {
     host: "mail.agent-native.com",
     title: "Google may show a warning",
-    body: "This hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing.",
+    body: [
+      "You'll see this screen because this demo uses Agent-Native's Google app, not a Google-reviewed public app.",
+      "It's safe to continue: click Advanced, then “Go to … (unsafe)” to finish signing in.",
+    ],
     continueLabel: "Continue to Google",
     cancelLabel: "Run locally",
   },

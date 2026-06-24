@@ -38,6 +38,10 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
 the corpus for reusable framework/template patterns.
+After updating `@agent-native/core`, run `pnpm skills:update` or
+`npx @agent-native/core@latest skills update scaffold --project` from the app
+root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+`.claude/skills` compatibility links.
 
 ## Actions
 
