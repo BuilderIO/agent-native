@@ -16,7 +16,6 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { GenerationTray } from "@/components/generation/GenerationTray";
 import changelog from "../CHANGELOG.md?raw";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -108,7 +107,6 @@ export default function Root() {
     <AppProviders queryClient={queryClient}>
       <DbSyncSetup />
       <Toaster richColors position="bottom-left" />
-      <GenerationTray />
       <CommandMenu
         open={cmdkOpen}
         onOpenChange={setCmdkOpen}

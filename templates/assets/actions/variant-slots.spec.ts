@@ -14,28 +14,38 @@ vi.mock("../server/lib/json.js", () => ({
   nowIso: vi.fn(() => "2026-05-28T00:00:00.000Z"),
 }));
 
-import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
+import {
+  assertCanReplaceVariantSlots,
+  upsertVariantSlot,
+  wasVariantSlotDismissed,
+} from "./variant-slots.js";
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
 describe("variant slot state", () => {
   let appState: Record<string, unknown> | null;
+  let appStateByKey: Record<string, Record<string, unknown>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     appState = null;
+    appStateByKey = {};
     readAppStateMock.mockImplementation(async (key: string) => {
-      if (key !== "asset-variants") return null;
-      return appState ? clone(appState) : null;
+      if (key === "asset-variants" && appState) return clone(appState);
+      return appStateByKey[key] ? clone(appStateByKey[key]) : null;
     });
     writeAppStateMock.mockImplementation(
       async (key: string, value: Record<string, unknown>) => {
-        if (key !== "asset-variants") return;
         await new Promise((resolve) => setTimeout(resolve, 0));
-        appState = clone(value);
+        appStateByKey[key] = clone(value);
+        if (key === "asset-variants") appState = clone(value);
       },
     );
-    deleteAppStateMock.mockResolvedValue(false);
+    deleteAppStateMock.mockImplementation(async (key: string) => {
+      delete appStateByKey[key];
+      if (key === "asset-variants") appState = null;
+      return true;
+    });
   });
 
   it("keeps every slot when a batch writes live candidates in parallel", async () => {
@@ -104,6 +114,96 @@ describe("variant slot state", () => {
       }),
       expect.objectContaining({ slotId: "slot-2", status: "pending" }),
     ]);
+  });
+
+  it("records thread candidates in isolated state while mirroring the latest stage", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a diagram",
+      slotId: "slot-1",
+      status: "pending",
+      threadId: "thread-1",
+    });
+
+    expect((appState as any).threadId).toBe("thread-1");
+    expect((appStateByKey["asset-variants:thread-1"] as any).threadId).toBe(
+      "thread-1",
+    );
+
+    await upsertVariantSlot({
+      runId: "run-2",
+      batchId: "batch-2",
+      libraryId: "lib-1",
+      prompt: "Generate another diagram",
+      slotId: "slot-2",
+      status: "pending",
+      threadId: "thread-2",
+    });
+
+    expect((appState as any).threadId).toBe("thread-2");
+    expect((appStateByKey["asset-variants:thread-1"] as any).slots).toEqual([
+      expect.objectContaining({ slotId: "slot-1", status: "pending" }),
+    ]);
+    expect((appStateByKey["asset-variants:thread-2"] as any).slots).toEqual([
+      expect.objectContaining({ slotId: "slot-2", status: "pending" }),
+    ]);
+    await expect(
+      wasVariantSlotDismissed("lib-1", "slot-1", "thread-1"),
+    ).resolves.toBe(false);
+    await expect(
+      wasVariantSlotDismissed("lib-1", "slot-1", "thread-2"),
+    ).resolves.toBe(true);
+  });
+
+  it("does not block a different thread from starting a generation", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a diagram",
+      slotId: "slot-1",
+      status: "ready",
+      assetId: "asset-1",
+      threadId: "thread-1",
+    });
+
+    await expect(
+      assertCanReplaceVariantSlots({
+        runId: "run-2",
+        batchId: "batch-2",
+        libraryId: "lib-1",
+        threadId: "thread-2",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not block a different picker scope from starting a generation", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a diagram",
+      slotId: "slot-1",
+      status: "ready",
+      assetId: "asset-1",
+      variantScopeId: "picker:tab-1",
+    });
+
+    await expect(
+      assertCanReplaceVariantSlots({
+        runId: "run-2",
+        batchId: "batch-2",
+        libraryId: "lib-1",
+        variantScopeId: "picker:tab-2",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      wasVariantSlotDismissed("lib-1", "slot-1", {
+        variantScopeId: "picker:tab-1",
+      }),
+    ).resolves.toBe(false);
   });
 
   it("starts a fresh live panel when a new prompt begins", async () => {

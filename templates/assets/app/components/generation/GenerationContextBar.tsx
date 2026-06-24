@@ -1,12 +1,5 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  getBrowserTabId,
-  readClientAppState,
-  setAgentChatContextItem,
-  useActionQuery,
-  writeClientAppState,
-} from "@agent-native/core/client";
+import { useMemo } from "react";
+import { useActionQuery } from "@agent-native/core/client";
 import {
   IconAdjustmentsHorizontal,
   IconBriefcase,
@@ -31,16 +24,23 @@ import {
   ASPECT_RATIOS,
   IMAGE_MODELS,
   IMAGE_SIZES,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_DURATIONS,
+  VIDEO_MODELS,
+  VIDEO_RESOLUTIONS,
   type GenerationPresetSummary,
   type ImageLibrarySummary,
+  type VideoDuration,
+  type VideoResolution,
 } from "../../../shared/api";
 import {
-  GENERATION_CONTEXT_STATE_KEY,
-  LEGACY_IMAGE_MODEL_STATE_KEY,
-  generationContextPromptBlock,
   normalizeGenerationContext,
   type GenerationContext,
 } from "@/lib/generation-context";
+import {
+  useGenerationContext,
+  useGenerationContextWriter,
+} from "@/hooks/use-generation-context";
 
 const NO_LIBRARY_VALUE = "__none__";
 const NO_PRESET_VALUE = "__none__";
@@ -50,6 +50,8 @@ const MODEL_LABELS: Record<string, string> = {
   "gemini-3.1-flash-image-preview": "Gemini 3.1 Flash Preview",
   "gemini-3-pro-image-preview": "Gemini 3 Pro Preview",
   "gemini-2.5-flash-image": "Gemini 2.5 Flash",
+  "veo-3.1-generate-preview": "Veo 3.1",
+  "veo-3.1-fast-generate-preview": "Veo 3.1 Fast",
 };
 
 type LibraryListResult = {
@@ -60,19 +62,72 @@ type PresetListResult = {
   presets?: GenerationPresetSummary[];
 };
 
-export function GenerationContextBar({
-  activeLibraryId,
-}: {
-  activeLibraryId?: string | null;
-  compact?: boolean;
-}) {
-  const queryClient = useQueryClient();
+function isImageModel(model: string): model is (typeof IMAGE_MODELS)[number] {
+  return (IMAGE_MODELS as readonly string[]).includes(model);
+}
+
+function isVideoModel(model: string): model is (typeof VIDEO_MODELS)[number] {
+  return (VIDEO_MODELS as readonly string[]).includes(model);
+}
+
+function isImageAspectRatio(
+  value: string,
+): value is (typeof ASPECT_RATIOS)[number] {
+  return (ASPECT_RATIOS as readonly string[]).includes(value);
+}
+
+function isVideoAspectRatio(
+  value: string,
+): value is (typeof VIDEO_ASPECT_RATIOS)[number] {
+  return (VIDEO_ASPECT_RATIOS as readonly string[]).includes(value);
+}
+
+function isImageSize(value: string): value is (typeof IMAGE_SIZES)[number] {
+  return (IMAGE_SIZES as readonly string[]).includes(value);
+}
+
+function presetDurationSeconds(preset: GenerationPresetSummary): VideoDuration {
+  const raw = preset.settings?.durationSeconds ?? preset.settings?.duration;
+  const numeric = typeof raw === "number" ? raw : Number(raw);
+  return (VIDEO_DURATIONS as readonly number[]).includes(numeric)
+    ? (numeric as VideoDuration)
+    : 8;
+}
+
+function presetResolution(preset: GenerationPresetSummary): VideoResolution {
+  const raw = preset.settings?.resolution ?? preset.imageSize;
+  return typeof raw === "string" &&
+    (VIDEO_RESOLUTIONS as readonly string[]).includes(raw)
+    ? (raw as VideoResolution)
+    : "720p";
+}
+
+function presetModel(preset: GenerationPresetSummary) {
+  if (preset.mediaType === "video") {
+    return isVideoModel(preset.model) ? preset.model : VIDEO_MODELS[0];
+  }
+  return isImageModel(preset.model) ? preset.model : IMAGE_MODELS[0];
+}
+
+function presetAspectRatio(preset: GenerationPresetSummary) {
+  if (preset.mediaType === "video") {
+    return isVideoAspectRatio(preset.aspectRatio)
+      ? preset.aspectRatio
+      : VIDEO_ASPECT_RATIOS[0];
+  }
+  return isImageAspectRatio(preset.aspectRatio)
+    ? preset.aspectRatio
+    : ASPECT_RATIOS[0];
+}
+
+export function GenerationContextBar() {
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
   } as any) as { data?: LibraryListResult };
   const libraries = librariesData?.libraries ?? [];
   const contextQuery = useGenerationContext();
   const context = contextQuery.data ?? normalizeGenerationContext(null);
+  const writeContext = useGenerationContextWriter(context);
   const selectedLibrary = libraries.find(
     (library) => library.id === context.libraryId,
   );
@@ -82,65 +137,16 @@ export function GenerationContextBar({
     { enabled: Boolean(context.libraryId) } as any,
   ) as { data?: PresetListResult };
   const presets = useMemo(
-    () =>
-      (presetData?.presets ?? []).filter(
-        (preset) => preset.mediaType !== "video",
-      ),
+    () => presetData?.presets ?? [],
     [presetData?.presets],
   );
   const selectedPreset =
     presets.find((preset) => preset.id === context.presetId) ?? null;
 
-  const writeContext = useCallback(
-    async (patch: Partial<GenerationContext>) => {
-      const next = normalizeGenerationContext({ ...context, ...patch });
-      queryClient.setQueryData(
-        ["app-state", GENERATION_CONTEXT_STATE_KEY],
-        next,
-      );
-      await writeClientAppState(GENERATION_CONTEXT_STATE_KEY, next, {
-        requestSource: getBrowserTabId(),
-      });
-      void queryClient.invalidateQueries({ queryKey: ["app-state"] });
-    },
-    [context, queryClient],
-  );
-
-  useEffect(() => {
-    if (!activeLibraryId) return;
-    if (context.libraryId === activeLibraryId) return;
-    void writeContext({ libraryId: activeLibraryId, presetId: null });
-  }, [activeLibraryId, context.libraryId, writeContext]);
-
-  useEffect(() => {
-    if (!context.presetId) return;
-    if (!context.libraryId) {
-      void writeContext({ presetId: null });
-      return;
-    }
-    if (!presetData?.presets) return;
-    const presetBelongsToLibrary = presetData.presets.some(
-      (preset) => preset.id === context.presetId,
-    );
-    if (!presetBelongsToLibrary) {
-      void writeContext({ presetId: null });
-    }
-  }, [context.libraryId, context.presetId, presetData?.presets, writeContext]);
-
-  useEffect(() => {
-    setAgentChatContextItem({
-      key: "assets-generation-context",
-      title: "Assets Generation Context",
-      context: generationContextPromptBlock({
-        context,
-        libraryTitle: selectedLibrary?.title,
-        presetTitle: selectedPreset?.title,
-      }),
-      openSidebar: false,
-    });
-  }, [context, selectedLibrary?.title, selectedPreset?.title]);
-
-  const formatLabel = `${context.aspectRatio} / ${context.imageSize} / ${context.count} candidate${context.count === 1 ? "" : "s"}`;
+  const formatLabel =
+    context.mediaType === "video"
+      ? `Video / ${context.aspectRatio} / ${context.videoDurationSeconds}s / ${context.videoResolution}`
+      : `Image / ${context.aspectRatio} / ${context.imageSize} / ${context.count} candidate${context.count === 1 ? "" : "s"}`;
   const barClassName =
     "flex min-w-0 max-w-full items-center gap-1 overflow-hidden px-1 py-1";
   const chipClassName =
@@ -228,10 +234,14 @@ export function GenerationContextBar({
                   }
                   void writeContext({
                     presetId: preset.id,
-                    model: preset.model,
-                    aspectRatio: preset.aspectRatio,
-                    imageSize: preset.imageSize,
                     mediaType: preset.mediaType,
+                    model: presetModel(preset),
+                    aspectRatio: presetAspectRatio(preset),
+                    imageSize: isImageSize(preset.imageSize)
+                      ? preset.imageSize
+                      : context.imageSize,
+                    videoDurationSeconds: presetDurationSeconds(preset),
+                    videoResolution: presetResolution(preset),
                   });
                 }}
               >
@@ -275,63 +285,157 @@ export function GenerationContextBar({
         <PopoverContent align="start" className="w-80 p-3">
           <div className="grid grid-cols-2 gap-3">
             <FormatSelect
-              label="Model"
-              value={context.model}
-              values={IMAGE_MODELS}
-              labelFor={(value) => MODEL_LABELS[value] ?? value}
-              onChange={(model) =>
+              label="Type"
+              value={context.mediaType}
+              values={["image", "video"] as const}
+              labelFor={(value) => (value === "video" ? "Video" : "Image")}
+              onChange={(mediaType) => {
+                if (mediaType === "video") {
+                  void writeContext({
+                    mediaType: "video",
+                    model: isVideoModel(context.model)
+                      ? context.model
+                      : VIDEO_MODELS[0],
+                    aspectRatio: isVideoAspectRatio(context.aspectRatio)
+                      ? context.aspectRatio
+                      : VIDEO_ASPECT_RATIOS[0],
+                  });
+                  return;
+                }
                 void writeContext({
-                  model: model as GenerationContext["model"],
-                })
-              }
+                  mediaType: "image",
+                  model: isImageModel(context.model)
+                    ? context.model
+                    : IMAGE_MODELS[0],
+                  aspectRatio: isImageAspectRatio(context.aspectRatio)
+                    ? context.aspectRatio
+                    : ASPECT_RATIOS[0],
+                });
+              }}
             />
-            <FormatSelect
-              label="Aspect"
-              value={context.aspectRatio}
-              values={ASPECT_RATIOS}
-              onChange={(aspectRatio) =>
-                void writeContext({
-                  aspectRatio: aspectRatio as GenerationContext["aspectRatio"],
-                })
-              }
-            />
-            <FormatSelect
-              label="Size"
-              value={context.imageSize}
-              values={IMAGE_SIZES}
-              onChange={(imageSize) =>
-                void writeContext({
-                  imageSize: imageSize as GenerationContext["imageSize"],
-                })
-              }
-            />
-            <FormatSelect
-              label="Count"
-              value={String(context.count)}
-              values={["1", "2", "3", "4", "6"] as const}
-              onChange={(value) => void writeContext({ count: Number(value) })}
-            />
+            {context.mediaType === "video" ? (
+              <>
+                <FormatSelect
+                  label="Model"
+                  value={
+                    isVideoModel(context.model)
+                      ? context.model
+                      : VIDEO_MODELS[0]
+                  }
+                  values={VIDEO_MODELS}
+                  labelFor={(value) => MODEL_LABELS[value] ?? value}
+                  onChange={(model) =>
+                    void writeContext({
+                      model: model as GenerationContext["model"],
+                      mediaType: "video",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Aspect"
+                  value={
+                    isVideoAspectRatio(context.aspectRatio)
+                      ? context.aspectRatio
+                      : VIDEO_ASPECT_RATIOS[0]
+                  }
+                  values={VIDEO_ASPECT_RATIOS}
+                  onChange={(aspectRatio) =>
+                    void writeContext({
+                      aspectRatio:
+                        aspectRatio as GenerationContext["aspectRatio"],
+                      mediaType: "video",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Duration"
+                  value={String(context.videoDurationSeconds)}
+                  values={VIDEO_DURATIONS.map(String)}
+                  onChange={(value) =>
+                    void writeContext({
+                      videoDurationSeconds: Number(
+                        value,
+                      ) as GenerationContext["videoDurationSeconds"],
+                      mediaType: "video",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Resolution"
+                  value={context.videoResolution}
+                  values={VIDEO_RESOLUTIONS}
+                  onChange={(videoResolution) =>
+                    void writeContext({
+                      videoResolution:
+                        videoResolution as GenerationContext["videoResolution"],
+                      mediaType: "video",
+                    })
+                  }
+                />
+              </>
+            ) : (
+              <>
+                <FormatSelect
+                  label="Model"
+                  value={
+                    isImageModel(context.model)
+                      ? context.model
+                      : IMAGE_MODELS[0]
+                  }
+                  values={IMAGE_MODELS}
+                  labelFor={(value) => MODEL_LABELS[value] ?? value}
+                  onChange={(model) =>
+                    void writeContext({
+                      model: model as GenerationContext["model"],
+                      mediaType: "image",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Aspect"
+                  value={
+                    isImageAspectRatio(context.aspectRatio)
+                      ? context.aspectRatio
+                      : ASPECT_RATIOS[0]
+                  }
+                  values={ASPECT_RATIOS}
+                  onChange={(aspectRatio) =>
+                    void writeContext({
+                      aspectRatio:
+                        aspectRatio as GenerationContext["aspectRatio"],
+                      mediaType: "image",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Size"
+                  value={context.imageSize}
+                  values={IMAGE_SIZES}
+                  onChange={(imageSize) =>
+                    void writeContext({
+                      imageSize: imageSize as GenerationContext["imageSize"],
+                      mediaType: "image",
+                    })
+                  }
+                />
+                <FormatSelect
+                  label="Count"
+                  value={String(context.count)}
+                  values={["1", "2", "3", "4", "6"] as const}
+                  onChange={(value) =>
+                    void writeContext({
+                      count: Number(value),
+                      mediaType: "image",
+                    })
+                  }
+                />
+              </>
+            )}
           </div>
         </PopoverContent>
       </Popover>
     </div>
   );
-}
-
-function useGenerationContext() {
-  return useQuery({
-    queryKey: ["app-state", GENERATION_CONTEXT_STATE_KEY],
-    queryFn: async ({ signal }) => {
-      const [context, legacy] = await Promise.all([
-        readClientAppState(GENERATION_CONTEXT_STATE_KEY, { signal }),
-        readClientAppState(LEGACY_IMAGE_MODEL_STATE_KEY, { signal }).catch(
-          () => null,
-        ),
-      ]);
-      return normalizeGenerationContext(context, legacy);
-    },
-    staleTime: 2_000,
-  });
 }
 
 function FormatSelect({

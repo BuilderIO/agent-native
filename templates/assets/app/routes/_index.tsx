@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 // Empty-state starters. Clicking one prefills the composer (without sending) so
@@ -83,6 +84,9 @@ export default function CreatePage() {
         }}
         browserTabId={getBrowserTabId()}
         composerToolbarSlot={<GenerationContextBar />}
+        threadFooterSlot={({ threadId }) => (
+          <GenerationResults threadId={threadId} />
+        )}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -19,6 +20,7 @@ import {
   appBasePath,
   agentNativePath,
   getBrowserTabId,
+  readClientAppState,
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
@@ -106,20 +108,13 @@ import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
+  type AssetVariantState,
   type AspectRatio,
   type ImageCategory,
   type ImageRole,
 } from "../../shared/api";
 
-function candidateSaveKey(slot: any): string {
-  if (typeof slot?.assetId === "string" && slot.assetId) {
-    return `asset:${slot.assetId}`;
-  }
-  if (typeof slot?.slotId === "string" && slot.slotId) {
-    return `slot:${slot.slotId}`;
-  }
-  return "";
-}
+type VariantSlot = AssetVariantState["slots"][number];
 
 function referencePromotionKey(asset: any, slot?: any): string {
   if (typeof slot?.slotId === "string" && slot.slotId) {
@@ -279,27 +274,6 @@ function removeVariantSlotsByScopeFromCache(
   );
 }
 
-function variantSlotTime(slot: any): number {
-  const raw = slot?.createdAt ?? slot?.updatedAt ?? "";
-  const time = Date.parse(String(raw));
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function compareVariantSlotsNewestFirst(left: any, right: any): number {
-  return (
-    variantSlotTime(right) - variantSlotTime(left) ||
-    String(right?.slotId ?? "").localeCompare(String(left?.slotId ?? ""))
-  );
-}
-
-function stalePendingVariantRunId(slot: any): string | null {
-  if (slot?.status !== "pending") return null;
-  if (typeof slot?.runId !== "string" || !slot.runId) return null;
-  const timestamp = variantSlotTime(slot);
-  if (!timestamp) return null;
-  return Date.now() - timestamp >= 2 * 60 * 1000 ? slot.runId : null;
-}
-
 function paletteDraftFromColors(colors: unknown): string {
   return Array.isArray(colors)
     ? colors.filter((color) => typeof color === "string").join(", ")
@@ -315,6 +289,18 @@ function referenceRoleForAsset(asset: any): ImageRole {
   if (category === "product") return "product_reference";
   if (category === "diagram") return "diagram_reference";
   return "style_reference";
+}
+
+function variantSlotTime(slot: VariantSlot): number {
+  const raw = slot.createdAt ?? slot.updatedAt ?? "";
+  const time = Date.parse(raw);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function assetUpdatedTime(asset: any): number {
+  const raw = asset?.updatedAt ?? asset?.createdAt ?? "";
+  const time = Date.parse(String(raw));
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function parsePaletteDraft(value: string): string[] {
@@ -352,8 +338,8 @@ export default function LibraryPage() {
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
   const duplicateLibrary = useActionMutation("duplicate-library");
-  const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
+  const saveGenerated = useActionMutation("save-generated-image");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
   const createSession = useActionMutation("create-generation-session");
@@ -385,12 +371,12 @@ export default function LibraryPage() {
     useState<Set<string>>(() => new Set());
   const [optimisticallySavedAssetIds, setOptimisticallySavedAssetIds] =
     useState<Set<string>>(() => new Set());
-  const [savingCandidateKeys, setSavingCandidateKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
+  const [savingCandidateSlotId, setSavingCandidateSlotId] = useState<
+    string | null
+  >(null);
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -402,6 +388,12 @@ export default function LibraryPage() {
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
+  const { data: liveVariants } = useQuery({
+    queryKey: ["app-state", "asset-variants"],
+    queryFn: ({ signal }) =>
+      readClientAppState<AssetVariantState>("asset-variants", { signal }),
+    refetchInterval: 1000,
+  });
 
   useEffect(() => {
     if (!urlTab) return;
@@ -413,15 +405,6 @@ export default function LibraryPage() {
   const generationPresets = ((presetData as any)?.presets ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
-  const finishedVariantAssetIds = new Set(
-    serverAssets
-      .filter(
-        (asset) =>
-          asset.status !== "candidate" ||
-          optimisticallySavedAssetIds.has(asset.id),
-      )
-      .map((asset) => asset.id),
-  );
   const assets = serverAssets
     .map((asset) =>
       optimisticallySavedAssetIds.has(asset.id)
@@ -429,9 +412,6 @@ export default function LibraryPage() {
         : asset,
     )
     .filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id));
-  const candidateAssets = assets.filter(
-    (asset) => asset.role === "generated" && asset.status === "candidate",
-  );
   const libraryAssets = assets.filter((asset) => asset.status !== "candidate");
   const visibleAssets = libraryAssets.filter((asset) => {
     if (activeFolderId !== "all") {
@@ -477,6 +457,45 @@ export default function LibraryPage() {
   const libraryPaletteDraft = paletteDraftFromColors(
     library?.styleBrief?.palette,
   );
+  const liveVariantsForLibrary =
+    liveVariants?.libraryId === libraryId ? liveVariants : null;
+  const liveCandidateSlots = useMemo(
+    () =>
+      (liveVariantsForLibrary?.slots ?? [])
+        .filter(
+          (slot) =>
+            slot.status === "pending" ||
+            slot.status === "ready" ||
+            slot.status === "failed",
+        )
+        .slice()
+        .sort(
+          (left, right) =>
+            variantSlotTime(right) - variantSlotTime(left) ||
+            right.slotId.localeCompare(left.slotId),
+        ),
+    [liveVariantsForLibrary?.slots],
+  );
+  const draftCandidateAssets = useMemo(() => {
+    const liveAssetIds = new Set(
+      liveCandidateSlots
+        .map((slot) => slot.assetId)
+        .filter((assetId): assetId is string => typeof assetId === "string"),
+    );
+    return assets
+      .filter(
+        (asset) =>
+          asset.status === "candidate" &&
+          asset.role === "generated" &&
+          !liveAssetIds.has(asset.id),
+      )
+      .slice()
+      .sort(
+        (left, right) =>
+          assetUpdatedTime(right) - assetUpdatedTime(left) ||
+          String(right.id).localeCompare(String(left.id)),
+      );
+  }, [assets, liveCandidateSlots]);
 
   useEffect(() => {
     setStyleDescriptionDraft(libraryStyleDescription);
@@ -538,18 +557,6 @@ export default function LibraryPage() {
     });
   }, [serverAssets]);
 
-  function setCandidateSaving(key: string, saving: boolean) {
-    setSavingCandidateKeys((current) => {
-      const next = new Set(current);
-      if (saving) {
-        next.add(key);
-      } else {
-        next.delete(key);
-      }
-      return next.size === current.size ? current : next;
-    });
-  }
-
   function setReferencePromoting(key: string, promoting: boolean) {
     setPromotingReferenceKeys((current) => {
       const next = new Set(current);
@@ -562,48 +569,99 @@ export default function LibraryPage() {
     });
   }
 
-  async function handleSaveCandidate(slot: any) {
-    const key = candidateSaveKey(slot);
-    if (!key || savingCandidateKeys.has(key)) return;
-
-    setCandidateSaving(key, true);
+  async function handleSaveLiveCandidate(
+    slot: VariantSlot,
+    folderId?: string | null,
+  ) {
+    if (savingCandidateSlotId || (!slot.assetId && !slot.slotId)) return;
+    setSavingCandidateSlotId(slot.slotId);
     try {
       const savedAsset = await saveGenerated.mutateAsync({
-        ...(slot.assetId ? { assetId: slot.assetId } : {}),
-        ...(slot.slotId ? { slotId: slot.slotId } : {}),
-        ...(slot.folderId !== undefined ? { folderId: slot.folderId } : {}),
+        assetId: slot.assetId,
+        slotId: slot.slotId,
+        folderId,
       });
-      const savedAssetId =
-        typeof (savedAsset as any)?.id === "string"
-          ? (savedAsset as any).id
-          : slot.assetId;
-
-      if (savedAssetId) {
+      if (slot.assetId) {
         setOptimisticallySavedAssetIds((current) => {
           const next = new Set(current);
-          next.add(savedAssetId);
+          next.add(slot.assetId!);
           return next;
         });
         markLibraryAssetSavedInCache(
           queryClient,
           libraryId,
-          savedAssetId,
+          slot.assetId,
           savedAsset,
         );
       }
       removeVariantSlotFromCache(queryClient, slot);
       void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
+        queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
-      toast.success("Saved to Generated.");
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      toast.success("Saved to Library.");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not save candidate.",
       );
     } finally {
-      setCandidateSaving(key, false);
+      setSavingCandidateSlotId(null);
     }
+  }
+
+  async function handleSaveDraftCandidate(
+    asset: any,
+    folderId?: string | null,
+  ) {
+    if (!asset?.id || savingCandidateSlotId) return;
+    const key = `draft:${asset.id}`;
+    setSavingCandidateSlotId(key);
+    try {
+      const savedAsset = await saveGenerated.mutateAsync({
+        assetId: asset.id,
+        folderId,
+      });
+      setOptimisticallySavedAssetIds((current) => {
+        const next = new Set(current);
+        next.add(asset.id);
+        return next;
+      });
+      markLibraryAssetSavedInCache(
+        queryClient,
+        libraryId,
+        asset.id,
+        savedAsset,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      toast.success("Saved to Library.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not save draft.",
+      );
+    } finally {
+      setSavingCandidateSlotId(null);
+    }
+  }
+
+  function handleMoveLiveCandidateToReferences(slot: VariantSlot) {
+    if (!slot.assetId) return;
+    const asset = assetById.get(slot.assetId) ?? {
+      id: slot.assetId,
+      mediaType: "image",
+      status: "candidate",
+    };
+    void handleMoveToReferences(asset, slot);
   }
 
   async function handleMoveToReferences(asset: any, slot?: any) {
@@ -629,7 +687,7 @@ export default function LibraryPage() {
         refetchType: "active",
       });
       void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
+        queryKey: ["app-state"],
         refetchType: "active",
       });
       toast.success("Added to References.");
@@ -1199,6 +1257,28 @@ export default function LibraryPage() {
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
+            {liveCandidateSlots.length > 0 ||
+            draftCandidateAssets.length > 0 ? (
+              <LiveCandidatesStage
+                variants={liveVariantsForLibrary}
+                slots={liveCandidateSlots}
+                draftAssets={draftCandidateAssets}
+                libraryId={libraryId}
+                folders={folders}
+                savingSlotId={savingCandidateSlotId}
+                promotingReferenceKeys={promotingReferenceKeys}
+                onSave={(slot, folderId) => {
+                  void handleSaveLiveCandidate(slot, folderId);
+                }}
+                onSaveDraft={(asset, folderId) => {
+                  void handleSaveDraftCandidate(asset, folderId);
+                }}
+                onMoveToReferences={handleMoveLiveCandidateToReferences}
+                onMoveDraftToReferences={(asset) => {
+                  void handleMoveToReferences(asset);
+                }}
+              />
+            ) : null}
             <section className="space-y-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2136,614 +2216,6 @@ function AssetPreview({
         }
       }}
     />
-  );
-}
-
-function CandidateStage({
-  candidates,
-  pendingVariants,
-  libraryId,
-  folders,
-  savingCandidateKeys,
-  onSaveCandidate,
-}: {
-  candidates: any[];
-  pendingVariants: any[];
-  libraryId: string;
-  folders: any[];
-  savingCandidateKeys: Set<string>;
-  onSaveCandidate: (slot: any) => void;
-}) {
-  const dismissSlot = useActionMutation("dismiss-variant-slots");
-  const deleteAsset = useActionMutation("delete-asset");
-  const queryClient = useQueryClient();
-  const [dismissTarget, setDismissTarget] = useState<{
-    kind: "slot" | "asset";
-    title: string;
-    slot?: any;
-    asset?: any;
-  } | null>(null);
-  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
-
-  async function handleDismissCandidate() {
-    if (!dismissTarget || dismissing) return;
-    try {
-      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
-        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
-        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
-        removeAssetsFromLibraryCache(queryClient, libraryId, [
-          dismissTarget.slot.assetId,
-        ]);
-        void queryClient.invalidateQueries({
-          queryKey: ["app-state", "asset-variants"],
-          refetchType: "active",
-        });
-      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
-        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
-        removeAssetsFromLibraryCache(queryClient, libraryId, [
-          dismissTarget.asset.id,
-        ]);
-      }
-      setDismissTarget(null);
-      toast.success("Dismissed candidate.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not dismiss candidate.",
-      );
-    }
-  }
-
-  function slotItem(slot: any): LaneGalleryItem {
-    const isFailed = slot.status === "failed";
-    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
-    const busy = saving;
-    return {
-      id: `slot:${slot.slotId}`,
-      title: isFailed
-        ? "Failed candidate"
-        : slot.status === "ready"
-          ? "Ready candidate"
-          : "Generating candidate",
-      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
-      metadata: "Candidate",
-      status: slot.status,
-      mediaType: "image",
-      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
-      busy,
-      preview: <VariantPreview slot={slot} fit="contain" />,
-      thumbnail: <VariantPreview slot={slot} />,
-      menu: (
-        <VariantActionsMenu slot={slot} libraryId={libraryId} busy={busy} />
-      ),
-      primaryActions:
-        slot.status === "ready" ? (
-          <div className="grid grid-cols-2 gap-2">
-            <CandidateSaveMenu
-              libraryId={libraryId}
-              folders={folders}
-              saving={saving}
-              disabled={busy}
-              onSave={(folderId) => onSaveCandidate({ ...slot, folderId })}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={() =>
-                setDismissTarget({
-                  kind: "slot",
-                  title: isFailed ? "Failed candidate" : "Ready candidate",
-                  slot,
-                })
-              }
-              disabled={busy || dismissing}
-            >
-              Dismiss
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() =>
-              setDismissTarget({
-                kind: "slot",
-                title: isFailed ? "Failed candidate" : "Generating candidate",
-                slot,
-              })
-            }
-            disabled={busy || dismissing}
-          >
-            Dismiss
-          </Button>
-        ),
-    };
-  }
-
-  function candidateItem(asset: any): LaneGalleryItem {
-    const saving = savingCandidateKeys.has(`asset:${asset.id}`);
-    const busy = saving;
-    return {
-      id: `candidate:${asset.id}`,
-      title: assetDisplayTitle(asset),
-      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
-      metadata:
-        asset.mediaType === "video"
-          ? "Video"
-          : asset.mimeType?.startsWith("image/")
-            ? "Image"
-            : "Candidate",
-      status: "candidate",
-      mediaType: asset.mediaType === "video" ? "video" : "image",
-      href: `/asset/${asset.id}`,
-      busy,
-      preview: <AssetPreview asset={asset} fit="contain" />,
-      thumbnail: <AssetPreview asset={asset} />,
-      primaryActions: (
-        <div className="grid grid-cols-2 gap-2">
-          <CandidateSaveMenu
-            libraryId={libraryId}
-            folders={folders}
-            saving={saving}
-            disabled={busy}
-            onSave={(folderId) =>
-              onSaveCandidate({ assetId: asset.id, folderId })
-            }
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() =>
-              setDismissTarget({
-                kind: "asset",
-                title: assetDisplayTitle(asset),
-                asset,
-              })
-            }
-            disabled={busy || dismissing}
-          >
-            Dismiss
-          </Button>
-        </div>
-      ),
-    };
-  }
-
-  const pendingVariantAssetIds = new Set(
-    pendingVariants
-      .map((slot: any) => slot.assetId)
-      .filter(
-        (assetId: unknown): assetId is string => typeof assetId === "string",
-      ),
-  );
-  const detachedCandidates = candidates.filter(
-    (asset) => !pendingVariantAssetIds.has(asset.id),
-  );
-  const items = [
-    ...pendingVariants.map(slotItem),
-    ...detachedCandidates.map(candidateItem),
-  ];
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const itemIds = items.map((item) => item.id).join("\n");
-  const activeItem =
-    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
-
-  useEffect(() => {
-    if (!items.length) {
-      setActiveItemId(null);
-      return;
-    }
-    setActiveItemId((current) =>
-      current && items.some((item) => item.id === current)
-        ? current
-        : items[0].id,
-    );
-  }, [itemIds, items]);
-
-  if (!items.length) return null;
-
-  return (
-    <>
-      <AlertDialog
-        open={dismissTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !dismissing) setDismissTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes {dismissTarget?.title ?? "this candidate"} from the
-              candidate stage. Saved library assets stay untouched.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissing}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDismissCandidate();
-              }}
-            >
-              {dismissing ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  Dismissing...
-                </>
-              ) : (
-                "Dismiss"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <section className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold">Candidates</h3>
-              <Badge variant="outline">{items.length}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Generation queue
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <CandidateStageActions
-              slots={pendingVariants}
-              detachedCandidates={detachedCandidates}
-              libraryId={libraryId}
-            />
-          </div>
-        </div>
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="min-w-0 bg-muted/10 p-3">
-            <div
-              className={[
-                "group relative overflow-hidden rounded-lg border border-border bg-background",
-                activeItem?.busy ? "opacity-80" : "",
-              ].join(" ")}
-              aria-busy={activeItem?.busy}
-            >
-              <div className="aspect-[16/9] bg-muted/30">
-                {activeItem?.href ? (
-                  <Link to={activeItem.href} className="block h-full w-full">
-                    {activeItem.preview}
-                  </Link>
-                ) : (
-                  activeItem?.preview
-                )}
-              </div>
-              {activeItem?.menu ? (
-                <div className="absolute right-3 top-3 z-10">
-                  {activeItem.menu}
-                </div>
-              ) : null}
-              {activeItem?.busy ? (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                  <Spinner className="h-5 w-5" />
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-              {items.map((item) => {
-                const active = item.id === activeItem?.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveItemId(item.id)}
-                    className={[
-                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
-                      active
-                        ? "border-primary ring-2 ring-primary/25"
-                        : "border-border/80 hover:border-foreground/30",
-                    ].join(" ")}
-                    aria-label={`Show ${item.title}`}
-                    aria-pressed={active}
-                  >
-                    {item.thumbnail}
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
-                    {item.busy ? (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
-                        <Spinner className="h-3 w-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
-            <div className="min-w-0 space-y-4">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
-                  {activeItem?.title}
-                </div>
-                {activeItem?.subtitle ? (
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {activeItem.subtitle}
-                  </div>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {activeItem?.status ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Status
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.status}</div>
-                  </div>
-                ) : null}
-                {activeItem?.metadata ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Type
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
-                  </div>
-                ) : null}
-              </div>
-              {activeItem?.primaryActions ? (
-                <div>{activeItem.primaryActions}</div>
-              ) : null}
-            </div>
-            {activeItem?.href ? (
-              <Button asChild variant="outline" size="sm">
-                <Link to={activeItem.href}>Open</Link>
-              </Button>
-            ) : null}
-          </aside>
-        </div>
-      </section>
-    </>
-  );
-}
-
-function CandidateSaveMenu({
-  libraryId,
-  folders,
-  saving,
-  disabled,
-  onSave,
-}: {
-  libraryId: string;
-  folders: any[];
-  saving?: boolean;
-  disabled?: boolean;
-  onSave: (folderId: string | null) => void;
-}) {
-  const createFolder = useActionMutation("create-folder");
-  const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const pending = saving || createFolder.isPending;
-
-  return (
-    <>
-      <CreateFolderDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSubmit={async (title) => {
-          const folder = (await createFolder.mutateAsync({
-            libraryId,
-            title,
-            parentId: null,
-          })) as any;
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-library", { id: libraryId }],
-            refetchType: "active",
-          });
-          setCreateOpen(false);
-          if (folder?.id) onSave(folder.id);
-        }}
-        pending={createFolder.isPending}
-      />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
-            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem onSelect={() => onSave(null)}>
-            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            Unfiled
-          </DropdownMenuItem>
-          {folders.map((folder) => (
-            <DropdownMenuItem
-              key={folder.id}
-              onSelect={() => onSave(folder.id)}
-            >
-              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-              Folder: {folder.title}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setCreateOpen(true);
-            }}
-          >
-            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-            New folder...
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
-  );
-}
-
-function CandidateStageActions({
-  slots,
-  detachedCandidates,
-  libraryId,
-}: {
-  slots: any[];
-  detachedCandidates: any[];
-  libraryId: string;
-}) {
-  const dismissSlots = useActionMutation("dismiss-variant-slots");
-  const deleteAssets = useActionMutation("delete-assets");
-  const queryClient = useQueryClient();
-  const [pending, setPending] = useState<"failed" | "all" | null>(null);
-  const failedSlots = slots.filter((slot) => slot.status === "failed");
-  const failedCount = failedSlots.length;
-  const detachedCount = detachedCandidates.length;
-  const totalCount = slots.length + detachedCount;
-  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
-  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
-  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
-
-  async function handleClear(scope: "failed" | "all") {
-    const slotAssetIds = slots
-      .filter((slot) => scope === "all" || slot.status === "failed")
-      .map((slot) => slot.assetId)
-      .filter(
-        (assetId: unknown): assetId is string => typeof assetId === "string",
-      );
-    const detachedAssetIds =
-      scope === "all" ? detachedCandidates.map((asset) => asset.id) : [];
-    const removedAssetIds = [
-      ...new Set([...slotAssetIds, ...detachedAssetIds]),
-    ];
-
-    if (
-      scope === "all" &&
-      slots.length === 0 &&
-      detachedAssetIds.length === 0
-    ) {
-      setPending(null);
-      return;
-    }
-    if (scope === "failed" && failedCount === 0) {
-      setPending(null);
-      return;
-    }
-
-    try {
-      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
-        await dismissSlots.mutateAsync({ scope });
-        removeVariantSlotsByScopeFromCache(queryClient, scope);
-      }
-      if (detachedAssetIds.length > 0) {
-        await deleteAssets.mutateAsync({ ids: detachedAssetIds });
-      }
-      if (removedAssetIds.length > 0) {
-        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
-      }
-      setPending(null);
-      void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
-        refetchType: "active",
-      });
-      if (scope === "failed") {
-        toast.success(
-          `Dismissed ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}.`,
-        );
-      } else {
-        toast.success(
-          `Cleared ${totalCount} candidate${totalCount === 1 ? "" : "s"}.`,
-        );
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not clear candidates.",
-      );
-    }
-  }
-
-  if (totalCount === 0) return null;
-
-  return (
-    <>
-      <AlertDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open && !isClearing) setPending(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pending === "failed"
-                ? `Dismiss ${failedCount} failed candidate${failedCount === 1 ? "" : "s"}?`
-                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pending === "failed"
-                ? "Removes failed live slots from the candidate stage. Ready candidates stay."
-                : "Clears the candidate stage and deletes unsaved generated candidates. Saved library assets stay untouched."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isClearing || pending === null}
-              onClick={(event) => {
-                event.preventDefault();
-                if (pending) void handleClear(pending);
-              }}
-            >
-              {isClearing ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {busyLabel}
-                </>
-              ) : (
-                actionLabel
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            aria-label="Candidate actions"
-            disabled={isClearing}
-          >
-            <IconDotsVertical className="h-4 w-4" />
-            Clear
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            disabled={failedCount === 0 || isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("failed");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Dismiss failed ({failedCount})
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            disabled={isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("all");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Clear all
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
   );
 }
 
@@ -3946,180 +3418,6 @@ function AssetActionsMenu({
   );
 }
 
-function VariantPreview({
-  slot,
-  fit = "cover",
-}: {
-  slot: any;
-  fit?: "cover" | "contain";
-}) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const [previewUnavailable, setPreviewUnavailable] = useState(false);
-  const previewSources = assetPreviewSources(slot, "thumbnail");
-  const previewSourcesKey = previewSources.join("\n");
-  const isFailed = slot.status === "failed";
-  const previewSrc = previewSources[sourceIndex];
-
-  useEffect(() => {
-    setSourceIndex(0);
-    setPreviewUnavailable(false);
-  }, [previewSourcesKey]);
-
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-muted">
-      {previewSrc && !previewUnavailable ? (
-        <img
-          src={previewSrc}
-          alt=""
-          className={[
-            "h-full w-full",
-            fit === "contain" ? "object-contain" : "object-cover",
-          ].join(" ")}
-          onError={() => {
-            const nextIndex = sourceIndex + 1;
-            if (nextIndex < previewSources.length) {
-              setSourceIndex(nextIndex);
-            } else {
-              setPreviewUnavailable(true);
-            }
-          }}
-        />
-      ) : isFailed ? (
-        <div className="p-4 text-center text-xs text-destructive">
-          {slot.error}
-        </div>
-      ) : previewUnavailable ? (
-        <div className="p-4 text-center text-xs text-muted-foreground">
-          Preview unavailable
-        </div>
-      ) : (
-        <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
-      )}
-    </div>
-  );
-}
-
-function VariantActionsMenu({
-  slot,
-  libraryId,
-  busy,
-  onMoveToReferences,
-}: {
-  slot: any;
-  libraryId: string;
-  busy?: boolean;
-  onMoveToReferences?: () => void;
-}) {
-  const dismissSlot = useActionMutation("dismiss-variant-slots");
-  const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const isFailed = slot.status === "failed";
-  const label = isFailed ? "Dismiss" : "Delete";
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
-            aria-label="Candidate actions"
-            disabled={busy || dismissSlot.isPending}
-          >
-            <IconDotsVertical className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {onMoveToReferences && !isFailed ? (
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onMoveToReferences();
-              }}
-            >
-              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-              Add to References
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setConfirmOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {label}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(open) => {
-          if (!dismissSlot.isPending) setConfirmOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isFailed
-                ? "Removes this failed slot from the live candidates panel."
-                : "Removes this candidate from the brand kit and clears its slot."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissSlot.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissSlot.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                dismissSlot.mutate(
-                  { slotId: slot.slotId },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotFromCache(queryClient, slot);
-                      removeAssetsFromLibraryCache(queryClient, libraryId, [
-                        slot.assetId,
-                      ]);
-                      setConfirmOpen(false);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message || "Could not clear candidate.",
-                      ),
-                  },
-                );
-              }}
-            >
-              {dismissSlot.isPending ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {isFailed ? "Dismissing..." : "Deleting..."}
-                </>
-              ) : (
-                label
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
 function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
   const isChecking = upload.status === "checking";
   return (
@@ -4347,31 +3645,426 @@ function AssetLaneTile({
   );
 }
 
-function VariantLaneTile({
-  slot,
+function LiveCandidatesStage({
+  variants,
+  slots,
+  draftAssets,
   libraryId,
+  folders,
+  savingSlotId,
+  promotingReferenceKeys,
   onSave,
+  onSaveDraft,
   onMoveToReferences,
-  saving = false,
-  promoting = false,
+  onMoveDraftToReferences,
 }: {
-  slot: any;
+  variants: AssetVariantState | null;
+  slots: VariantSlot[];
+  draftAssets: any[];
   libraryId: string;
-  onSave: () => void;
-  onMoveToReferences?: () => void;
-  saving?: boolean;
-  promoting?: boolean;
+  folders: any[];
+  savingSlotId: string | null;
+  promotingReferenceKeys: Set<string>;
+  onSave: (slot: VariantSlot, folderId: string | null) => void;
+  onSaveDraft: (asset: any, folderId: string | null) => void;
+  onMoveToReferences: (slot: VariantSlot) => void;
+  onMoveDraftToReferences: (asset: any) => void;
 }) {
   const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [dismissTarget, setDismissTarget] = useState<{
+    kind: "slot" | "asset";
+    title: string;
+    slot?: VariantSlot;
+    asset?: any;
+  } | null>(null);
+  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
+  const pendingCount = slots.filter((slot) => slot.status === "pending").length;
+  const readyCount = slots.filter((slot) => slot.status === "ready").length;
+  const failedCount = slots.filter((slot) => slot.status === "failed").length;
+  const draftCount = draftAssets.length;
+  const totalCount = slots.length + draftAssets.length;
+  const summary = [
+    pendingCount ? `${pendingCount} generating` : null,
+    readyCount ? `${readyCount} ready` : null,
+    draftCount ? `${draftCount} draft${draftCount === 1 ? "" : "s"}` : null,
+    failedCount ? `${failedCount} failed` : null,
+  ].filter((item): item is string => Boolean(item));
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+
+  async function handleDismissCandidate() {
+    if (!dismissTarget || dismissing) return;
+    try {
+      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
+        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
+        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.slot.assetId,
+        ]);
+        void queryClient.invalidateQueries({
+          queryKey: ["app-state"],
+          refetchType: "active",
+        });
+      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
+        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.asset.id,
+        ]);
+      }
+      setDismissTarget(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      toast.success("Dismissed candidate.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not dismiss candidate.",
+      );
+    }
+  }
+
+  function candidateActions({
+    canUseCandidate,
+    saving,
+    promoting,
+    onSaveCandidate,
+    onAddToReferences,
+    onDismiss,
+  }: {
+    canUseCandidate: boolean;
+    saving?: boolean;
+    promoting?: boolean;
+    onSaveCandidate?: (folderId: string | null) => void;
+    onAddToReferences?: () => void;
+    onDismiss: () => void;
+  }) {
+    const busy = saving || promoting || dismissing;
+    if (!canUseCandidate) {
+      return (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          Dismiss
+        </Button>
+      );
+    }
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <CandidateSaveMenu
+          libraryId={libraryId}
+          folders={folders}
+          saving={saving}
+          disabled={busy}
+          onSave={(folderId) => onSaveCandidate?.(folderId)}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          onClick={onAddToReferences}
+          disabled={busy}
+        >
+          {promoting ? (
+            <Spinner className="h-3.5 w-3.5" />
+          ) : (
+            "Add to References"
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="col-span-2 h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          Dismiss
+        </Button>
+      </div>
+    );
+  }
+
+  function slotItem(slot: VariantSlot): LaneGalleryItem {
+    const isFailed = slot.status === "failed";
+    const canUseCandidate = slot.status === "ready" && Boolean(slot.assetId);
+    const promotingKey = referencePromotionKey(
+      slot.assetId ? { id: slot.assetId } : null,
+      slot,
+    );
+    const saving = savingSlotId === slot.slotId;
+    const promoting =
+      Boolean(promotingKey) && promotingReferenceKeys.has(promotingKey);
+    const busy = saving || promoting || dismissing;
+    const title = isFailed
+      ? "Failed candidate"
+      : slot.status === "ready"
+        ? "Ready candidate"
+        : "Generating candidate";
+    return {
+      id: `slot:${slot.slotId}`,
+      title,
+      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
+      metadata: "Live",
+      status: slot.status,
+      mediaType: "image",
+      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
+      busy,
+      preview: <VariantPreview slot={slot} fit="contain" />,
+      thumbnail: <VariantPreview slot={slot} />,
+      primaryActions: candidateActions({
+        canUseCandidate,
+        saving,
+        promoting,
+        onSaveCandidate: (folderId) => onSave(slot, folderId),
+        onAddToReferences: () => onMoveToReferences(slot),
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "slot",
+            title,
+            slot,
+          }),
+      }),
+    };
+  }
+
+  function draftItem(asset: any): LaneGalleryItem {
+    const promotingKey = referencePromotionKey(asset);
+    const saving = savingSlotId === `draft:${asset.id}`;
+    const promoting =
+      Boolean(promotingKey) && promotingReferenceKeys.has(promotingKey);
+    const busy = saving || promoting || dismissing;
+    return {
+      id: `draft:${asset.id}`,
+      title: assetDisplayTitle(asset),
+      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
+      metadata:
+        asset.mediaType === "video"
+          ? "Video"
+          : asset.mimeType?.startsWith("image/")
+            ? "Image"
+            : "Draft",
+      status: "draft",
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />,
+      thumbnail: <AssetPreview asset={asset} />,
+      primaryActions: candidateActions({
+        canUseCandidate: true,
+        saving,
+        promoting,
+        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
+        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "asset",
+            title: assetDisplayTitle(asset),
+            asset,
+          }),
+      }),
+    };
+  }
+
+  const items = [...slots.map(slotItem), ...draftAssets.map(draftItem)];
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
+  return (
+    <>
+      <AlertDialog
+        open={dismissTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !dismissing) setDismissTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {dismissTarget?.title ?? "this candidate"} from the
+              candidate stage. Saved library assets stay untouched.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissing}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDismissCandidate();
+              }}
+            >
+              {dismissing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Dismissing...
+                </>
+              ) : (
+                "Dismiss"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <section className="overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">Candidates</h3>
+              <Badge variant="outline">{totalCount}</Badge>
+              {summary.map((item) => (
+                <Badge
+                  key={item}
+                  variant="secondary"
+                  className="h-6 rounded-md px-2 text-xs"
+                >
+                  {item}
+                </Badge>
+              ))}
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {variants?.prompt || "Generation queue and unsaved drafts"}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <LiveCandidatesActions
+              slots={slots}
+              draftAssets={draftAssets}
+              libraryId={libraryId}
+            />
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 bg-muted/10 p-3">
+            <div
+              className={[
+                "group relative overflow-hidden rounded-lg border border-border bg-background",
+                activeItem?.busy ? "opacity-80" : "",
+              ].join(" ")}
+              aria-busy={activeItem?.busy}
+            >
+              <div className="aspect-[16/9] bg-muted/30">
+                {activeItem?.href ? (
+                  <Link to={activeItem.href} className="block h-full w-full">
+                    {activeItem.preview}
+                  </Link>
+                ) : (
+                  activeItem?.preview
+                )}
+              </div>
+              {activeItem?.busy ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {items.map((item) => {
+                const active = item.id === activeItem?.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveItemId(item.id)}
+                    className={[
+                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                      active
+                        ? "border-primary ring-2 ring-primary/25"
+                        : "border-border/80 hover:border-foreground/30",
+                    ].join(" ")}
+                    aria-label={`Show ${item.title}`}
+                    aria-pressed={active}
+                  >
+                    {item.thumbnail}
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                    {item.busy ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                        <Spinner className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
+            <div className="min-w-0 space-y-4">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {activeItem?.title}
+                </div>
+                {activeItem?.subtitle ? (
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {activeItem.subtitle}
+                  </div>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {activeItem?.status ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Status
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.status}</div>
+                  </div>
+                ) : null}
+                {activeItem?.metadata ? (
+                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                      Type
+                    </div>
+                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
+                  </div>
+                ) : null}
+              </div>
+              {activeItem?.primaryActions ? (
+                <div>{activeItem.primaryActions}</div>
+              ) : null}
+            </div>
+            {activeItem?.href ? (
+              <Button asChild variant="outline" size="sm">
+                <Link to={activeItem.href}>Open</Link>
+              </Button>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function VariantPreview({
+  slot,
+  fit = "cover",
+}: {
+  slot: VariantSlot;
+  fit?: "cover" | "contain";
+}) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const previewSources = assetPreviewSources(slot, "thumbnail");
   const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
-  const label = isFailed ? "Dismiss" : "Delete";
-  const busy = saving || promoting || dismissSlot.isPending;
   const previewSrc = previewSources[sourceIndex];
 
   useEffect(() => {
@@ -4380,185 +4073,115 @@ function VariantLaneTile({
   }, [previewSourcesKey]);
 
   return (
-    <div
-      className="group relative w-[144px] shrink-0 overflow-hidden rounded-md border border-border/80 bg-background transition hover:border-foreground/20 sm:w-[156px]"
-      aria-busy={busy}
-    >
-      <div className="absolute right-2 top-2 z-10">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Candidate actions"
-              disabled={busy}
-            >
-              <IconDotsVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onMoveToReferences && !isFailed ? (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onMoveToReferences?.();
-                }}
-              >
-                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Add to References
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem
-              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-              onSelect={(event) => {
-                event.preventDefault();
-                setConfirmOpen(true);
-              }}
-            >
-              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              {label}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(open) => {
-          if (!dismissSlot.isPending) setConfirmOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isFailed ? "Dismiss this slot?" : "Delete candidate?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isFailed
-                ? "Removes this failed slot from the live candidates panel."
-                : "Removes this candidate from the brand kit and clears its slot."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissSlot.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissSlot.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                dismissSlot.mutate(
-                  { slotId: slot.slotId },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotFromCache(queryClient, slot);
-                      removeAssetsFromLibraryCache(queryClient, libraryId, [
-                        slot.assetId,
-                      ]);
-                      setConfirmOpen(false);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message || "Could not clear candidate.",
-                      ),
-                  },
-                );
-              }}
-            >
-              {dismissSlot.isPending ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {isFailed ? "Dismissing..." : "Deleting..."}
-                </>
-              ) : (
-                label
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <div className="relative flex aspect-[4/3] items-center justify-center bg-muted">
-        {previewSrc && !previewUnavailable ? (
-          <img
-            src={previewSrc}
-            alt=""
-            className="h-full w-full object-cover"
-            onError={() => {
-              const nextIndex = sourceIndex + 1;
-              if (nextIndex < previewSources.length) {
-                setSourceIndex(nextIndex);
-              } else {
-                setPreviewUnavailable(true);
-              }
-            }}
-          />
-        ) : isFailed ? (
-          <div className="p-4 text-center text-xs text-destructive">
-            {slot.error}
-          </div>
-        ) : previewUnavailable ? (
-          <div className="p-4 text-center text-xs text-muted-foreground">
-            Preview unavailable
-          </div>
-        ) : (
-          <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-medium">
-              {slot.status === "ready" ? "Ready candidate" : "Generating"}
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {slot.slotId ? shortId(String(slot.slotId)) : "slot"}
-            </span>
-          </div>
-        </div>
-      </div>
-      {slot.status === "ready" ? (
-        <div className="border-t border-border/70 p-2">
-          <div
-            className={
-              onMoveToReferences
-                ? "grid grid-cols-1 gap-2"
-                : "grid grid-cols-2 gap-2"
+    <div className="flex h-full w-full items-center justify-center bg-muted">
+      {previewSrc && !previewUnavailable ? (
+        <img
+          src={previewSrc}
+          alt=""
+          className={[
+            "h-full w-full",
+            fit === "contain" ? "object-contain" : "object-cover",
+          ].join(" ")}
+          onError={() => {
+            const nextIndex = sourceIndex + 1;
+            if (nextIndex < previewSources.length) {
+              setSourceIndex(nextIndex);
+            } else {
+              setPreviewUnavailable(true);
             }
-          >
-            <Button
-              size="sm"
-              className="h-8 px-2 text-xs"
-              onClick={onSave}
-              disabled={busy}
-            >
-              {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
-            </Button>
-            {onMoveToReferences ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={onMoveToReferences}
-                disabled={busy}
-                title="Add to References"
-              >
-                {promoting ? (
-                  <Spinner className="h-3.5 w-3.5" />
-                ) : (
-                  "Add to References"
-                )}
-              </Button>
-            ) : null}
-          </div>
+          }}
+        />
+      ) : isFailed ? (
+        <div className="p-4 text-center text-xs text-destructive">
+          {slot.error}
         </div>
-      ) : null}
+      ) : previewUnavailable ? (
+        <div className="p-4 text-center text-xs text-muted-foreground">
+          Preview unavailable
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <IconPhoto className="h-8 w-8 animate-pulse" />
+          {fit === "contain" ? (
+            <span className="text-xs font-medium">Rendering</span>
+          ) : null}
+        </div>
+      )}
     </div>
+  );
+}
+
+function CandidateSaveMenu({
+  libraryId,
+  folders,
+  saving,
+  disabled,
+  onSave,
+}: {
+  libraryId: string;
+  folders: any[];
+  saving?: boolean;
+  disabled?: boolean;
+  onSave: (folderId: string | null) => void;
+}) {
+  const createFolder = useActionMutation("create-folder");
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const pending = saving || createFolder.isPending;
+
+  return (
+    <>
+      <CreateFolderDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSubmit={async (title) => {
+          const folder = (await createFolder.mutateAsync({
+            libraryId,
+            title,
+            parentId: null,
+          })) as any;
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-library", { id: libraryId }],
+            refetchType: "active",
+          });
+          setCreateOpen(false);
+          if (folder?.id) onSave(folder.id);
+        }}
+        pending={createFolder.isPending}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
+            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={() => onSave(null)}>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            Unfiled
+          </DropdownMenuItem>
+          {folders.map((folder) => (
+            <DropdownMenuItem
+              key={folder.id}
+              onSelect={() => onSave(folder.id)}
+            >
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              Folder: {folder.title}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setCreateOpen(true);
+            }}
+          >
+            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+            New folder...
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -4632,19 +4255,59 @@ function CreateFolderDialog({
 
 function LiveCandidatesActions({
   slots,
+  draftAssets,
   libraryId,
 }: {
   slots: any[];
+  draftAssets: any[];
   libraryId: string;
 }) {
   const dismissSlots = useActionMutation("dismiss-variant-slots");
+  const deleteAssets = useActionMutation("delete-assets");
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<"failed" | "all" | null>(null);
   const failedCount = slots.filter((s) => s.status === "failed").length;
+  const draftCount = draftAssets.length;
+  const totalCount = slots.length + draftCount;
   const hasFailed = failedCount > 0;
-  const isClearing = dismissSlots.isPending;
+  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
   const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
   const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+
+  async function handleClear(scope: "failed" | "all") {
+    const slotAssetIds = slots
+      .filter((slot) => scope === "all" || slot.status === "failed")
+      .map((slot) => slot.assetId)
+      .filter((assetId): assetId is string => typeof assetId === "string");
+    const draftAssetIds =
+      scope === "all" ? draftAssets.map((asset) => asset.id) : [];
+    const removedAssetIds = [...new Set([...slotAssetIds, ...draftAssetIds])];
+    try {
+      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
+        await dismissSlots.mutateAsync({ scope });
+        removeVariantSlotsByScopeFromCache(queryClient, scope);
+      }
+      if (draftAssetIds.length > 0) {
+        await deleteAssets.mutateAsync({ ids: draftAssetIds });
+      }
+      if (removedAssetIds.length > 0) {
+        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
+      }
+      setPending(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not clear candidates.",
+      );
+    }
+  }
 
   return (
     <>
@@ -4659,12 +4322,12 @@ function LiveCandidatesActions({
             <AlertDialogTitle>
               {pending === "failed"
                 ? `Dismiss ${failedCount} failed ${failedCount === 1 ? "slot" : "slots"}?`
-                : "Clear all live candidates?"}
+                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending === "failed"
                 ? "Removes every failed slot from the panel. Successful candidates stay."
-                : "Clears the live candidates panel and deletes any unsaved candidate rows."}
+                : "Clears the live stage and deletes unsaved draft candidates."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -4676,31 +4339,7 @@ function LiveCandidatesActions({
                 event.preventDefault();
                 const scope = pending;
                 if (!scope) return;
-                const removedAssetIds = slots
-                  .filter((slot) => scope === "all" || slot.status === "failed")
-                  .map((slot) => slot.assetId);
-                dismissSlots.mutate(
-                  { scope },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotsByScopeFromCache(queryClient, scope);
-                      removeAssetsFromLibraryCache(
-                        queryClient,
-                        libraryId,
-                        removedAssetIds,
-                      );
-                      setPending(null);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message || "Could not clear live candidates.",
-                      ),
-                  },
-                );
+                void handleClear(scope);
               }}
             >
               {isClearing ? (
@@ -4756,18 +4395,4 @@ function LiveCandidatesActions({
       </DropdownMenu>
     </>
   );
-}
-
-function useVariantState() {
-  return useQuery({
-    queryKey: ["app-state", "asset-variants"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/asset-variants"),
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
-    refetchInterval: 1000,
-  }) as any;
 }

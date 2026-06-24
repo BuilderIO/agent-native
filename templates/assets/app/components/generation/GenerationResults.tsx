@@ -6,13 +6,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
-import {
-  IconChevronUp,
-  IconMessageCircle,
-  IconPhoto,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,7 +31,9 @@ type LibraryListResult = {
   libraries?: ImageLibrarySummary[];
 };
 
-const TRAY_COLLAPSED_STORAGE_KEY = "assets:generation-tray-collapsed";
+function variantStateKey(threadId: string | null) {
+  return threadId ? `asset-variants:${threadId}` : "asset-variants";
+}
 
 function slotTime(slot: AssetVariantState["slots"][number]): number {
   const raw = slot.createdAt ?? slot.updatedAt ?? "";
@@ -55,17 +51,17 @@ function stalePendingRunId(
   return Date.now() - timestamp >= 2 * 60 * 1000 ? slot.runId : null;
 }
 
-export function GenerationTray() {
+export function GenerationResults({ threadId }: { threadId: string | null }) {
   const queryClient = useQueryClient();
   const [clearAllOpen, setClearAllOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(TRAY_COLLAPSED_STORAGE_KEY) === "true";
-  });
+  const stateKey = variantStateKey(threadId);
+  const stateQueryKey = useMemo(() => ["app-state", stateKey], [stateKey]);
   const { data: variants } = useQuery({
-    queryKey: ["app-state", "asset-variants"],
+    queryKey: stateQueryKey,
     queryFn: async ({ signal }) =>
-      readClientAppState<AssetVariantState>("asset-variants", { signal }),
+      threadId
+        ? readClientAppState<AssetVariantState>(stateKey, { signal })
+        : null,
     refetchInterval: 1000,
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
@@ -93,8 +89,12 @@ export function GenerationTray() {
         ),
     [variants?.slots],
   );
+  const belongsToThread = Boolean(
+    threadId && variants && variants.threadId === threadId,
+  );
 
   useEffect(() => {
+    if (!belongsToThread) return;
     if (!slots.length || refreshGeneration.isPending) return;
     const runId = slots
       .map(stalePendingRunId)
@@ -111,61 +111,41 @@ export function GenerationTray() {
             refreshingRunIds.current.delete(runId);
           }, 30_000);
           void queryClient.invalidateQueries({
-            queryKey: ["app-state", "asset-variants"],
+            queryKey: stateQueryKey,
             refetchType: "active",
           });
         },
       },
     );
-  }, [queryClient, refreshGeneration, slots]);
+  }, [belongsToThread, queryClient, refreshGeneration, slots, stateQueryKey]);
 
-  if (!variants || slots.length === 0) return null;
+  if (!belongsToThread || !variants) return null;
+  if (slots.length === 0) return null;
 
   const pendingCount = slots.filter((slot) => slot.status === "pending").length;
   const readyCount = slots.filter((slot) => slot.status === "ready").length;
   const failedCount = slots.filter((slot) => slot.status === "failed").length;
-
-  function setTrayCollapsed(next: boolean) {
-    setCollapsed(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(TRAY_COLLAPSED_STORAGE_KEY, String(next));
-    }
-  }
+  const statusSummary = [
+    pendingCount > 0 ? `${pendingCount} generating` : null,
+    readyCount > 0 ? `${readyCount} ready` : null,
+    failedCount > 0 ? `${failedCount} failed` : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
 
   function clearAllCandidates() {
     dismissSlot.mutate(
-      { scope: "all" },
+      { threadId, scope: "all" },
       {
         onSuccess: () => {
           setClearAllOpen(false);
           void queryClient.invalidateQueries({
-            queryKey: ["app-state", "asset-variants"],
+            queryKey: stateQueryKey,
           });
         },
         onError: (error) =>
-          toast.error(error.message || "Could not clear tray."),
+          toast.error(error.message || "Could not clear candidates."),
       },
-    );
-  }
-
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        className="fixed bottom-4 left-4 z-40 flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border border-border bg-background px-3 py-2 text-xs font-medium shadow-lg transition hover:bg-accent hover:text-accent-foreground"
-        onClick={() => setTrayCollapsed(false)}
-        aria-label="Open generation tray"
-      >
-        {pendingCount > 0 ? <Spinner className="h-3.5 w-3.5" /> : null}
-        <span className="truncate">
-          {pendingCount > 0
-            ? `${pendingCount} generating`
-            : readyCount > 0
-              ? `${readyCount} ready`
-              : `${slots.length} candidate${slots.length === 1 ? "" : "s"}`}
-        </span>
-        <IconChevronUp className="h-3.5 w-3.5 opacity-70" />
-      </button>
     );
   }
 
@@ -176,8 +156,8 @@ export function GenerationTray() {
           <AlertDialogHeader>
             <AlertDialogTitle>Clear generated candidates?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes every unsaved candidate from the tray and deletes the
-              generated asset rows behind them. Saved library assets are not
+              This removes every unsaved candidate from the thread and deletes
+              the generated asset rows behind them. Saved library assets are not
               touched.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -206,96 +186,102 @@ export function GenerationTray() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <section className="fixed bottom-4 left-4 z-40 flex max-h-[min(560px,calc(100vh-2rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl">
-        <div className="flex items-start justify-between gap-3 border-b border-border px-3 py-2.5">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-sm font-semibold">
-                Generation tray
-              </h2>
-              <Badge variant="outline">{slots.length}</Badge>
+      <section className="mx-auto mb-4 w-full max-w-[760px] px-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="flex items-start justify-between gap-3 border-b border-border/80 px-3 py-3">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground">
+                {pendingCount > 0 ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  <IconPhoto className="h-4 w-4" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2 className="truncate text-sm font-semibold">
+                    Generated candidates
+                  </h2>
+                  <Badge variant="secondary" className="shrink-0">
+                    {statusSummary}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {libraryTitle || "No brand kit"} / {variants.prompt}
+                </p>
+              </div>
             </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {libraryTitle || "No brand kit"} / {variants.prompt}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
+              className="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
               disabled={dismissSlot.isPending}
               onClick={() => setClearAllOpen(true)}
             >
               <IconTrash className="h-3.5 w-3.5" />
               Clear
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label="Hide generation tray"
-              onClick={() => setTrayCollapsed(true)}
+          </div>
+
+          <div className="max-h-[min(640px,52vh)] overflow-y-auto p-3">
+            <div
+              className={
+                slots.length === 1
+                  ? "grid grid-cols-1 gap-3"
+                  : "grid grid-cols-1 gap-3 sm:grid-cols-2"
+              }
             >
-              <IconX className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        {(pendingCount > 0 || readyCount > 0 || failedCount > 0) && (
-          <div className="flex gap-2 border-b border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
-            {pendingCount > 0 ? <span>{pendingCount} generating</span> : null}
-            {readyCount > 0 ? <span>{readyCount} ready</span> : null}
-            {failedCount > 0 ? <span>{failedCount} failed</span> : null}
-          </div>
-        )}
-        <div className="min-h-0 overflow-y-auto p-2">
-          <div className="flex flex-col gap-2">
-            {slots.map((slot) => (
-              <GenerationTrayItem
-                key={slot.slotId}
-                slot={slot}
-                prompt={variants.prompt}
-                libraryTitle={libraryTitle}
-                isSaving={saveGenerated.isPending}
-                isDismissing={dismissSlot.isPending}
-                onSave={() => {
-                  if (!slot.assetId && !slot.slotId) return;
-                  saveGenerated.mutate(
-                    {
-                      ...(slot.assetId ? { assetId: slot.assetId } : {}),
-                      ...(slot.slotId ? { slotId: slot.slotId } : {}),
-                    },
-                    {
-                      onSuccess: () => {
-                        toast.success("Saved generated asset.");
-                        void queryClient.invalidateQueries({
-                          queryKey: ["app-state", "asset-variants"],
-                        });
-                        void queryClient.invalidateQueries({
-                          queryKey: ["action", "get-library"],
-                        });
+              {slots.map((slot, index) => (
+                <GenerationResultItem
+                  key={slot.slotId}
+                  slot={slot}
+                  index={index}
+                  prompt={variants.prompt}
+                  libraryTitle={libraryTitle}
+                  isSaving={saveGenerated.isPending}
+                  isDismissing={dismissSlot.isPending}
+                  onSave={() => {
+                    if (!slot.assetId && !slot.slotId) return;
+                    saveGenerated.mutate(
+                      {
+                        ...(slot.assetId ? { assetId: slot.assetId } : {}),
+                        ...(slot.slotId ? { slotId: slot.slotId } : {}),
+                        threadId,
                       },
-                      onError: (error) =>
-                        toast.error(error.message || "Could not save asset."),
-                    },
-                  );
-                }}
-                onDismiss={() => {
-                  dismissSlot.mutate(
-                    { slotId: slot.slotId },
-                    {
-                      onSuccess: () => {
-                        void queryClient.invalidateQueries({
-                          queryKey: ["app-state", "asset-variants"],
-                        });
+                      {
+                        onSuccess: () => {
+                          toast.success("Saved generated asset.");
+                          void queryClient.invalidateQueries({
+                            queryKey: stateQueryKey,
+                          });
+                          void queryClient.invalidateQueries({
+                            queryKey: ["action", "get-library"],
+                          });
+                        },
+                        onError: (error) =>
+                          toast.error(error.message || "Could not save asset."),
                       },
-                      onError: (error) =>
-                        toast.error(error.message || "Could not dismiss slot."),
-                    },
-                  );
-                }}
-              />
-            ))}
+                    );
+                  }}
+                  onDismiss={() => {
+                    dismissSlot.mutate(
+                      { slotId: slot.slotId, threadId },
+                      {
+                        onSuccess: () => {
+                          void queryClient.invalidateQueries({
+                            queryKey: stateQueryKey,
+                          });
+                        },
+                        onError: (error) =>
+                          toast.error(
+                            error.message || "Could not dismiss slot.",
+                          ),
+                      },
+                    );
+                  }}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -303,8 +289,9 @@ export function GenerationTray() {
   );
 }
 
-function GenerationTrayItem({
+function GenerationResultItem({
   slot,
+  index,
   prompt,
   libraryTitle,
   isSaving,
@@ -313,6 +300,7 @@ function GenerationTrayItem({
   onDismiss,
 }: {
   slot: AssetVariantState["slots"][number];
+  index: number;
   prompt: string;
   libraryTitle: string | null;
   isSaving: boolean;
@@ -322,24 +310,32 @@ function GenerationTrayItem({
 }) {
   const ready = slot.status === "ready" && Boolean(slot.assetId);
   return (
-    <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-2 rounded-md border border-border/80 bg-muted/20 p-2">
-      <div className="aspect-square overflow-hidden rounded-md border border-border bg-background">
+    <article className="overflow-hidden rounded-lg border border-border/80 bg-background/70">
+      <div className="relative aspect-[16/10] overflow-hidden bg-muted/40">
         <GenerationSlotPreview slot={slot} />
+        <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full border border-border/70 bg-background/90 px-2 py-1 text-[11px] font-medium shadow-sm">
+          {slot.status === "pending" ? <Spinner className="h-3 w-3" /> : null}
+          <span>
+            {slot.status === "pending"
+              ? "Generating"
+              : slot.status === "ready"
+                ? `Candidate ${index + 1}`
+                : "Failed"}
+          </span>
+        </div>
       </div>
-      <div className="min-w-0 space-y-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            {slot.status === "pending" ? <Spinner className="h-3 w-3" /> : null}
-            <span className="truncate text-xs font-medium capitalize">
-              {slot.status === "pending"
-                ? "Generating"
-                : slot.status === "ready"
-                  ? "Ready"
-                  : "Failed"}
-            </span>
+      <div className="space-y-2 p-2.5">
+        <div className="min-w-0 text-xs">
+          <div className="truncate font-medium">
+            {slot.status === "ready"
+              ? "Ready to save"
+              : slot.status === "pending"
+                ? "Still rendering"
+                : "Generation failed"}
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {libraryTitle || "No brand kit"} / {prompt}
+          <div className="mt-0.5 truncate text-muted-foreground">
+            {libraryTitle || "No brand kit"}
+            {prompt ? ` / ${prompt}` : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -379,16 +375,17 @@ function GenerationTrayItem({
           </Button>
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             disabled={isDismissing}
             onClick={onDismiss}
+            aria-label="Delete candidate"
           >
-            Delete
+            <IconTrash className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -400,7 +397,7 @@ function GenerationSlotPreview({
   const sources = assetPreviewSources(slot, "thumbnail");
   const src = sources[0];
   if (src) {
-    return <img src={src} alt="" className="h-full w-full object-cover" />;
+    return <img src={src} alt="" className="h-full w-full object-contain" />;
   }
   if (slot.status === "failed") {
     return (

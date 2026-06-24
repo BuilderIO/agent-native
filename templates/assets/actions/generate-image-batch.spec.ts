@@ -110,6 +110,7 @@ describe("generate-image-batch", () => {
         slotId: "slot-1",
         activateSessionAsset: false,
       }),
+      undefined,
     );
     expect(db.updateSet).toHaveBeenCalledWith({
       activeAssetId: "asset-2",
@@ -120,6 +121,7 @@ describe("generate-image-batch", () => {
   it("forwards non-dismissible picker slots to single-image generation", async () => {
     await action.run({
       libraryId: "lib-1",
+      variantScopeId: "picker:tab-1",
       slots: [
         {
           slotId: "picker-candidate-1",
@@ -132,9 +134,26 @@ describe("generate-image-batch", () => {
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: "picker-candidate-1",
+        variantScopeId: "picker:tab-1",
         dismissible: false,
         activateSessionAsset: false,
       }),
+      undefined,
+    );
+  });
+
+  it("forwards the agent run context to each single-image generation", async () => {
+    await action.run(
+      {
+        libraryId: "lib-1",
+        slots: [{ slotId: "slot-1", prompt: "Generate a hero" }],
+      },
+      { caller: "tool", threadId: "thread-1" } as any,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ slotId: "slot-1" }),
+      expect.objectContaining({ threadId: "thread-1" }),
     );
   });
 

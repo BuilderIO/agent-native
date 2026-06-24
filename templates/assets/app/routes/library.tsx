@@ -13,11 +13,9 @@ import {
   isEmbedAuthActive,
   sendToAgentChat,
   sendMcpAppHostMessage,
-  setAgentChatContextItem,
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
-  writeClientAppState,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -39,11 +37,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { normalizeGenerationContext } from "@/lib/generation-context";
 import {
-  GENERATION_CONTEXT_STATE_KEY,
-  generationContextPromptBlock,
-  normalizeGenerationContext,
-} from "@/lib/generation-context";
+  setAssetsGenerationChatContext,
+  writeClientGenerationContext,
+} from "@/hooks/use-generation-context";
 import {
   Select,
   SelectContent,
@@ -1075,13 +1073,12 @@ export default function AssetPicker() {
       mediaType: "image",
     });
     if (embedded) {
-      void writeClientAppState(
-        GENERATION_CONTEXT_STATE_KEY,
-        nextGenerationContext,
-      ).catch(() => {});
+      const variantScopeId = `picker:${getBrowserTabId()}`;
+      void writeClientGenerationContext(nextGenerationContext).catch(() => {});
       generateBatch.mutate({
         libraryId: selectedLibraryId,
         presetId: selectedPreset?.id,
+        variantScopeId,
         slots: Array.from({ length: count }, (_, index) => ({
           slotId: `picker-candidate-${index + 1}`,
           prompt: prompt.trim(),
@@ -1098,20 +1095,13 @@ export default function AssetPicker() {
       return;
     }
     void (async () => {
-      await writeClientAppState(
-        GENERATION_CONTEXT_STATE_KEY,
-        nextGenerationContext,
-      ).catch(() => {});
-      setAgentChatContextItem({
-        key: "assets-generation-context",
-        title: "Assets Generation Context",
-        context: generationContextPromptBlock({
-          context: nextGenerationContext,
-          libraryTitle:
-            displayLibraries.find((library) => library.id === selectedLibraryId)
-              ?.title ?? null,
-          presetTitle: selectedPreset?.title ?? null,
-        }),
+      await writeClientGenerationContext(nextGenerationContext).catch(() => {});
+      setAssetsGenerationChatContext({
+        context: nextGenerationContext,
+        libraryTitle:
+          displayLibraries.find((library) => library.id === selectedLibraryId)
+            ?.title ?? null,
+        presetTitle: selectedPreset?.title ?? null,
         openSidebar: false,
       });
       sendToAgentChat({

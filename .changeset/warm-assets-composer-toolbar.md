@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Forward composer toolbar slots through AgentSidebar.
+Forward chat composer toolbar and thread footer slots through AgentSidebar.

@@ -15,7 +15,9 @@ import {
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useGenerationContextSync } from "@/hooks/use-generation-context";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +50,7 @@ export function Layout({ children }: LayoutProps) {
       return match[1];
     }
   })();
+  useGenerationContextSync(activeBrandKitId);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -142,9 +145,10 @@ export function Layout({ children }: LayoutProps) {
           "Make an 8-second product reveal video",
           "Match the style of my reference assets",
         ]}
-        composerToolbarSlot={
-          <GenerationContextBar activeLibraryId={activeBrandKitId} />
-        }
+        composerToolbarSlot={<GenerationContextBar />}
+        threadFooterSlot={({ threadId }) => (
+          <GenerationResults threadId={threadId} />
+        )}
       >
         {appFrame}
       </AgentSidebar>

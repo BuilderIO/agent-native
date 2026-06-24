@@ -1,4 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestRunContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 import { IMAGE_QUALITY_TIERS, STYLE_STRENGTHS } from "../shared/api.js";
 
@@ -76,6 +79,7 @@ const schema = z.object({
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 type ActionWithToolParameters = {
   tool: { parameters?: { properties?: Record<string, any> } };
@@ -133,6 +137,17 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   return `/library?${params.toString()}`;
 }
 
+function navigateCommandKey() {
+  const browserTabId = getRequestRunContext()?.browserTabId?.trim();
+  return browserTabId && SAFE_BROWSER_TAB_ID_RE.test(browserTabId)
+    ? `navigate:${browserTabId}`
+    : "navigate";
+}
+
+function shouldWriteNavigateCommand(context?: ActionRunContext): boolean {
+  return context?.caller !== "mcp";
+}
+
 const action = defineAction({
   description:
     'Open the image Library picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the Library opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
@@ -172,8 +187,24 @@ const action = defineAction({
       view: "picker",
     };
   },
-  run: async (args) => {
+  run: async (args, context) => {
     const path = pickerPath(args);
+    if (shouldWriteNavigateCommand(context)) {
+      const command = {
+        view: "picker" as const,
+        mediaType: args.mediaType,
+        path,
+        libraryId: args.libraryId ?? null,
+        query: args.query ?? null,
+        prompt: args.prompt ?? null,
+        aspectRatio: args.aspectRatio ?? null,
+        presetId: args.presetId ?? null,
+        _writeId: `open-asset-picker-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+      };
+      await writeAppState(navigateCommandKey(), command);
+    }
     return {
       app: "assets",
       view: "picker",

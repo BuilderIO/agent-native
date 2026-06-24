@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   writeAppState,
   deleteAppState,
@@ -60,6 +61,20 @@ function resolveModelForTier(
     : "gemini-3.1-flash-image";
 }
 
+function imageModelDefault(value: unknown): ImageModel | undefined {
+  return typeof value === "string" &&
+    (IMAGE_MODELS as readonly string[]).includes(value)
+    ? (value as ImageModel)
+    : undefined;
+}
+
+function imageAspectRatioDefault(value: unknown) {
+  return typeof value === "string" &&
+    (ASPECT_RATIOS as readonly string[]).includes(value)
+    ? (value as (typeof ASPECT_RATIOS)[number])
+    : undefined;
+}
+
 export default defineAction({
   description:
     "Generate one brand-consistent image from a library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
@@ -68,7 +83,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Brand kit/library ID. When omitted, uses application_state.generation-context.libraryId.",
+        "Brand kit/library ID. When omitted, uses the current browser tab's generation context, then the global generation context.",
       ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
@@ -90,6 +105,12 @@ export default defineAction({
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
     variantBatchId: z.string().optional(),
+    variantScopeId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal UI state scope for live candidate slots. Usually omitted; embedded picker UIs pass a browser-tab scope.",
+      ),
     dismissible: z.coerce
       .boolean()
       .default(true)
@@ -121,7 +142,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async (input) => {
+  run: async (input, context?: ActionRunContext) => {
     const generationDefaults = await readGenerationContextDefaults();
     const libraryId = input.libraryId ?? generationDefaults.libraryId;
     if (!libraryId) {
@@ -133,7 +154,9 @@ export default defineAction({
       ...input,
       libraryId,
       presetId: input.presetId ?? generationDefaults.presetId,
-      aspectRatio: input.aspectRatio ?? generationDefaults.aspectRatio,
+      aspectRatio:
+        input.aspectRatio ??
+        imageAspectRatioDefault(generationDefaults.aspectRatio),
       imageSize: input.imageSize ?? generationDefaults.imageSize,
     };
     await assertAccess("asset-library", args.libraryId, "editor");
@@ -248,7 +271,7 @@ export default defineAction({
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
     const resolvedModel = (args.model ??
-      generationDefaults.model ??
+      imageModelDefault(generationDefaults.model) ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
       "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
@@ -304,6 +327,7 @@ export default defineAction({
     const runId = nanoid();
     const now = nowIso();
     const slotId = args.slotId ?? runId;
+    const variantScopeId = args.variantScopeId ?? context?.threadId ?? null;
     await assertCanReplaceVariantSlots({
       runId,
       batchId: args.variantBatchId ?? null,
@@ -311,6 +335,8 @@ export default defineAction({
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
       sessionId: session?.id ?? null,
+      threadId: context?.threadId ?? null,
+      variantScopeId,
     });
     // Capture identity at insert time so the org-admin audit log can filter
     // by owner / org without re-resolving who triggered the run later.
@@ -355,6 +381,8 @@ export default defineAction({
     const baseMetadata = {
       slotId,
       variantBatchId: args.variantBatchId ?? null,
+      threadId: context?.threadId ?? null,
+      variantScopeId,
       dismissible: dismissibleSlot,
       sourceAssetId: args.sourceAssetId,
       subjectAssetId: args.subjectAssetId,
@@ -397,6 +425,8 @@ export default defineAction({
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
       sessionId: session?.id ?? null,
+      threadId: context?.threadId ?? null,
+      variantScopeId,
       prompt: args.prompt,
       slotId,
       status: "pending",
@@ -438,7 +468,10 @@ export default defineAction({
       }
       if (
         dismissibleSlot &&
-        (await wasVariantSlotDismissed(args.libraryId, slotId))
+        (await wasVariantSlotDismissed(args.libraryId, slotId, {
+          threadId: context?.threadId ?? null,
+          variantScopeId,
+        }))
       ) {
         await db
           .update(schema.assetGenerationRuns)
@@ -547,6 +580,8 @@ export default defineAction({
         collectionId: resolvedCollectionId ?? null,
         presetId: preset?.id ?? null,
         sessionId: session?.id ?? null,
+        threadId: context?.threadId ?? null,
+        variantScopeId,
         prompt: args.prompt,
         slotId,
         status: "ready",
@@ -578,7 +613,10 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.id, runId));
       if (
         dismissibleSlot &&
-        (await wasVariantSlotDismissed(args.libraryId, slotId))
+        (await wasVariantSlotDismissed(args.libraryId, slotId, {
+          threadId: context?.threadId ?? null,
+          variantScopeId,
+        }))
       ) {
         throw err;
       }
@@ -589,6 +627,8 @@ export default defineAction({
         collectionId: resolvedCollectionId ?? null,
         presetId: preset?.id ?? null,
         sessionId: session?.id ?? null,
+        threadId: context?.threadId ?? null,
+        variantScopeId,
         prompt: args.prompt,
         slotId,
         status: "failed",

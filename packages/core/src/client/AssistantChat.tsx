@@ -600,6 +600,13 @@ export interface AssistantChatHandle {
   exportThreadSnapshot(): ChatThreadSnapshot | null;
 }
 
+export type AssistantChatThreadFooterSlot =
+  | React.ReactNode
+  | ((context: {
+      threadId: string | null;
+      tabId: string | null;
+    }) => React.ReactNode);
+
 export interface AssistantChatAdapterContext {
   apiUrl: string;
   tabId?: string;
@@ -637,6 +644,8 @@ export interface AssistantChatProps {
   suggestions?: string[];
   /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
+  /** Optional content rendered at the bottom of the scrollable thread, after messages. */
+  threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons.
    *  Used by MultiTabAssistantChat to surface "previous chats for this design"
    *  when the current thread is empty but the scope has other threads. */
@@ -953,6 +962,7 @@ const AssistantChatInner = forwardRef<
     emptyStateText,
     suggestions,
     dynamicSuggestions,
+    threadFooterSlot,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
@@ -2871,6 +2881,14 @@ const AssistantChatInner = forwardRef<
     isAutoResuming ||
     queuedMessages.length > 0 ||
     reconnectContent.length > 0;
+  const resolvedThreadFooterSlot =
+    typeof threadFooterSlot === "function"
+      ? threadFooterSlot({
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        })
+      : threadFooterSlot;
+  const hasThreadFooterSlot = Boolean(resolvedThreadFooterSlot);
   const isFreshEmptyChat =
     messages.length === 0 &&
     !hasActiveChatWork &&
@@ -2888,6 +2906,13 @@ const AssistantChatInner = forwardRef<
     centerComposerWhenEmpty && (isFreshEmptyChat || centeredRestoringState);
   const showEmptyState =
     messages.length === 0 && !isReconnecting && !hasActiveChatWork;
+  const showInlineEmptyThreadFooterSlot =
+    showEmptyState &&
+    !centeredEmptyState &&
+    !isRestoring &&
+    hasThreadFooterSlot;
+  const showCenteredEmptyThreadFooterSlot =
+    centeredEmptyState && !isRestoring && hasThreadFooterSlot;
   const showComposerSlot =
     Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
 
@@ -3140,6 +3165,11 @@ const AssistantChatInner = forwardRef<
                           ))}
                         </div>
                       ) : null}
+                      {showInlineEmptyThreadFooterSlot ? (
+                        <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
+                          {resolvedThreadFooterSlot}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
@@ -3267,6 +3297,11 @@ const AssistantChatInner = forwardRef<
                           </div>
                         );
                       })}
+                      {resolvedThreadFooterSlot ? (
+                        <div className="agent-thread-footer-slot">
+                          {resolvedThreadFooterSlot}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -3286,6 +3321,11 @@ const AssistantChatInner = forwardRef<
                 )}
 
                 {showComposerSlot ? composerSlot : null}
+                {showCenteredEmptyThreadFooterSlot ? (
+                  <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
+                    {resolvedThreadFooterSlot}
+                  </div>
+                ) : null}
                 {guidedQuestions && guidedQuestions.length > 0 && (
                   <div className="shrink-0 px-3 pb-2 pt-1">
                     <div className="rounded-lg border border-border bg-card/60 shadow-sm">

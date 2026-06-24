@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 import pLimit from "p-limit";
 import { nanoid } from "nanoid";
@@ -17,7 +18,15 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
+  type ImageModel,
 } from "../shared/api.js";
+
+function imageModelDefault(value: unknown): ImageModel | undefined {
+  return typeof value === "string" &&
+    (IMAGE_MODELS as readonly string[]).includes(value)
+    ? (value as ImageModel)
+    : undefined;
+}
 
 export default defineAction({
   description:
@@ -27,7 +36,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Brand kit/library ID. When omitted, uses application_state.generation-context.libraryId.",
+        "Brand kit/library ID. When omitted, uses the current browser tab's generation context, then the global generation context.",
       ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
@@ -50,6 +59,12 @@ export default defineAction({
       )
       .min(1)
       .max(12),
+    variantScopeId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal UI state scope for live candidate slots. Usually omitted; embedded picker UIs pass a browser-tab scope.",
+      ),
     model: z.enum(IMAGE_MODELS).optional(),
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
@@ -65,7 +80,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({ slots, ...inputBase }) => {
+  run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
     const generationDefaults = await readGenerationContextDefaults();
     const libraryId = inputBase.libraryId ?? generationDefaults.libraryId;
     if (!libraryId) {
@@ -77,7 +92,7 @@ export default defineAction({
       ...inputBase,
       libraryId,
       presetId: inputBase.presetId ?? generationDefaults.presetId,
-      model: inputBase.model ?? generationDefaults.model,
+      model: inputBase.model ?? imageModelDefault(generationDefaults.model),
     };
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {
@@ -88,31 +103,35 @@ export default defineAction({
     const results = await Promise.allSettled(
       slots.map((slot) =>
         limit(() =>
-          generateImage.run({
-            libraryId: base.libraryId,
-            collectionId: base.collectionId,
-            presetId: base.presetId,
-            sessionId: base.sessionId,
-            prompt: slot.prompt,
-            aspectRatio: slot.aspectRatio,
-            imageSize: slot.imageSize,
-            model: base.model,
-            tier: base.tier,
-            intent: slot.intent ?? base.intent,
-            styleStrength: slot.styleStrength ?? base.styleStrength,
-            categories: slot.categories,
-            referenceAssetIds: slot.referenceAssetIds,
-            includeLogo: base.includeLogo,
-            groundingMode: base.groundingMode,
-            slotId: slot.slotId,
-            variantBatchId,
-            dismissible: slot.dismissible,
-            sourceAssetId: slot.sourceAssetId,
-            subjectAssetId: slot.subjectAssetId,
-            source: base.source,
-            callerAppId: base.callerAppId,
-            activateSessionAsset: false,
-          }),
+          generateImage.run(
+            {
+              libraryId: base.libraryId,
+              collectionId: base.collectionId,
+              presetId: base.presetId,
+              sessionId: base.sessionId,
+              prompt: slot.prompt,
+              aspectRatio: slot.aspectRatio,
+              imageSize: slot.imageSize,
+              model: base.model,
+              tier: base.tier,
+              intent: slot.intent ?? base.intent,
+              styleStrength: slot.styleStrength ?? base.styleStrength,
+              categories: slot.categories,
+              referenceAssetIds: slot.referenceAssetIds,
+              includeLogo: base.includeLogo,
+              groundingMode: base.groundingMode,
+              slotId: slot.slotId,
+              variantBatchId,
+              variantScopeId: base.variantScopeId,
+              dismissible: slot.dismissible,
+              sourceAssetId: slot.sourceAssetId,
+              subjectAssetId: slot.subjectAssetId,
+              source: base.source,
+              callerAppId: base.callerAppId,
+              activateSessionAsset: false,
+            },
+            context,
+          ),
         ),
       ),
     );
