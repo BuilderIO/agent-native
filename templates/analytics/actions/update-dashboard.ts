@@ -466,7 +466,9 @@ export default defineAction({
       .optional()
       .describe("Replace the whole dashboard config (or a JSON string)."),
   }),
-  http: false,
+  // The SQL dashboard editor persists user edits through callAction(), which
+  // needs this action mounted under /_agent-native/actions/update-dashboard.
+  http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({

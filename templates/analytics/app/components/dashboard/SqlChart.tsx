@@ -3,11 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   AreaChart,
@@ -49,7 +52,6 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
-import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
 import type {
   SqlPanel,
   ChartType,
@@ -74,6 +76,11 @@ const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
   zIndex: 60,
   pointerEvents: "none",
 };
+
+const PORTAL_GUTTER_PADDING = 12;
+const PORTAL_CURSOR_OFFSET = 24;
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
@@ -435,11 +442,15 @@ function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const portalRef = useRef<HTMLDivElement | null>(null);
+  const [portalPosition, setPortalPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const items = sortTooltipPayloadItems(
     payload?.filter((item) => item.value != null && item.value !== "") ?? [],
   );
-  if (!active || items.length === 0) return null;
 
   const labelText =
     label == null
@@ -448,11 +459,96 @@ function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  return (
-    <div
-      ref={tooltipRef}
-      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
-    >
+  useBrowserLayoutEffect(() => {
+    if (!active || items.length === 0 || typeof window === "undefined") {
+      setPortalPosition(null);
+      return;
+    }
+
+    const anchor = anchorRef.current;
+    const wrapper = anchor?.parentElement;
+    if (!anchor || !wrapper) return;
+
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      if (!(wrapper as HTMLElement).style.transform) return;
+
+      const anchorRect = anchor.getBoundingClientRect();
+      const portalRect = portalRef.current?.getBoundingClientRect();
+      const width = portalRect?.width || anchorRect.width;
+      const height = portalRect?.height || anchorRect.height;
+      if (width === 0 || height === 0) return;
+
+      const sidebar = document.querySelector(".agent-sidebar-panel");
+      const sidebarRect = sidebar?.getBoundingClientRect();
+      const rightLimit =
+        sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
+          ? sidebarRect.left - PORTAL_GUTTER_PADDING
+          : window.innerWidth - PORTAL_GUTTER_PADDING;
+      const bottomLimit = window.innerHeight - PORTAL_GUTTER_PADDING;
+
+      let left = anchorRect.left;
+      let top = anchorRect.top;
+
+      if (left + width > rightLimit) {
+        left = anchorRect.left - width - PORTAL_CURSOR_OFFSET;
+      }
+      left = Math.max(
+        PORTAL_GUTTER_PADDING,
+        Math.min(left, rightLimit - width),
+      );
+
+      if (top + height > bottomLimit) {
+        top = bottomLimit - height;
+      }
+      top = Math.max(PORTAL_GUTTER_PADDING, top);
+
+      setPortalPosition((prev) =>
+        prev &&
+        Math.abs(prev.left - left) < 0.5 &&
+        Math.abs(prev.top - top) < 0.5
+          ? prev
+          : { left, top },
+      );
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
+
+    schedule();
+
+    const mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(wrapper, {
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(schedule);
+    resizeObserver?.observe(anchor);
+    if (portalRef.current) resizeObserver?.observe(portalRef.current);
+
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  });
+
+  if (!active || items.length === 0) return null;
+
+  const tooltip = (
+    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -484,6 +580,32 @@ function ChartTooltip({
         })}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      <div ref={anchorRef} aria-hidden="true" className="invisible">
+        {tooltip}
+      </div>
+      {portalPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={portalRef}
+              role="tooltip"
+              style={{
+                position: "fixed",
+                left: portalPosition.left,
+                top: portalPosition.top,
+                zIndex: 1000,
+                pointerEvents: "none",
+              }}
+            >
+              {tooltip}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 

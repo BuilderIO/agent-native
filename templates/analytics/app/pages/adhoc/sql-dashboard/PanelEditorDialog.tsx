@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SqlEditor } from "@/components/SqlEditor";
 import {
   Dialog,
   DialogContent,
@@ -360,13 +361,11 @@ function PanelEditorContent({
             </Button>
           )}
         </div>
-        <Textarea
+        <SqlEditor
           id="panel-sql"
           value={form.sql}
           onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
           rows={10}
-          spellCheck={false}
-          className="font-mono text-xs resize-y min-h-[200px]"
           placeholder="SELECT ..."
         />
         <p className="text-xs text-muted-foreground">

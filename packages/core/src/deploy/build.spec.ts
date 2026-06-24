@@ -1074,12 +1074,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   }
 
   function backgroundDir(cwd: string): string {
-    return path.join(
-      cwd,
-      ".netlify",
-      "functions-internal",
-      "server-agent-background",
-    );
+    // Emitted into the STANDARD functions dir (NOT functions-internal) so
+    // Netlify exposes it at its default url /.netlify/functions/<name>.
+    return path.join(cwd, ".netlify", "functions", "server-agent-background");
   }
 
   it("is ON BY DEFAULT (flag unset) so the -background function is emitted", () => {
@@ -1103,17 +1100,24 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("emits the second -background function with the process-run config.path", () => {
+  it("emits a STANDALONE async background function at its direct url (no config.path)", () => {
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
     const dest = backgroundDir(cwd);
-    // The function name MUST end in -background for Netlify async invocation.
+    // Emitted into the STANDARD functions dir so Netlify exposes it at its
+    // default url /.netlify/functions/<name> (NOT functions-internal, which is
+    // not exposed at a default url).
+    expect(dest).toContain(path.join(".netlify", "functions"));
+    expect(dest).not.toContain("functions-internal");
+    // The function name MUST end in -background (Netlify async convention + the
+    // runtime guard reads the -background Lambda-name suffix as a fallback).
     expect(path.basename(dest).endsWith("-background")).toBe(true);
-    // Shares the SAME built handler bundle (re-exports ./main.mjs).
+    // Shares the SAME built handler bundle (imports ./main.mjs).
     expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
-    // The original Nitro entry is dropped so our entry is the entrypoint.
+    // The original Nitro `/*` entry is dropped so our standalone entry is the
+    // entrypoint (and the catch-all config.path is not re-registered).
     expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
 
     const entry = fs.readFileSync(
@@ -1121,13 +1125,25 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "utf8",
     );
     expect(entry).toContain('await import("./main.mjs")');
-    // Routes ONLY the chat process-run POST to the async function.
-    expect(entry).toContain(JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH]));
-    expect(entry).toContain('includedFiles: ["**"]');
-    // background: true is what actually makes Netlify invoke it ASYNC (202) with
-    // the 15-min budget. Without it a custom-`path` function is served
-    // synchronously (~60s) even with a -background filename — the real bug.
+    // background: true makes Netlify invoke it ASYNC (202) with the 15-min
+    // budget; reached at its DIRECT url, bypassing Nitro's /* catch-all.
     expect(entry).toContain("background: true");
+    // CRITICAL: NO custom `path` in the config — a custom path makes the function
+    // reachable ONLY at that path (not its default url) and lets the Nitro
+    // catch-all shadow it. That was the live prod bug.
+    expect(entry).not.toContain("path:");
+    expect(entry).not.toContain(JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH]));
+    expect(entry).toContain('includedFiles: ["**"]');
+    // The entry REWRITES the incoming request path to the framework process-run
+    // route before delegating to Nitro, so the _process-run plugin runs.
+    expect(entry).toContain(
+      `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
+    );
+    expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+    // It preserves the body (read once) and ALL headers (the HMAC Authorization
+    // Bearer MUST survive the rewrite — the plugin verifies it).
+    expect(entry).toContain("await request.text()");
+    expect(entry).toContain("headers: request.headers");
     // The entry marks the durable background runtime via a globalThis flag (NOT
     // process.env — that would trip the no-env-mutation guard) so the worker
     // reliably takes the ~13-min soft-timeout (the deployed Lambda name is not
