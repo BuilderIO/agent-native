@@ -1053,8 +1053,22 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  // Reproduce the Nitro `netlify` preset layout the emit reads:
-  // .netlify/functions-internal/server/{main.mjs,server.mjs}
+  // Reproduce the REAL Nitro v3 `netlify` preset layout the emit reads, grounded
+  // in actual build output: .netlify/functions-internal/server/{main.mjs,
+  // server.mjs}, where server.mjs declares the in-code `/*` catch-all config with
+  // an `excludedPath` array (exactly what generateNetlifyFunction emits).
+  const SERVER_ENTRY =
+    'export { default } from "./main.mjs";\n' +
+    "export const config = {\n" +
+    '  name: "server handler",\n' +
+    '  generator: "nitro@3.0.0",\n' +
+    '  path: "/*",\n' +
+    '  nodeBundler: "none",\n' +
+    '  includedFiles: ["**"],\n' +
+    '  excludedPath: ["/.netlify/*"],\n' +
+    "  preferStatic: true,\n" +
+    "};\n";
+
   function setupNetlifyOutput(): string {
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
@@ -1066,17 +1080,30 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
     fs.mkdirSync(serverDir, { recursive: true });
     fs.writeFileSync(path.join(serverDir, "main.mjs"), "export default {};\n");
-    fs.writeFileSync(
-      path.join(serverDir, "server.mjs"),
-      'export { default } from "./main.mjs";\n',
-    );
+    fs.writeFileSync(path.join(serverDir, "server.mjs"), SERVER_ENTRY);
     return cwd;
   }
 
+  function serverEntryPath(cwd: string): string {
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "server.mjs",
+    );
+  }
+
   function backgroundDir(cwd: string): string {
-    // Emitted into the STANDARD functions dir (NOT functions-internal) so
-    // Netlify exposes it at its default url /.netlify/functions/<name>.
-    return path.join(cwd, ".netlify", "functions", "server-agent-background");
+    // Emitted INTO the SCANNED functions-internal dir so Netlify discovers it and
+    // honors its `export const config` (the standard functions dir
+    // `.netlify/functions/` is the build OUTPUT dir and is never scanned).
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-agent-background",
+    );
   }
 
   it("is ON BY DEFAULT (flag unset) so the -background function is emitted", () => {
@@ -1100,24 +1127,26 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("emits a STANDALONE async background function at its direct url (no config.path)", () => {
+  it("emits an async background function INTO the scanned functions-internal dir with config.path", () => {
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
     const dest = backgroundDir(cwd);
-    // Emitted into the STANDARD functions dir so Netlify exposes it at its
-    // default url /.netlify/functions/<name> (NOT functions-internal, which is
-    // not exposed at a default url).
-    expect(dest).toContain(path.join(".netlify", "functions"));
-    expect(dest).not.toContain("functions-internal");
+    // Emitted into the SCANNED functions-internal dir (NOT the build-output
+    // `.netlify/functions/` dir) so Netlify discovers it and honors its config.
+    // The standalone-into-`.netlify/functions/` attempt 404'd because that dir is
+    // never scanned.
+    expect(dest).toContain(
+      path.join(".netlify", "functions-internal", "server-agent-background"),
+    );
     // The function name MUST end in -background (Netlify async convention + the
     // runtime guard reads the -background Lambda-name suffix as a fallback).
     expect(path.basename(dest).endsWith("-background")).toBe(true);
     // Shares the SAME built handler bundle (imports ./main.mjs).
     expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
-    // The original Nitro `/*` entry is dropped so our standalone entry is the
-    // entrypoint (and the catch-all config.path is not re-registered).
+    // The copied Nitro `/*` `server.mjs` entry is dropped so our entry is the
+    // entrypoint (and the catch-all config.path is not re-registered here).
     expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
 
     const entry = fs.readFileSync(
@@ -1125,23 +1154,23 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "utf8",
     );
     expect(entry).toContain('await import("./main.mjs")');
-    // background: true makes Netlify invoke it ASYNC (202) with the 15-min
-    // budget; reached at its DIRECT url, bypassing Nitro's /* catch-all.
+    // background: true makes Netlify invoke it ASYNC (202) with the 15-min budget.
     expect(entry).toContain("background: true");
-    // CRITICAL: NO custom `path` in the config — a custom path makes the function
-    // reachable ONLY at that path (not its default url) and lets the Nitro
-    // catch-all shadow it. That was the live prod bug.
-    expect(entry).not.toContain("path:");
-    expect(entry).not.toContain(JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH]));
+    // CRITICAL: the function CLAIMS the process-run path via config.path so
+    // Netlify routes that exact path here (functions are matched before
+    // redirects). The build separately excludes the path from the server /*
+    // catch-all so the match is unambiguous.
+    expect(entry).toContain("path: PROCESS_RUN_PATH");
     expect(entry).toContain('includedFiles: ["**"]');
-    // The entry REWRITES the incoming request path to the framework process-run
-    // route before delegating to Nitro, so the _process-run plugin runs.
+    // The entry NORMALIZES the incoming request path to the framework process-run
+    // route before delegating to Nitro, so the _process-run plugin runs even if
+    // ever reached via a default function url.
     expect(entry).toContain(
       `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
     );
     expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
     // It preserves the body (read once) and ALL headers (the HMAC Authorization
-    // Bearer MUST survive the rewrite — the plugin verifies it).
+    // Bearer MUST survive — the plugin verifies it).
     expect(entry).toContain("await request.text()");
     expect(entry).toContain("headers: request.headers");
     // The entry marks the durable background runtime via a globalThis flag (NOT
@@ -1151,6 +1180,41 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
     );
+  });
+
+  it("excludes the process-run path from the server /* catch-all so only the async fn matches", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    // The Nitro `server` function's in-code `/*` config.path must now EXCLUDE the
+    // process-run path. Netlify does not define a winner when two serverless
+    // functions both match a path, so making `server` not match it is what
+    // guarantees the async background function is the only match (the root cause
+    // of attempts 1 & 2 running synchronously was BOTH functions matching).
+    const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
+    expect(serverEntry).toContain(AGENT_CHAT_PROCESS_RUN_PATH);
+    const excludedMatch = serverEntry.match(/excludedPath:\s*\[([^\]]*)\]/);
+    expect(excludedMatch).not.toBeNull();
+    expect(excludedMatch?.[1]).toContain(
+      JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH),
+    );
+    // The pre-existing exclude (/.netlify/*) must be preserved, not clobbered.
+    expect(excludedMatch?.[1]).toContain("/.netlify/*");
+    // The /* catch-all itself is unchanged for every other path.
+    expect(serverEntry).toContain('path: "/*"');
+  });
+
+  it("is idempotent: re-emitting does not duplicate the excludedPath entry", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
+    const occurrences =
+      serverEntry.split(AGENT_CHAT_PROCESS_RUN_PATH).length - 1;
+    expect(occurrences).toBe(1);
   });
 
   it("skips emit (no -background artifact) when Nitro output is missing", () => {

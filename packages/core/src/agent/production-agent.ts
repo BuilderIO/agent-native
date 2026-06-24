@@ -4394,14 +4394,13 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          // On hosted Netlify this is the standalone background function's DIRECT
-          // url (`/.netlify/functions/server-agent-background`) — POSTing the
-          // framework `_process-run` path would land on Nitro's synchronous `/*`
-          // catch-all and never get the 15-min budget. The function's entry
-          // rewrites the path back to AGENT_CHAT_PROCESS_RUN_PATH before
-          // delegating to Nitro, so the `_process-run` plugin still runs and the
-          // Authorization Bearer HMAC survives. Off-Netlify it stays the
-          // framework path (handled in-process).
+          // The framework `_process-run` route on every host. On hosted Netlify
+          // the build emits an async background function (in the scanned dir)
+          // that CLAIMS this exact path via `config.path` AND excludes it from
+          // the `server` /* catch-all, so this POST matches ONLY the async
+          // function (immediate 202, 15-min budget) — Netlify matches functions
+          // before redirects. Off-Netlify the same in-process catch-all handles
+          // it. The Authorization Bearer HMAC is preserved either way.
           path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
@@ -4644,11 +4643,11 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    // Continuation chunks must also land on the standalone async
-                    // background function (its direct url on hosted Netlify) so
-                    // each chunk keeps the 15-min budget; same path-resolution as
-                    // the initial dispatch. The function entry rewrites the path
-                    // back to `_process-run` for the Nitro router.
+                    // Continuation chunks dispatch to the same framework
+                    // `_process-run` route; on hosted Netlify it matches the
+                    // async background function (config.path + excluded from the
+                    // /* catch-all) so each chunk keeps the 15-min budget. Same
+                    // path-resolution as the initial dispatch.
                     path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {

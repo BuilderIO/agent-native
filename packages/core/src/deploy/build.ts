@@ -1505,46 +1505,70 @@ export function isDurableBackgroundDeployEnabled(): boolean {
 }
 
 /**
- * Single-template Netlify build: emit a STANDALONE async background function so
- * the chat `_process-run` worker runs on Netlify's async (15-min) function
- * reached at its DIRECT url, instead of the synchronous `/*` catch-all.
+ * Single-template Netlify build: emit an async (background) function INSIDE the
+ * scanned functions dir so the chat `_process-run` worker runs on Netlify's
+ * 15-min async function instead of the synchronous `/*` catch-all.
  * Additive + flag-gated (see `isDurableBackgroundDeployEnabled`).
  *
- * Nitro's `netlify` preset emits a single synchronous function at
- * `.netlify/functions-internal/server` (`server.mjs` → `main.mjs`, `config.path`
- * `/*`). We copy that bundle to a STANDALONE function in the STANDARD functions
- * dir `.netlify/functions/server-agent-background` and write an entry that:
- *   1. Sets `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true` at cold start
+ * GROUNDED IN THE REAL NETLIFY BUILD OUTPUT (verified from a local Nitro build):
+ *   - Nitro's `netlify` preset emits exactly ONE function source at
+ *     `.netlify/functions-internal/server/`. `server.mjs` re-exports `main.mjs`
+ *     and declares `export const config = { path: "/*", excludedPath:
+ *     ["/.netlify/*"], preferStatic: true, ... }`. Nitro writes NO `netlify.toml`
+ *     and NO `[[redirects]]`; the `/*` catch-all is an IN-CODE Functions-API-v2
+ *     `config.path`.
+ *   - The generated `.netlify/netlify.toml` sets
+ *     `functionsDirectory = ".netlify/functions-internal"`. Netlify scans EXACTLY
+ *     that dir; functions placed anywhere else (e.g. `.netlify/functions/`, which
+ *     is the BUILD OUTPUT dir where `@netlify/build` later writes the zipped
+ *     functions + `manifest.json`) are NEVER deployed.
+ *   - On Netlify CI, `@netlify/build` reads each scanned function's
+ *     `export const config`, zips it, and materializes
+ *     `.netlify/functions/manifest.json` with `routes` derived from each
+ *     `config.path`. So per-file `export const config` (including `background` and
+ *     `path`) IS honored — the `server` manifest entry's `routes: [{ pattern:
+ *     "/*" }]` came straight from `server.mjs`'s `config.path`.
+ *
+ * THEREFORE we:
+ *   1. Emit the background function INTO the scanned dir
+ *      (`.netlify/functions-internal/server-agent-background/`), sharing the same
+ *      built `main.mjs` bundle, so Netlify discovers it and honors its config.
+ *   2. Give its `export const config` BOTH `background: true` (→ async invoke,
+ *      immediate 202, 15-min budget) AND `path: AGENT_CHAT_PROCESS_RUN_PATH` (so
+ *      it claims that exact path at function-matching time, which Netlify
+ *      evaluates BEFORE redirects — step 10 vs 11 in the request chain).
+ *   3. PATCH the Nitro `server` function's own `server.mjs` so its catch-all
+ *      `config.path: "/*"` EXCLUDES `AGENT_CHAT_PROCESS_RUN_PATH` (append it to
+ *      `excludedPath`). Netlify does NOT define a winner when two serverless
+ *      functions both match a path; rather than rely on that undocumented order,
+ *      we make the match UNAMBIGUOUS — only the background function matches
+ *      `_process-run`, and `server` matches everything else exactly as before.
+ *   4. Set `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true` at cold start
  *      (read back by `isInBackgroundFunctionRuntime()` so the worker takes the
  *      ~13-min soft-timeout). A `globalThis` flag — NOT `process.env` — keeps the
  *      no-env-mutation guard satisfied and carries no cross-request state.
- *   2. Declares `export const config = { background: true }` with NO `path`. With
- *      no custom `path`, Netlify exposes the function at the DEFAULT url
- *      `/.netlify/functions/server-agent-background` and `background:true` makes
- *      it ASYNC (immediate HTTP 202 ack, 15-min budget). The foreground POST
- *      self-dispatches to that direct url
- *      (`resolveAgentChatProcessRunDispatchPath`), BYPASSING Nitro's `/*`
- *      catch-all entirely.
- *   3. REWRITES the incoming request path to `AGENT_CHAT_PROCESS_RUN_PATH` before
- *      delegating to the Nitro handler (`./main.mjs` default export — a Netlify
- *      v2 / Web-standard `async (Request) => Response` handler), so the Nitro
- *      router dispatches it to the `_process-run` plugin. Method, ALL headers
- *      (critically the HMAC `Authorization: Bearer` the plugin verifies) and the
- *      body are preserved by cloning the incoming `Request` with only its URL
- *      pathname rewritten.
  *
- * WHY this replaced the previous `config.path` approach: a function with a custom
- * `config.path` is reachable ONLY at that path (not at its default function url)
- * and `functions-internal` is not exposed at the default url at all. In prod,
- * Netlify routed `/_agent-native/agent-chat/_process-run` to the synchronous
- * Nitro `server` catch-all, NOT to the background function — verified live: a
- * POST to the process-run path returned a SYNCHRONOUS 401 from the handler
- * (the Nitro plugin ran) instead of a 202 async ack. A standalone function at
- * its direct url cannot be shadowed by the catch-all.
+ * With a real `config.path` the function is reachable at that path directly, so
+ * the foreground POSTs to `AGENT_CHAT_PROCESS_RUN_PATH`
+ * (`resolveAgentChatProcessRunDispatchPath`) and the request entry no longer
+ * needs to rewrite the path — it already arrives at the framework route. We keep
+ * a defensive normalize-to-PROCESS_RUN_PATH in the entry anyway (cheap, and it
+ * makes the function correct even if reached via its default function url).
  *
- * Safety net regardless of Netlify routing nuance: if the direct-url dispatch
- * fast-fails (e.g. 404 when this function was not emitted), the foreground
- * handler degrades to an inline 40s synchronous run (see production-agent.ts).
+ * WHY THIS BEATS ALL THREE PRIOR FAILURES:
+ *   - Attempts 1 & 2 emitted into `functions-internal` (correct dir) with a
+ *     `config.path` but did NOT exclude that path from the `server` `/*`
+ *     catch-all. Two functions matched `_process-run`; the order is undocumented
+ *     and the catch-all `server` (priority 0, synchronous) won → SYNC 401, not a
+ *     202. We now exclude the path from `server`, so only the async function
+ *     matches.
+ *   - Attempt 3 emitted a standalone function into `.netlify/functions/` — the
+ *     OUTPUT dir, which Netlify does not scan — so it never entered the manifest
+ *     → 404. We now emit into the SCANNED `functions-internal` dir.
+ *
+ * Safety net regardless of Netlify routing nuance: if the dispatch fast-fails
+ * (e.g. the function was not emitted), the foreground handler degrades to an
+ * inline 40s synchronous run (see production-agent.ts).
  */
 export function emitSingleTemplateNetlifyBackgroundFunction(
   projectCwd: string,
@@ -1561,16 +1585,21 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
     return;
   }
   const backgroundName = AGENT_BACKGROUND_FUNCTION_NAME;
-  // Emit into the STANDARD functions dir (NOT functions-internal) so Netlify
-  // exposes the function at its default url `/.netlify/functions/<name>`.
-  const functionsDir = path.join(projectCwd, ".netlify", "functions");
-  const dest = path.join(functionsDir, backgroundName);
-  fs.mkdirSync(functionsDir, { recursive: true });
+  // Emit INTO the SCANNED functions dir (functions-internal) so Netlify discovers
+  // the function and honors its `export const config`. `.netlify/functions/` is
+  // the build OUTPUT dir (where @netlify/build writes the zip + manifest) and is
+  // NOT scanned — emitting there is why the standalone attempt 404'd.
+  const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
   copyDir(serverDir, dest);
-  // Drop the original Nitro `/*` entry so our standalone entry is the entrypoint
-  // and the copied bundle does NOT re-register the catch-all `config.path`.
+  // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
+  // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+
+  // Make the `server` `/*` catch-all NOT match the process-run path, so only the
+  // async background function matches it (function-vs-function path order is
+  // undocumented on Netlify — don't rely on it).
+  excludeProcessRunPathFromServerCatchAll(serverDir);
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
@@ -1589,12 +1618,13 @@ let cachedHandler;
 
 // Netlify v2 invokes this as (request, context). The Nitro netlify handler is a
 // Web-standard \`async (Request) => Response\` (see nitro/presets/netlify/runtime).
-// We are reached at this function's DIRECT url
-// (/.netlify/functions/${backgroundName}); rewrite the path to PROCESS_RUN_PATH
-// so Nitro routes it to the _process-run plugin, preserving method, ALL headers
-// (the HMAC Authorization: Bearer MUST survive — the plugin verifies it) and the
-// body. We clone the incoming Request with only its URL pathname rewritten;
-// query + origin are preserved.
+// Because this function declares \`config.path = PROCESS_RUN_PATH\`, Netlify routes
+// that exact path here and the request already arrives as PROCESS_RUN_PATH — no
+// rewrite is needed. We still NORMALIZE the pathname to PROCESS_RUN_PATH so the
+// function stays correct even if it is ever reached via its default function url
+// (/.netlify/functions/${backgroundName}). Method, ALL headers (the HMAC
+// Authorization: Bearer MUST survive — the plugin verifies it) and the body are
+// preserved by cloning the incoming Request with only its URL pathname set.
 export default async function handler(request) {
   cachedHandler ??= (await import("./main.mjs")).default;
   const url = new URL(request.url);
@@ -1615,14 +1645,14 @@ export const config = {
   name: "agent background handler",
   generator: "agent-native build",
   // background: true makes Netlify invoke this ASYNCHRONOUSLY (immediate HTTP
-  // 202 ack) with the 15-minute budget. NO custom \`path\`: that keeps the
-  // function reachable at its DEFAULT url /.netlify/functions/${backgroundName},
-  // which BYPASSES Nitro's /* catch-all. The previous version set a custom
-  // \`config.path\` and Netlify routed the process-run path to the SYNCHRONOUS
-  // catch-all instead (verified live: a synchronous 401 from the handler, not a
-  // 202 async ack). See Netlify docs: build/functions/background-functions +
-  // build/functions/configuration.
+  // 202 ack) with the 15-minute budget (Netlify docs:
+  // build/functions/background-functions + build/functions/api). path claims the
+  // process-run route directly; Netlify evaluates serverless functions BEFORE
+  // redirects (request-chain step 10 vs 11), and we exclude this path from the
+  // \`server\` /* catch-all so only THIS function matches it — no ambiguous
+  // function-vs-function order.
   background: true,
+  path: PROCESS_RUN_PATH,
   nodeBundler: "none",
   includedFiles: ["**"],
   preferStatic: false,
@@ -1630,10 +1660,68 @@ export const config = {
 `;
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
   console.log(
-    `[build] Emitted standalone durable-background function "${backgroundName}" ` +
-      `at /.netlify/functions/${backgroundName} (async, rewrites to ` +
-      `${AGENT_CHAT_PROCESS_RUN_PATH}). REQUIRES real-deploy verification of ` +
-      `Netlify async invocation — see docs/design/durable-agent-runs.md.`,
+    `[build] Emitted durable-background function "${backgroundName}" into the ` +
+      `scanned dir .netlify/functions-internal with config { background:true, ` +
+      `path:"${AGENT_CHAT_PROCESS_RUN_PATH}" } and excluded that path from the ` +
+      `server /* catch-all. REQUIRES real-deploy verification of Netlify async ` +
+      `(202) invocation — see docs/design/durable-agent-runs.md.`,
+  );
+}
+
+/**
+ * Append `AGENT_CHAT_PROCESS_RUN_PATH` to the Nitro `server` function's
+ * `config.excludedPath` so its `/*` catch-all does NOT match the process-run
+ * path. That guarantees the async background function (which declares
+ * `config.path = AGENT_CHAT_PROCESS_RUN_PATH`) is the ONLY function that matches
+ * that path — Netlify does not define a winner when two serverless functions
+ * both match, so we make the match unambiguous instead of relying on order.
+ *
+ * The Nitro-generated `server/server.mjs` is small and deterministic:
+ *   export { default } from "./main.mjs";
+ *   export const config = { ... excludedPath: ["/.netlify/*"], ... };
+ * We parse the `excludedPath: [...]` array literal and add our path if absent.
+ * If the shape ever changes and we can't find/parse it, we log and leave the
+ * file untouched (the inline-40s fallback still keeps chat working).
+ */
+function excludeProcessRunPathFromServerCatchAll(serverDir: string): void {
+  const serverEntry = path.join(serverDir, "server.mjs");
+  if (!fs.existsSync(serverEntry)) {
+    console.warn(
+      "[build] Durable-background: server/server.mjs not found; cannot exclude " +
+        `${AGENT_CHAT_PROCESS_RUN_PATH} from the /* catch-all.`,
+    );
+    return;
+  }
+  const original = fs.readFileSync(serverEntry, "utf8");
+  if (original.includes(AGENT_CHAT_PROCESS_RUN_PATH)) {
+    // Already excluded (idempotent — emit may run on a re-used output tree).
+    return;
+  }
+  const excludedPathRe = /excludedPath:\s*\[([^\]]*)\]/;
+  const match = original.match(excludedPathRe);
+  const quotedPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
+  if (match) {
+    const existing = match[1].trim();
+    const next = existing
+      ? `excludedPath: [${existing.replace(/,\s*$/, "")}, ${quotedPath}]`
+      : `excludedPath: [${quotedPath}]`;
+    fs.writeFileSync(serverEntry, original.replace(excludedPathRe, next));
+    return;
+  }
+  // No existing `excludedPath` — inject one into the config object. Match the
+  // `path: "/*"` line and add `excludedPath` right after it.
+  const pathLineRe = /(path:\s*("\/\*"|'\/\*'),?)/;
+  if (pathLineRe.test(original)) {
+    fs.writeFileSync(
+      serverEntry,
+      original.replace(pathLineRe, `$1\n  excludedPath: [${quotedPath}],`),
+    );
+    return;
+  }
+  console.warn(
+    "[build] Durable-background: could not locate excludedPath/path in " +
+      "server/server.mjs; leaving the /* catch-all unchanged (the background " +
+      "function may be shadowed — the inline-40s fallback still applies).",
   );
 }
 
