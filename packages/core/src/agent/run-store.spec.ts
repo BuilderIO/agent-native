@@ -189,7 +189,12 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        /COALESCE\(heartbeat_at, started_at\) < \?/.test(call.sql) &&
+        // The heartbeat predicate now uses the background-aware cutoff fragment
+        // `(? - CASE WHEN dispatch_mode LIKE 'background%' THEN ... END)` so a
+        // slow background cold-start isn't reaped early. Still one query, still
+        // covering both predicates.
+        /COALESCE\(heartbeat_at, started_at\) < \(\? -/.test(call.sql) &&
+        /dispatch_mode LIKE 'background%'/.test(call.sql) &&
         /OR started_at < \?/.test(call.sql),
     );
     expect(select).toBeDefined();
