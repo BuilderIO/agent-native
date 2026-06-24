@@ -499,7 +499,7 @@ function SortableRow({
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
-        className="absolute -left-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
         aria-label={`Drag ${name}`}
         {...attributes}
         {...listeners}
@@ -527,7 +527,7 @@ function SortableRow({
                 setIsRenaming(false);
               }
             }}
-            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pr-12 text-xs outline-none"
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pe-12 text-xs outline-none"
           />
         ) : (
           <Tooltip>
@@ -537,7 +537,7 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
+                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
                 <span className="block truncate">{name}</span>
               </Link>
@@ -545,7 +545,7 @@ function SortableRow({
             <TooltipContent side="right">{name}</TooltipContent>
           </Tooltip>
         )}
-        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
+        <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -588,7 +588,7 @@ function SortableRow({
                   setIsRenaming(true);
                 }}
               >
-                <IconPencil className="mr-2 h-3.5 w-3.5" />
+                <IconPencil className="me-2 h-3.5 w-3.5" />
                 Rename
               </DropdownMenuItem>
               {onSetVisibility && visibility !== undefined && (
@@ -601,15 +601,15 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="mr-2 h-3.5 w-3.5" />
+                    <IconBuilding className="me-2 h-3.5 w-3.5" />
                   ) : (
-                    <IconLock className="mr-2 h-3.5 w-3.5" />
+                    <IconLock className="me-2 h-3.5 w-3.5" />
                   )}
                   {visibility === "private" ? "Share with org" : "Make private"}
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={copyLink}>
-                <IconLink className="mr-2 h-3.5 w-3.5" />
+                <IconLink className="me-2 h-3.5 w-3.5" />
                 Copy link
               </DropdownMenuItem>
               {onUnhide && hidden ? (
@@ -619,7 +619,7 @@ function SortableRow({
                     void runUnhide();
                   }}
                 >
-                  <IconEye className="mr-2 h-3.5 w-3.5" />
+                  <IconEye className="me-2 h-3.5 w-3.5" />
                   Unhide
                 </DropdownMenuItem>
               ) : onHide ? (
@@ -629,7 +629,7 @@ function SortableRow({
                     void runHide();
                   }}
                 >
-                  <IconEyeOff className="mr-2 h-3.5 w-3.5" />
+                  <IconEyeOff className="me-2 h-3.5 w-3.5" />
                   Hide
                 </DropdownMenuItem>
               ) : null}
@@ -642,7 +642,7 @@ function SortableRow({
                       void runArchive();
                     }}
                   >
-                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    <IconArchive className="me-2 h-3.5 w-3.5" />
                     Archive
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -654,7 +654,7 @@ function SortableRow({
                     }}
                     className="text-destructive focus:text-destructive"
                   >
-                    <IconTrash className="mr-2 h-3.5 w-3.5" />
+                    <IconTrash className="me-2 h-3.5 w-3.5" />
                     Delete permanently
                   </DropdownMenuItem>
                 </>
@@ -667,7 +667,7 @@ function SortableRow({
                   }}
                   className="text-destructive focus:text-destructive"
                 >
-                  <IconTrash className="mr-2 h-3.5 w-3.5" />
+                  <IconTrash className="me-2 h-3.5 w-3.5" />
                   Delete
                 </DropdownMenuItem>
               )}
@@ -789,7 +789,7 @@ function SortableDashboardItem({
       }
     >
       {isActive && allSubviews.length > 0 && (
-        <div className="ml-6 mt-0.5 space-y-0.5">
+        <div className="ms-6 mt-0.5 space-y-0.5">
           {allSubviews.map((sv) => {
             const currentSearch = new URLSearchParams(location.search);
             const svUrl = new URL(sv.href, window.location.origin);
@@ -805,7 +805,7 @@ function SortableDashboardItem({
               <div
                 key={sv.id}
                 className={cn(
-                  "group/sv flex items-center gap-1 rounded-md pr-1 transition-all",
+                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-all",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
@@ -1842,7 +1842,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       {!mobile && (
         <div
           onMouseDown={handleResizeStart}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
+          className="absolute end-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
         />
       )}
       <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
@@ -1959,7 +1959,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleDashOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
                 aria-expanded={dashOpen}
               >
                 <IconChartBar className="h-4 w-4 shrink-0" />
@@ -1977,7 +1977,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleDashOpen}
-                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
                 aria-label={
                   dashOpen ? "Collapse dashboards" : "Expand dashboards"
                 }
@@ -2001,7 +2001,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   items={displayedDashboards.map((d) => d.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="ml-4 min-w-0 space-y-0.5">
+                  <div className="ms-4 min-w-0 space-y-0.5">
                     {displayedDashboards.map((d) => (
                       <SortableDashboardItem
                         key={d.id}
@@ -2062,7 +2062,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleAnalysesOpen}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
                 aria-expanded={analysesOpen}
               >
                 <IconReportAnalytics className="h-4 w-4 shrink-0" />
@@ -2084,7 +2084,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <button
                 type="button"
                 onClick={toggleAnalysesOpen}
-                className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
                 aria-label={
                   analysesOpen ? "Collapse analyses" : "Expand analyses"
                 }
@@ -2108,7 +2108,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   items={displayedAnalyses.map((a) => a.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="ml-4 min-w-0 space-y-0.5">
+                  <div className="ms-4 min-w-0 space-y-0.5">
                     {displayedAnalyses.map((a) => (
                       <SortableRow
                         key={a.id}
@@ -2233,7 +2233,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       <TooltipTrigger asChild>
                         <PopoverTrigger asChild>
                           <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                            <IconLogout className="h-4 w-4" />
+                            <IconLogout className="h-4 w-4 rtl:-scale-x-100" />
                           </button>
                         </PopoverTrigger>
                       </TooltipTrigger>

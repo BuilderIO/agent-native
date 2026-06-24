@@ -1627,6 +1627,19 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Durable-background AGENT-CHAT processor. The foreground POST self-dispatches
+    // a long chat turn here (through the Netlify `-background` function, which
+    // rewrites its default url to this path); the route HMAC-verifies the
+    // dispatch (same internal-token scheme as agent-teams above) plus an atomic
+    // SQL claim. The self-dispatch carries ONLY a Bearer HMAC token and NO
+    // session cookie, so without this bypass the blanket 401-for-/_agent-native/*
+    // gate below blocks the worker before `prepareProcessRunRequest` ever runs —
+    // the run is never claimed, its heartbeat never starts, and it times out with
+    // no visible progress. Exact path only (mirrors agent-teams).
+    if (p === "/_agent-native/agent-chat/_process-run") {
+      return;
+    }
+
     // Read-only agent chat share links. The random token is the bearer secret;
     // the route returns a sanitized transcript plus bounded run summaries and
     // exposes no write surface, live event stream, tool payloads, or owner APIs.

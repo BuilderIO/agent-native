@@ -161,6 +161,190 @@ const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
+const orbitPrimaryCapabilities = [
+  {
+    label: "Actions",
+    detail: "source of truth",
+    className: "left-1/2 top-[6%] -translate-x-1/2",
+  },
+  {
+    label: "SQL state",
+    detail: "shared context",
+    className: "right-[8%] top-[18%]",
+  },
+  {
+    label: "MCP + A2A",
+    detail: "protocols included",
+    className: "right-[3%] top-1/2 -translate-y-1/2",
+  },
+  {
+    label: "Jobs",
+    detail: "scheduled work",
+    className: "bottom-[18%] right-[9%]",
+  },
+  {
+    label: "Templates",
+    detail: "production-refined",
+    className: "bottom-[6%] left-1/2 -translate-x-1/2",
+  },
+  {
+    label: "Auth",
+    detail: "orgs and sharing",
+    className: "bottom-[18%] left-[8%]",
+  },
+  {
+    label: "i18n",
+    detail: "global-ready UI",
+    className: "left-[3%] top-1/2 -translate-y-1/2",
+  },
+  {
+    label: "Observability",
+    detail: "audit and tracking",
+    className: "left-[8%] top-[18%]",
+  },
+];
+
+const orbitSecondaryCapabilities = [
+  {
+    label: "Sharing",
+    className: "left-[32%] top-[19%]",
+  },
+  {
+    label: "Audit log",
+    className: "right-[30%] top-[24%]",
+  },
+  {
+    label: "Tracking",
+    className: "right-[19%] top-[37%]",
+  },
+  {
+    label: "Provider APIs",
+    className: "right-[24%] bottom-[32%]",
+  },
+  {
+    label: "Approvals",
+    className: "left-[31%] bottom-[24%]",
+  },
+  {
+    label: "Extensions",
+    className: "left-[16%] bottom-[38%]",
+  },
+  {
+    label: "Skills",
+    className: "left-[22%] top-[34%]",
+  },
+  {
+    label: "OAuth",
+    className: "right-[18%] bottom-[47%]",
+  },
+  {
+    label: "Memory",
+    className: "left-[43%] bottom-[18%]",
+  },
+  {
+    label: "Webhooks",
+    className: "right-[35%] bottom-[18%]",
+  },
+  {
+    label: "Voice",
+    className: "left-[37%] top-[31%]",
+  },
+  {
+    label: "Realtime sync",
+    className: "right-[34%] top-[35%]",
+  },
+];
+
+const orbitTertiaryCapabilities = [
+  {
+    label: "recurring jobs",
+    className: "left-[16%] top-[9%]",
+  },
+  {
+    label: "evals",
+    className: "left-[42%] top-[18%]",
+  },
+  {
+    label: "workspace",
+    className: "right-[17%] top-[8%]",
+  },
+  {
+    label: "MCP apps",
+    className: "right-[-8px] top-[27%]",
+  },
+  {
+    label: "external agents",
+    className: "right-[-34px] top-[43%]",
+  },
+  {
+    label: "CLI",
+    className: "right-[8%] bottom-[12%]",
+  },
+  {
+    label: "HTTP",
+    className: "right-[29%] bottom-[6%]",
+  },
+  {
+    label: "native chat UI",
+    className: "left-[36%] bottom-[-10px]",
+  },
+  {
+    label: "file uploads",
+    className: "left-[8%] bottom-[11%]",
+  },
+  {
+    label: "sandbox adapters",
+    className: "left-[-32px] bottom-[27%]",
+  },
+  {
+    label: "durable resume",
+    className: "left-[-12px] top-[35%]",
+  },
+  {
+    label: "context awareness",
+    className: "left-[-42px] top-[16%]",
+  },
+  {
+    label: "notifications",
+    className: "left-[25%] -top-2",
+  },
+  {
+    label: "multi-tenancy",
+    className: "left-[51%] -top-4",
+  },
+  {
+    label: "agent teams",
+    className: "right-[6%] -top-1",
+  },
+  {
+    label: "cross-app SSO",
+    className: "right-[-44px] bottom-[26%]",
+  },
+  {
+    label: "local file mode",
+    className: "left-[21%] bottom-[4%]",
+  },
+  {
+    label: "DB adapters",
+    className: "left-[9%] top-[66%]",
+  },
+  {
+    label: "self-editing code",
+    className: "right-[12%] top-[66%]",
+  },
+  {
+    label: "agent web surfaces",
+    className: "right-[20%] top-[82%]",
+  },
+];
+
+const orbitPillars = [
+  "UI-ready",
+  "agent-ready",
+  "best-practice instructions",
+  "battle-tested defaults",
+];
+
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
@@ -279,6 +463,141 @@ function BidirectionalTabs() {
         ))}
       </div>
     </div>
+  );
+}
+
+function BatteriesIncludedOrbit() {
+  const orbitRef = useRef<HTMLDivElement | null>(null);
+  const [orbitActive, setOrbitActive] = useState(false);
+
+  useEffect(() => {
+    const node = orbitRef.current;
+    if (!node || typeof window === "undefined") return;
+
+    if (!("IntersectionObserver" in window)) {
+      setOrbitActive(true);
+      return;
+    }
+
+    let releaseTimer: number | undefined;
+    const observer = new window.IntersectionObserver(
+      ([entry]) => {
+        window.clearTimeout(releaseTimer);
+        if (entry?.isIntersecting) {
+          setOrbitActive(true);
+          releaseTimer = window.setTimeout(() => setOrbitActive(false), 2200);
+        } else {
+          setOrbitActive(false);
+        }
+      },
+      { threshold: 0.35 },
+    );
+
+    observer.observe(node);
+
+    return () => {
+      window.clearTimeout(releaseTimer);
+      observer.disconnect();
+    };
+  }, []);
+
+  return (
+    <section className="border-t border-[var(--docs-border)] px-6 py-20">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.78fr)_minmax(420px,1fr)] lg:items-center">
+          <div>
+            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
+              Batteries included, battle-tested
+            </p>
+            <h2 className="mb-4 max-w-xl text-3xl font-bold tracking-tight md:text-4xl">
+              Agents generate better apps when the parts are already proven
+            </h2>
+            <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              Instead of starting from a blank prompt and a pile of improvised
+              code, Agent-Native gives agents the battle-tested parts and best
+              practices they need to build real app software.
+            </p>
+            <p className="mb-7 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              Actions, SQL state, auth, i18n, protocols, jobs, templates, audit,
+              and observability all ship as UI-ready and agent-ready defaults,
+              refined through production template apps and feedback.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {orbitPillars.map((pillar) => (
+                <span
+                  key={pillar}
+                  className="rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg)]"
+                >
+                  {pillar}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div
+            ref={orbitRef}
+            className={`batteries-orbit relative mx-auto aspect-square w-full max-w-[560px] overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-8 ${
+              orbitActive ? "batteries-orbit--active" : ""
+            }`}
+          >
+            <div className="orbit-star-field" />
+            <div className="orbit-ring orbit-ring--outer absolute inset-7 rounded-full border border-[var(--docs-border)]" />
+            <div className="orbit-ring orbit-ring--middle absolute inset-16 rounded-full border border-[var(--docs-border)] opacity-70" />
+            <div className="orbit-ring orbit-ring--inner absolute inset-24 rounded-full border border-[var(--docs-border)] opacity-50" />
+
+            <div className="absolute left-1/2 top-1/2 z-10 w-[46%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--docs-accent)] bg-[var(--bg)] p-4 text-center sm:p-5">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
+                Shared substrate
+              </p>
+              <h3 className="m-0 text-xl font-semibold leading-tight">
+                One app surface
+              </h3>
+              <p className="m-0 mt-2 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                UI, agent, protocols, jobs, and audit call the same operations.
+              </p>
+            </div>
+
+            <div className="orbit-label-layer orbit-label-layer--tertiary absolute inset-0 z-[4]">
+              {orbitTertiaryCapabilities.map((capability) => (
+                <span
+                  key={capability.label}
+                  className={`absolute max-w-[118px] truncate rounded-full border border-[var(--docs-border)] bg-[var(--bg)]/35 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--fg-secondary)] opacity-45 backdrop-blur-sm ${capability.className}`}
+                >
+                  {capability.label}
+                </span>
+              ))}
+            </div>
+
+            <div className="orbit-label-layer orbit-label-layer--secondary absolute inset-0 z-[12]">
+              {orbitSecondaryCapabilities.map((capability) => (
+                <span
+                  key={capability.label}
+                  className={`absolute rounded-full border border-[var(--docs-border)] bg-[var(--bg)]/70 px-2.5 py-1 text-[11px] font-semibold text-[var(--fg-secondary)] shadow-sm backdrop-blur-sm ${capability.className}`}
+                >
+                  {capability.label}
+                </span>
+              ))}
+            </div>
+
+            <div className="orbit-label-layer orbit-label-layer--primary absolute inset-0 z-20">
+              {orbitPrimaryCapabilities.map((capability) => (
+                <div
+                  key={capability.label}
+                  className={`absolute max-w-[112px] rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-2 py-1.5 sm:max-w-[132px] sm:px-3 sm:py-2 ${capability.className}`}
+                >
+                  <div className="truncate text-sm font-semibold text-[var(--fg)]">
+                    {capability.label}
+                  </div>
+                  <div className="hidden truncate text-xs text-[var(--fg-secondary)] sm:block">
+                    {capability.detail}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -450,7 +769,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Templates - breaks out of max-width on ultra-wide screens */}
+        {/* Templates */}
         <section
           id="templates"
           className="border-t border-[var(--docs-border)] py-20 px-6"
@@ -469,17 +788,62 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          <div className="templates-side-scroll mx-auto flex max-w-[1200px] snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
             {homepageTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
+              <div
+                key={t.name}
+                className="template-rail-card w-[82vw] max-w-[360px] flex-[0_0_82vw] snap-start sm:w-[360px] sm:flex-[0_0_360px]"
+              >
+                <TemplateCard template={t} />
+              </div>
             ))}
+            <div className="template-rail-card template-rail-cta w-[82vw] max-w-[360px] flex-[0_0_82vw] snap-start sm:w-[360px] sm:flex-[0_0_360px]">
+              <div className="feature-card flex flex-col justify-center bg-[var(--bg-secondary)]">
+                <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
+                  More templates
+                </p>
+                <h3 className="mb-3 text-2xl font-semibold tracking-tight">
+                  Browse the full app shelf
+                </h3>
+                <p className="mb-6 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                  Start from chat, mail, forms, calendar, dispatch, assets,
+                  brain, and more production-refined apps.
+                </p>
+                <Link
+                  data-an-prefetch="render"
+                  to="/templates"
+                  className="primary-button w-full justify-center"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "view_all_templates",
+                      location: "templates_scroll_end",
+                    })
+                  }
+                >
+                  View all templates
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+              </div>
+            </div>
           </div>
 
           <div className="mt-8 text-center">
             <Link
               data-an-prefetch="render"
               to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              className="primary-button"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "view_all_templates",
@@ -504,6 +868,8 @@ export default function Home() {
             </Link>
           </div>
         </section>
+
+        <BatteriesIncludedOrbit />
 
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">

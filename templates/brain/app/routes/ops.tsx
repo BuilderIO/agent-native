@@ -416,11 +416,11 @@ export default function OpsRoute() {
                   <TableHead>Status</TableHead>
                   <TableHead>Capture</TableHead>
                   <TableHead>Source</TableHead>
-                  <TableHead className="text-right">Attempts</TableHead>
+                  <TableHead className="text-end">Attempts</TableHead>
                   <TableHead>Run after</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead>Reason</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-end">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -474,7 +474,7 @@ export default function OpsRoute() {
                         </p>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-end tabular-nums">
                       {item.attempts}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
@@ -491,7 +491,7 @@ export default function OpsRoute() {
                           "No issue recorded"}
                       </p>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Button
                         size="sm"
                         variant="outline"

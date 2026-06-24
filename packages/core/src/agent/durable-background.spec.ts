@@ -4,6 +4,7 @@ import {
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  extractProcessRunId,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
@@ -228,18 +229,24 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
 describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
   const RUN_ID = "run-bg-123";
 
-  it("rejects a non-object body with 400", () => {
+  it("rejects a non-object body with 400 (no runId to attach diagnostics to)", () => {
     const r = prepareProcessRunRequest(null, undefined);
     expect(r).toEqual({
       ok: false,
       status: 400,
       error: "Invalid request body",
+      runId: null,
     });
   });
 
   it("rejects a body with no runId/taskId with 400", () => {
     const r = prepareProcessRunRequest({ message: "hi" }, undefined);
-    expect(r).toEqual({ ok: false, status: 400, error: "runId required" });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "runId required",
+      runId: null,
+    });
   });
 
   describe("with A2A_SECRET configured", () => {
@@ -253,6 +260,16 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
         undefined,
       );
       expect(r).toMatchObject({ ok: false, status: 401 });
+    });
+
+    it("carries the runId on a 401 so the route can record the auth failure", () => {
+      // DIAGNOSTIC: an auth failure in the unreadable bg fn must still be
+      // attributable to a run so /runs/active can show WHY it timed out.
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        "Bearer bogus",
+      );
+      expect(r).toMatchObject({ ok: false, status: 401, runId: RUN_ID });
     });
 
     it("rejects an invalid token with 401", () => {
@@ -318,7 +335,9 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
       );
-      expect(r).toMatchObject({ ok: false, status: 503 });
+      // Carries the runId so the route can record the "A2A_SECRET missing"
+      // failure onto the run (otherwise it would time out with no clue).
+      expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
     });
 
     it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
@@ -331,5 +350,40 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
       if (!r.ok) throw new Error("expected ok");
       expect(r.runId).toBe(RUN_ID);
     });
+  });
+});
+
+describe("extractProcessRunId (diagnostic runId parse without auth)", () => {
+  const RUN_ID = "run-diag-1";
+
+  it("reads runId from the background-run marker", () => {
+    expect(
+      extractProcessRunId({
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID },
+      }),
+    ).toBe(RUN_ID);
+  });
+
+  it("falls back to top-level taskId", () => {
+    expect(extractProcessRunId({ taskId: RUN_ID })).toBe(RUN_ID);
+  });
+
+  it("prefers the marker runId over taskId", () => {
+    expect(
+      extractProcessRunId({
+        taskId: "other",
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID },
+      }),
+    ).toBe(RUN_ID);
+  });
+
+  it("returns null for an unparseable / empty body (no auth performed)", () => {
+    expect(extractProcessRunId(null)).toBeNull();
+    expect(extractProcessRunId("nope")).toBeNull();
+    expect(extractProcessRunId({})).toBeNull();
+    expect(extractProcessRunId({ taskId: "" })).toBeNull();
+    expect(
+      extractProcessRunId({ [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: 5 } }),
+    ).toBeNull();
   });
 });

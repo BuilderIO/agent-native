@@ -608,9 +608,9 @@ function NumberField({
           max={max}
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
-          className="rounded-r-none"
+          className="rounded-e-none"
         />
-        <div className="flex min-w-20 items-center justify-center rounded-r-md border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
+        <div className="flex min-w-20 items-center justify-center rounded-e-md border border-s-0 border-input bg-muted px-3 text-sm text-muted-foreground">
           {suffix}
         </div>
       </div>
@@ -653,7 +653,7 @@ function PolicyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="min-w-0 text-muted-foreground">{label}</span>
-      <span className="max-w-40 truncate text-right font-medium capitalize">
+      <span className="max-w-40 truncate text-end font-medium capitalize">
         {value.replace(/_/g, " ")}
       </span>
     </div>

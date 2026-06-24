@@ -44,6 +44,40 @@ export const STALE_RUN_ERROR_EVENT = {
     "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
 } as const;
 
+/**
+ * Terminal error for a background-dispatched run whose worker NEVER claimed it
+ * (the foreground fired the self-dispatch, Netlify acked it async with a 202,
+ * but the `_process-run` worker never ran far enough to flip
+ * `dispatch_mode background → background-processing`). Distinct errorCode so the
+ * client (and prod triage) can tell "the worker died silently" apart from "a
+ * claimed worker's heartbeat went stale". Recoverable so the client surfaces a
+ * retry affordance and re-drives the turn. See `reapUnclaimedBackgroundRun`.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
+  errorCode: "background_worker_never_started",
+  recoverable: true,
+  details:
+    "A background-dispatched run was acknowledged (HTTP 202) but its worker never claimed the run, so no progress was produced. The run was reaped early (it had no live worker to protect) so the turn can be retried.",
+} as const;
+
+/**
+ * Grace period before a never-claimed background run (dispatch_mode still
+ * 'background', no worker claim) is treated as a dead handoff and reaped.
+ *
+ * This is intentionally MUCH tighter than `BACKGROUND_RUN_STALE_MS` (90s). The
+ * wide 90s window exists ONLY to protect a CLAIMED worker whose heartbeat lags
+ * during a slow cold start. A run that is still `dispatch_mode = 'background'`
+ * has, by definition, NO worker — nothing to protect — so once a Netlify
+ * background function has had a reasonable cold-start window to claim it and
+ * hasn't, the handoff is dead and should surface promptly instead of leaving
+ * the user staring at a spinner for 90s. 25s comfortably exceeds a normal
+ * Netlify Lambda cold start while still failing fast on a silent worker death.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
+
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -61,7 +95,8 @@ async function ensureRunTables(): Promise<void> {
           turn_id TEXT,
           error_code TEXT,
           error_detail TEXT,
-          dispatch_mode TEXT
+          dispatch_mode TEXT,
+          diag_stage TEXT
         )
       `);
       // Backfill heartbeat_at on older deployments.
@@ -118,11 +153,16 @@ async function ensureRunTables(): Promise<void> {
       // normal synchronous path, "background" for a run dispatched into a
       // Netlify background function. The reaper/claim widen the stale window
       // for background rows so a slow cold-start isn't falsely reaped.
+      // diag_stage records the last reached pipeline stage (+ any error) for a
+      // background-dispatched run so a silent worker death is DIAGNOSABLE from
+      // the client (/runs/active surfaces it) without reading the unreadable
+      // Netlify background-function logs. See recordRunDiagnostic.
       for (const col of [
         "turn_id",
         "error_code",
         "error_detail",
         "dispatch_mode",
+        "diag_stage",
       ] as const) {
         try {
           if (isPostgres()) {
@@ -416,6 +456,72 @@ export async function setRunError(
   }
 }
 
+/**
+ * Diagnostic stage names recorded onto a background run as it moves through the
+ * `_process-run` worker pipeline. Each value is the LAST stage successfully
+ * reached, so a stuck run's `diag_stage` reveals exactly where it died. Ordered
+ * roughly by execution; the literal strings are the client-readable contract.
+ */
+export const RUN_DIAG_STAGE = {
+  /** The `_process-run` route handler was entered (the request reached Nitro). */
+  routeEntered: "route_entered",
+  /** HMAC auth + body validation in prepareProcessRunRequest FAILED. */
+  authFailed: "auth_failed",
+  /** HMAC auth + body validation PASSED; about to invoke the worker handler. */
+  authPassed: "auth_passed",
+  /** The re-entered agent-chat handler recognized itself as the bg worker. */
+  workerEntered: "worker_entered",
+  /** The worker won the atomic claim (it owns the run). */
+  workerClaimed: "worker_claimed",
+  /** The worker LOST the claim (a duplicate delivery already owns the run). */
+  workerClaimLost: "worker_claim_lost",
+  /** The agent loop started (startRun fired). */
+  workerStarted: "worker_started",
+  /** The worker threw before/while running the loop (message carried in detail). */
+  workerThrew: "worker_threw",
+  /** The route handler caught an error from the worker invocation. */
+  routeThrew: "route_threw",
+} as const;
+
+export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
+
+/**
+ * Record the last reached pipeline stage (+ optional short detail) for a run.
+ *
+ * PURPOSE: a Netlify background function's logs are not readable from the build
+ * tooling, so when its worker dies silently the run just times out with no clue
+ * WHY. This writes the failure stage straight onto the `agent_runs` row, which
+ * `/runs/active` and `listRunsForThread` surface to the client — so the next
+ * prod run's death cause is readable WITHOUT bg-fn logs. Cheap, additive, and
+ * best-effort: it must never throw or perturb the run (it is called on the auth
+ * path BEFORE a 401 is returned, and around the worker body).
+ *
+ * The stored value is a compact JSON `{ stage, detail?, at }` capped to 2 KB so
+ * a long stack can't bloat the row.
+ */
+export async function recordRunDiagnostic(
+  runId: string,
+  stage: RunDiagStage,
+  detail?: string,
+): Promise<void> {
+  if (!runId) return;
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    const payload = JSON.stringify({
+      stage,
+      ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      at: Date.now(),
+    }).slice(0, 2000);
+    await client.execute({
+      sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+      args: [payload, runId],
+    });
+  } catch {
+    // Diagnostics are best-effort; never let them break the run or the route.
+  }
+}
+
 /** Update the run's liveness heartbeat. Called periodically by run-manager. */
 export async function updateRunHeartbeat(runId: string): Promise<void> {
   await ensureRunTables();
@@ -485,6 +591,68 @@ export async function reapIfStale(
       runId,
       STALE_RUN_ERROR_EVENT,
       "reap-if-stale",
+    );
+  }
+  return reaped;
+}
+
+/**
+ * FALLBACK HARDENING for the "dispatched with 202 but the worker never started"
+ * case. A background-dispatched run sits in `dispatch_mode = 'background'` until
+ * the worker wins `claimBackgroundRun` (which flips it to
+ * `background-processing`). If the worker silently dies (e.g. the bg-fn 401s
+ * before it can claim), the row stays `background`, never heartbeats again, and
+ * — because dispatch returned 202 — the foreground already returned the SSE
+ * stream, so the existing fast-fail inline fallback never engaged. The run would
+ * otherwise hang for the full 90s background window and then error opaquely.
+ *
+ * This reaps such a run EARLY and DISTINCTLY: a row that is still unclaimed
+ * (`dispatch_mode = 'background'`) past the tight `UNCLAIMED_BACKGROUND_RUN_GRACE_MS`
+ * grace is a dead handoff — there is no live worker to protect with the wide
+ * window — so we flip it to `errored` with the recoverable
+ * `background_worker_never_started` code. The client's existing recoverable-error
+ * path then lets the user (or auto-recovery) re-drive the turn. Idempotent and
+ * conditional: only an unclaimed, still-running, grace-exceeded row matches, so a
+ * claimed worker, a fresh dispatch, or a terminal row is never touched.
+ *
+ * Returns true when this call reaped the run.
+ */
+export async function reapUnclaimedBackgroundRun(
+  runId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const completedAt = Date.now();
+  const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
+          WHERE id = ?
+            AND status = 'running'
+            AND dispatch_mode = 'background'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [
+      completedAt,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+      runId,
+      cutoff,
+    ],
+  });
+  const reaped = (rowsAffected ?? 0) > 0;
+  if (reaped) {
+    await recordRunDiagnostic(
+      runId,
+      RUN_DIAG_STAGE.workerThrew,
+      "unclaimed background dispatch reaped (worker never claimed the run)",
+    );
+    await safeAppendTerminalRunEvent(
+      runId,
+      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
+      "reap-unclaimed-background",
     );
   }
   return reaped;
@@ -644,12 +812,14 @@ export async function getRunByThread(
   heartbeatAt: number | null;
   completedAt: number | null;
   lastProgressAt: number | null;
+  dispatchMode: string | null;
+  diagStage: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const sql = options?.includeTerminal
-    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
-    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
+    ? `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`
+    : `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, dispatch_mode, diag_stage FROM agent_runs WHERE thread_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`;
   const { rows } = await client.execute({ sql, args: [threadId] });
   if (rows.length === 0) return null;
   const r = rows[0] as {
@@ -661,6 +831,8 @@ export async function getRunByThread(
     heartbeat_at: number | string | null;
     completed_at: number | string | null;
     last_progress_at: number | string | null;
+    dispatch_mode?: string | null;
+    diag_stage?: string | null;
   };
   return {
     id: r.id,
@@ -672,6 +844,8 @@ export async function getRunByThread(
     completedAt: r.completed_at == null ? null : Number(r.completed_at),
     lastProgressAt:
       r.last_progress_at == null ? null : Number(r.last_progress_at),
+    dispatchMode: r.dispatch_mode ?? null,
+    diagStage: r.diag_stage ?? null,
   };
 }
 
@@ -686,6 +860,9 @@ export interface AgentRunSummary {
   lastProgressAt: number | null;
   errorCode: string | null;
   abortReason: string | null;
+  dispatchMode: string | null;
+  /** Last reached `_process-run` worker stage (JSON `{stage,detail?,at}`). */
+  diagStage: string | null;
 }
 
 export async function listRunsForThread(
@@ -696,7 +873,7 @@ export async function listRunsForThread(
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason
+    sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, diag_stage
           FROM agent_runs
           WHERE thread_id = ?
           ORDER BY started_at DESC
@@ -715,6 +892,8 @@ export async function listRunsForThread(
       last_progress_at?: number | string | null;
       error_code?: string | null;
       abort_reason?: string | null;
+      dispatch_mode?: string | null;
+      diag_stage?: string | null;
     };
     return {
       id: row.id,
@@ -728,6 +907,8 @@ export async function listRunsForThread(
         row.last_progress_at == null ? null : Number(row.last_progress_at),
       errorCode: row.error_code ?? null,
       abortReason: row.abort_reason ?? null,
+      dispatchMode: row.dispatch_mode ?? null,
+      diagStage: row.diag_stage ?? null,
     };
   });
 }

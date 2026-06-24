@@ -21,6 +21,7 @@ vi.mock("./run-store.js", () => ({
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
+  reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
@@ -65,6 +66,8 @@ import {
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
+  reapIfStale,
+  reapUnclaimedBackgroundRun,
 } from "./run-store.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
@@ -144,6 +147,10 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(reapUnclaimedBackgroundRun).mockReset();
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
+    vi.mocked(reapIfStale).mockReset();
+    vi.mocked(reapIfStale).mockResolvedValue(null as any);
   });
 
   afterEach(() => {
@@ -1113,6 +1120,59 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+    });
+  });
+
+  // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
+  it("recovers an unclaimed-stale background run (202 acked, worker never started)", async () => {
+    // dispatch_mode still 'background' (never flipped to 'background-processing')
+    // means the bg-fn worker silently died. The read path must recover it.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-unclaimed",
+      threadId: "thread-unclaimed",
+      status: "running",
+      startedAt: Date.now() - 30_000,
+      heartbeatAt: Date.now() - 30_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      diagStage: null,
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValueOnce(true);
+    vi.mocked(reapIfStale).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-unclaimed");
+
+    // Recovered → the read returns null (run no longer "active"), and we never
+    // fell through to the generic stale reaper.
+    expect(result).toBeNull();
+    expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
+    expect(reapIfStale).not.toHaveBeenCalled();
+  });
+
+  it("does NOT attempt unclaimed recovery for a claimed (background-processing) run", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-processing",
+      threadId: "thread-processing",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-processing");
+
+    // A claimed, heartbeating worker is left alone and its diagnostics surface.
+    expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      runId: "run-processing",
+      status: "running",
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
     });
   });
 
