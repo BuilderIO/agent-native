@@ -53,6 +53,20 @@ describe("redactArgsToJson", () => {
     expect(parsed.body).toContain("more chars");
   });
 
+  it("keeps the output parseable when the whole payload is truncated", () => {
+    // 10 fields × ~1000-char prose values → serialized JSON exceeds MAX_JSON,
+    // but no single string hits the per-string limit and none look secret.
+    const sentence = "word ".repeat(200);
+    const big = Object.fromEntries(
+      Array.from({ length: 10 }, (_, i) => [`f${i}`, sentence]),
+    );
+    const json = redactArgsToJson(big);
+    expect(() => JSON.parse(json!)).not.toThrow(); // valid JSON, not a slice
+    const parsed = JSON.parse(json!);
+    expect(parsed._auditTruncated).toBe(true);
+    expect(typeof parsed.preview).toBe("string");
+  });
+
   it("returns null for nullish input", () => {
     expect(redactArgsToJson(null)).toBeNull();
     expect(redactArgsToJson(undefined)).toBeNull();

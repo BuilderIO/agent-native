@@ -222,7 +222,7 @@ export function generateWorkerEntry(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params, { caller: "http", actionName: ${JSON.stringify(a.name)} });
+      const result = await ${varName}.run(params, { caller: "http" });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {

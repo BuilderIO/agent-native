@@ -87,10 +87,17 @@ export function redactArgsToJson(args: unknown): string | null {
     if (args == null) return null;
     const redacted = redact(args, 0);
     if (redacted === undefined) return null;
-    let json = JSON.stringify(redacted);
+    const json = JSON.stringify(redacted);
     if (json == null) return null;
     if (json.length > MAX_JSON) {
-      json = `${json.slice(0, MAX_JSON)}…(truncated)`;
+      // Slicing the serialized JSON would yield an unparseable string. Wrap a
+      // preview in a valid envelope so `get-audit-event` can always JSON.parse
+      // the stored `input`.
+      return JSON.stringify({
+        _auditTruncated: true,
+        originalBytes: json.length,
+        preview: json.slice(0, MAX_JSON),
+      });
     }
     return json;
   } catch {

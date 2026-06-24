@@ -137,8 +137,17 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   const clauses: string[] = [];
   const args: any[] = [];
   if (scope.userEmail) {
-    clauses.push("owner_email = ?");
-    args.push(scope.userEmail);
+    if (scope.orgId) {
+      // Constrain the owner's rows to the active org — plus legacy/solo rows
+      // that predate org-scoping (org_id IS NULL) — mirroring sharing's
+      // `ownerScopeFilter`, so switching orgs doesn't surface another org's
+      // trail.
+      clauses.push("(owner_email = ? AND (org_id = ? OR org_id IS NULL))");
+      args.push(scope.userEmail, scope.orgId);
+    } else {
+      clauses.push("owner_email = ?");
+      args.push(scope.userEmail);
+    }
   }
   if (scope.orgId) {
     clauses.push("(visibility = 'org' AND org_id = ?)");

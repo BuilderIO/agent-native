@@ -110,6 +110,29 @@ describe("audit store scoping", () => {
     expect(outsider).toHaveLength(0);
   });
 
+  it("scopes an owner's own rows to the active org, but keeps legacy/solo rows", async () => {
+    await insertAuditEvent(
+      makeEvent({ id: "in-a", ownerEmail: "alice@x.com", orgId: "org-A" }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "legacy", ownerEmail: "alice@x.com", orgId: null }),
+    );
+
+    // While acting in org-B, Alice does NOT see her own org-A row…
+    const inB = await queryAuditEvents({
+      userEmail: "alice@x.com",
+      orgId: "org-B",
+    });
+    expect(inB.map((r) => r.id)).toEqual(["legacy"]); // …but legacy/no-org rows stay visible
+
+    // In org-A she sees both.
+    const inA = await queryAuditEvents({
+      userEmail: "alice@x.com",
+      orgId: "org-A",
+    });
+    expect(inA.map((r) => r.id).sort()).toEqual(["in-a", "legacy"]);
+  });
+
   it("does not leak private org-mate rows", async () => {
     await insertAuditEvent(
       makeEvent({ ownerEmail: "bob@x.com", orgId: "org-1" }), // private
