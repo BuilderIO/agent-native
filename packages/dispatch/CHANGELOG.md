@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.11.8
+
+### Patch Changes
+
+- d684bbf: Keep Dispatch full-page chat thread links type-safe while preserving deep-link handoff behavior.
+
 ## 0.11.7
 
 ### Patch Changes

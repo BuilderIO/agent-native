@@ -1,5 +1,33 @@
 # @agent-native/core
 
+## 0.73.0
+
+### Minor Changes
+
+- d684bbf: Durable background agent runs are now **on by default** for hosted apps. Previously the `AGENT_CHAT_DURABLE_BACKGROUND` flag was opt-in (off unless set truthy); it is now opt-out — unset means enabled, and an app disables it with an explicit falsy value (`AGENT_CHAT_DURABLE_BACKGROUND=false`).
+
+  The gate still composes with the existing guards, so a run only goes durable when the runtime is hosted/serverless **and** `A2A_SECRET` is configured — local dev and unconfigured apps stay on the synchronous inline path unchanged. Default-on uses the server-driven agnostic continuation path (verified in prod: long multi-step runs complete past the 40s soft-timeout with no thrash and no int4 overflow). The Netlify 15-min `-background` function emit (`isDurableBackgroundDeployEnabled`) remains opt-in until its path is separately verified.
+
+### Patch Changes
+
+- d684bbf: Clarify the Clips "agent-readable clips" docs so the "see and hear" promise is
+  accurate: frame-viewing works in any image-capable agent (ChatGPT, Claude Code,
+  Cursor, Codex, MCP-connected agents), while text-only web chats fall back to the
+  transcript and can take an uploaded frame. Verified empirically — ChatGPT fetches
+  the JPEG frame URLs and describes the screen; claude.ai's web chat reads the
+  transcript only. Docs-only copy change; the agent-context/frame APIs are
+  unchanged.
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- d684bbf: Redesign the Google sign-in preflight notice on the onboarding/sign-in screen
+  to match the in-app connect popover: an amber warning-icon chip beside a bold
+  heading and muted body copy, with the close affordance moved to the top-right.
+  The `googleSignInNotice.body` already accepts a string array, so reassurance
+  like "It's safe to continue." now renders on its own line. The Continue /
+  Run-locally action buttons no longer wrap their labels (`white-space: nowrap`).
+  Purely presentational — the host-gating, Continue, and Run-locally behaviors are
+  unchanged.
+- d684bbf: Add a secondary hosted-app signup notice linking to the Agent-Native Terms and Privacy Policy.
+
 ## 0.72.4
 
 ### Patch Changes
