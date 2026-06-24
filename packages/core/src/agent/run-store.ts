@@ -3,7 +3,12 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  widenIntColumnsToBigInt,
+} from "../db/client.js";
 import { captureError } from "../server/capture-error.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -159,6 +164,19 @@ async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (thread_id, tool_key)
         )
       `);
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+      // on every turn, so an int4 column makes every agent prompt fail on
+      // Postgres with "value … is out of range for type integer". No-op once
+      // widened (and on fresh DBs that already use BIGINT). See
+      // widenIntColumnsToBigInt.
+      await widenIntColumnsToBigInt("agent_runs", [
+        "started_at",
+        "completed_at",
+        "heartbeat_at",
+        "last_progress_at",
+      ]);
+      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
