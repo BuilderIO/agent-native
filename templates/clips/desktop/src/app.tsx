@@ -2355,6 +2355,20 @@ export function App() {
 
       {showMeetings ? (
         <div className="meetings-panel">
+          <div className="meetings-panel-header">
+            <span className="meetings-panel-label">Today</span>
+            <button
+              className="meetings-refresh-btn"
+              onClick={fetchTodayMeetings}
+              disabled={meetingsLoading}
+              aria-label="Refresh meetings"
+            >
+              <IconRefresh
+                size={13}
+                className={meetingsLoading ? "meetings-refresh-spin" : ""}
+              />
+            </button>
+          </div>
           {meetingsLoading ? (
             <div className="meetings-empty">Loading…</div>
           ) : !hasCalendarConnected ? (
@@ -2401,7 +2415,17 @@ export function App() {
                 <button
                   key={m.id}
                   className="meeting-row"
-                  onClick={() => openInBrowser(`/meetings/${m.id}`)}
+                  onClick={() => {
+                    if (isDone) {
+                      openInBrowser(`/meetings/${m.id}`);
+                    } else {
+                      emit("meetings:start-transcription", {
+                        meetingId: m.id,
+                        joinUrl: m.joinUrl ?? null,
+                        reason: "user",
+                      }).catch(() => {});
+                    }
+                  }}
                 >
                   <span
                     className="meeting-status-dot"

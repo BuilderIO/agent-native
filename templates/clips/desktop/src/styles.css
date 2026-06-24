@@ -1243,6 +1243,56 @@ body[data-clips-route="recording-pill"] #root {
   border-top: 1px solid var(--border);
 }
 
+.meetings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 4px;
+}
+
+.meetings-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meetings-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+  padding: 0;
+}
+
+.meetings-refresh-btn:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.meetings-refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@keyframes meetings-spin {
+  to { transform: rotate(360deg); }
+}
+
+.meetings-refresh-spin {
+  animation: meetings-spin 0.8s linear infinite;
+}
+
 .meetings-empty {
   padding: 12px 8px;
   font-size: 12px;
