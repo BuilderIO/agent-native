@@ -337,6 +337,7 @@ async function firstPartyMcpAuthHeaders() {
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
+    .setAudience("https://mail.agent-native.com/_agent-native/mcp")
     .setExpirationTime("5m")
     .sign(new TextEncoder().encode(process.env.A2A_SECRET));
   return {

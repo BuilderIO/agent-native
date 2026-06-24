@@ -15,6 +15,11 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  AGENT_NATIVE_EMBED_PROTOCOL,
+  AGENT_NATIVE_EMBED_VERSION,
+} from "../../embedding/protocol.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { agentNativePath } from "../api-path.js";
 import { sendToAgentChat, type AgentChatRequestMode } from "../agent-chat.js";
@@ -56,6 +61,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const modelContextRef = useRef<McpAppModelContext | null>(null);
+  const readyRef = useRef(false);
   const [height, setHeight] = useState(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -72,6 +78,23 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   );
   const externalOpenUrl = useMemo(() => openUrlFromMcpApp(app), [app]);
 
+  // Keep the latest payload/permissions/csp reachable from the bridge effect
+  // without making them effect dependencies. The embedded resource identity is
+  // fully captured by `srcDoc`. The bridge effect must NOT re-run when a benign
+  // parent re-render hands us a new `app` object reference with identical
+  // content (common during chat streaming/polling): re-running tears down a
+  // live, already-initialized MCP App (teardownResource) and re-arms the
+  // initialize watchdog against a fresh host AppBridge that the embed shell
+  // will never re-handshake (its connect promise is memoized), surfacing a
+  // false "MCP App did not finish initializing." error after the app is
+  // visibly working.
+  const appRef = useRef(app);
+  const supportedPermissionsRef = useRef(supportedPermissions);
+  const uiCspRef = useRef(uiMeta.csp);
+  appRef.current = app;
+  supportedPermissionsRef.current = supportedPermissions;
+  uiCspRef.current = uiMeta.csp;
+
   useEffect(() => {
     desiredHeightRef.current = DEFAULT_MCP_APP_IFRAME_HEIGHT;
     setHeight(
@@ -80,10 +103,17 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         availableMcpAppHeight(iframeRef.current),
       ),
     );
+    readyRef.current = false;
     setReady(false);
     setError(null);
     modelContextRef.current = null;
   }, [srcDoc]);
+
+  const markReady = useCallback(() => {
+    readyRef.current = true;
+    setReady(true);
+    setError(null);
+  }, []);
 
   const applyHeight = useCallback((desiredHeight?: number) => {
     if (
@@ -142,20 +172,21 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     const listener = (event: MessageEvent) => {
       if (event.source !== frameWindow) return;
       if (isMcpAppReadyMessage(event.data)) {
-        setReady(true);
+        markReady();
       }
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [srcDoc]);
+  }, [markReady, srcDoc]);
 
   useBrowserLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow || !srcDoc) return;
 
+    const currentApp = appRef.current;
     let closed = false;
     const initializeTimer = window.setTimeout(() => {
-      if (closed) return;
+      if (closed || readyRef.current) return;
       setReady(false);
       setError("MCP App did not finish initializing.");
     }, MCP_APP_INITIALIZE_TIMEOUT_MS);
@@ -168,13 +199,13 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         serverResources: {},
         logging: {},
         sandbox: {
-          permissions: supportedPermissions,
-          csp: uiMeta.csp ?? {},
+          permissions: supportedPermissionsRef.current,
+          csp: uiCspRef.current ?? {},
         },
       },
       {
         hostContext: buildHostContext(
-          app,
+          currentApp,
           availableMcpAppHeight(iframe),
         ) as any,
       },
@@ -189,12 +220,9 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     bridge.addEventListener("initialized", () => {
       if (closed) return;
       clearTimeout(initializeTimer);
-      setReady(true);
-      // Clear any error the initialize timeout may have set before a slow app
-      // finished — otherwise the error overlay stays stuck over a working app.
-      setError(null);
-      void bridge.sendToolInput({ arguments: app.toolInput });
-      void bridge.sendToolResult(app.toolResult as CallToolResult);
+      markReady();
+      void bridge.sendToolInput({ arguments: appRef.current.toolInput });
+      void bridge.sendToolResult(appRef.current.toolResult as CallToolResult);
     });
     bridge.addEventListener("loggingmessage", ({ level, data }) => {
       if (level === "error" || level === "critical" || level === "alert") {
@@ -207,13 +235,13 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       return {};
     };
     bridge.oncalltool = async ({ name, arguments: toolArguments }) => {
-      const toolName = normalizeSameServerToolName(app.serverId, name);
+      const toolName = normalizeSameServerToolName(appRef.current.serverId, name);
       if (!toolName) {
         return errorToolResult("Cross-server MCP App tool calls are blocked.");
       }
       try {
         return await postMcpAppEndpoint<CallToolResult>("call-tool", {
-          serverId: app.serverId,
+          serverId: appRef.current.serverId,
           toolName,
           arguments:
             toolArguments && typeof toolArguments === "object"
@@ -225,9 +253,12 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       }
     };
     (bridge as any).onlisttools = async () =>
-      postMcpAppEndpoint("list-tools", { serverId: app.serverId });
+      postMcpAppEndpoint("list-tools", { serverId: appRef.current.serverId });
     bridge.onreadresource = async ({ uri }) =>
-      postMcpAppEndpoint("read-resource", { serverId: app.serverId, uri });
+      postMcpAppEndpoint("read-resource", {
+        serverId: appRef.current.serverId,
+        uri,
+      });
     bridge.onlistresources = async () => ({ resources: [] });
     bridge.onlistresourcetemplates = async () => ({ resourceTemplates: [] });
     bridge.ondownloadfile = async () => ({ isError: true });
@@ -266,7 +297,6 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       closed = true;
       modelContextRef.current = null;
       clearTimeout(initializeTimer);
-      setReady(false);
       void bridge
         .teardownResource({}, { timeout: 500 })
         .catch(() => undefined)
@@ -274,7 +304,10 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
           void (bridge as any).close?.().catch?.(() => undefined);
         });
     };
-  }, [app, applyHeight, srcDoc, supportedPermissions, uiMeta.csp]);
+    // The embedded resource identity is captured by `srcDoc`; `app`,
+    // `supportedPermissions`, and `uiMeta.csp` are read via refs so a
+    // new-but-equal `app` object reference does not tear down a live bridge.
+  }, [applyHeight, markReady, srcDoc]);
 
   if (!resourceHtml) {
     return (
@@ -460,7 +493,19 @@ export function supportedMcpAppPermissions(
 
 export function isMcpAppReadyMessage(data: unknown): boolean {
   if (!data || typeof data !== "object" || Array.isArray(data)) return false;
-  const type = (data as { type?: unknown }).type;
+  const record = data as {
+    protocol?: unknown;
+    version?: unknown;
+    type?: unknown;
+  };
+  if (
+    record.protocol === AGENT_NATIVE_EMBED_PROTOCOL &&
+    record.version === AGENT_NATIVE_EMBED_VERSION &&
+    record.type === AGENT_NATIVE_EMBED_MESSAGE_TYPES.READY
+  ) {
+    return true;
+  }
+  const type = record.type;
   return (
     type === "agentNative.embeddedAppReady" ||
     type === "agentNative.frameOrigin"
@@ -468,7 +513,9 @@ export function isMcpAppReadyMessage(data: unknown): boolean {
 }
 
 export function buildMcpAppCsp(csp: McpUiResourceCsp | undefined): string {
-  const connect = sanitizeCspSources(csp?.connectDomains);
+  const connect = withLocalWebSocketSources(
+    sanitizeCspSources(csp?.connectDomains),
+  );
   const resources = sanitizeCspSources(csp?.resourceDomains);
   const frames = sanitizeCspSources(csp?.frameDomains);
   const base = sanitizeCspSources(csp?.baseUriDomains);
@@ -491,6 +538,24 @@ function sanitizeCspSources(values: string[] | undefined): string[] {
   for (const value of values ?? []) {
     const source = sanitizeCspSource(value);
     if (source) out.push(source);
+  }
+  return [...new Set(out)];
+}
+
+function withLocalWebSocketSources(sources: string[]): string[] {
+  const out = [...sources];
+  for (const source of sources) {
+    try {
+      const url = new URL(source);
+      if (
+        url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+      ) {
+        out.push(`ws://${url.host}`);
+      }
+    } catch {
+      // Ignore non-URL CSP source expressions.
+    }
   }
   return [...new Set(out)];
 }

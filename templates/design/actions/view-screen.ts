@@ -23,7 +23,7 @@ export default defineAction({
     const [navigation, designVariants, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
       readAppState("design-variants"),
-      readAppState("design-selection"),
+      readAppStateForCurrentTab("design-selection"),
     ]);
     const designId =
       navigation &&

@@ -939,6 +939,7 @@ async function mintFirstPartyMcpIdentityToken(
 
   return signA2AToken(subject, orgDomain, orgSecret, {
     expiresIn: "5m",
+    audience: firstPartyMcpAudienceForUrl(trust.url),
     preferGlobalSecret: !orgSecret,
     extraClaims: {
       jti: randomJti(),
@@ -947,4 +948,19 @@ async function mintFirstPartyMcpIdentityToken(
       agent_native_first_party_mcp: true,
     },
   });
+}
+
+function firstPartyMcpAudienceForUrl(rawUrl: string): string | undefined {
+  try {
+    const url = new URL(rawUrl);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    url.pathname = pathname.endsWith("/_agent-native/mcp")
+      ? pathname
+      : `${pathname}/_agent-native/mcp`;
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
 }

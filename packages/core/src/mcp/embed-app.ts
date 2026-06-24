@@ -114,6 +114,7 @@ export function embedApp(
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
+    const maxEmbedSessionRefreshAttempts = 2;
     const defaultOpenAiBridgeWaitMs = 200;
     const chatGptOpenAiBridgeWaitMs = 5000;
     const openAiBridgePollMs = 50;
@@ -135,6 +136,7 @@ export function embedApp(
     let appFrameReadyTimer = null;
     let appFrameLoadTimer = null;
     let lastFrameSrc = "";
+    let embedSessionRefreshAttempts = 0;
 
     function esc(value) {
       return String(value ?? "")
@@ -270,9 +272,9 @@ export function embedApp(
         record.deepLinkUrl,
         record.deepLink,
         record.openUrl,
-        record.url,
         structuredOpenLinkUrl,
-        metaUrl
+        metaUrl,
+        record.url
       ]);
     }
 
@@ -323,6 +325,12 @@ export function embedApp(
     function sendToAppFrame(message) {
       if (!appFrame || !appFrame.contentWindow) return;
       try { appFrame.contentWindow.postMessage(message, "*"); } catch {}
+    }
+
+    function notifyOuterMcpAppReady() {
+      try {
+        window.parent.postMessage({ type: "agentNative.embeddedAppReady" }, "*");
+      } catch {}
     }
 
     function nextWrapperRequestId() {
@@ -644,9 +652,15 @@ export function embedApp(
     function importHeadChildrenWithBase(source, baseHref) {
       const base = document.createElement("base");
       base.href = baseHref;
+      const nodes = Array.from(source.childNodes).filter((node) => {
+        return !(
+          node.nodeType === 1 &&
+          String(node.nodeName || "").toLowerCase() === "base"
+        );
+      });
       document.head.replaceChildren(
         base,
-        ...Array.from(source.childNodes).map((node) => document.importNode(node, true))
+        ...nodes.map((node) => document.importNode(node, true))
       );
     }
 
@@ -927,6 +941,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
+      embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
 
@@ -1166,6 +1181,7 @@ export function embedApp(
       frame.addEventListener("load", () => {
         if (appFrame !== frame) return;
         clearFrameLoadTimer();
+        notifyOuterMcpAppReady();
         sendFrameReadyMessages(frame);
         startFrameReadyTimer(frame);
       });
@@ -1184,6 +1200,13 @@ export function embedApp(
         renderFrameFallback();
         return;
       }
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        renderAppLaunchError(
+          "Embedded app session expired. Reopen the app to mint a fresh session."
+        );
+        return;
+      }
+      embedSessionRefreshAttempts += 1;
       openStartUrl = "";
       startedFor = "";
       lastFrameSrc = "";
@@ -1200,19 +1223,6 @@ export function embedApp(
       return true;
     }
 
-    // We have connected to a standards-track MCP Apps host (Codex, Cursor,
-    // Claude over the SDK, our own renderer, …) through the postMessage
-    // \`ui/*\` bridge rather than ChatGPT's \`window.openai\` global. These hosts
-    // render the resource in a strict sandboxed iframe (typically
-    // \`sandbox="allow-scripts"\`, opaque origin). Self-navigating that iframe to
-    // the real app origin tears down the host bridge and loses the opaque-origin
-    // auth context, which shows up as a permanent / flashing loading state.
-    // Transplanting the app document into the shell keeps the bridge alive and
-    // works under the opaque origin via embed-token auth, exactly like Claude.
-    function isNativeMcpAppsBridgeHost() {
-      return !!app && !openAiBridge;
-    }
-
     function shouldTransplantAppDocument() {
       const render = renderModeSource();
       const mode = render.mode;
@@ -1222,7 +1232,6 @@ export function embedApp(
       return (
         isClaudeMcpContentHost() ||
         isChatGptSandboxHost() ||
-        isNativeMcpAppsBridgeHost() ||
         mode === "transplant" ||
         render.frame === "transplant"
       );
@@ -1248,6 +1257,10 @@ export function embedApp(
 
     function shouldRenderControlledAppFrame() {
       return !!openAiBridge || !!app || isChatGptSandboxHost();
+    }
+
+    function shouldDirectRenderKnownAppRoute(src) {
+      return !!app && !openAiBridge && !isEmbedStartUrl(src) && !shouldTransplantAppDocument();
     }
 
     function isCurrentFrameUrl(src) {
@@ -1455,8 +1468,10 @@ export function embedApp(
       const data = event.data.data || {};
       if (event.data.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
+        embedSessionRefreshAttempts = 0;
         clearFrameLoadTimer();
         clearFrameReadyTimer();
+        notifyOuterMcpAppReady();
         return;
       }
       if (event.data.type === "agentNative.embedSessionExpired") {
@@ -1509,13 +1524,6 @@ export function embedApp(
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
-        if (
-          isEmbedStartUrl(launchUrl) &&
-          openUrl &&
-          !isEmbedStartUrl(openUrl)
-        ) {
-          launchUrl = openUrl;
-        }
         if (startedFor === launchUrl) return;
         startedFor = launchUrl;
         const embedUrl = withChatBridgeParam(launchUrl);
@@ -1530,6 +1538,10 @@ export function embedApp(
           return;
         }
         if (!selfNavigate && isEmbedStartUrl(embedUrl)) {
+          renderFrame(embedUrl);
+          return;
+        }
+        if (shouldDirectRenderKnownAppRoute(embedUrl)) {
           renderFrame(embedUrl);
           return;
         }
@@ -1876,6 +1888,7 @@ export function embedApp(
         sendHostContext();
       };
       await ensureHostAppConnected();
+      notifyOuterMcpAppReady();
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
@@ -1907,6 +1920,7 @@ export function embedApp(
         sendHostContext();
       };
       await ensureHostAppConnected();
+      notifyOuterMcpAppReady();
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
