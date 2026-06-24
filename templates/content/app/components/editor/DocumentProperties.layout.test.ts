@@ -79,11 +79,11 @@ describe("document property layout", () => {
     const source = readPropertiesSource();
 
     expect(source).toContain(
-      "const addPropertyNameInputRef = useRef<HTMLInputElement>",
+      "const addPropertySearchInputRef = useRef<HTMLInputElement>",
     );
-    expect(source).toContain("addPropertyNameInputRef.current?.focus()");
-    expect(source).toContain("addPropertyNameInputRef.current?.select()");
-    expect(source).toContain('aria-label="New property name"');
+    expect(source).toContain("addPropertySearchInputRef.current?.focus()");
+    expect(source).toContain("addPropertySearchInputRef.current?.select()");
+    expect(source).toContain('aria-label="Search property types"');
     expect(source).toContain("const firstFilteredPropertyType");
     expect(source).toContain("void add(firstFilteredPropertyType)");
   });
