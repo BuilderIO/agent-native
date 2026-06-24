@@ -245,7 +245,6 @@ export default function Header() {
               label={t("header.searchAria")}
               placeholder={t("header.searchPlaceholder")}
             />
-            <ThemeToggle />
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -256,6 +255,8 @@ export default function Header() {
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
+            <DocsLanguagePicker />
+            <ThemeToggle />
 
             {/* Mobile hamburger */}
             <button

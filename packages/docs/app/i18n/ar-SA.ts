@@ -56,6 +56,138 @@ const arSA = {
     genericTitle: "حدث خطأ",
     genericBody: "حدث خطأ غير متوقع.",
   },
+  home: {
+    hero: {
+      badge: "framework مفتوح المصدر",
+      titleLine1: "Agentic Applications",
+      titleAccent: "تملكها أنت",
+      body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
+      primaryCta: "ابدأ مع Chat",
+      secondaryCta: "عرض الوثائق",
+    },
+    code: {
+      quickStartComment: "ابدأ مع Chat-first app",
+      skillInstallComment:
+        "أضف تخطيط Agent-Native إلى coding agent تستخدمه بالفعل",
+      frameworkComment: "يشغل action واحد agent و UI و HTTP و MCP و A2A و CLI.",
+      frameworkDescription: "قل مرحبا من app-agent loop المحلي.",
+    },
+    framework: {
+      title: "framework لتطبيقات agent-native apps",
+      body1:
+        "Agent-Native هو framework مفتوح المصدر لبناء agents كبرمجيات حقيقية: ابدأ مع Chat أو headless agents، ثم أضف UI و jobs والتعاون حول نفس actions.",
+      body2:
+        "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
+      cta: "اقرأ دليل framework",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "عرّف العمل مرة واحدة. استخدمه من agent و UI و API و MCP و A2A.",
+        },
+        sharedState: {
+          title: "حالة مشتركة",
+          description:
+            "يحافظ SQL-backed app state على تزامن البشر و agents و sessions.",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "يتم شحن app-agent loop و tools و skills و memory و jobs و observability معا.",
+        },
+        backendAgnostic: {
+          title: "غير مرتبط بbackend معين",
+          description:
+            "وصّل أي قاعدة بيانات SQL مدعومة من Drizzle وأي host متوافق مع Nitro.",
+        },
+      },
+    },
+    templates: {
+      title: "اعمل fork وخصّص app كاملة الميزات",
+      eyebrow: "مجاني 100% ومفتوح المصدر",
+      body: "عندما يحتاج action إلى شاشات، ابدأ من app موثوقة يمكنك تخصيصها. Chat هو الحد الأدنى من app scaffold؛ وتضيف قوالب النطاق workflows للمنتج وبيانات أمثلة و agent-ready actions.",
+      cta: "عرض كل القوالب",
+    },
+    skills: {
+      title: "جرّبه مع skill",
+      body: "أضف التخطيط المرئي و PR recaps إلى Claude Code أو Codex أو Cursor أو Pi أو OpenCode أو VS Code بأمر واحد.",
+      planBody:
+        "خطط قابلة للمراجعة مع diagrams و wireframes و file maps وتعليقات قبل تغييرات الكود.",
+      recapBody:
+        "ملخص مرئي ل PR أو diff حتى يرى reviewers الشكل قبل الأسطر الخام.",
+      cta: "تصفح Skills Guide",
+    },
+    connected: {
+      title: "agents و UI متصلان بالكامل",
+      body: "agent و UI عضوان متساويان في نفس النظام. كل action يعمل في الاتجاهين: انقر عليه أو اطلبه.",
+      tabs: {
+        agentSees: {
+          title: "agent يرى كل شيء",
+          description:
+            "يمكنه قراءة وتحديث أي UI وأي بيانات وأي حالة داخل التطبيق.",
+        },
+        uiTalks: {
+          title: "UI يتحدث إلى agent",
+          description:
+            "الأزرار والنماذج و workflows تدفع محتوى منظما إلى agent، ما يمنحك تدفقات موجهة تمر كلها عبر agent، بما في ذلك skills و rules و instructions.",
+        },
+        agentUpdates: {
+          title: "agent يحدّث كوده بنفسه",
+          description:
+            "يمكنه تعديل app نفسه لتغيير features والوظائف. تتحسن tools الخاصة بك بمرور الوقت.",
+        },
+        everything: {
+          title: "كل شيء يعمل في الاتجاهين",
+          description:
+            "كل action متاح في UI متاح أيضا ل agent. يمكنك النقر لإنجاز شيء ما أو الطلب من agent إنجازه.",
+        },
+      },
+    },
+    comparison: {
+      title: "أفضل ما في العالمين",
+      body: "أدوات SaaS جامدة وتضيف AI كفكرة لاحقة. Raw AI Agents قوية لكنها بلا UI. تجمع agent-native apps بين الاثنين.",
+      columns: {
+        saas: "SaaS Tools",
+        agents: "Raw AI Agents",
+        internal: "Internal Tools",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Customization",
+        ownership: "Ownership",
+      },
+      cells: {
+        polishedButRigid: "مصقولة لكنها جامدة",
+        none: "لا شيء",
+        mixedQuality: "جودة متفاوتة",
+        fullUi: "UI كاملة، fork وانطلق",
+        boltedOn: "مضافة لاحقا",
+        powerful: "قوية",
+        shallowlyConnected: "اتصال سطحي",
+        agentFirst: "Agent-first، مدمجة",
+        cant: "لا يمكن",
+        instructionsAndSkills: "Instructions و skills",
+        fullHighMaintenance: "كاملة، لكنها عالية الصيانة",
+        agentModifies: "Agent يعدل app",
+        rented: "مستأجرة",
+        somewhatYours: "جزئيا لك",
+        youOwnCode: "الكود ملكك",
+      },
+    },
+    quickStart: {
+      title: "ابدأ مع Chat",
+      body: "ينشئ أمر واحد Chat app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+    },
+    finalCta: {
+      title: "software تملكه، مبني لعصر agentic era",
+      body: "ابدأ مع Chat أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
+      primaryCta: "ابدأ مع Action",
+      secondaryCta: "اقرأ الوثائق",
+      githubCta: "عرض على GitHub",
+    },
+  },
   nav: {
     overview: "نظرة عامة",
     coreArchitecture: "البنية الأساسية",
