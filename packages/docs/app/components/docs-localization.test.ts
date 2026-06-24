@@ -53,21 +53,6 @@ describe("localized docs fallback", () => {
     expect(resolveLayoutLocale("/docs")).toBe("en-US");
   });
 
-  it("falls back to English content without losing the locale route", async () => {
-    expect(hasLocalizedDoc("fr-FR", "agent-surfaces")).toBe(false);
-
-    const doc = await loadDoc("agent-surfaces", "fr-FR");
-    expect(doc?.slug).toBe("agent-surfaces");
-
-    const loaderDoc = await localizedDocLoader(
-      loaderArgs(
-        { locale: "fr-FR", slug: "agent-surfaces" },
-        "https://docs.test/fr-FR/docs/agent-surfaces",
-      ),
-    );
-    expect(loaderDoc?.slug).toBe("agent-surfaces");
-  });
-
   it("loads localized getting started content on prefixed docs indexes", async () => {
     const doc = await docsIndexLoader(
       loaderArgs({ locale: "zh-CN" }, "https://docs.test/zh-CN/docs"),
@@ -75,6 +60,18 @@ describe("localized docs fallback", () => {
 
     expect(doc.slug).toBe("getting-started");
     expect(doc.title).toBe("开始使用");
+  });
+
+  it("loads localized markdown for every translated docs page", async () => {
+    expect(hasLocalizedDoc("fr-FR", "getting-started")).toBe(true);
+
+    const doc = await loadDoc("getting-started", "fr-FR");
+    expect(doc?.slug).toBe("getting-started");
+
+    const loaderDoc = await localizedDocLoader(
+      loaderArgs({ locale: "fr-FR", slug: "getting-started" }),
+    );
+    expect(loaderDoc?.slug).toBe("getting-started");
   });
 
   it("loads localized markdown when an override exists", async () => {
@@ -124,7 +121,7 @@ describe("localized docs fallback", () => {
     );
   });
 
-  it("keeps untranslated docs searchable at localized paths", async () => {
+  it("indexes translated docs at localized canonical paths", async () => {
     const index = await buildSearchIndexAsync("fr-FR");
 
     expect(

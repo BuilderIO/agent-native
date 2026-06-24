@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { useState, type SyntheticEvent } from "react";
-import { trackEvent, useLocale } from "@agent-native/core/client";
+import { trackEvent, useLocale, useT } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
@@ -35,42 +35,22 @@ const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
 
 type Skill = {
   command: string;
-  name: string;
-  tagline: string;
-  description: string;
-  features: string[];
+  copyKey: "visualPlan" | "visualRecap";
   docsTo: string;
-  videoAriaLabel: string;
   videoUrl?: string;
 };
 
 const SKILLS: Skill[] = [
   {
     command: "/visual-plan",
-    name: "Visual Plan",
-    tagline: "Review before code",
-    description:
-      "Turns a coding task into a shareable plan with diagrams, file notes, and optional UI sketches.",
-    features: [
-      "See the implementation shape before changes land",
-      "Comment, revise, approve, or hand off",
-    ],
+    copyKey: "visualPlan",
     docsTo: "/docs/template-plan",
-    videoAriaLabel: "Visual Plan skill demo video",
     videoUrl: import.meta.env.VITE_VISUAL_PLAN_SKILL_DEMO_VIDEO_URL,
   },
   {
     command: "/visual-recap",
-    name: "Visual Recap",
-    tagline: "Review after changes",
-    description:
-      "Turns a PR or git diff into a shareable recap of what changed and why.",
-    features: [
-      "Summarizes schema, API, and file changes",
-      "Optionally posts one sticky PR comment",
-    ],
+    copyKey: "visualRecap",
     docsTo: "/docs/pr-visual-recap",
-    videoAriaLabel: "Visual Recap skill demo video",
     videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
   },
 ];
@@ -136,6 +116,7 @@ function CliCopy({
 
 function SkillVideo({ skill }: { skill: Skill }) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const t = useT();
   if (!skill.videoUrl) return null;
 
   function handleVideoReady(event: SyntheticEvent<HTMLVideoElement>) {
@@ -149,7 +130,7 @@ function SkillVideo({ skill }: { skill: Skill }) {
     <div className="relative mt-5 aspect-[1189/1080] overflow-hidden rounded-lg border border-[var(--docs-border)] bg-black">
       <video
         src={skill.videoUrl}
-        aria-label={skill.videoAriaLabel}
+        aria-label={t(`skillsPage.${skill.copyKey}.videoAriaLabel`)}
         autoPlay
         muted
         loop
@@ -184,6 +165,8 @@ function SkillVideo({ skill }: { skill: Skill }) {
 
 function SkillCard({ skill }: { skill: Skill }) {
   const { locale } = useLocale();
+  const t = useT();
+  const featureKeys = ["feature1", "feature2"] as const;
 
   return (
     <article className="flex flex-col rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
@@ -192,20 +175,22 @@ function SkillCard({ skill }: { skill: Skill }) {
           {skill.command}
         </span>
         <span className="text-sm text-[var(--fg-secondary)]">
-          {skill.tagline}
+          {t(`skillsPage.${skill.copyKey}.tagline`)}
         </span>
       </div>
 
       <h3 className="mb-2 text-lg font-semibold tracking-tight">
-        {skill.name}
+        {t(`skillsPage.${skill.copyKey}.name`)}
       </h3>
       <p className="mb-4 text-sm leading-relaxed text-[var(--fg-secondary)]">
-        {skill.description}
+        {t(`skillsPage.${skill.copyKey}.description`)}
       </p>
 
       <ul className="m-0 mb-4 list-disc space-y-1.5 pl-5 text-sm text-[var(--fg-secondary)]">
-        {skill.features.map((f) => (
-          <li key={f}>{f}</li>
+        {featureKeys.map((featureKey) => (
+          <li key={featureKey}>
+            {t(`skillsPage.${skill.copyKey}.${featureKey}`)}
+          </li>
         ))}
       </ul>
 
@@ -221,7 +206,7 @@ function SkillCard({ skill }: { skill: Skill }) {
           }
           className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >
-          Read the docs
+          {t("common.readDocs")}
           <span aria-hidden>→</span>
         </Link>
       </div>
@@ -233,6 +218,7 @@ function SkillCard({ skill }: { skill: Skill }) {
 
 export default function SkillsPage() {
   const { locale } = useLocale();
+  const t = useT();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
@@ -242,13 +228,11 @@ export default function SkillsPage() {
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-center lg:gap-12">
           <div>
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              Give your coding agent new superpowers
+              {t("skillsPage.heroTitle")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install app-backed skills powered by Agent-Native apps you can
-              fully customize: visual planning before implementation and visual
-              PR recaps after changes land.
+              {t("skillsPage.heroBody")}
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
@@ -261,12 +245,10 @@ export default function SkillsPage() {
       {/* Skill cards */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          App-backed skills for coding agents
+          {t("skillsPage.sectionTitle")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Use hosted shareable app links, local files, or a self-hosted/custom
-          app, and your agent gets instructions plus the matching MCP surface
-          when one is required.
+          {t("skillsPage.sectionBody")}
         </p>
         <div className="grid gap-6 md:grid-cols-2">
           {SKILLS.map((skill) => (
@@ -278,8 +260,7 @@ export default function SkillsPage() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Works with Claude Code, Codex, Cursor, Pi, OpenCode, GitHub Copilot /
-          VS Code, and similar coding agents.
+          {t("skillsPage.ctaBody")}
         </p>
         <div className="mx-auto max-w-xl">
           <CliCopy command={INSTALL_COMMAND} location="skills_cta" />
@@ -290,7 +271,7 @@ export default function SkillsPage() {
             to={localizedPath("/docs/template-plan")}
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
-            Read the Visual Plans docs
+            {t("skillsPage.readVisualPlansDocs")}
             <span aria-hidden>→</span>
           </Link>
           <Link
@@ -298,7 +279,7 @@ export default function SkillsPage() {
             to={localizedPath("/templates")}
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
-            Browse templates
+            {t("skillsPage.browseTemplates")}
             <span aria-hidden>→</span>
           </Link>
         </div>

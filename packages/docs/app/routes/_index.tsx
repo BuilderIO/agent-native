@@ -1,11 +1,5 @@
 import { Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  IconBrain,
-  IconDatabase,
-  IconRoute,
-  IconServer,
-} from "@tabler/icons-react";
 import { useLocale, useT } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
@@ -93,25 +87,6 @@ const BIDIRECTIONAL_TABS = [
   },
 ];
 
-const FRAMEWORK_PRIMITIVES = [
-  {
-    key: "actions",
-    icon: IconRoute,
-  },
-  {
-    key: "sharedState",
-    icon: IconDatabase,
-  },
-  {
-    key: "agentRuntime",
-    icon: IconBrain,
-  },
-  {
-    key: "backendAgnostic",
-    icon: IconServer,
-  },
-];
-
 const homepageTemplateSlugs = [
   "clips",
   "plan",
@@ -130,20 +105,20 @@ const featureCloudRows = [
     className: "-translate-x-10",
     words: [
       {
-        label: "Notifications",
+        labelKey: "notifications",
         className: "text-base uppercase opacity-[0.18]",
       },
       {
-        label: "Recurring jobs",
+        labelKey: "recurringJobs",
         className: "text-lg uppercase opacity-[0.22]",
       },
-      { label: "Actions", className: "text-5xl opacity-[0.95]" },
+      { labelKey: "actions", className: "text-5xl opacity-[0.95]" },
       {
-        label: "Agent teams",
+        labelKey: "agentTeams",
         className: "text-xl uppercase opacity-[0.22]",
       },
       {
-        label: "Monorepos",
+        labelKey: "monorepos",
         className: "text-lg uppercase opacity-[0.20]",
       },
     ],
@@ -151,54 +126,69 @@ const featureCloudRows = [
   {
     className: "translate-x-12",
     words: [
-      { label: "Permissions", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "RBAC", className: "text-lg uppercase opacity-[0.18]" },
-      { label: "Organizations", className: "text-2xl opacity-[0.24]" },
       {
-        label: "Workspace secrets",
+        labelKey: "permissions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "rbac", className: "text-lg uppercase opacity-[0.18]" },
+      { labelKey: "organizations", className: "text-2xl opacity-[0.24]" },
+      {
+        labelKey: "workspaceSecrets",
         className: "text-lg uppercase opacity-[0.16]",
       },
-      { label: "Docs search", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Source search", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "docsSearch", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "sourceSearch",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
     ],
   },
   {
     className: "translate-x-8",
     words: [
       {
-        label: "Context awareness",
+        labelKey: "contextAwareness",
         className: "text-xl uppercase opacity-[0.18]",
       },
-      { label: "Observability", className: "text-4xl opacity-[0.86]" },
+      { labelKey: "observability", className: "text-4xl opacity-[0.86]" },
       {
-        label: "Realtime sync",
+        labelKey: "realtimeSync",
         className: "text-lg uppercase opacity-[0.20]",
       },
-      { label: "SQL state", className: "text-4xl opacity-[0.86]" },
+      { labelKey: "sqlState", className: "text-4xl opacity-[0.86]" },
       {
-        label: "Multi-tenancy",
+        labelKey: "multiTenancy",
         className: "text-xl uppercase opacity-[0.22]",
       },
-      { label: "Data loaders", className: "text-lg uppercase opacity-[0.18]" },
-      { label: "Live queries", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "dataLoaders",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "liveQueries",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
     ],
   },
   {
     className: "-translate-x-14",
     words: [
       {
-        label: "Agent instructions",
+        labelKey: "agentInstructions",
         className: "text-xl uppercase opacity-[0.18]",
       },
       {
-        label: "Provider grants",
+        labelKey: "providerGrants",
         className: "text-lg uppercase opacity-[0.16]",
       },
-      { label: "Notifications", className: "text-2xl opacity-[0.24]" },
-      { label: "Comments", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Review links", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "notifications", className: "text-2xl opacity-[0.24]" },
+      { labelKey: "comments", className: "text-xl uppercase opacity-[0.18]" },
       {
-        label: "Privacy controls",
+        labelKey: "reviewLinks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "privacyControls",
         className: "text-lg uppercase opacity-[0.16]",
       },
     ],
@@ -207,85 +197,97 @@ const featureCloudRows = [
     className: "-translate-x-4",
     words: [
       {
-        label: "Skills",
+        labelKey: "skills",
         className: "text-lg uppercase opacity-[0.20]",
       },
-      { label: "Security", className: "text-3xl opacity-[0.58]" },
-      { label: "Audit logs", className: "text-3xl opacity-[0.54]" },
-      { label: "Workspaces", className: "text-3xl opacity-[0.46]" },
+      { labelKey: "security", className: "text-3xl opacity-[0.58]" },
+      { labelKey: "auditLogs", className: "text-3xl opacity-[0.54]" },
+      { labelKey: "workspaces", className: "text-3xl opacity-[0.46]" },
       {
-        label: "Voice input",
+        labelKey: "voiceInput",
         className: "text-lg uppercase opacity-[0.18]",
       },
       {
-        label: "MCP apps",
+        labelKey: "mcpApps",
         className: "text-xl uppercase opacity-[0.20]",
       },
-      { label: "Tool calls", className: "text-2xl opacity-[0.26]" },
-      { label: "Agent sidebar", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "toolCalls", className: "text-2xl opacity-[0.26]" },
+      {
+        labelKey: "agentSidebar",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
     ],
   },
   {
     className: "feature-cloud-center-row",
     words: [
-      { label: "Shared actions", className: "text-2xl opacity-[0.30]" },
-      { label: "UI surfaces", className: "text-xl uppercase opacity-[0.20]" },
-      { label: "i18n", className: "text-5xl opacity-[0.92]" },
-      { label: "MCP Auth", className: "text-2xl opacity-[0.44]" },
+      { labelKey: "sharedActions", className: "text-2xl opacity-[0.30]" },
+      { labelKey: "uiSurfaces", className: "text-xl uppercase opacity-[0.20]" },
+      { labelKey: "i18n", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "mcpAuth", className: "text-2xl opacity-[0.44]" },
       {
-        label: "Battle-tested components",
+        labelKey: "battleTestedComponents",
         className:
           "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
       },
-      { label: "MCP + A2A", className: "text-5xl opacity-[0.92]" },
-      { label: "External agents", className: "text-2xl opacity-[0.32]" },
-      { label: "A2A handoffs", className: "text-xl uppercase opacity-[0.20]" },
+      { labelKey: "mcpA2a", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "externalAgents", className: "text-2xl opacity-[0.32]" },
+      {
+        labelKey: "a2aHandoffs",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
     ],
   },
   {
     className: "translate-x-6",
     words: [
-      { label: "Human handoff", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Agent context", className: "text-2xl opacity-[0.26]" },
       {
-        label: "Durable resume",
+        labelKey: "humanHandoff",
         className: "text-xl uppercase opacity-[0.18]",
       },
-      { label: "Extensions", className: "text-3xl opacity-[0.48]" },
-      { label: "Sharing & privacy", className: "text-2xl opacity-[0.34]" },
+      { labelKey: "agentContext", className: "text-2xl opacity-[0.26]" },
       {
-        label: "Real-time collaboration",
+        labelKey: "durableResume",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "extensions", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "sharingPrivacy", className: "text-2xl opacity-[0.34]" },
+      {
+        labelKey: "realTimeCollaboration",
         className: "text-2xl opacity-[0.30]",
       },
-      { label: "SSO", className: "text-2xl opacity-[0.44]" },
+      { labelKey: "sso", className: "text-2xl opacity-[0.44]" },
       {
-        label: "OAuth",
+        labelKey: "oauth",
         className: "text-lg uppercase opacity-[0.20]",
       },
-      { label: "MCP servers", className: "text-2xl opacity-[0.28]" },
-      { label: "Agent teams", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "mcpServers", className: "text-2xl opacity-[0.28]" },
+      { labelKey: "agentTeams", className: "text-xl uppercase opacity-[0.18]" },
     ],
   },
   {
     className: "-translate-x-8",
     words: [
-      { label: "Scoped access", className: "text-xl uppercase opacity-[0.18]" },
       {
-        label: "DB adapters",
+        labelKey: "scopedAccess",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "dbAdapters",
         className: "text-lg uppercase opacity-[0.22]",
       },
-      { label: "Auth", className: "text-4xl opacity-[0.84]" },
-      { label: "Approvals", className: "text-3xl opacity-[0.44]" },
-      { label: "Automations", className: "text-3xl opacity-[0.46]" },
-      { label: "Governance", className: "text-3xl opacity-[0.48]" },
-      { label: "Jobs", className: "text-4xl opacity-[0.84]" },
+      { labelKey: "auth", className: "text-4xl opacity-[0.84]" },
+      { labelKey: "approvals", className: "text-3xl opacity-[0.44]" },
+      { labelKey: "automations", className: "text-3xl opacity-[0.46]" },
+      { labelKey: "governance", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "jobs", className: "text-4xl opacity-[0.84]" },
       {
-        label: "AG-UI",
+        labelKey: "agUi",
         className: "text-lg uppercase opacity-[0.20]",
       },
-      { label: "Dispatch", className: "text-2xl opacity-[0.28]" },
+      { labelKey: "dispatch", className: "text-2xl opacity-[0.28]" },
       {
-        label: "Background runs",
+        labelKey: "backgroundRuns",
         className: "text-xl uppercase opacity-[0.18]",
       },
     ],
@@ -293,16 +295,19 @@ const featureCloudRows = [
   {
     className: "translate-x-4",
     words: [
-      { label: "Rate limits", className: "text-lg uppercase opacity-[0.16]" },
-      { label: "Queues", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "rateLimits", className: "text-lg uppercase opacity-[0.16]" },
+      { labelKey: "queues", className: "text-xl uppercase opacity-[0.18]" },
       {
-        label: "Cron schedules",
+        labelKey: "cronSchedules",
         className: "text-xl uppercase opacity-[0.18]",
       },
-      { label: "Analytics", className: "text-2xl opacity-[0.28]" },
-      { label: "Experiments", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "analytics", className: "text-2xl opacity-[0.28]" },
       {
-        label: "Feedback loops",
+        labelKey: "experiments",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "feedbackLoops",
         className: "text-lg uppercase opacity-[0.16]",
       },
     ],
@@ -311,52 +316,52 @@ const featureCloudRows = [
     className: "translate-x-12",
     words: [
       {
-        label: "File uploads",
+        labelKey: "fileUploads",
         className: "text-xl uppercase opacity-[0.20]",
       },
-      { label: "Evals", className: "text-2xl opacity-[0.46]" },
-      { label: "Templates", className: "text-5xl opacity-[0.92]" },
-      { label: "Provider APIs", className: "text-2xl opacity-[0.36]" },
+      { labelKey: "evals", className: "text-2xl opacity-[0.46]" },
+      { labelKey: "templates", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "providerApis", className: "text-2xl opacity-[0.36]" },
       {
-        label: "Agent web surfaces",
+        labelKey: "agentWebSurfaces",
         className: "text-xl uppercase opacity-[0.18]",
       },
       {
-        label: "Template skills",
+        labelKey: "templateSkills",
         className: "text-xl uppercase opacity-[0.18]",
       },
-      { label: "One-click forks", className: "text-2xl opacity-[0.24]" },
+      { labelKey: "oneClickForks", className: "text-2xl opacity-[0.24]" },
     ],
   },
   {
     className: "-translate-x-2",
     words: [
       {
-        label: "Local file mode",
+        labelKey: "localFileMode",
         className: "text-xl uppercase opacity-[0.18]",
       },
       {
-        label: "Memory",
+        labelKey: "memory",
         className: "text-lg uppercase opacity-[0.18]",
       },
       {
-        label: "Webhooks",
+        labelKey: "webhooks",
         className: "text-xl uppercase opacity-[0.22]",
       },
       {
-        label: "HTTP",
+        labelKey: "http",
         className: "text-xl uppercase opacity-[0.20]",
       },
       {
-        label: "Self-editing code",
+        labelKey: "selfEditingCode",
         className: "text-lg uppercase opacity-[0.16]",
       },
       {
-        label: "CLI",
+        labelKey: "cli",
         className: "text-xl uppercase opacity-[0.24]",
       },
       {
-        label: "Cross-app SSO",
+        labelKey: "crossAppSso",
         className: "text-lg uppercase opacity-[0.16]",
       },
     ],
@@ -365,28 +370,29 @@ const featureCloudRows = [
     className: "translate-x-16",
     words: [
       {
-        label: "Schema migrations",
+        labelKey: "schemaMigrations",
         className: "text-lg uppercase opacity-[0.16]",
       },
       {
-        label: "Hosted deploys",
+        labelKey: "hostedDeploys",
         className: "text-xl uppercase opacity-[0.18]",
       },
       {
-        label: "Environment setup",
+        labelKey: "environmentSetup",
         className: "text-lg uppercase opacity-[0.16]",
       },
       {
-        label: "OAuth callbacks",
+        labelKey: "oauthCallbacks",
         className: "text-xl uppercase opacity-[0.18]",
       },
-      { label: "Exports", className: "text-xl uppercase opacity-[0.18]" },
-      { label: "Dashboards", className: "text-2xl opacity-[0.24]" },
+      { labelKey: "exports", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "dashboards", className: "text-2xl opacity-[0.24]" },
     ],
   },
 ];
 
 function FeatureWordCloud({ className = "" }: { className?: string }) {
+  const t = useT();
   return (
     <div
       className={`feature-cloud pointer-events-none overflow-hidden bg-white dark:bg-black ${className}`}
@@ -400,10 +406,10 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
           >
             {row.words.map((word) => (
               <span
-                key={word.label}
+                key={word.labelKey}
                 className={`feature-cloud-word font-semibold leading-none text-neutral-950 dark:text-white ${word.className}`}
               >
-                {word.label}
+                {t(`home.featureCloud.${word.labelKey}`)}
               </span>
             ))}
           </div>
@@ -414,23 +420,22 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
 }
 
 function BatteriesIncludedCloud() {
+  const t = useT();
   return (
     <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:min-h-[680px] lg:py-36">
-      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden lg:block" />
+      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden translate-x-[140px] lg:block" />
       <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
 
       <div className="relative z-10 mx-auto max-w-[1200px]">
-        <div className="max-w-[410px] text-left">
+        <div className="max-w-[410px] text-center lg:text-left">
           <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
-            Batteries included
+            {t("home.batteries.titleLine1")}
             <span className="block text-[var(--docs-accent)]">
-              battle-tested
+              {t("home.batteries.titleLine2")}
             </span>
           </h2>
-          <p className="mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58">
-            Instead of starting from a blank prompt and a pile of improvised
-            code, Agent-Native gives agents the battle-tested parts and best
-            practices they need to build real app software.
+          <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
+            {t("home.batteries.body")}
           </p>
         </div>
 
@@ -678,7 +683,7 @@ export default defineAction({
         </section>
 
         {/* Framework */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+        <section className="border-t border-[var(--docs-border)] px-6 py-28 lg:py-36">
           <div className="mx-auto max-w-[1200px]">
             <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
               <div>
@@ -723,34 +728,6 @@ export default defineAction({
                 <CodeBlock code={frameworkCode} lang="typescript" />
               </div>
             </div>
-
-            <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {FRAMEWORK_PRIMITIVES.map((primitive) => {
-                const PrimitiveIcon = primitive.icon;
-                return (
-                  <div
-                    key={primitive.key}
-                    className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
-                  >
-                    <div className="mb-2 flex items-center gap-3">
-                      <PrimitiveIcon
-                        className="size-4 shrink-0 text-[var(--docs-accent)]"
-                        stroke={1.8}
-                        aria-hidden="true"
-                      />
-                      <h3 className="m-0 text-base font-semibold">
-                        {t(`home.framework.primitives.${primitive.key}.title`)}
-                      </h3>
-                    </div>
-                    <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                      {t(
-                        `home.framework.primitives.${primitive.key}.description`,
-                      )}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </section>
 
@@ -766,44 +743,83 @@ export default defineAction({
             <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
               {t("home.templates.eyebrow")}
             </p>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              {t("home.templates.body")}
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {homepageTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to={localizedPath("/templates")}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "view_all_templates",
-                  location: "templates_section",
-                })
-              }
-            >
-              {t("home.templates.cta")}
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="mt-8">
+              <Link
+                data-an-prefetch="render"
+                to={localizedPath("/templates")}
+                className="primary-button"
+                onClick={() =>
+                  trackEvent("click cta", {
+                    label: "view_all_templates",
+                    location: "templates_section_header",
+                  })
+                }
               >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
+                {t("home.templates.cta")}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </Link>
+            </div>
+          </div>
+
+          <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
+            {homepageTemplates.map((template) => (
+              <div
+                key={template.name}
+                className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
+              >
+                <TemplateCard template={template} />
+              </div>
+            ))}
+            <div className="template-rail-card template-rail-cta w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]">
+              <Link
+                data-an-prefetch="render"
+                to={localizedPath("/templates")}
+                className="flex min-h-full w-full flex-col items-center justify-center gap-5 px-6 py-8 text-center no-underline hover:no-underline"
+                onClick={() =>
+                  trackEvent("click cta", {
+                    label: "view_all_templates",
+                    location: "templates_scroll_end",
+                  })
+                }
+              >
+                <div>
+                  <h3 className="mb-3 text-2xl font-semibold tracking-tight text-[var(--fg)]">
+                    {t("home.templates.cta")}
+                  </h3>
+                  <p className="mx-auto m-0 max-w-[260px] text-sm leading-relaxed text-[var(--fg-secondary)]">
+                    {t("home.templates.body")}
+                  </p>
+                </div>
+                <span className="primary-button">
+                  {t("home.templates.cta")}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </span>
+              </Link>
+            </div>
           </div>
         </section>
 

@@ -517,6 +517,19 @@ export const RUN_DIAG_STAGE = {
    * recovered by running the turn inline. The run still completes for the user.
    */
   foregroundInlineRecovery: "foreground_inline_recovery",
+  /**
+   * bg-fn wrapper self-diagnostics (the generated `server-agent-background`
+   * wrapper reports these via the `_bg-diag` route, since its own logs are
+   * unreadable). `bgfnWrapperEntered`: the wrapper actually ran in the bg-fn
+   * isolate. `bgfnHandoffReturned`: the in-isolate handoff to the Nitro handler
+   * RETURNED — detail carries the HTTP status (404=route mismatch, 401=auth,
+   * 2xx/5xx=route ran). `bgfnWrapperThrew`: the import/handoff THREW before
+   * returning — detail carries the error. Read in the pre-grace window before
+   * the circuit-breaker overwrites diag_stage.
+   */
+  bgfnWrapperEntered: "bgfn_wrapper_entered",
+  bgfnHandoffReturned: "bgfn_handoff_returned",
+  bgfnWrapperThrew: "bgfn_wrapper_threw",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];

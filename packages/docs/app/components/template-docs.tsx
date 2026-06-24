@@ -1,4 +1,4 @@
-import { trackEvent, useLocale } from "@agent-native/core/client";
+import { trackEvent, useLocale, useT } from "@agent-native/core/client";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { sitePathForLocale } from "./docs-locale";
@@ -20,7 +20,7 @@ export function TemplateDocsLink({
   template,
   location,
   className,
-  children = "View Docs",
+  children,
 }: {
   template: TemplateLinkTarget;
   location: string;
@@ -28,6 +28,8 @@ export function TemplateDocsLink({
   children?: ReactNode;
 }) {
   const { locale } = useLocale();
+  const t = useT();
+
   return (
     <Link
       data-an-prefetch="render"
@@ -43,7 +45,7 @@ export function TemplateDocsLink({
         "inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
       }
     >
-      {children}
+      {children ?? t("common.viewDocs")}
     </Link>
   );
 }

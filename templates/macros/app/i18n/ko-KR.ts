@@ -50,6 +50,28 @@ const messages = {
     collapse: "사이드바 접기",
     syncing: "동기화 중…",
   },
+  analytics: {
+    selectRange: "Select range",
+    lastDays: "Last {{count}} Days",
+    allTime: "All Time",
+    average: "Average",
+    lowest: "Lowest",
+    highest: "Highest",
+    daysTracked: "Days Tracked",
+    daysUnit: "days",
+    net: "Net",
+    consumed: "Consumed",
+    burned: "Burned",
+    noData: "No data available yet",
+    current: "Current",
+    change: "Change",
+    trendView: "Trend View",
+    actualWeight: "Actual Weight",
+    trendDescription:
+      "The blue trend line smooths out daily fluctuations to show your overall progress.",
+    noWeightData: "No weight data available yet",
+    noWeightDescription: "Start logging your weight to see trends",
+  },
 };
 
 export default messages;

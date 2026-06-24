@@ -8,10 +8,11 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
+  const t = useT();
   const { designSystems, isLoading, refetch } = useDesignSystems();
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const [showSetup, setShowSetup] = useState(false);
@@ -50,7 +51,7 @@ export default function DesignSystems() {
     }
   };
 
-  useSetPageTitle("Design Systems");
+  useSetPageTitle(t("header.designSystems"));
 
   useSetHeaderActions(
     <Button
@@ -62,7 +63,7 @@ export default function DesignSystems() {
       className="cursor-pointer"
     >
       <IconPlus className="w-3.5 h-3.5" />
-      New Design System
+      {t("designSystems.new")}
     </Button>,
   );
 
@@ -115,10 +116,10 @@ export default function DesignSystems() {
                 </div>
                 <div className="p-4">
                   <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    New Design System
+                    {t("designSystems.new")}
                   </h3>
                   <div className="text-xs text-muted-foreground/70 mt-1">
-                    Set up your brand
+                    {t("designSystems.setupBrand")}
                   </div>
                 </div>
               </button>
@@ -156,21 +157,21 @@ export default function DesignSystems() {
 }
 
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <IconPalette className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-foreground/90 mb-2">
-        Set up your brand identity
+        {t("designSystems.emptyTitle")}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        Create a design system with your brand colors, typography, and logos.
-        Every new composition will follow your visual identity.
+        {t("designSystems.emptyDescription")}
       </p>
       <Button onClick={onCreateNew} className="cursor-pointer">
         <IconPlus className="w-4 h-4" />
-        New Design System
+        {t("designSystems.new")}
       </Button>
     </div>
   );

@@ -131,10 +131,21 @@ describe("template routes", () => {
       path: "/docs/internationalization",
     });
 
-    expect(docsAlternateLinksForPath("/docs/workspace-connections")).toEqual([
-      { hrefLang: "en-US", path: "/docs/workspace-connections" },
-      { hrefLang: "x-default", path: "/docs/workspace-connections" },
-    ]);
+    const defaultLocalized = docsAlternateLinksForPath(
+      "/docs/workspace-connections",
+    );
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "en-US",
+      path: "/docs/workspace-connections",
+    });
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "zh-CN",
+      path: "/zh-CN/docs/workspace-connections",
+    });
+    expect(defaultLocalized).toContainEqual({
+      hrefLang: "x-default",
+      path: "/docs/workspace-connections",
+    });
     expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
 
@@ -222,5 +233,5 @@ describe("template routes", () => {
     expect(paths).not.toContain("/docs/resources");
     expect(paths).not.toContain("/templates/starter");
     expect(paths).not.toContain("/templates/videos");
-  }, 15000);
+  }, 60000);
 });

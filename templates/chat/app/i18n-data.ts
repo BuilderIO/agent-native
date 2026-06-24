@@ -20,6 +20,14 @@ const enUS = {
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
   },
+  pages: {
+    observabilityTitle: "Agent Observability",
+    observabilityPageTitle: "Observability",
+    databaseTitle: "Database",
+    teamTitle: "Team",
+    teamCreateOrgDescription:
+      "Set up a team to share this app with your colleagues.",
+  },
   chat: {
     emptyState: "Ask anything, then customize the app when you need more.",
     composerPlaceholder: "Message the agent...",
@@ -53,6 +61,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
     navigation: { ...enUS.navigation, ...overrides.navigation },
+    pages: { ...enUS.pages, ...overrides.pages },
     chat: { ...enUS.chat, ...overrides.chat },
   };
 }
@@ -78,6 +87,13 @@ export const messagesByLocale = {
       openNavigation: "打开导航",
       expandSidebar: "展开侧边栏",
       collapseSidebar: "收起侧边栏",
+    },
+    pages: {
+      observabilityTitle: "代理可观测性",
+      observabilityPageTitle: "可观测性",
+      databaseTitle: "数据库",
+      teamTitle: "团队",
+      teamCreateOrgDescription: "设置团队，与同事共享此应用。",
     },
     chat: {
       emptyState: "随便提问，需要更多功能时再自定义应用。",
@@ -123,6 +139,14 @@ export const messagesByLocale = {
       openNavigation: "Abrir navegación",
       expandSidebar: "Expandir barra lateral",
       collapseSidebar: "Contraer barra lateral",
+    },
+    pages: {
+      observabilityTitle: "Observabilidad del agente",
+      observabilityPageTitle: "Observabilidad",
+      databaseTitle: "Base de datos",
+      teamTitle: "Equipo",
+      teamCreateOrgDescription:
+        "Configura un equipo para compartir esta app con tus compañeros.",
     },
     chat: {
       emptyState:
@@ -170,6 +194,14 @@ export const messagesByLocale = {
       expandSidebar: "Développer la barre latérale",
       collapseSidebar: "Réduire la barre latérale",
     },
+    pages: {
+      observabilityTitle: "Observabilité de l’agent",
+      observabilityPageTitle: "Observabilité",
+      databaseTitle: "Base de données",
+      teamTitle: "Équipe",
+      teamCreateOrgDescription:
+        "Configurez une équipe pour partager cette app avec vos collègues.",
+    },
     chat: {
       emptyState:
         "Demandez n'importe quoi, puis personnalisez l'app au besoin.",
@@ -216,6 +248,14 @@ export const messagesByLocale = {
       openNavigation: "Navigation öffnen",
       expandSidebar: "Seitenleiste erweitern",
       collapseSidebar: "Seitenleiste einklappen",
+    },
+    pages: {
+      observabilityTitle: "Agent-Beobachtbarkeit",
+      observabilityPageTitle: "Beobachtbarkeit",
+      databaseTitle: "Datenbank",
+      teamTitle: "Team",
+      teamCreateOrgDescription:
+        "Richte ein Team ein, um diese App mit deinen Kollegen zu teilen.",
     },
     chat: {
       emptyState: "Frag alles und passe die App an, wenn du mehr brauchst.",
@@ -265,6 +305,14 @@ export const messagesByLocale = {
       expandSidebar: "サイドバーを展開",
       collapseSidebar: "サイドバーを折りたたむ",
     },
+    pages: {
+      observabilityTitle: "エージェントの可観測性",
+      observabilityPageTitle: "可観測性",
+      databaseTitle: "データベース",
+      teamTitle: "チーム",
+      teamCreateOrgDescription:
+        "同僚とこのアプリを共有するためのチームを設定します。",
+    },
     chat: {
       emptyState: "何でも質問し、必要になったらアプリをカスタマイズできます。",
       composerPlaceholder: "エージェントにメッセージ...",
@@ -309,6 +357,13 @@ export const messagesByLocale = {
       openNavigation: "탐색 열기",
       expandSidebar: "사이드바 펼치기",
       collapseSidebar: "사이드바 접기",
+    },
+    pages: {
+      observabilityTitle: "에이전트 관찰 가능성",
+      observabilityPageTitle: "관찰 가능성",
+      databaseTitle: "데이터베이스",
+      teamTitle: "팀",
+      teamCreateOrgDescription: "동료와 이 앱을 공유할 팀을 설정하세요.",
     },
     chat: {
       emptyState: "무엇이든 물어보고, 더 필요할 때 앱을 사용자 지정하세요.",
@@ -356,6 +411,14 @@ export const messagesByLocale = {
       expandSidebar: "Expandir barra lateral",
       collapseSidebar: "Recolher barra lateral",
     },
+    pages: {
+      observabilityTitle: "Observabilidade do agente",
+      observabilityPageTitle: "Observabilidade",
+      databaseTitle: "Banco de dados",
+      teamTitle: "Equipe",
+      teamCreateOrgDescription:
+        "Configure uma equipe para compartilhar este app com seus colegas.",
+    },
     chat: {
       emptyState:
         "Pergunte qualquer coisa e personalize o app quando precisar.",
@@ -402,6 +465,14 @@ export const messagesByLocale = {
       expandSidebar: "साइडबार फैलाएं",
       collapseSidebar: "साइडबार समेटें",
     },
+    pages: {
+      observabilityTitle: "एजेंट ऑब्जर्वेबिलिटी",
+      observabilityPageTitle: "ऑब्जर्वेबिलिटी",
+      databaseTitle: "डेटाबेस",
+      teamTitle: "टीम",
+      teamCreateOrgDescription:
+        "इस ऐप को अपने सहयोगियों के साथ साझा करने के लिए टीम सेट करें।",
+    },
     chat: {
       emptyState: "कुछ भी पूछें, फिर जरूरत होने पर ऐप कस्टमाइज़ करें।",
       composerPlaceholder: "एजेंट को संदेश...",
@@ -446,6 +517,13 @@ export const messagesByLocale = {
       openNavigation: "فتح التنقل",
       expandSidebar: "توسيع الشريط الجانبي",
       collapseSidebar: "طي الشريط الجانبي",
+    },
+    pages: {
+      observabilityTitle: "قابلية ملاحظة الوكيل",
+      observabilityPageTitle: "قابلية الملاحظة",
+      databaseTitle: "قاعدة البيانات",
+      teamTitle: "الفريق",
+      teamCreateOrgDescription: "أعد فريقا لمشاركة هذا التطبيق مع زملائك.",
     },
     chat: {
       emptyState: "اسأل أي شيء ثم خصص التطبيق عندما تحتاج المزيد.",

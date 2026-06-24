@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
   },
+  notFound: {
+    message: "This page doesn't exist yet.",
+    backToDecks: "Back to Decks",
+  },
+  designSystems: {
+    new: "New Design System",
+    setupBrand: "Set up your brand",
+    emptyTitle: "Set up your brand identity",
+    emptyDescription:
+      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+  },
 };
 
 export default messages;

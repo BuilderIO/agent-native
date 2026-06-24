@@ -1,15 +1,18 @@
 ---
 title: "国際化"
-description: "共有 locale カタログ、言語ピッカー、ブラウザー言語フォールバック、locale 対応 docs コンテンツで Agent Native アプリをローカライズします。"
+description: "共有ロケール カタログ、言語ピッカー、ブラウザ言語フォールバック、ロケール対応ドキュメント コンテンツを使用して、Agent Native アプリをローカライズします。"
 ---
 
 # 国際化
 
-Agent Native アプリは共有ランタイム `@agent-native/core/client/i18n` を通じて、フレームワークとテンプレートの UI をローカライズできます。フレームワークはユーザーの言語選択を SQL settings に保存し、それを actions として公開し、アプリがまだ翻訳していない文字列は English にフォールバックします。
+Agent Native アプリは、共有を通じてフレームワークとテンプレート UI をローカライズできます
+`@agent-native/core/client/i18n` ランタイム。フレームワークはユーザーの
+SQL 設定で言語を選択し、actions として公開し、
+アプリが文字列をまだ翻訳していない場合の英語。
 
-## ランタイム {#runtime}
+## ランタイム
 
-`AppProviders` から provider を使います。
+`AppProviders` を通じてプロバイダーを使用します:
 
 ```tsx
 import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
@@ -27,11 +30,14 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 </AppProviders>;
 ```
 
-`getLocaleInitScript()` は React の hydration 前に初期 `lang`、`dir`、`window.__AGENT_NATIVE_LOCALE__` を設定します。公開 SSR ルートでは `@agent-native/core/server` の `resolveLocaleFromRequest()` を呼び、解決された locale/catalog をこの script に渡すことで hydration mismatch を避けられます。
+`getLocaleInitScript()` は、初期の `lang`、`dir`、および
+React が水和する前の `window.__AGENT_NATIVE_LOCALE__`。パブリック SSR ルートは
+`@agent-native/core/server` から `resolveLocaleFromRequest()` を呼び出し、
+ハイドレーションの不一致を避けるために、ロケール/カタログをそのスクリプトに解決しました。
 
-## カタログ {#catalogs}
+## カタログ
 
-ローカライズされた各テンプレートは `app/i18n/` にカタログを置きます。
+ローカライズされた各テンプレートは、`app/i18n/` の下にカタログを保持します。
 
 ```ts
 // app/i18n/index.ts
@@ -52,11 +58,15 @@ export const i18nCatalog = {
 } satisfies AgentNativeI18nCatalog;
 ```
 
-`en-US` は必ずバンドルします。English 以外のカタログは動的 import にして、ユーザーが現在の locale だけをダウンロードするようにします。対応する locale codes は `en-US`、`zh-CN`、`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN`、`ar-SA` です。
+常に `en-US` をバンドルします。英語以外のカタログを動的にインポートできるため、ユーザーのみ
+アクティブなロケールをダウンロードします。サポートされているロケール コードは、`en-US`、`zh-CN`、
+`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN`、および `ar-SA`。
 
-## UI {#ui}
+## UI
 
-インターフェイス文字列には `useT()` を使い、アプリの `/settings` ページに `<LanguagePicker />` を置きます。サイドバーを持つアプリは、アプリのサイドバーに **Settings** を表示してください。ヘッダーの言語アイコンはショートカットです。
+インターフェース文字列に `useT()` を使用し、アプリに `<LanguagePicker />` を配置します
+`/settings` ページ。サイドバー アプリは、アプリのサイドバーに **設定** を公開する必要があります。
+ヘッダーの言語アイコンは単なるショートカットです。
 
 ```tsx
 import {
@@ -82,26 +92,42 @@ function SettingsPage() {
 }
 ```
 
-「Agent settings」コントロールは、モデル、API キー、自動化、音声などの framework-level controls のために、右側の agent sidebar の Settings tab を開くべきです。その設定がアプリの中心的な体験なら、アプリ自身の settings page に重要な framework 設定を重複表示してもかまいません。ただし source of truth は sidebar settings tab です。
+「エージェント設定」コントロールは、右側のエージェント サイドバーの設定タブを開く必要があります
+モデル、API キー、オートメーション、音声、その他のフレームワーク レベルのコントロール用。
+アプリは、独自の設定ページで価値の高いフレームワーク設定を複製する場合があります
+設定がアプリの中心であるが、サイドバーの設定タブがそのままの場合
+真実の情報源。
 
-日付、数値、相対時間、リストには `useFormatters()` を使います。locale に依存する日付や数値の整形を翻訳文字列の中に入れないでください。
+日付、数値、相対時間、リストには `useFormatters()` を使用します。入れないでください
+翻訳文字列内のロケール依存の日付/数値の書式設定。
 
-## Docs サイトのコンテンツ {#docs-site-content}
+## ドキュメント サイトのコンテンツ {#docs-site-content}
 
-公開 docs ページは同じ core provider を使いますが、`persistPreference={false}` にして匿名 docs トラフィックが SQL settings actions ではなく localStorage とブラウザー言語を使うようにします。English のソースは `packages/core/docs/content/*.md` に残ります。ローカライズされたページ override は `packages/core/docs/content/locales/<locale>/<slug>.md` に置きます。
+パブリック ドキュメント ページは同じコア プロバイダーを使用しますが、
+`persistPreference={false}` なので、匿名ドキュメント トラフィックは localStorage を使用し、
+SQL 設定 actions の代わりにブラウザ言語。英語のソースは
+`packages/core/docs/content/*.md`。ローカライズされたページのオーバーライドは、
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
 
-アプリのカタログと同じ BCP-47 locale codes を使ってください。English ソースと同じ slug を維持し、翻訳された見出しでは `{#anchor}` で安定したアンカーを保ち、routes、action names、protocol fields、env vars、provider names は翻訳しません。ある locale に翻訳 Markdown がないページは English にフォールバックしつつ、ナビゲーションと chrome はローカライズされます。
+アプリ カタログと同じ BCP-47 ロケール コードを使用します。
+英語ソース。翻訳された見出しに `{#anchor}` を使用して安定したアンカーを保持します。
+ルート、アクション名、プロトコル フィールド、環境変数、プロバイダー名はそのままにします
+未翻訳。ロケールのページに翻訳された Markdown がない場合は、ドキュメント サイト
+ナビゲーションとクロムをローカライズしながら、そのページは英語に戻ります。
 
-## Actions と永続化 {#actions-and-persistence}
+## Actions と永続性
 
-すべてのアプリは以下を継承します。
+すべてのアプリは以下を継承します:
 
-- `get-localization-preference` — 現在のユーザーの `{ locale }` を読む
-- `set-localization-preference` — `"system"` または対応 locale を設定する
+- `get-localization-preference` — 現在のユーザーの `{ locale }` を読み取ります
+- `set-localization-preference` — `"system"` またはサポートされているロケールを設定します
 
-永続値はユーザー単位の SQL settings の `localization` に保存されます。`localStorage` は pre-hydration と匿名フォールバックにだけ使います。アクティブな locale は application state に環境コンテキストとして反映されるため、agents は現在の UI 言語を確認できます。
+耐久性の値は、`localization` の下のユーザースコープの SQL 設定に存在します。
+`localStorage` は、事前ハイドレーションと匿名フォールバックにのみ使用されます。アクティブ
+ロケールはアンビエント コンテキストとしてアプリケーションの状態にミラーリングされるため、エージェントは確認できます
+現在のインターフェース言語。
 
-## Guard {#guard}
+## ガード
 
 実行:
 
@@ -109,6 +135,11 @@ function SettingsPage() {
 pnpm guard:i18n-catalogs
 ```
 
-guard は対応 locale ファイル名、key parity、placeholder parity、stale keys、`Intl.PluralRules` による CLDR plural categories を検証します。構造を検証するもので、翻訳品質は検証しません。目立つ文字列は人によるレビューが必要です。
+ガードは、サポートされているロケール ファイル名、キー パリティ、プレースホルダー パリティを検証します。
+古いキー、および CLDR から `Intl.PluralRules` までの複数のカテゴリ。チェックします
+翻訳の品質ではなく構造。視認性の高い文字列には依然として人間が必要です
+レビュー。
 
-action names、routes、enum values、app-state keys、database values、protocol fields、env var names、provider names などの安定した識別子は翻訳しないでください。
+アクション名、ルート、列挙値などの安定した識別子は変換しないでください。
+アプリ状態キー、データベース値、プロトコル フィールド、環境変数名、またはプロバイダー
+名前。

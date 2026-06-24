@@ -1,15 +1,18 @@
 ---
 title: "国际化"
-description: "使用共享语言目录、语言选择器、浏览器语言回退和按语言区分的文档内容来本地化 Agent Native 应用。"
+description: "使用共享区域设置目录、语言选择器、浏览器语言回退和区域设置感知文档内容本地化 Agent Native 应用。"
 ---
 
 # 国际化
 
-Agent Native 应用可以通过共享的 `@agent-native/core/client/i18n` 运行时来本地化框架和模板 UI。框架把用户的语言选择存储在 SQL 设置中，将它暴露为 actions，并在应用尚未翻译某个字符串时回退到 English。
+Agent Native应用程序可以通过共享本地化框架和模板UI
+`@agent-native/core/client/i18n` 运行时。框架存储用户的
+SQL 设置中的语言选择，将其公开为 actions，并回退到
+当应用尚未翻译字符串时为英语。
 
-## 运行时 {#runtime}
+## 运行时
 
-通过 `AppProviders` 使用 provider：
+通过`AppProviders`使用提供者：
 
 ```tsx
 import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
@@ -27,11 +30,14 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 </AppProviders>;
 ```
 
-`getLocaleInitScript()` 会在 React hydration 之前设置初始的 `lang`、`dir` 和 `window.__AGENT_NATIVE_LOCALE__`。公共 SSR 路由可以从 `@agent-native/core/server` 调用 `resolveLocaleFromRequest()`，并把解析出的 locale/catalog 传入脚本，避免 hydration 不一致。
+`getLocaleInitScript()` 设置初始 `lang`、`dir` 和
+`window.__AGENT_NATIVE_LOCALE__` 在 React 水合之前。公共SSR路线可以
+从`@agent-native/core/server`调用`resolveLocaleFromRequest()`并传递
+将区域设置/目录解析到该脚本中以避免水合不匹配。
 
-## 目录 {#catalogs}
+## 目录
 
-每个本地化模板都把目录放在 `app/i18n/` 下：
+每个本地化模板都将目录保存在 `app/i18n/` 下：
 
 ```ts
 // app/i18n/index.ts
@@ -52,44 +58,76 @@ export const i18nCatalog = {
 } satisfies AgentNativeI18nCatalog;
 ```
 
-始终打包 `en-US`。非 English 目录使用动态导入，这样用户只下载当前语言。支持的 locale codes 是 `en-US`、`zh-CN`、`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
+始终捆绑 `en-US`。动态导入非英语目录，仅限用户
+下载活动区域设置。支持的区域设置代码为 `en-US`、`zh-CN`、
+`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
 
-## UI {#ui}
+## UI
 
-界面字符串使用 `useT()`，设置页使用 `<LanguagePicker />`：
+使用 `useT()` 作为接口字符串，并将 `<LanguagePicker />` 放在应用程序的
+`/settings` 页面。侧边栏应用程序应在应用程序侧边栏中公开**设置**；
+标题语言图标只是一个快捷方式。
 
 ```tsx
-import { LanguagePicker, useT } from "@agent-native/core/client";
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
 
-function SettingsLanguageCard() {
+function SettingsPage() {
   const t = useT();
   return (
     <>
       <h2>{t("settings.languageTitle")}</h2>
       <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
     </>
   );
 }
 ```
 
-日期、数字、相对时间和列表使用 `useFormatters()`。不要把依赖 locale 的日期或数字格式直接放进翻译字符串。
+“代理设置”控件应打开右侧代理侧边栏的“设置”选项卡
+用于模型、API 按键、自动化、语音和其他框架级控件。
+应用可能会在自己的设置页面中复制高价值的框架设置
+当设置是应用程序的核心，但侧边栏设置选项卡仍然是
+事实来源。
 
-## 文档站点内容 {#docs-site-content}
+使用 `useFormatters()` 表示日期、数字、相对时间和列表。不要放
+翻译字符串中区域设置敏感的日期/数字格式。
 
-公共文档页使用同一个 core provider，但设置 `persistPreference={false}`，因此匿名文档流量使用 localStorage 和浏览器语言，而不是 SQL 设置 actions。English 源文件仍在 `packages/core/docs/content/*.md`。本地化页面覆盖文件放在 `packages/core/docs/content/locales/<locale>/<slug>.md`。
+## 文档网站内容 {#docs-site-content}
 
-使用与应用目录相同的 BCP-47 locale codes。文件 slug 要与 English 源保持一致，翻译后的标题要用 `{#anchor}` 保留稳定锚点，并且不要翻译 routes、action names、protocol fields、env vars 或 provider names。如果某个 locale 没有某页 Markdown，文档站点会对该页回退到 English，同时继续本地化导航和 chrome。
+公共文档页面使用相同的核心提供程序，但具有
+`persistPreference={false}` 因此匿名文档流量使用 localStorage 和
+浏览器语言而不是 SQL 设置 actions。英文源代码保留在
+`packages/core/docs/content/*.md`。本地化页面覆盖其旁边的实时页面
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
 
-## Actions 与持久化 {#actions-and-persistence}
+使用与应用程序目录相同的 BCP-47 区域设置代码。保留与
+英文来源，在翻译的标题上使用 `{#anchor}` 保留稳定的锚点，
+并留下路由、操作名称、协议字段、环境变量和提供程序名称
+未翻译。如果某个语言环境没有为页面翻译 Markdown，则文档站点
+该页面恢复为英语，同时仍本地化导航和 Chrome。
 
-每个应用都会继承：
+## Actions和坚持
 
-- `get-localization-preference` — 读取当前用户的 `{ locale }`
-- `set-localization-preference` — 设置 `"system"` 或支持的 locale
+每个应用程序都会继承：
 
-持久值存储在用户作用域 SQL 设置的 `localization` 下。`localStorage` 只用于 hydration 前和匿名回退。当前 locale 会同步到 application state，作为环境上下文，让 agents 能看到当前界面语言。
+- `get-localization-preference` — 读取当前用户的`{ locale }`
+- `set-localization-preference` — 设置 `"system"` 或支持的区域设置
 
-## Guard {#guard}
+持久值存在于 `localization` 下的用户范围 SQL 设置中。
+`localStorage` 仅用于预水合和匿名回退。主动
+区域设置作为环境上下文镜像到应用程序状态中，以便代理可以看到
+当前界面语言。
+
+## 守卫
 
 运行：
 
@@ -97,6 +135,11 @@ function SettingsLanguageCard() {
 pnpm guard:i18n-catalogs
 ```
 
-guard 会通过 `Intl.PluralRules` 验证支持的 locale 文件名、key parity、placeholder parity、stale keys 和 CLDR plural categories。它检查结构，不检查翻译质量；高可见度字符串仍需要人工审校。
+守卫验证支持的区域设置文件名、密钥奇偶校验、占位符奇偶校验，
+过时的密钥，以及 CLDR 复数类别到 `Intl.PluralRules`。它检查
+结构，而不是翻译质量；高可见度字符串仍然需要人类
+审查。
 
-不要翻译稳定标识符，例如 action names、routes、enum values、app-state keys、database values、protocol fields、env var names 或 provider names。
+不要翻译稳定的标识符，例如操作名称、路由、枚举值，
+应用程序状态键、数据库值、协议字段、环境变量名称或提供程序
+名字。

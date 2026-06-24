@@ -81,6 +81,23 @@ const messages = {
       body: "別の検索語を試すか、フィルターを確認してください。",
     },
   },
+  trashRoute: {
+    title: "ゴミ箱",
+    selected: "{{count}} 件選択中",
+    deselectAll: "すべて選択解除",
+    selectAll: "すべて選択",
+    restore: "復元",
+    deleteForever: "完全に削除",
+    deleteForeverTitle: "完全に削除しますか？",
+    bulkDeleteDescription:
+      "{{count}} 件の録画が完全に削除されます。この操作は元に戻せません。",
+    singleDeleteDescription:
+      "この録画は完全に削除されます。この操作は元に戻せません。",
+    restored: "復元しました",
+    restoreFailed: "復元に失敗しました",
+    permanentlyDeleted: "完全に削除しました",
+    deleteFailed: "削除に失敗しました",
+  },
   settings: {
     openAgentSettings: "エージェント設定を開く",
     agentDescription:

@@ -68,6 +68,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
     rootDir,
     "app/components/TemplateCard.tsx",
   );
+  const docsLastmod = gitLastmod(docsDir);
 
   const docsPages = fs
     .readdirSync(docsDir)
@@ -83,7 +84,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         description: data.description,
         markdown: body.trim() + "\n",
         markdownPath: `/docs/${slug}.md`,
-        lastmod: gitLastmod(filePath),
+        lastmod: docsLastmod,
       } satisfies AgentWebPage;
     });
 
@@ -111,7 +112,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
                 description: data.description,
                 markdown: body.trim() + "\n",
                 markdownPath: `/${locale}/docs/${slug}.md`,
-                lastmod: gitLastmod(filePath),
+                lastmod: docsLastmod,
               } satisfies AgentWebPage;
             });
         })

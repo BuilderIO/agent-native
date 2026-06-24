@@ -50,6 +50,17 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
   },
+  notFound: {
+    message: "This page doesn't exist yet.",
+    backToDecks: "Back to Decks",
+  },
+  designSystems: {
+    new: "New Design System",
+    setupBrand: "Set up your brand",
+    emptyTitle: "Set up your brand identity",
+    emptyDescription:
+      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+  },
 };
 
 export default messages;

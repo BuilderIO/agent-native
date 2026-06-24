@@ -16,6 +16,7 @@ import { AgentToggleButton } from "../AgentPanel.js";
 import { NotificationsBell } from "../notifications/NotificationsBell.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
+import { useT } from "../i18n.js";
 import {
   Popover,
   PopoverContent,
@@ -47,7 +48,10 @@ interface Extension {
 
 let lastCreateSubmission: { prompt: string; at: number } | null = null;
 
-function submitCreateTool(prompt: string) {
+function submitCreateTool(
+  prompt: string,
+  messageForPrompt: (prompt: string) => string,
+) {
   const trimmed = prompt.trim();
   if (!trimmed) return;
   const now = Date.now();
@@ -60,7 +64,7 @@ function submitCreateTool(prompt: string) {
   }
   lastCreateSubmission = { prompt: trimmed, at: now };
   sendToAgentChat({
-    message: `Create an extension: ${trimmed}`,
+    message: messageForPrompt(trimmed),
     submit: true,
     openSidebar: true,
     newTab: true,
@@ -68,23 +72,29 @@ function submitCreateTool(prompt: string) {
 }
 
 function CreateToolInput({ className }: { className?: string }) {
+  const t = useT();
   return (
     <div className={cn("flex flex-col gap-2 text-left", className)}>
       <p className="px-1 text-sm font-medium text-foreground">
-        What should it do?
+        {t("extensions.whatShouldItDo")}
       </p>
       <PromptComposer
         autoFocus
         className="text-left"
-        placeholder="A todo list, API dashboard, calculator..."
+        placeholder={t("extensions.createPlaceholder")}
         draftScope="extensions:create"
-        onSubmit={(text) => submitCreateTool(text)}
+        onSubmit={(text) =>
+          submitCreateTool(text, (prompt) =>
+            t("extensions.createPrompt", { prompt }),
+          )
+        }
       />
     </div>
   );
 }
 
 export function ExtensionsListPage() {
+  const t = useT();
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -134,7 +144,9 @@ export function ExtensionsListPage() {
       : (extensions ?? []);
 
   const handleCreate = (text: string) => {
-    submitCreateTool(text);
+    submitCreateTool(text, (prompt) =>
+      t("extensions.createPrompt", { prompt }),
+    );
     setShowCreate(false);
   };
 
@@ -176,11 +188,11 @@ export function ExtensionsListPage() {
           <Link
             to="/"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Back to app"
+            aria-label={t("extensions.backToApp")}
           >
             <IconArrowLeft className="h-4 w-4" />
           </Link>
-          <h1 className="text-sm font-semibold">Extensions</h1>
+          <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -199,7 +211,9 @@ export function ExtensionsListPage() {
             ) : (
               <IconEyeOff className="h-4 w-4" />
             )}
-            {showGloballyHidden ? "Hiding shown" : "Show hidden"}
+            {showGloballyHidden
+              ? t("extensions.hiddenShown")
+              : t("extensions.showHidden")}
           </button>
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
@@ -208,7 +222,7 @@ export function ExtensionsListPage() {
                 className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 <IconPlus className="h-4 w-4" />
-                New Extension
+                {t("extensions.newExtension")}
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -217,11 +231,11 @@ export function ExtensionsListPage() {
               className="w-[420px] p-3"
             >
               <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                New extension
+                {t("extensions.newExtensionTitle")}
               </p>
               <PromptComposer
                 autoFocus
-                placeholder="Describe what you'd like to build..."
+                placeholder={t("extensions.buildPlaceholder")}
                 draftScope="extensions:create-popover"
                 onSubmit={handleCreate}
               />
@@ -253,10 +267,10 @@ export function ExtensionsListPage() {
                 <IconTool className="h-10 w-10 text-muted-foreground/40" />
                 <div className="space-y-1.5">
                   <p className="text-base font-semibold text-foreground">
-                    Create your first extension
+                    {t("extensions.emptyTitle")}
                   </p>
                   <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-                    Describe a small app and the agent will build it.
+                    {t("extensions.emptyDescription")}
                   </p>
                 </div>
               </div>
@@ -287,7 +301,7 @@ export function ExtensionsListPage() {
                       {extension.globallyHidden && (
                         <IconEyeOff
                           className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                          aria-label="Hidden from everyone"
+                          aria-label={t("extensions.hiddenFromEveryone")}
                         />
                       )}
                       <span className="truncate">{extension.name}</span>
@@ -299,7 +313,7 @@ export function ExtensionsListPage() {
                     )}
                     {isLocalExtension && (
                       <p className="mt-3 inline-flex rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        Local file
+                        {t("extensions.localFile")}
                       </p>
                     )}
                   </Link>
@@ -313,7 +327,9 @@ export function ExtensionsListPage() {
                       <button
                         type="button"
                         className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
-                        aria-label={`Options for ${extension.name}`}
+                        aria-label={t("extensions.optionsFor", {
+                          name: extension.name,
+                        })}
                       >
                         <IconDotsVertical className="h-4 w-4" />
                       </button>
@@ -333,12 +349,12 @@ export function ExtensionsListPage() {
                             {extension.globallyHidden ? (
                               <>
                                 <IconEye className="h-3.5 w-3.5" />
-                                Unhide for everyone
+                                {t("extensions.unhideEveryone")}
                               </>
                             ) : (
                               <>
                                 <IconEyeOff className="h-3.5 w-3.5" />
-                                Hide from everyone
+                                {t("extensions.hideEveryone")}
                               </>
                             )}
                           </button>
@@ -346,25 +362,24 @@ export function ExtensionsListPage() {
                       )}
                       {isLocalExtension ? (
                         <div className="p-3 text-[12px] text-muted-foreground">
-                          This extension is backed by{" "}
-                          <span className="font-mono text-foreground">
-                            {extension.source?.entryPath ?? "local files"}
-                          </span>
-                          . Edit or remove it from the workspace.
+                          {t("extensions.localFileDescription", {
+                            entryPath:
+                              extension.source?.entryPath ?? "local files",
+                          })}
                         </div>
                       ) : (
                         <div className="p-3">
                           <p className="text-[12px]">
                             {extension.canDelete === false
-                              ? "Remove "
-                              : "Delete "}
-                            <span className="font-medium">
-                              {extension.name}
-                            </span>
-                            ?
+                              ? t("extensions.removeQuestion", {
+                                  name: extension.name,
+                                })
+                              : t("extensions.deleteQuestion", {
+                                  name: extension.name,
+                                })}{" "}
                             {extension.canDelete === false
-                              ? " This hides it from your Extensions list without deleting it for anyone else."
-                              : " This removes it everywhere it is shared."}
+                              ? t("extensions.hideForYouDescription")
+                              : t("extensions.removeEverywhereDescription")}
                           </p>
                           <div className="mt-3 flex justify-end gap-1">
                             <button
@@ -372,7 +387,7 @@ export function ExtensionsListPage() {
                               onClick={() => setConfirmDeleteId(null)}
                               className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
                             >
-                              Cancel
+                              {t("extensions.cancel")}
                             </button>
                             <button
                               type="button"
@@ -386,11 +401,11 @@ export function ExtensionsListPage() {
                               <IconTrash className="h-3.5 w-3.5" />
                               {deletingId === extension.id
                                 ? extension.canDelete === false
-                                  ? "Removing..."
-                                  : "Deleting..."
+                                  ? t("extensions.removing")
+                                  : t("extensions.deleting")
                                 : extension.canDelete === false
-                                  ? "Remove"
-                                  : "Delete"}
+                                  ? t("extensions.remove")
+                                  : t("extensions.delete")}
                             </button>
                           </div>
                         </div>

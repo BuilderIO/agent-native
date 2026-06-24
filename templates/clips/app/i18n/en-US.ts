@@ -80,6 +80,23 @@ const messages = {
       body: "Try a different search term or check your filters.",
     },
   },
+  trashRoute: {
+    title: "Trash",
+    selected: "{{count}} selected",
+    deselectAll: "Deselect all",
+    selectAll: "Select all",
+    restore: "Restore",
+    deleteForever: "Delete forever",
+    deleteForeverTitle: "Delete forever?",
+    bulkDeleteDescription:
+      "Recordings to permanently remove: {{count}}. This cannot be undone.",
+    singleDeleteDescription:
+      "This recording will be permanently removed. This cannot be undone.",
+    restored: "Restored",
+    restoreFailed: "Restore failed",
+    permanentlyDeleted: "Permanently deleted",
+    deleteFailed: "Delete failed",
+  },
   settings: {
     openAgentSettings: "Open agent settings",
     agentDescription:

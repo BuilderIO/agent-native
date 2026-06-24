@@ -4,6 +4,7 @@ import {
   useSendToAgentChat,
   PromptComposer,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   Popover,
@@ -45,6 +46,7 @@ function buildAnalysisContext(configuredSourceNames: string[]): string {
 }
 
 export function NewAnalysisDialog() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
   const { data: statusData, isLoading: isStatusLoading } = useActionQuery(
@@ -79,7 +81,7 @@ export function NewAnalysisDialog() {
       <PopoverTrigger asChild>
         <button className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary">
           <IconPlus className="h-3 w-3" />
-          New Analysis
+          {t("dialogs.newAnalysis")}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -88,7 +90,7 @@ export function NewAnalysisDialog() {
         align="start"
       >
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-          New analysis
+          {t("dialogs.newAnalysisTitle")}
         </p>
         <div
           className={cn(
@@ -110,10 +112,13 @@ export function NewAnalysisDialog() {
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
                 {isStatusLoading
-                  ? "Checking data sources"
+                  ? t("dialogs.checkingDataSources")
                   : configuredSources.length > 0
-                    ? `${configuredSources.length} source${configuredSources.length === 1 ? "" : "s"} configured`
-                    : "No data sources configured"}
+                    ? t("dialogs.sourcesConfigured", {
+                        count: configuredSources.length,
+                        plural: configuredSources.length === 1 ? "" : "s",
+                      })
+                    : t("dialogs.noDataSourcesConfigured")}
               </div>
               {configuredSources.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -131,16 +136,17 @@ export function NewAnalysisDialog() {
                       variant="outline"
                       className="px-1.5 py-0 text-[10px]"
                     >
-                      +{configuredSources.length - 4} more
+                      {t("dialogs.more", {
+                        count: configuredSources.length - 4,
+                      })}
                     </Badge>
                   )}
                 </div>
               ) : (
                 <p className="mt-1 text-muted-foreground">
-                  {statusMessage ||
-                    "Connect a source first, or ask the agent to help wire one up."}{" "}
+                  {statusMessage || t("dialogs.connectSourceFirst")}{" "}
                   <Link to="/data-sources" className="text-primary underline">
-                    Manage sources
+                    {t("dialogs.manageSources")}
                   </Link>
                 </p>
               )}
@@ -150,7 +156,7 @@ export function NewAnalysisDialog() {
         <PromptComposer
           autoFocus
           disabled={isGenerating}
-          placeholder="Describe the question you want to investigate..."
+          placeholder={t("dialogs.newAnalysisPlaceholder")}
           draftScope="analytics:new-analysis"
           onSubmit={handleSubmit}
         />

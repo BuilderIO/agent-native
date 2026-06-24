@@ -79,6 +79,23 @@ const messages = {
       body: "جرّب عبارة بحث أخرى أو تحقق من عوامل التصفية.",
     },
   },
+  trashRoute: {
+    title: "المهملات",
+    selected: "تم تحديد {{count}}",
+    deselectAll: "إلغاء تحديد الكل",
+    selectAll: "تحديد الكل",
+    restore: "استعادة",
+    deleteForever: "حذف نهائيا",
+    deleteForeverTitle: "حذف نهائيا؟",
+    bulkDeleteDescription:
+      "ستتم إزالة {{count}} تسجيل نهائيا. لا يمكن التراجع عن ذلك.",
+    singleDeleteDescription:
+      "ستتم إزالة هذا التسجيل نهائيا. لا يمكن التراجع عن ذلك.",
+    restored: "تمت الاستعادة",
+    restoreFailed: "فشلت الاستعادة",
+    permanentlyDeleted: "تم الحذف نهائيا",
+    deleteFailed: "فشل الحذف",
+  },
   settings: {
     openAgentSettings: "فتح إعدادات الوكيل",
     agentDescription:

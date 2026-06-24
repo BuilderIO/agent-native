@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useSchedulingT } from "../../i18n.js";
 
 export interface BookingLinkCreateDraft {
   title: string;
@@ -54,13 +55,14 @@ function slugify(value: string) {
 }
 
 export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
+  const t = useSchedulingT();
   const {
     open,
     onOpenChange,
     slugPrefix,
     defaultLength = 30,
     onSubmit,
-    submitLabel = "Continue",
+    submitLabel = t("continue"),
   } = props;
 
   const [form, setForm] = useState<BookingLinkCreateDraft>({
@@ -100,14 +102,12 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a new event type</DialogTitle>
-          <DialogDescription>
-            Create a new event type for people to book.
-          </DialogDescription>
+          <DialogTitle>{t("addEventTypeTitle")}</DialogTitle>
+          <DialogDescription>{t("addEventTypeDescription")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="blc-title">Title</Label>
+            <Label htmlFor="blc-title">{t("title")}</Label>
             <Input
               id="blc-title"
               placeholder="Quick chat"
@@ -124,7 +124,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="blc-slug">URL</Label>
+            <Label htmlFor="blc-slug">{t("url")}</Label>
             <div className="flex rounded-md border border-input focus-within:ring-2 focus-within:ring-ring">
               <span className="flex items-center rounded-l-md bg-muted px-3 text-xs text-muted-foreground">
                 {slugPrefix}
@@ -150,10 +150,10 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="blc-desc">Description</Label>
+            <Label htmlFor="blc-desc">{t("description")}</Label>
             <Textarea
               id="blc-desc"
-              placeholder="A short description people will see."
+              placeholder={t("shortDescriptionPlaceholder")}
               rows={2}
               value={form.description}
               onChange={(e) =>
@@ -162,7 +162,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="blc-len">Duration</Label>
+            <Label htmlFor="blc-len">{t("duration")}</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="blc-len"
@@ -173,19 +173,21 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
                   setForm({ ...form, length: Number(e.currentTarget.value) })
                 }
               />
-              <span className="text-sm text-muted-foreground">minutes</span>
+              <span className="text-sm text-muted-foreground">
+                {t("minutes")}
+              </span>
             </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             onClick={submit}
             disabled={!form.title || !form.slug || submitting}
           >
-            {submitting ? "Saving…" : submitLabel}
+            {submitting ? t("saving") : submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

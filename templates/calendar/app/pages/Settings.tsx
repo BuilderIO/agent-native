@@ -254,10 +254,7 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Zoom</CardTitle>
-          <CardDescription>
-            Connect Zoom to create meeting links for calendar events and
-            bookings.
-          </CardDescription>
+          <CardDescription>{t("settings.zoomDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between gap-4">
@@ -266,7 +263,9 @@ export default function Settings() {
                 <>
                   <IconCircleCheck className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">Connected</p>
+                    <p className="text-sm font-medium">
+                      {t("common.connected")}
+                    </p>
                     {zoomStatus.data.accounts?.length > 0 && (
                       <p className="truncate text-xs text-muted-foreground">
                         {zoomStatus.data.accounts
@@ -282,12 +281,12 @@ export default function Settings() {
                   <div className="min-w-0">
                     <p className="text-sm text-muted-foreground">
                       {zoomStatus.data?.configured === false
-                        ? "Not configured"
-                        : "Not connected"}
+                        ? t("settings.zoomNotConfigured")
+                        : t("common.notConnected")}
                     </p>
                     {zoomStatus.data?.configured === false && (
                       <p className="text-xs text-muted-foreground">
-                        Add Zoom OAuth credentials to enable connection.
+                        {t("settings.zoomCredentialsPrompt")}
                       </p>
                     )}
                   </div>
@@ -303,7 +302,7 @@ export default function Settings() {
                 disabled={disconnectZoom.isPending}
               >
                 <IconUnlink className="me-1.5 h-3.5 w-3.5" />
-                Disconnect
+                {t("common.disconnect")}
               </Button>
             ) : (
               <Button
@@ -314,7 +313,7 @@ export default function Settings() {
                 }
               >
                 <IconBrandZoom className="me-1.5 h-3.5 w-3.5" />
-                Connect
+                {t("common.connect")}
               </Button>
             )}
           </div>
@@ -325,10 +324,11 @@ export default function Settings() {
       {!googleStatus.data?.connected && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Connect Google Calendar</CardTitle>
+            <CardTitle className="text-lg">
+              {t("settings.connectGoogleCalendar")}
+            </CardTitle>
             <CardDescription>
-              Follow these steps to connect your Google account. Takes about 3
-              minutes.
+              {t("settings.connectGoogleDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -352,38 +352,39 @@ export default function Settings() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="booking-title">Fallback booking page title</Label>
+            <Label htmlFor="booking-title">
+              {t("settings.bookingTitleLabel")}
+            </Label>
             <Input
               id="booking-title"
               value={bookingTitle}
               onChange={(e) => setBookingTitle(e.target.value)}
-              placeholder="Book a Meeting"
+              placeholder={t("settings.bookingTitlePlaceholder")}
             />
             <p className="text-xs text-muted-foreground">
-              Used only when a booking link has no title. Create, open, and copy
-              public URLs from Booking links.
+              {t("settings.bookingTitleHelp")}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="booking-desc">
-              Fallback booking page description
+              {t("settings.bookingDescriptionLabel")}
             </Label>
             <Textarea
               id="booking-desc"
               value={bookingDescription}
               onChange={(e) => setBookingDescription(e.target.value)}
-              placeholder="Pick a time that works for you."
+              placeholder={t("settings.bookingDescriptionPlaceholder")}
               rows={2}
             />
             <p className="text-xs text-muted-foreground">
-              Used only when a booking link has no description of its own.
+              {t("settings.bookingDescriptionHelp")}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="default-duration">
-              Default event duration (minutes)
+              {t("settings.defaultDurationLabel")}
             </Label>
             <Input
               id="default-duration"
@@ -394,8 +395,7 @@ export default function Settings() {
               max={480}
             />
             <p className="text-xs text-muted-foreground">
-              Default length for new calendar events and booking slots. Booking
-              links can override this per link.
+              {t("settings.defaultDurationHelp")}
             </p>
           </div>
 

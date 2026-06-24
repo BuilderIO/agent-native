@@ -10,6 +10,7 @@ import {
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/tooltip";
 
 export default function AssetDetailPage() {
+  const t = useT();
   const { id } = useParams();
   const navigate = useNavigate();
   const assetQuery = useActionQuery("get-asset", { id: id! }) as any;
@@ -54,7 +56,7 @@ export default function AssetDetailPage() {
     if (assetQuery.isLoading || assetQuery.isPending || assetQuery.isFetching) {
       return (
         <div className="p-6 text-sm text-muted-foreground">
-          Loading asset...
+          {t("assetDetail.loading")}
         </div>
       );
     }
@@ -62,14 +64,13 @@ export default function AssetDetailPage() {
       <div className="flex h-full items-center justify-center p-6">
         <div className="max-w-sm space-y-3 text-center">
           <h2 className="text-lg font-semibold tracking-tight">
-            Asset unavailable
+            {t("assetDetail.unavailableTitle")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            This generated image may have been cleared before it was saved, or
-            the link may point to an asset you no longer have access to.
+            {t("assetDetail.unavailableDescription")}
           </p>
           <Button asChild variant="outline">
-            <Link to="/library">Back to library</Link>
+            <Link to="/library">{t("assetDetail.backToLibrary")}</Link>
           </Button>
         </div>
       </div>
@@ -80,14 +81,13 @@ export default function AssetDetailPage() {
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
   const previewSources = assetPreviewSources(asset);
   const previewUrl = previewSources[0];
-  const categoryLabel = assetCategoryLabel(asset);
+  const categoryLabel = assetCategoryLabel(asset, t);
   const isStarterAsset =
     asset.metadata?.isStarterAsset === true ||
     String(asset.libraryId || "").startsWith("starter:");
   const libraryBackPath = isStarterAsset
     ? "/library"
     : `/brand-kits/${asset.libraryId}`;
-  const libraryBackLabel = isStarterAsset ? "Library" : "Brand Kit";
 
   function refine() {
     sendToAgentChat({
@@ -105,7 +105,7 @@ export default function AssetDetailPage() {
       await navigator.clipboard.writeText(text);
       toast.success(successMessage);
     } catch {
-      toast.error("Could not copy to clipboard.");
+      toast.error(t("assetDetail.copyFailed"));
     }
   }
 
@@ -125,8 +125,8 @@ export default function AssetDetailPage() {
       asset.metadata?.presetId ? `Preset ID: ${asset.metadata.presetId}` : null,
       asset.generationRunId ? `Run ID: ${asset.generationRunId}` : null,
       previewLine,
-      `Prompt: ${asset.prompt || asset.description || "Continue refining this asset."}`,
-      "Ask what should change, then refine this active image and show the new preview.",
+      `Prompt: ${asset.prompt || asset.description || t("assetDetail.continueRefining")}`,
+      t("assetDetail.refineInstruction"),
     ]
       .filter(Boolean)
       .join("\n");
@@ -139,13 +139,16 @@ export default function AssetDetailPage() {
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-2">
             <Link to={libraryBackPath}>
               <IconArrowLeft className="h-4 w-4" />
-              {libraryBackLabel}
+              {isStarterAsset
+                ? t("assetDetail.library")
+                : t("assetDetail.brandKit")}
             </Link>
           </Button>
         </div>
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
           {isVideo && <IconVideo className="h-4 w-4 text-muted-foreground" />}
-          {asset.title || (isVideo ? "Video asset" : "Asset")}
+          {asset.title ||
+            (isVideo ? t("assetDetail.videoAsset") : t("assetDetail.asset"))}
         </h2>
         <div className="mt-3 flex flex-wrap gap-2">
           <Badge variant="secondary">{asset.status}</Badge>
@@ -157,27 +160,32 @@ export default function AssetDetailPage() {
         <div className="space-y-4 text-sm">
           {isVideo ? (
             <Field
-              label="Video"
+              label={t("assetDetail.video")}
               value={`${asset.durationSeconds || "?"}s · ${asset.aspectRatio || "n/a"} · ${asset.model || "n/a"}`}
             />
           ) : (
             <Field
-              label="Dimensions"
+              label={t("assetDetail.dimensions")}
               value={formatDimensions(asset.width, asset.height)}
             />
           )}
           <Field label="MIME" value={asset.mimeType || "n/a"} />
-          <Field label="Folder" value={asset.folderId || "Unfiled"} />
           <Field
-            label="Description"
+            label={t("assetDetail.folder")}
+            value={asset.folderId || t("assetDetail.unfiled")}
+          />
+          <Field
+            label={t("assetDetail.description")}
             value={
-              asset.description || asset.altText || "No description stored"
+              asset.description ||
+              asset.altText ||
+              t("assetDetail.noDescription")
             }
             multiline
           />
           <Field
-            label="Prompt"
-            value={asset.prompt || "No prompt stored"}
+            label={t("assetDetail.prompt")}
+            value={asset.prompt || t("assetDetail.noPrompt")}
             multiline
           />
         </div>
@@ -185,22 +193,27 @@ export default function AssetDetailPage() {
         <div className="grid gap-3">
           {!isStarterAsset ? (
             <Button onClick={refine}>
-              {isVideo ? "Make video variation" : "Make variations"}
+              {isVideo
+                ? t("assetDetail.makeVideoVariation")
+                : t("assetDetail.makeVariations")}
             </Button>
           ) : null}
           <div className="flex items-center gap-2">
             {!isVideo && !isStarterAsset ? (
               <AssetActionButton
-                label="Handoff"
+                label={t("assetDetail.handoff")}
                 onClick={() =>
-                  void copyTextToClipboard(handoffPrompt(), "Copied prompt")
+                  void copyTextToClipboard(
+                    handoffPrompt(),
+                    t("assetDetail.copiedPrompt"),
+                  )
                 }
               >
                 <IconClipboard className="h-4 w-4" />
               </AssetActionButton>
             ) : null}
             <AssetActionButton
-              label="Download"
+              label={t("assetDetail.download")}
               disabled={exportAsset.isPending}
               onClick={() => {
                 if (isStarterAsset) {
@@ -223,13 +236,13 @@ export default function AssetDetailPage() {
               <IconDownload className="h-4 w-4" />
             </AssetActionButton>
             <AssetActionButton
-              label="Copy URL"
+              label={t("assetDetail.copyUrl")}
               disabled={!previewUrl}
               onClick={() => {
                 if (previewUrl) {
                   void copyTextToClipboard(
                     assetUrlForClipboard(previewUrl),
-                    "Copied URL",
+                    t("assetDetail.copiedUrl"),
                   );
                 }
               }}
@@ -244,7 +257,7 @@ export default function AssetDetailPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Delete"
+                        aria-label={t("assetDetail.delete")}
                         className="size-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         disabled={deleteAsset.isPending}
                       >
@@ -252,18 +265,23 @@ export default function AssetDetailPage() {
                       </Button>
                     </AlertDialogTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Delete</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("assetDetail.delete")}
+                  </TooltipContent>
                 </Tooltip>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+                    <AlertDialogTitle>
+                      {t("assetDetail.deleteTitle")}
+                    </AlertDialogTitle>
                     <AlertDialogDescription>
-                      This removes the asset from the library. Existing exports
-                      that already use this URL may stop rendering.
+                      {t("assetDetail.deleteDescription")}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>
+                      {t("assetDetail.cancel")}
+                    </AlertDialogCancel>
                     <AlertDialogAction
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       onClick={() =>
@@ -276,7 +294,7 @@ export default function AssetDetailPage() {
                         )
                       }
                     >
-                      Delete
+                      {t("assetDetail.delete")}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -297,6 +315,7 @@ export default function AssetDetailPage() {
           <AssetImagePreview
             sources={previewSources}
             alt={asset.altText || asset.title || ""}
+            previewUnavailableLabel={t("assetDetail.previewUnavailable")}
           />
         )}
       </div>
@@ -332,25 +351,30 @@ function AssetActionButton({
   );
 }
 
-function assetCategoryLabel(asset: any): string | null {
+function assetCategoryLabel(
+  asset: any,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | null {
   if (
     asset?.metadata?.intent === "subject" ||
     asset?.role === "subject_reference"
   ) {
-    return "content only";
+    return t("assetDetail.contentOnly");
   }
   const category = asset?.metadata?.category;
   if (typeof category !== "string") return null;
-  if (category === "style-only") return "style reference";
+  if (category === "style-only") return t("assetDetail.styleReference");
   return category.replace(/-/g, " ");
 }
 
 function AssetImagePreview({
   sources,
   alt,
+  previewUnavailableLabel,
 }: {
   sources: string[];
   alt: string;
+  previewUnavailableLabel: string;
 }) {
   const [sourceIndex, setSourceIndex] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
@@ -365,7 +389,7 @@ function AssetImagePreview({
   if (!src || unavailable) {
     return (
       <div className="flex min-h-48 min-w-72 items-center justify-center rounded-lg border border-dashed border-border bg-background px-6 text-sm font-medium text-muted-foreground">
-        Preview unavailable
+        {previewUnavailableLabel}
       </div>
     );
   }
