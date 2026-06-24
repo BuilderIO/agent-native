@@ -24,7 +24,14 @@
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
  *      the background dispatch; without it the dispatch can't be trusted).
  */
-import { hasConfiguredA2ASecret } from "../a2a/auth-policy.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
+import {
+  extractBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
 
 /**
  * Framework route the background function actually runs — sibling to
@@ -102,4 +109,84 @@ export function isAgentChatDurableBackgroundEnabled(): boolean {
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );
+}
+
+/** Decision returned by `prepareProcessRunRequest`. */
+export type ProcessRunPreparation =
+  | {
+      ok: true;
+      /** The pre-claimed run id the background worker must reuse. */
+      runId: string;
+      /** Body to stash for the re-entered handler (marker guaranteed present). */
+      body: Record<string, unknown>;
+    }
+  | {
+      ok: false;
+      /** HTTP status the route should return. */
+      status: number;
+      /** Error payload. */
+      error: string;
+    };
+
+/**
+ * Pure, transport-agnostic core of the `_process-run` route: validate the body,
+ * authenticate the HMAC self-dispatch, and produce the body the re-entered
+ * agent-chat handler should run as the background worker.
+ *
+ * Auth policy mirrors the agent-teams processor exactly:
+ *   - `A2A_SECRET` set → require a valid `verifyInternalToken(runId, token)`.
+ *   - no secret but a production runtime → refuse (503) — never run unsigned in
+ *     prod.
+ *   - no secret + non-prod (local dev) → allow unsigned; the SQL atomic claim
+ *     in the worker still prevents double-processing.
+ *
+ * Extracted from the route handler so the auth + marker-prep decision is unit
+ * testable without booting the whole Nitro plugin. The route only adds body
+ * reading and the final handler invocation around this.
+ */
+export function prepareProcessRunRequest(
+  body: unknown,
+  authHeader: string | undefined,
+): ProcessRunPreparation {
+  if (!body || typeof body !== "object") {
+    return { ok: false, status: 400, error: "Invalid request body" };
+  }
+  const record = body as Record<string, unknown>;
+  const marker = record[AGENT_CHAT_BACKGROUND_RUN_FIELD] as
+    | { runId?: unknown }
+    | undefined;
+  const runId =
+    marker && typeof marker.runId === "string"
+      ? marker.runId
+      : typeof record.taskId === "string"
+        ? (record.taskId as string)
+        : "";
+  if (!runId) {
+    return { ok: false, status: 400, error: "runId required" };
+  }
+
+  if (hasConfiguredA2ASecret()) {
+    const token = extractBearerToken(authHeader);
+    if (!verifyInternalToken(runId, token ?? "")) {
+      return {
+        ok: false,
+        status: 401,
+        error: "Invalid or expired processor token",
+      };
+    }
+  } else if (isA2AProductionRuntime()) {
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
+    };
+  }
+
+  // Ensure the marker is present so the re-entered handler runs as the
+  // background worker (reuses runId/turnId, no re-claim, no re-dispatch).
+  if (!marker || typeof marker.runId !== "string") {
+    record[AGENT_CHAT_BACKGROUND_RUN_FIELD] = { runId };
+  }
+  return { ok: true, runId, body: record };
 }

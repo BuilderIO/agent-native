@@ -152,7 +152,7 @@ import {
 } from "../a2a/auth-policy.js";
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
-  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  prepareProcessRunRequest,
 } from "../agent/durable-background.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
@@ -7799,45 +7799,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "Invalid request body" };
           }
-          const marker = processBody?.[AGENT_CHAT_BACKGROUND_RUN_FIELD];
-          const runId =
-            marker && typeof marker.runId === "string"
-              ? marker.runId
-              : typeof processBody?.taskId === "string"
-                ? processBody.taskId
-                : "";
-          if (!runId) {
-            setResponseStatus(event, 400);
-            return { error: "runId required" };
+
+          // Validate + HMAC-authenticate the self-dispatch and prepare the
+          // background-worker body. Pure decision (unit-tested in
+          // durable-background.spec.ts); the route only wires it to h3.
+          const prepared = prepareProcessRunRequest(
+            processBody,
+            getHeader(event, "authorization"),
+          );
+          if (!prepared.ok) {
+            setResponseStatus(event, prepared.status);
+            return { error: prepared.error };
           }
 
-          // HMAC auth — identical policy to the agent-teams processor: require a
-          // valid token when A2A_SECRET is set; reject on production runtimes
-          // without a secret; allow unsigned only in local dev (where the SQL
-          // atomic claim still prevents double-processing).
-          if (hasConfiguredA2ASecret()) {
-            const tok = extractBearerToken(getHeader(event, "authorization"));
-            if (!verifyInternalToken(runId, tok ?? "")) {
-              setResponseStatus(event, 401);
-              return { error: "Invalid or expired processor token" };
-            }
-          } else if (isA2AProductionRuntime()) {
-            setResponseStatus(event, 503);
-            return {
-              error:
-                "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
-            };
-          }
-
-          // Ensure the marker is present so the re-entered handler runs as the
-          // background worker (reuses runId/turnId, no re-claim, no re-dispatch).
-          if (!marker || typeof marker.runId !== "string") {
-            processBody[AGENT_CHAT_BACKGROUND_RUN_FIELD] = { runId };
-          }
           // Stash the verified+augmented body for the handler — the body stream
           // is already consumed, so the handler reads this instead.
           (event as any).context = (event as any).context ?? {};
-          (event as any).context.__agentChatBackgroundBody = processBody;
+          (event as any).context.__agentChatBackgroundBody = prepared.body;
 
           try {
             return await invokeAgentChatHandler(event);
