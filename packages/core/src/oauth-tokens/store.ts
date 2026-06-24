@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  widenIntColumnsToBigInt,
-} from "../db/client.js";
+import { getDbExec, isPostgres, intType } from "../db/client.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -86,11 +81,6 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
-      // Older deployments have a 32-bit `updated_at`; on Postgres the
-      // `Date.now()` written on every token save overflows int4. Widen it in
-      // place (no-op once done / on fresh DBs). Unqualified name — the helper
-      // scopes to the `public` schema.
-      await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
