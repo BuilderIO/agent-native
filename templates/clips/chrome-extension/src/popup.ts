@@ -1064,7 +1064,7 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
-    setStatus("Checking sign in...");
+    setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
     authStatus = await readAuthStatus(settings);
     if (authStatus === "signed-out") {
       start.disabled = false;
@@ -1073,7 +1073,6 @@ async function init(): Promise<void> {
       setStatus("");
       return;
     }
-    setStatus("Checking video storage...");
     const storageConfigured = await readVideoStorageConfigured(settings);
     if (!storageConfigured) {
       start.disabled = false;
@@ -1096,7 +1095,6 @@ async function init(): Promise<void> {
       window.close();
       return;
     }
-    setStatus("Starting recording...");
     await saveSettings(settings);
     const response = await sendStartMessage(settings);
     if (response.ok) {
