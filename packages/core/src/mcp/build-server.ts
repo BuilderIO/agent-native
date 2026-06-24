@@ -184,6 +184,46 @@ export interface MCPRequestMeta {
    * `config.actions`. Set by `mountMCP` from `verifyAuth`.
    */
   fullSurface?: boolean;
+  /**
+   * Whether this request may receive inline MCP App embeds (the `ui://`
+   * resource reference hosts render in an iframe). Resolved once per request by
+   * `createMCPServerForRequest` from `isMcpAppsInlineEnabled(identity)` — the
+   * deploy-toggleable kill switch. When `false`, no MCP App resource is
+   * advertised or referenced and tool results fall back to their deep-link
+   * text. Defaults to disabled when unset.
+   */
+  inlineMcpApps?: boolean;
+}
+
+/**
+ * Deploy-toggleable kill switch for inline MCP App embeds — the `ui://`
+ * resource reference hosts like Codex / Cursor / ChatGPT render in a sandboxed
+ * iframe. **Off by default**, so a not-yet-verified inline embed never reaches
+ * normal users; flip it on per environment with `AGENT_NATIVE_MCP_APPS_INLINE=1`
+ * and a redeploy. While the global switch is off, accounts listed in
+ * `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+ * inline embeds, so you can keep verifying a fix in production before enabling
+ * it for everyone. Requires no skills/instructions change — when disabled, tool
+ * results simply fall back to their deep-link text.
+ */
+export function isMcpAppsInlineEnabled(
+  identity: MCPCallerIdentity | undefined,
+): boolean {
+  const flag = process.env.AGENT_NATIVE_MCP_APPS_INLINE?.trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
+    return true;
+  }
+  const email = identity?.userEmail?.trim().toLowerCase();
+  if (email) {
+    const allowed = (
+      process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS ?? ""
+    )
+      .split(/[\s,]+/)
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowed.includes(email)) return true;
+  }
+  return false;
 }
 
 type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
@@ -912,6 +952,13 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // NB: the inline kill switch is intentionally NOT enforced here. This
+  // resolver also backs `resources/read`, which must keep serving the shell
+  // for a URI the host already holds (e.g. a cached descriptor) so it degrades
+  // gracefully instead of throwing a hard `-32603`. The switch is enforced at
+  // the *advertisement/render* sites (`tools/list` descriptor meta,
+  // `tools/call` result meta, `resources/list`) so disabled embeds never get
+  // advertised in the first place.
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
@@ -960,6 +1007,9 @@ async function getMcpAppResources(
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
+  // Advertisement path (resources/list + resources/templates/list): suppressed
+  // by the inline kill switch so disabled embeds are never listed.
+  if (!requestMeta?.inlineMcpApps) return [];
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
@@ -1192,6 +1242,16 @@ export async function createMCPServerForRequest(
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
 
+  // Resolve the inline-MCP-App kill switch once per request from the effective
+  // identity + environment, then thread it through `requestMeta` so every
+  // resource/tool handler below honors the same decision. An explicit value on
+  // the incoming meta (tests / embedded callers) wins.
+  requestMeta = {
+    ...(requestMeta ?? {}),
+    inlineMcpApps:
+      requestMeta?.inlineMcpApps ?? isMcpAppsInlineEnabled(effectiveIdentity),
+  };
+
   // The action set the request handlers operate on = base actions + generic
   // cross-app builtins (template wins on name collision). An authenticated
   // real caller (connect-minted token / `mcp install` owner / production —
@@ -1327,7 +1387,10 @@ export async function createMCPServerForRequest(
               : {};
           const toolMeta = {
             ...rawToolMeta,
-            ...(mcpAppResource
+            // Advertisement path: only tag the tool with its inline-embed
+            // descriptor when the kill switch is on, so disabled embeds never
+            // prompt a host to render/read the `ui://` resource.
+            ...(mcpAppResource && requestMeta?.inlineMcpApps
               ? {
                   ...openAiToolDescriptorMeta(mcpAppResource),
                   [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
@@ -1468,6 +1531,7 @@ export async function createMCPServerForRequest(
           userEmail: getRequestUserEmail(),
           orgId: getRequestOrgId() ?? null,
           caller: "mcp",
+          actionName: name,
         });
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;
@@ -1477,12 +1541,14 @@ export async function createMCPServerForRequest(
           !!mcpResult.raw &&
           typeof mcpResult.raw === "object" &&
           (mcpResult.raw as Record<string, unknown>).isError === true;
-        const mcpAppResource = await resolveMcpAppResourceSafely(
-          config,
-          name,
-          entry,
-          requestMeta,
-        );
+        // Render path: only treat the result as an inline embed when the kill
+        // switch is on. When off, `mcpAppResource` is null so every embed
+        // branch below degrades to the plain deep-link artifacts the tool would
+        // otherwise return — no `openai/outputTemplate`, no minted embed-start,
+        // no embed structuredContent — so the host shows a link, not an iframe.
+        const mcpAppResource = requestMeta?.inlineMcpApps
+          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          : null;
         const rawResultForClient = mcpAppResource
           ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
           : rawResult;

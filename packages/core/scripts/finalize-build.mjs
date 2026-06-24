@@ -13,19 +13,19 @@ import {
   existsSync,
 } from "node:fs";
 import { join } from "node:path";
+import { materializeSourceCorpus } from "./materialize-source-corpus.mjs";
 
-// Prune any *.spec.js / *.spec.d.ts files that tsc emitted before spec paths
-// were added to tsconfig exclude. They must never ship in the published package.
+// Prune any spec/test files that tsc emitted or template copying preserved.
+// They must never ship in the published package.
 function pruneSpecArtifacts(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       pruneSpecArtifacts(full);
     } else if (
-      entry.name.endsWith(".spec.js") ||
-      entry.name.endsWith(".spec.d.ts") ||
-      entry.name.endsWith(".spec.d.ts.map") ||
-      entry.name.endsWith(".spec.js.map")
+      /\.(spec|test)\.[cm]?[jt]sx?$/.test(entry.name) ||
+      /\.(spec|test)\.d\.ts(\.map)?$/.test(entry.name) ||
+      /\.(spec|test)\.[cm]?js\.map$/.test(entry.name)
     ) {
       rmSync(full, { force: true });
     }
@@ -35,6 +35,7 @@ if (existsSync("dist")) pruneSpecArtifacts("dist");
 
 rmSync("dist/templates", { recursive: true, force: true });
 cpSync("src/templates", "dist/templates", { recursive: true });
+pruneSpecArtifacts("dist/templates");
 mkdirSync("dist/styles", { recursive: true });
 for (const f of readdirSync("src/styles").filter((n) => n.endsWith(".css"))) {
   copyFileSync(join("src/styles", f), join("dist/styles", f));
@@ -61,3 +62,5 @@ if (existsSync(wsPath)) {
   }
   writeFileSync("dist/catalog.json", JSON.stringify(catalog, null, 2) + "\n");
 }
+
+materializeSourceCorpus();

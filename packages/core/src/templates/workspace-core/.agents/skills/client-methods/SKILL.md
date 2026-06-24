@@ -3,6 +3,7 @@ name: client-methods
 description: >-
   Client method surface rules. Use when wiring browser/client code to actions,
   application state, framework routes, app APIs, uploads, auth, or settings.
+scope: dev
 metadata:
   internal: true
 ---

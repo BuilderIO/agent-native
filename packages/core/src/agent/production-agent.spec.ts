@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { attachToolSearch } from "./tool-search.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -8,19 +11,25 @@ import {
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
   resolveAgentOwnerEmail,
+  resolveSkillReferenceContent,
   runAgentLoop,
+  shouldChainBackgroundContinuation,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
+import type { ActiveRun } from "./run-manager.js";
+import type { AgentChatEvent, RunEvent } from "./types.js";
 import { AgentActionStopError } from "../action.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
@@ -57,6 +66,53 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("resolveSkillReferenceContent", () => {
+  it("does not resolve scope: dev codebase skills for runtime agent references", async () => {
+    const previousCwd = process.cwd();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-skill-ref-"));
+    try {
+      fs.mkdirSync(path.join(root, ".agents", "skills", "runtime-skill"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(root, ".agents", "skills", "runtime-skill", "SKILL.md"),
+        "---\nname: runtime-skill\n---\nRuntime content.",
+      );
+      fs.mkdirSync(path.join(root, ".agents", "skills", "dev-skill"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(root, ".agents", "skills", "dev-skill", "SKILL.md"),
+        "---\nname: dev-skill\nscope: dev\n---\nDev content.",
+      );
+
+      process.chdir(root);
+      __resetAgentsBundleCache();
+
+      await expect(
+        resolveSkillReferenceContent({
+          type: "skill",
+          name: "runtime-skill",
+          path: ".agents/skills/runtime-skill/SKILL.md",
+          source: "codebase",
+        }),
+      ).resolves.toContain("Runtime content.");
+      await expect(
+        resolveSkillReferenceContent({
+          type: "skill",
+          name: "dev-skill",
+          path: ".agents/skills/dev-skill/SKILL.md",
+          source: "codebase",
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      process.chdir(previousCwd);
+      __resetAgentsBundleCache();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("buildUserContentWithAttachments", () => {
   it("preserves the prompt text when there are no attachments", () => {
@@ -3917,5 +3973,95 @@ describe("trimOldToolResults", () => {
       i % 2 === 0 ? userTextMsg(`u${i}`) : assistantTextMsg(`a${i}`),
     );
     expect(trimOldToolResults(messages, 10)).toBeNull();
+  });
+});
+
+describe("shouldChainBackgroundContinuation (server-driven background chain)", () => {
+  function makeRun(
+    events: AgentChatEvent[],
+    status: ActiveRun["status"] = "completed",
+  ): ActiveRun {
+    const runEvents: RunEvent[] = events.map((event, seq) => ({ seq, event }));
+    return {
+      runId: "r1",
+      threadId: "t1",
+      turnId: "turn1",
+      events: runEvents,
+      status,
+      subscribers: new Set(),
+      abort: new AbortController(),
+      startedAt: Date.now(),
+    };
+  }
+
+  it("does NOT chain a foreground (non-background-worker) run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain a clean run that ended with a terminal done", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "text", text: "all done" }, { type: "done" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("CHAINS a background run that ended at an auto_continue boundary", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("CHAINS a background run that ended at a loop_limit boundary", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "loop_limit" } as AgentChatEvent]),
+        continuationCount: 3,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT chain an aborted/user-stopped background run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun(
+          [{ type: "auto_continue", reason: "run_timeout" }],
+          "aborted",
+        ),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain once the continuation budget is exhausted", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS,
+      }),
+    ).toBe(false);
+    // One below the cap still chains.
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
+      }),
+    ).toBe(true);
   });
 });

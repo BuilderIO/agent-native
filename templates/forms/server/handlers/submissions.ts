@@ -42,6 +42,22 @@ function cleanMetaText(value: unknown): string | null {
   return trimmed.slice(0, MAX_META_TEXT_LENGTH);
 }
 
+function cleanSubmitterEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 320 || !trimmed.includes("@")) return null;
+  return trimmed;
+}
+
+// Allowlist the client-surface hint so only known values are stored. Anything
+// else (including spoofed direct POSTs) is dropped to NULL.
+const KNOWN_CLIENT_SURFACES = new Set(["web", "electron", "tauri"]);
+function cleanClientSurface(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return KNOWN_CLIENT_SURFACES.has(normalized) ? normalized : null;
+}
+
 function cleanChatSessionIds(value: unknown): string[] {
   const ids: string[] = [];
   const visit = (item: unknown) => {
@@ -201,8 +217,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   // Optional metadata sent by trusted clients (e.g. the framework's
   // FeedbackButton, which forwards the logged-in user's email so we can see
-  // who sent feedback in Slack). Never required, never trusted as identity —
-  // anyone can claim any email — but useful as a hint when the client is ours.
+  // who sent feedback in Slack). Never required. Prefer the Forms-host session
+  // when present; cross-app feedback submissions fall back to the client hint,
+  // which is useful context but not verified identity.
   const meta =
     typeof body._meta === "object" && body._meta !== null
       ? (body._meta as {
@@ -211,22 +228,20 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
           chatSessionIds?: unknown;
           activeRunId?: unknown;
           pageUrl?: unknown;
+          clientSurface?: unknown;
         })
       : null;
-  const rawSubmitter = meta?.submitterEmail;
+  const session = await getSession(event).catch(() => null);
   const submitterEmail =
-    typeof rawSubmitter === "string" &&
-    rawSubmitter.length > 0 &&
-    rawSubmitter.length <= 320 &&
-    rawSubmitter.includes("@")
-      ? rawSubmitter
-      : null;
+    cleanSubmitterEmail(session?.email) ??
+    cleanSubmitterEmail(meta?.submitterEmail);
   const chatSessionIds = cleanChatSessionIds([
     meta?.chatSessionId,
     meta?.chatSessionIds,
   ]);
   const activeRunId = cleanMetaText(meta?.activeRunId);
   const pageUrl = cleanMetaText(meta?.pageUrl);
+  const clientSurface = cleanClientSurface(meta?.clientSurface);
 
   await db.insert(schema.responses).values({
     id: responseId,
@@ -235,6 +250,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     submittedAt: now,
     ip,
     submitterEmail,
+    pageUrl,
+    clientSurface,
   });
 
   // Write submission notification to application state (SQL-backed)
@@ -250,14 +267,16 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     // Non-critical — don't fail the submission
   }
 
-  // Fire integrations (non-blocking, never fails the submission). Feedback
-  // debug context is intentionally integration-only: it helps triage Slack
-  // submissions without retaining page URLs or debug breadcrumbs in SQL.
+  // Fire integrations best-effort and never fail the submission. Keep this
+  // awaited: serverless hosts can freeze fire-and-forget work as soon as the
+  // HTTP response returns, which silently drops Slack/webhook delivery.
+  // pageUrl and clientSurface are persisted on the response (above) so owners
+  // can see which screen and which app feedback came from; chat session ids and
+  // run ids remain integration-only debug breadcrumbs we don't retain in SQL.
   try {
     const integrations: FormIntegration[] = settings.integrations ?? [];
     if (integrations.length > 0) {
-      // Fire-and-forget — don't await to keep response fast
-      fireIntegrations(integrations, {
+      await fireIntegrations(integrations, {
         formId: id,
         formTitle: form.title,
         responseId,
@@ -268,7 +287,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         chatSessionIds,
         activeRunId,
         pageUrl,
-      }).catch(() => {});
+        clientSurface,
+      });
     }
   } catch {
     // Non-critical
@@ -321,6 +341,8 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
           submitterEmail: r.submitterEmail,
+          pageUrl: r.pageUrl ?? null,
+          clientSurface: r.clientSurface ?? null,
         })) as FormResponse[],
         total: total?.count ?? 0,
         fields: JSON.parse(access.resource.fields),

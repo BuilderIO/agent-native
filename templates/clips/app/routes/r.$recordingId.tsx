@@ -927,16 +927,8 @@ export default function RecordingPage() {
               <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
                 Agent
               </TabsTrigger>
-              <TabsTrigger
-                value="comments"
-                className="min-w-0 gap-1 px-2 text-xs"
-              >
+              <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
                 Activity
-                {comments.length > 0 ? (
-                  <span className="ml-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
-                    {comments.length}
-                  </span>
-                ) : null}
               </TabsTrigger>
               <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
                 Transcript

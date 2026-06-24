@@ -1,9 +1,11 @@
 import {
+  ChangelogSettingsCard,
   agentNativePath,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import {
   useOnboarding,
   type OnboardingMethod,
@@ -75,6 +77,10 @@ export default function SettingsPage() {
       description="Asset generation, storage, and brand kit access."
       className="max-w-4xl space-y-6"
     >
+      <div className="max-w-2xl">
+        <ChangelogSettingsCard markdown={changelog} />
+      </div>
+
       <div className="max-w-2xl">
         <h2 className="text-lg font-semibold tracking-tight">Connections</h2>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">

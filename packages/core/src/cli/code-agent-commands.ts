@@ -1,5 +1,9 @@
 import fs from "fs";
 import path from "path";
+import {
+  normalizeSkillScope,
+  type SkillScope,
+} from "../server/agents-bundle.js";
 
 export interface CodeAgentProjectCommand {
   kind: "command";
@@ -18,6 +22,7 @@ export interface CodeAgentProjectSkill {
   path: string;
   relativePath: string;
   description?: string;
+  scope: SkillScope;
   body: string;
 }
 
@@ -215,12 +220,15 @@ function readProjectSkill(
     const fallbackName = skillDir === "." ? path.basename(root) : skillDir;
     const name = parsed.data.name || normalizeSkillName(fallbackName);
     if (!name) return null;
+    const scope = normalizeSkillScope(parsed.data.scope);
+    if (scope === "runtime") return null;
     return {
       kind: "skill",
       name,
       path: filePath,
       relativePath: relative,
       description: parsed.data.description,
+      scope,
       body: parsed.body,
     };
   } catch {
@@ -229,11 +237,10 @@ function readProjectSkill(
 }
 
 function parseFrontmatter(raw: string): ParsedFrontmatter {
-  if (!raw.startsWith("---\n")) return { data: {}, body: raw };
-  const end = raw.indexOf("\n---", 4);
-  if (end === -1) return { data: {}, body: raw };
-  const frontmatter = raw.slice(4, end).trim();
-  const body = raw.slice(end + 4).replace(/^\r?\n/, "");
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) return { data: {}, body: raw };
+  const frontmatter = match[1].trim();
+  const body = match[2];
   const data: Record<string, string> = {};
   const lines = frontmatter.split(/\r?\n/);
   for (let index = 0; index < lines.length; index++) {

@@ -28,9 +28,10 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
+import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 function hasGoogleOAuth(): boolean {
-  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  return hasGoogleSignInCredentials();
 }
 
 function getConnectionLabel(): string {
@@ -1190,6 +1191,7 @@ ${
       }
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
+      __anGoogleSignInInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
           __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
@@ -1360,6 +1362,8 @@ ${identitySsoScript}
     }
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
+    var __anGoogleSignInInFlight = false;
+    var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
       try {
         if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -1400,6 +1404,34 @@ ${identitySsoScript}
       err.textContent = message;
       err.classList.add('show');
       btn.disabled = false;
+      __anGoogleSignInInFlight = false;
+    }
+    function __anRecoverGoogleSignInAfterReturn() {
+      // The user left for the Google sign-in window and came back. If the flow
+      // never completed (e.g. they closed the window to switch profiles), the
+      // button is stuck disabled with no error path firing for up to 5 minutes.
+      // Re-enable it so they can retry. Wait briefly first so a genuinely
+      // in-flight exchange can still finish and navigate without a flicker.
+      if (!__anGoogleSignInInFlight) return;
+      setTimeout(function() {
+        if (!__anGoogleSignInInFlight) return;
+        var btn = document.getElementById('google-btn');
+        if (!btn || !btn.disabled) return;
+        if (__anOAuthPollTimer) {
+          clearInterval(__anOAuthPollTimer);
+          __anOAuthPollTimer = null;
+        }
+        btn.disabled = false;
+        __anGoogleSignInInFlight = false;
+      }, 1200);
+    }
+    function __anBindGoogleRecover() {
+      if (__anGoogleRecoverBound) return;
+      __anGoogleRecoverBound = true;
+      window.addEventListener('focus', __anRecoverGoogleSignInAfterReturn);
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') __anRecoverGoogleSignInAfterReturn();
+      });
     }
     function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage) {
       if (__anIsBuilderPreview() && __anIsInFrame()) {
@@ -2012,6 +2044,8 @@ ${
     var err = document.getElementById('google-err');
     var ret = __anGetReturnPath();
     btn.disabled = true;
+    __anGoogleSignInInFlight = true;
+    __anBindGoogleRecover();
     err.classList.remove('show');
     if (__anResolveAuthFlow() === 'popup') {
       __anStartPopupOAuth(ret, btn, err);
@@ -2036,11 +2070,13 @@ ${
         err.textContent = data.message || 'Google OAuth is not configured.';
         err.classList.add('show');
         btn.disabled = false;
+        __anGoogleSignInInFlight = false;
       }
     } catch (e) {
       err.textContent = 'Failed to connect. Please try again.';
       err.classList.add('show');
       btn.disabled = false;
+      __anGoogleSignInInFlight = false;
     }
   }`
     : ""

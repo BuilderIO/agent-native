@@ -277,6 +277,7 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
     "You are the app agent for this Agent-Native project.",
     "Use the registered app actions as your source of truth for doing work.",
     "Use docs-search before implementing or answering advanced Agent Native framework questions; it reads the version-matched docs bundled with @agent-native/core.",
+    "Use source-search when examples or implementation details matter; it reads the version-matched core and template source corpus bundled with @agent-native/core.",
     "Use connected GitHub repository tools for repo context when a repository is configured; do not assume a local clone or sandbox exists.",
     "You are running headlessly from the command line, so reply with the final useful result in plain text.",
     actionList,
@@ -303,6 +304,7 @@ export async function createHeadlessBuiltinActions(): Promise<
   Record<string, ActionEntry>
 > {
   const docsSearch = await import("../scripts/docs/search.js");
+  const sourceSearch = await import("../scripts/docs/source-search.js");
   return {
     "docs-search": {
       readOnly: true,
@@ -333,6 +335,38 @@ export async function createHeadlessBuiltinActions(): Promise<
       run: async (args: Record<string, unknown>): Promise<string> => {
         return captureCliOutput(() =>
           docsSearch.default(cliArgsFromToolArgs(args)),
+        );
+      },
+    },
+    "source-search": {
+      readOnly: true,
+      tool: {
+        description:
+          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find relevant core or template source, for example defineAction, useActionQuery, view-screen, or AgentComposerFrame.",
+            },
+            path: {
+              type: "string",
+              description:
+                "Read a specific corpus file or list a directory, for example templates/plan/AGENTS.md or core/src/action.ts.",
+            },
+            list: {
+              type: "string",
+              description: 'Set to "true" to list corpus sections.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      run: async (args: Record<string, unknown>): Promise<string> => {
+        return captureCliOutput(() =>
+          sourceSearch.default(cliArgsFromToolArgs(args)),
         );
       },
     },

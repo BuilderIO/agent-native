@@ -1,22 +1,28 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import {
+  useFolders,
   useRecordings,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
   useRenameRecording,
+  useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { sendToAgentChat, useSession } from "@agent-native/core/client";
+import {
+  getBrowserTabId,
+  sendToAgentChat,
+  setClientAppState,
+  useSession,
+} from "@agent-native/core/client";
 import { RecordingCard } from "./recording-card";
 import { EmptyState } from "./empty-state";
 import { SortMenu, type SortKey } from "./sort-menu";
 import { FilterChips, type FilterChip } from "./filter-chips";
-import { BulkActionToolbar } from "./bulk-action-toolbar";
+import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { PageHeader } from "./page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +33,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { IconChecks } from "@tabler/icons-react";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 
 interface LibraryGridProps {
@@ -54,6 +59,40 @@ function Skeleton() {
   );
 }
 
+interface FolderTargetRow {
+  id: string;
+  parentId: string | null;
+  name: string;
+}
+
+function buildMoveTargets(
+  folders: FolderTargetRow[],
+  currentFolderId: string | null,
+  rootLabel: string,
+): BulkMoveTarget[] {
+  const byParent = new Map<string | null, FolderTargetRow[]>();
+  for (const folder of folders) {
+    const parentId = folder.parentId ?? null;
+    byParent.set(parentId, [...(byParent.get(parentId) ?? []), folder]);
+  }
+
+  const targets: BulkMoveTarget[] = [{ id: null, name: rootLabel }];
+  const walk = (parentId: string | null, depth: number) => {
+    for (const folder of byParent.get(parentId) ?? []) {
+      targets.push({
+        id: folder.id,
+        name: folder.name,
+        depth,
+        disabled: folder.id === currentFolderId,
+      });
+      walk(folder.id, depth + 1);
+    }
+  };
+
+  walk(null, 0);
+  return targets;
+}
+
 export function LibraryGrid({
   view,
   folderId = null,
@@ -66,12 +105,13 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selectionMode, setSelectionMode] = useState(false);
+  const selectionMode = selected.size > 0;
   const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -93,6 +133,61 @@ export function LibraryGrid({
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
   const renameRecording = useRenameRecording();
+  const moveRecording = useMoveRecording();
+  const canMoveSelection = view === "library" || view === "space";
+  const { data: scopedFolders } = useFolders(
+    {
+      spaceId: view === "space" ? (spaceId ?? null) : null,
+    },
+    {
+      enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
+    },
+  );
+  const selectedIds = useMemo(() => Array.from(selected), [selected]);
+  const moveTargets = useMemo(
+    () =>
+      canMoveSelection
+        ? buildMoveTargets(
+            ((scopedFolders?.folders ?? []) as FolderTargetRow[]).map(
+              (folder) => ({
+                id: folder.id,
+                parentId: folder.parentId ?? null,
+                name: folder.name,
+              }),
+            ),
+            folderId ?? null,
+            view === "space" ? "Space root" : "Library root",
+          )
+        : [],
+    [canMoveSelection, folderId, scopedFolders, view],
+  );
+
+  useEffect(() => {
+    const state =
+      selectedIds.length > 0
+        ? {
+            type: "recordings",
+            recordingIds: selectedIds,
+            view,
+            folderId: folderId ?? null,
+            spaceId: spaceId ?? null,
+          }
+        : null;
+
+    void setClientAppState(selectionStateKey, state, {
+      keepalive: true,
+      requestSource: "clips-library-selection",
+    }).catch(() => {});
+  }, [folderId, selectedIds, selectionStateKey, spaceId, view]);
+
+  useEffect(() => {
+    return () => {
+      void setClientAppState(selectionStateKey, null, {
+        keepalive: true,
+        requestSource: "clips-library-selection",
+      }).catch(() => {});
+    };
+  }, [selectionStateKey]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -105,7 +200,25 @@ export function LibraryGrid({
 
   const clearSelection = () => {
     setSelected(new Set());
-    setSelectionMode(false);
+  };
+
+  const moveSelected = async (targetFolderId: string | null) => {
+    if (selectedIds.length === 0) return;
+    setIsBulkPending(true);
+    try {
+      await moveRecording.mutateAsync({
+        ids: selectedIds,
+        folderId: targetFolderId,
+      });
+      toast.success(
+        `${selectedIds.length} clip${selectedIds.length === 1 ? "" : "s"} moved`,
+      );
+      clearSelection();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to move clips");
+    } finally {
+      setIsBulkPending(false);
+    }
   };
 
   const openRenameDialog = (rec: RecordingSummary) => {
@@ -221,22 +334,6 @@ export function LibraryGrid({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {extraActions}
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            className={cn(
-              "h-8 gap-1.5",
-              selectionMode &&
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
-            onClick={() => {
-              setSelectionMode((v) => !v);
-              if (selectionMode) setSelected(new Set());
-            }}
-          >
-            <IconChecks className="h-3.5 w-3.5" />
-            Select
-          </Button>
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>
@@ -326,6 +423,7 @@ export function LibraryGrid({
             <div className="pointer-events-auto">
               <BulkActionToolbar
                 count={selected.size}
+                moveTargets={moveTargets}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
@@ -386,8 +484,9 @@ export function LibraryGrid({
                     setIsBulkPending(false);
                   }
                 }}
+                onMove={canMoveSelection ? moveSelected : undefined}
                 onClear={clearSelection}
-                isPending={isBulkPending}
+                isPending={isBulkPending || moveRecording.isPending}
               />
             </div>
           </div>

@@ -30,6 +30,7 @@ export function EventCard({
   colorPreferences,
 }: EventCardProps) {
   const accentColor = getEventDisplayColor(event, colorPreferences);
+  const ownerLabel = event.ownerName || event.overlayEmail;
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);
@@ -47,10 +48,14 @@ export function EventCard({
         onDragStart={canDrag ? handleDragStart : undefined}
         onDragEnd={canDrag ? onDragEnd : undefined}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-all hover:brightness-110",
+          "relative flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-all hover:brightness-110",
           canDrag && "cursor-grab active:cursor-grabbing",
           dimmed && "opacity-40",
+          event.ownerColor && "pr-3.5",
         )}
+        aria-label={
+          ownerLabel ? `${event.title}, ${ownerLabel}'s calendar` : event.title
+        }
         style={{
           backgroundColor: `${accentColor}25`,
         }}
@@ -68,6 +73,13 @@ export function EventCard({
         )}
         <EventStatusIcon event={event} />
         <span className="truncate font-medium">{event.title}</span>
+        {event.ownerColor && (
+          <span
+            aria-hidden="true"
+            className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+            style={{ backgroundColor: event.ownerColor }}
+          />
+        )}
       </button>
     );
   }
@@ -79,10 +91,14 @@ export function EventCard({
       onDragStart={canDrag ? handleDragStart : undefined}
       onDragEnd={canDrag ? onDragEnd : undefined}
       className={cn(
-        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-all hover:brightness-110",
+        "relative flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-all hover:brightness-110",
         canDrag && "cursor-grab active:cursor-grabbing",
         dimmed && "opacity-40",
+        event.ownerColor && "pr-4",
       )}
+      aria-label={
+        ownerLabel ? `${event.title}, ${ownerLabel}'s calendar` : event.title
+      }
       style={{
         backgroundColor: `${accentColor}25`,
         borderLeft: `2px solid ${accentColor}`,
@@ -105,6 +121,13 @@ export function EventCard({
             minute: "2-digit",
           })}
         </span>
+      )}
+      {event.ownerColor && (
+        <span
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
+          style={{ backgroundColor: event.ownerColor }}
+        />
       )}
     </button>
   );

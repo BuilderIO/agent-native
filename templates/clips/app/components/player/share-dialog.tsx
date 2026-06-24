@@ -9,6 +9,7 @@ import {
   appBasePath,
   appPath,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client";
 import {
   Popover,
@@ -34,8 +35,10 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { SlackShareHint } from "@/components/sharing/slack-share-hint";
 import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
+import { withShareAttribution } from "../../../shared/share-attribution";
 
 const PUBLIC_DESCRIPTION =
   "Anyone with the link can view — sign in to comment or react";
@@ -156,11 +159,6 @@ function ShareRecordingContent({
   hasPassword?: boolean;
   reserveCloseButton?: boolean;
 }) {
-  const shareUrl =
-    typeof window === "undefined"
-      ? ""
-      : absoluteAppUrl(`/share/${recordingId}`);
-
   const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
     resourceType: "recording",
     resourceId: recordingId,
@@ -168,6 +166,23 @@ function ShareRecordingContent({
 
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
+
+  // Attribution `via` must be a stable non-PII id, never an email. The only
+  // owner id available client-side is the *current* session's userId, which is
+  // the clip owner only when the viewer is the owner. Anyone else (e.g. a
+  // share-admin) gets an untagged `via` so we never attribute the link to the
+  // wrong person or leak the owner's email.
+  const { session } = useSession();
+  const ownerViaId =
+    data?.role === "owner" ? (session?.userId ?? undefined) : undefined;
+
+  const shareUrl =
+    typeof window === "undefined"
+      ? ""
+      : withShareAttribution(
+          absoluteAppUrl(`/share/${recordingId}`),
+          ownerViaId,
+        );
   const titleText = recordingTitle
     ? `Share "${recordingTitle}"`
     : "Share recording";
@@ -224,6 +239,7 @@ function ShareRecordingContent({
             recordingId={recordingId}
             sharesQuery={sharesQuery}
             canManage={canManage}
+            ownerViaId={ownerViaId}
           />
         </TabsContent>
       </Tabs>
@@ -321,6 +337,10 @@ function LinkTab({
         disabled={isPending || (!isPublic && canManage)}
       />
 
+      {/* Public links unfurl into a playable video in Slack; surface that here
+          (and a connect link) instead of leaving it buried in Settings. */}
+      {isPublic ? <SlackShareHint canManage={canManage} /> : null}
+
       <CopyField
         label="Share with agents"
         value={agentContextUrl}
@@ -389,10 +409,12 @@ function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
   canManage,
+  ownerViaId,
 }: {
   recordingId: string;
   sharesQuery: SharesQuery;
   canManage: boolean;
+  ownerViaId?: string;
 }) {
   const [autoplay, setAutoplay] = useState(false);
   const [startMs, setStartMs] = useState(0);
@@ -416,8 +438,12 @@ function ClipsEmbedConfigurator({
     if (autoplay) params.push("autoplay=1");
     if (startMs > 0) params.push(`t=${Math.round(startMs / 1000)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
-    return absoluteAppUrl(`/embed/${recordingId}${qs}`);
-  }, [recordingId, autoplay, startMs]);
+    // Keep autoplay/t intact and also self-attribute the embed.
+    return withShareAttribution(
+      absoluteAppUrl(`/embed/${recordingId}${qs}`),
+      ownerViaId,
+    );
+  }, [recordingId, autoplay, startMs, ownerViaId]);
 
   const code =
     mode === "responsive"

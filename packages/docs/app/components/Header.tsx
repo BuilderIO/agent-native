@@ -1,6 +1,5 @@
 import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
-import SketchToggle from "./SketchToggle";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { IconMessage } from "@tabler/icons-react";
 import { FeedbackButton } from "@agent-native/core/client";
@@ -199,15 +198,6 @@ export default function Header() {
             >
               Skills
             </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/download"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              Download
-            </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
               target="_blank"
@@ -240,7 +230,6 @@ export default function Header() {
               side="bottom"
             />
             <SearchTrigger onClick={openModal} />
-            <SketchToggle />
             <ThemeToggle />
             <button
               onClick={() =>
@@ -297,16 +286,6 @@ export default function Header() {
               onClick={closeMobileMenu}
             >
               Skills
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/download"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              Download
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"

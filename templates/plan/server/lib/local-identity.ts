@@ -131,7 +131,11 @@ export function resolvePlanAccessContext(
   ctx: PlanAccessContext,
 ): PlanAccessContext {
   if (shouldUseLocalPlanOwner(ctx.userEmail)) {
-    return { userEmail: getLocalPlanOwnerEmail() };
+    const localOrgId = process.env.PLAN_LOCAL_ORG_ID?.trim();
+    return {
+      userEmail: getLocalPlanOwnerEmail(),
+      ...(localOrgId ? { orgId: localOrgId } : {}),
+    };
   }
   return ctx;
 }

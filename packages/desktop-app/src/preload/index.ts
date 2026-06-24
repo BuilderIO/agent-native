@@ -34,6 +34,7 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
@@ -118,6 +119,19 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.SHORTCUTS_UPSERT, request),
     removeBinding: (id: string): Promise<DesktopShortcutUpdateResult> =>
       ipcRenderer.invoke(IPC.SHORTCUTS_REMOVE, id),
+    onActivate: (
+      cb: (request: DesktopShortcutActivationRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        request: DesktopShortcutActivationRequest,
+      ) => cb(request);
+      ipcRenderer.on(IPC.SHORTCUTS_ACTIVATE, handler);
+      return () => ipcRenderer.removeListener(IPC.SHORTCUTS_ACTIVATE, handler);
+    },
+    ackActivation: (requestId: string, appId?: string): void => {
+      ipcRenderer.send(IPC.SHORTCUTS_ACTIVATE_ACK, { requestId, appId });
+    },
   },
 
   /** App config management */

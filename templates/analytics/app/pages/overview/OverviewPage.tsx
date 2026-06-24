@@ -134,7 +134,7 @@ export default function OverviewPage() {
               key={`${item.type}:${item.id}`}
               to={
                 item.type === "dashboard"
-                  ? `/adhoc/${item.id}`
+                  ? `/dashboards/${item.id}`
                   : `/analyses/${item.id}`
               }
               className="block"

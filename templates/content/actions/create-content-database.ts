@@ -10,7 +10,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { nanoid } from "./_property-utils.js";
+import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -150,6 +150,10 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Every database is seeded with one primary "Content" Blocks field, backed
+    // by `documents.content`, so each row's body is a first-class property.
+    await seedDefaultBlocksField({ databaseId, ownerEmail, orgId, now });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

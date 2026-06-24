@@ -7,18 +7,16 @@ import { withDefaultSocialImage } from "../seo";
 export const meta = () =>
   withDefaultSocialImage([
     {
-      title:
-        "Agent Skills — Visual Plan, Visual Recap, and Content for coding agents",
+      title: "Agent Skills — Visual Plan and Visual Recap for coding agents",
     },
     {
       name: "description",
       content:
-        "Install Agent-Native app-backed skills your coding agent can use for visual planning, PR recaps, and repo-backed MDX content editing.",
+        "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
     },
     {
       property: "og:title",
-      content:
-        "Agent Skills — Visual Plan, Visual Recap, and Content for coding agents",
+      content: "Agent Skills — Visual Plan and Visual Recap for coding agents",
     },
     {
       property: "og:description",
@@ -28,7 +26,7 @@ export const meta = () =>
     {
       name: "keywords",
       content:
-        "agent skills, visual plan, visual recap, content skill, local file mode, coding agent, Claude Code, Codex, PR review, planning, MDX, agent-native",
+        "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     },
   ]);
 
@@ -73,19 +71,6 @@ const SKILLS: Skill[] = [
     docsTo: "/docs/pr-visual-recap",
     videoAriaLabel: "Visual Recap skill demo video",
     videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
-  },
-  {
-    command: "content",
-    name: "Content",
-    tagline: "Edit repo MDX",
-    description:
-      "Installs Content as an app-backed skill for local docs, blogs, resources, MDX pages, and local components.",
-    features: [
-      "Writes agent-native.json for Content Local File Mode",
-      "Uses Content actions when a local bridge is available",
-    ],
-    docsTo: "/docs/template-content",
-    videoAriaLabel: "Content skill demo video",
   },
 ];
 
@@ -256,8 +241,8 @@ export default function SkillsPage() {
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               Install app-backed skills powered by Agent-Native apps you can
-              fully customize: visual review workflows plus repo-backed Content
-              for local Markdown and MDX editing.
+              fully customize: visual planning before implementation and visual
+              PR recaps after changes land.
             </p>
 
             <CliCopy command={INSTALL_COMMAND} location="skills_hero" />
@@ -277,7 +262,7 @@ export default function SkillsPage() {
           app, and your agent gets instructions plus the matching MCP surface
           when one is required.
         </p>
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2">
           {SKILLS.map((skill) => (
             <SkillCard key={skill.command} skill={skill} />
           ))}
@@ -300,14 +285,6 @@ export default function SkillsPage() {
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
             Read the Visual Plans docs
-            <span aria-hidden>→</span>
-          </Link>
-          <Link
-            data-an-prefetch="render"
-            to="/docs/template-content"
-            className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-          >
-            Read the Content docs
             <span aria-hidden>→</span>
           </Link>
           <Link

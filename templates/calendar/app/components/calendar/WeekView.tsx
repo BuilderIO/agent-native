@@ -592,7 +592,17 @@ export function WeekView({
                     onDraftDiscard={onDraftDiscard}
                   >
                     <button
-                      className="absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80"
+                      className={cn(
+                        "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                        event.ownerColor && "pr-3.5",
+                      )}
+                      aria-label={
+                        event.ownerName || event.overlayEmail
+                          ? `${event.title}, ${
+                              event.ownerName || event.overlayEmail
+                            }'s calendar`
+                          : event.title
+                      }
                       style={{
                         top: `${rowIdx * allDayRowHeight + 4}px`,
                         left: `${leftPct}%`,
@@ -613,6 +623,13 @@ export function WeekView({
                       )}
                       <EventStatusIcon event={event} className="shrink-0" />
                       <span className="truncate">{event.title}</span>
+                      {event.ownerColor && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                          style={{ backgroundColor: event.ownerColor }}
+                        />
+                      )}
                     </button>
                   </EventDetailPopover>
                 );
@@ -864,7 +881,15 @@ export function WeekView({
                             "ring-2 ring-primary/40",
                           canDrag && segmentStartsHere && "cursor-grab",
                           isBeingDragged && isDragging && "cursor-grabbing",
+                          event.ownerColor && "pr-4",
                         )}
+                        aria-label={
+                          event.ownerName || event.overlayEmail
+                            ? `${event.title}, ${
+                                event.ownerName || event.overlayEmail
+                              }'s calendar`
+                            : event.title
+                        }
                         style={{
                           ...style,
                           left: `${li.left}px`,
@@ -894,6 +919,13 @@ export function WeekView({
                             isBeingDragged && isDragging ? 0.9 : undefined,
                         }}
                       >
+                        {event.ownerColor && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
+                            style={{ backgroundColor: event.ownerColor }}
+                          />
+                        )}
                         {durationMin <= 30 ? (
                           <div className="flex items-baseline gap-1 truncate">
                             {allOthersOut && (

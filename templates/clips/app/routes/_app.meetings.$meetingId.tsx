@@ -61,6 +61,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 
 export function meta() {
   return [{ title: "Meeting · Clips" }];
@@ -699,17 +700,14 @@ export default function MeetingDetailRoute() {
             transcript and AI notes will appear here automatically.
           </span>
           {!isDesktopApp && (
-            <Button
-              asChild
+            <CaptureInstallButton
               size="sm"
               variant="secondary"
               className="ml-auto h-8 gap-1.5 cursor-pointer"
             >
-              <NavLink to="/download">
-                <IconExternalLink className="h-3.5 w-3.5" />
-                Get desktop app
-              </NavLink>
-            </Button>
+              <IconExternalLink className="h-3.5 w-3.5" />
+              Get desktop app
+            </CaptureInstallButton>
           )}
         </div>
       )}

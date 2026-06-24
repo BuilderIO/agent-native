@@ -43,12 +43,20 @@ import {
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
 import {
+  createCountdownAudioCue,
+  type CountdownAudioCue,
+} from "@/lib/countdown-audio-cue";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
   compressBlobIfTooLarge,
   formatMb,
 } from "@/lib/compress";
+import {
+  loadRecorderPreferences,
+  saveRecorderPreferences,
+} from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -67,6 +75,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { toast } from "sonner";
 
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
@@ -477,6 +486,65 @@ function captureThumbnailFromPreview(
     });
 }
 
+/** Resolve once the off-screen video has a decoded frame, or after a timeout. */
+function waitForVideoFrame(
+  video: HTMLVideoElement,
+  timeoutMs: number,
+): Promise<void> {
+  if (video.videoWidth > 0 && video.readyState >= 2) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onReady = () => {
+      if (video.videoWidth > 0 && video.readyState >= 2) finish();
+    };
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
+    const timer = setTimeout(finish, timeoutMs);
+    onReady();
+  });
+}
+
+/**
+ * Capture a thumbnail from a MediaStream that isn't bound to a visible element
+ * — used for the screen+camera composite so the thumbnail includes the camera
+ * bubble. Best effort: if it misses, the player's backfill path (which reads
+ * the recorded file, also composited) still produces a face thumbnail.
+ */
+function captureThumbnailFromStream(
+  stream: MediaStream,
+  recordingId: string,
+): void {
+  const video = document.createElement("video");
+  video.srcObject = stream;
+  video.muted = true;
+  video.playsInline = true;
+  void (async () => {
+    try {
+      await video.play().catch(() => {});
+      await waitForVideoFrame(video, 1500);
+      const blob = await captureVideoThumbnailBlob(video);
+      if (blob) await uploadRecordingThumbnail(recordingId, blob);
+    } catch {
+      // best effort — the player has a backfill path if this misses.
+    } finally {
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      video.srcObject = null;
+    }
+  })();
+}
+
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -538,13 +606,12 @@ function DesktopRecorderCallout() {
           </p>
         </div>
       </div>
-      <Button
-        asChild
+      <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
       >
-        <Link to="/download">Download desktop app</Link>
-      </Button>
+        Download desktop app
+      </CaptureInstallButton>
     </aside>
   );
 }
@@ -714,8 +781,20 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
+  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
+    () => loadRecorderPreferences().cameraSize ?? "md",
+  );
+  // Remember the bubble size across visits alongside the panel's selections.
+  const handleCameraSizeChange = useCallback((size: CameraBubbleSize) => {
+    setCameraSize(size);
+    saveRecorderPreferences({ cameraSize: size });
+  }, []);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  // The capture surface the user actually picked in the browser's native screen
+  // picker (authority over the requested `displaySurface` hint). Drives whether
+  // the live camera bubble is hidden during full-screen recording.
+  const [resolvedDisplaySurface, setResolvedDisplaySurface] =
+    useState<DisplaySurface | null>(null);
   const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
@@ -785,6 +864,7 @@ export default function RecordRoute() {
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
+  const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
   // Stable ref to doStop so engine callbacks created during startFlow always
   // call the latest version (avoids stale-closure problems with useCallback deps).
@@ -890,9 +970,14 @@ export default function RecordRoute() {
       startSessionRef.current = session;
       const isStale = () => startSessionRef.current !== session;
 
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = createCountdownAudioCue();
       setError(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
+      // Clear any surface resolved by a previous capture; the engine reports the
+      // new one once the user picks in the browser's screen dialog.
+      setResolvedDisplaySurface(null);
       flushSync(() => {
         setUiState("pickingSources");
       });
@@ -921,6 +1006,12 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Track the surface the user actually chose (and any mid-recording
+          // switch) so the live camera bubble is hidden only when the full
+          // screen — including this tab's overlay — is being captured.
+          onResolvedDisplaySurface: (surface) => {
+            setResolvedDisplaySurface(surface);
           },
           onState: (state) => {
             // Mirror the engine's compression pass into the UI so the
@@ -992,7 +1083,14 @@ export default function RecordRoute() {
         // chose a specific mic, do not start a parallel system-default mic
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
-        if (wantsMic && !opts.micDeviceId && liveTranscription.supported) {
+        //
+        // The one exception is when a stale saved mic forced the engine to
+        // fall back to the system default during acquire(): the recording is
+        // now on the default device, so live transcription would use the same
+        // mic and is safe to start.
+        const usingDefaultMic =
+          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
 
@@ -1105,6 +1203,8 @@ export default function RecordRoute() {
         } catch {
           // ignore
         }
+        countdownAudioCueRef.current?.cleanup();
+        countdownAudioCueRef.current = null;
         pendingRef.current = null;
         engineRef.current = null;
         if (pickerDismissed) {
@@ -1206,6 +1306,15 @@ export default function RecordRoute() {
 
       let createdId: string | null = null;
       try {
+        const status = await fetchVideoStorageStatus();
+        if (isStale()) return;
+        markStorageConfigured(status);
+        if (!status.configured) {
+          throw new Error(
+            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+          );
+        }
+
         const meta = await probeVideoMetadata(file);
         if (isStale()) return;
 
@@ -1433,7 +1542,7 @@ export default function RecordRoute() {
         setCompressionProgress(null);
       }
     },
-    [navigate, probeVideoMetadata],
+    [markStorageConfigured, navigate, probeVideoMetadata],
   );
 
   const importLoom = useCallback(
@@ -1545,6 +1654,8 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current =
         extensionCapture && !extensionCapture.developerLogsEnabled
@@ -1570,6 +1681,8 @@ export default function RecordRoute() {
       browserDiagnosticsRef.current = null;
       const message =
         err instanceof Error ? err.message : "Could not start recorder";
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
       setError(message);
       setUiState("error");
       showRecordingErrorToast(message);
@@ -1626,10 +1739,17 @@ export default function RecordRoute() {
     }
     setUiState("uploading");
     try {
-      // Capture a still-frame thumbnail from the preview while the stream is
-      // still live — otherwise the library would show a blank card until the
-      // owner opens the recording and triggers the player's backfill path.
-      captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+      // Capture a still-frame thumbnail while the stream is still live —
+      // otherwise the library would show a blank card until the owner opens the
+      // recording and triggers the player's backfill path. In screen+camera
+      // mode the visible preview is screen-only, so grab the composited stream
+      // (screen + camera bubble) to keep the presenter's face in the thumbnail.
+      const compositeStream = engine.getCompositeStream();
+      if (compositeStream) {
+        captureThumbnailFromStream(compositeStream, pending.id);
+      } else {
+        captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+      }
 
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -1755,6 +1875,8 @@ export default function RecordRoute() {
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     startSessionRef.current += 1;
+    countdownAudioCueRef.current?.cleanup();
+    countdownAudioCueRef.current = null;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
@@ -1789,6 +1911,10 @@ export default function RecordRoute() {
     pendingRef.current = null;
     engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
+
+  const playCountdownAudioCue = useCallback(() => {
+    void countdownAudioCueRef.current?.play();
+  }, []);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -1940,6 +2066,21 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
+  // The requested `displaySurface` is only a hint — the user picks the real
+  // surface in the browser's native dialog and can even switch it mid-recording
+  // (`surfaceSwitching: include`). Prefer the surface the engine resolved from
+  // the live track, falling back to the requested one only when the browser
+  // doesn't expose the resolved value (Firefox/Safari are partial).
+  const effectiveDisplaySurface =
+    resolvedDisplaySurface ?? rememberedRecorderOptions?.displaySurface ?? null;
+  // Full-screen capture records this tab's own bubble, which the composite
+  // already bakes into the video — hide the live overlay while recording so it
+  // doesn't appear twice. Countdown isn't recorded; window/tab captures don't
+  // include the overlay, so both keep it.
+  const hideBubbleForFullScreenCapture =
+    effectiveDisplaySurface === "monitor" &&
+    recordingMode === "screen+camera" &&
+    uiState === "recording";
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Surface a back arrow whenever there's nothing in
@@ -2001,7 +2142,7 @@ export default function RecordRoute() {
                   onImportLoom={importLoom}
                   importingLoom={loomImporting}
                   cameraSize={cameraSize}
-                  onCameraSizeChange={setCameraSize}
+                  onCameraSizeChange={handleCameraSizeChange}
                 />
               ) : (
                 <StorageSetupCard
@@ -2010,7 +2151,7 @@ export default function RecordRoute() {
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}
@@ -2034,6 +2175,7 @@ export default function RecordRoute() {
       {uiState === "countdown" && (
         <CountdownOverlay
           seconds={3}
+          onOneSecond={playCountdownAudioCue}
           onComplete={onCountdownComplete}
           onCancel={doCancel}
         />
@@ -2072,16 +2214,18 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — visible during countdown (so the user can frame
-          themselves) and while actively recording. Hidden during
-          uploading/compressing so the save overlay isn't confused with an
-          ongoing recording. */}
+      {/* Camera bubble — shown during countdown (for framing) and recording.
+          Hidden during uploading/compressing, and during full-screen recording
+          so it isn't captured on top of the composited bubble. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
-          onSizeChange={setCameraSize}
-          hidden={uiState !== "recording" && uiState !== "countdown"}
+          onSizeChange={handleCameraSizeChange}
+          hidden={
+            (uiState !== "recording" && uiState !== "countdown") ||
+            hideBubbleForFullScreenCapture
+          }
         />
       )}
 

@@ -57,4 +57,14 @@ describe("calendar view preferences", () => {
       ),
     ).toBe("#4ECDC4");
   });
+
+  it("keeps overlay owner color separate from event color", () => {
+    expect(
+      getEventDisplayColor({
+        ...googleEvent,
+        overlayEmail: "teammate@example.com",
+        ownerColor: "#4ECDC4",
+      }),
+    ).toBe("#5B9BD5");
+  });
 });

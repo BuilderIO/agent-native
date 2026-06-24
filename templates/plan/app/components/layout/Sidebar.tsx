@@ -28,7 +28,11 @@ import {
   appPath,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+  PromptComposer,
+  sendToAgentChat,
+  useCodeMode,
   useChatThreads,
+  useSendToAgentChat,
   useSession,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -44,6 +48,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -52,6 +61,23 @@ import {
 } from "@/components/ui/tooltip";
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
+
+const PLAN_BRANDING_CODE_CONTEXT = [
+  "The user is using the Plan app branding customization popover.",
+  "Make source-code changes for Agent-Native Plan branding in templates/plan.",
+  "Inspect the current brand surfaces first: app/lib/app-config.ts, app/components/layout/Sidebar.tsx, app/root.tsx metadata/icons, public brand assets, and app/global.css theme tokens.",
+  "Keep runtime plan data, stored plans, recaps, comments, and generated plan content unchanged unless the user explicitly asks for those data changes.",
+  "Use existing Plan styling, shadcn primitives, Tabler icons, and repo patterns. Keep changes tightly scoped.",
+].join("\n");
+
+function buildBrandingCustomizationMessage(request: string) {
+  return [
+    "Customize the Agent-Native Plan app branding.",
+    "",
+    "Request:",
+    request,
+  ].join("\n");
+}
 
 const navItems = [
   { icon: IconMessageCircle, label: "Ask", href: "/" },
@@ -521,6 +547,76 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function BrandingCustomizePopover() {
+  const [open, setOpen] = useState(false);
+  const { isCodeMode } = useCodeMode();
+  const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
+
+  function handleSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
+    const message = buildBrandingCustomizationMessage(trimmed);
+    const payload = {
+      message,
+      context: PLAN_BRANDING_CODE_CONTEXT,
+      submit: true,
+      type: "code" as const,
+      newTab: true,
+    };
+    const tabId = isCodeMode ? sendToAgentChat(payload) : send(payload);
+    setOpen(false);
+    if (tabId) {
+      toast.success(
+        isCodeMode
+          ? "Sent branding request to the local code agent"
+          : "Sent branding request to the code agent",
+      );
+    }
+  }
+
+  return (
+    <>
+      {codeRequiredDialog}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Customize Plan branding"
+            title="Customize branding"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/55 opacity-0 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/brand:opacity-100 group-focus-within/brand:opacity-100 data-[state=open]:opacity-100"
+          >
+            <IconEdit className="size-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="right"
+          align="start"
+          sideOffset={8}
+          className="w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border-border bg-card p-3 shadow-xl sm:w-[420px]"
+        >
+          <div className="mb-2 px-1">
+            <h3 className="text-sm font-semibold text-foreground">
+              Customize branding
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Describe the brand changes to make across Plan.
+            </p>
+          </div>
+          <PromptComposer
+            autoFocus
+            disabled={isGenerating}
+            attachmentsEnabled={false}
+            showModelSelector={false}
+            placeholder="Use our logo, change the app name, update colors..."
+            draftScope="plans:customize-branding"
+            onSubmit={handleSubmit}
+          />
+        </PopoverContent>
+      </Popover>
+    </>
+  );
+}
+
 export function Sidebar({
   collapsed = false,
   collapsible = true,
@@ -562,7 +658,7 @@ export function Sidebar({
     >
       <div
         className={cn(
-          "flex h-12 shrink-0 items-center border-b border-border",
+          "group/brand flex h-12 shrink-0 items-center border-b border-border",
           collapsed ? "justify-center px-0" : "gap-2 px-3",
         )}
       >
@@ -590,6 +686,7 @@ export function Sidebar({
             </span>
           )}
         </div>
+        {!collapsed && <BrandingCustomizePopover />}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">

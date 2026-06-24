@@ -6,6 +6,10 @@
  * Rules 8–10 (db-* tools, no fabrication, no false success) are reproduced
  * verbatim in both prompts — keep them here.
  */
+import {
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../../scripts/db/tool-mode.js";
 
 /**
  * Injectable provider/action examples. Defaults are generic; templates that
@@ -19,7 +23,8 @@ export interface PromptExamples {
 }
 
 export interface SharedRuleOptions {
-  databaseTools?: boolean;
+  databaseTools?: DatabaseToolsOption;
+  extensionTools?: boolean;
 }
 
 const DEFAULT_PROVIDER_ACTIONS = [
@@ -33,6 +38,7 @@ export function sharedRule8(
   examples?: PromptExamples,
   options?: SharedRuleOptions,
 ): string {
+  const databaseToolsMode = normalizeDatabaseToolsMode(options?.databaseTools);
   const providers = examples?.providerActions ?? DEFAULT_PROVIDER_ACTIONS;
   const providerList = providers.join(", ");
   // Build the "e.g." clause for warehouse vs. named provider
@@ -45,8 +51,25 @@ export function sharedRule8(
     .map((p) => `\`${p}\``)
     .join(", ");
 
-  if (options?.databaseTools === false) {
-    return `8. **Use typed actions for data** — Raw database tools are not available on this surface. For app-owned data, use the template's typed actions; for external data, use the appropriate provider or warehouse action — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results. For extensions, use \`get-extension\` when you already have an id from \`<current-screen>\` or \`<current-url>\`; otherwise use \`list-extensions\`, \`update-extension\`, \`hide-extension\`, and \`delete-extension\`. Do not query the legacy \`tools\` table directly.`;
+  const extensionAdvice =
+    options?.extensionTools === false
+      ? ""
+      : " For extensions, use `get-extension` when you already have an id from `<current-screen>` or `<current-url>`; otherwise use `list-extensions`, `update-extension`, `hide-extension`, and `delete-extension`. Do not query the legacy `tools` table directly.";
+
+  if (databaseToolsMode === "off") {
+    return `8. **Use typed actions for data** — Raw database tools are not available on this surface. For app-owned data, use the template's typed actions; for external data, use the appropriate provider or warehouse action — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;
+  }
+
+  if (databaseToolsMode === "read") {
+    return `8. **Read-only \`db-*\` tools are internal only** — \`db-schema\` and \`db-query\` ONLY inspect the app's own SQL database (settings, application_state, template tables). Raw SQL write tools such as \`db-exec\` and \`db-patch\` are not available on this surface; use typed app actions for writes. The DB tools CANNOT reach ${
+      providerList.length > 0
+        ? providerList
+            .split(",")
+            .slice(0, 3)
+            .map((s) => s.trim())
+            .join(", ")
+        : "external data sources"
+    }, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. **Never use \`db-query\` for external data — it will fail.** When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;
   }
 
   return `8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach ${
@@ -57,7 +80,7 @@ export function sharedRule8(
           .map((s) => s.trim())
           .join(", ")
       : "external data sources"
-  }, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. **Never use \`db-query\` for external data — it will fail.** When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results. For extensions, use \`get-extension\` when you already have an id from \`<current-screen>\` or \`<current-url>\`; otherwise use \`list-extensions\`, \`update-extension\`, \`hide-extension\`, and \`delete-extension\`. Do not query the legacy \`tools\` table directly.`;
+  }, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. **Never use \`db-query\` for external data — it will fail.** When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;
 }
 
 /** Rule 9 — Never fabricate factual claims (shared). */

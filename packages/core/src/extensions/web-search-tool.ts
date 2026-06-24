@@ -7,13 +7,15 @@
  *   1. Brave Search API  (BRAVE_SEARCH_API_KEY)
  *   2. Tavily            (TAVILY_API_KEY)
  *   3. Exa               (EXA_API_KEY)
- *   4. Builder.io        (connected Builder credentials)
+ *   4. Firecrawl         (FIRECRAWL_API_KEY)
+ *   5. Builder.io        (connected Builder credentials)
  *
  * The first configured backend wins. If none is configured, the tool
  * returns a helpful message telling the user which keys to add.
  *
- * Connect Builder.io or register BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or
- * EXA_API_KEY via app secrets settings or environment variables.
+ * Connect Builder.io or register BRAVE_SEARCH_API_KEY, TAVILY_API_KEY,
+ * EXA_API_KEY, or FIRECRAWL_API_KEY via app secrets settings or environment
+ * variables.
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -222,6 +224,40 @@ async function searchExa(
   }));
 }
 
+async function searchFirecrawl(
+  query: string,
+  count: number,
+  apiKey: string,
+): Promise<WebSearchResult[]> {
+  const res = await fetch("https://api.firecrawl.dev/v2/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      query,
+      limit: count,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    throw new Error(`Firecrawl error ${res.status}: ${await res.text()}`);
+  }
+  // v2 groups results by source ({ data: { web: [...] } }); older shapes
+  // return a flat array ({ data: [...] }). Accept both defensively.
+  type FirecrawlResult = { title?: string; url?: string; description?: string };
+  const data = (await res.json()) as {
+    data?: FirecrawlResult[] | { web?: FirecrawlResult[] };
+  };
+  const results = Array.isArray(data.data) ? data.data : (data.data?.web ?? []);
+  return results.map((r) => ({
+    title: r.title ?? "",
+    url: r.url ?? "",
+    snippet: r.description ?? "",
+  }));
+}
+
 async function searchBuilderManaged(
   query: string,
   count: number,
@@ -287,7 +323,7 @@ export function createWebSearchToolEntry(
     "web-search": {
       tool: {
         description:
-          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.",
+          "Search the public web. Use to find API documentation, endpoints, current information, or any topic. Returns ranked results from BYOK providers or a grounded Builder-managed summary. Follow up with web-request or provider-api-docs using responseMode:'markdown' or responseMode:'matches' to fetch clean text, links, or compact snippets from promising URLs. Requires either Connect Builder.io or one of: BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, EXA_API_KEY, or FIRECRAWL_API_KEY.",
         parameters: {
           type: "object" as const,
           properties: {
@@ -318,6 +354,7 @@ export function createWebSearchToolEntry(
         const braveKey = await resolveSearchKey("BRAVE_SEARCH_API_KEY", opts);
         const tavilyKey = await resolveSearchKey("TAVILY_API_KEY", opts);
         const exaKey = await resolveSearchKey("EXA_API_KEY", opts);
+        const firecrawlKey = await resolveSearchKey("FIRECRAWL_API_KEY", opts);
         const builderCredentials = await resolveBuilderSearchCredentials(opts);
 
         let results: WebSearchResult[];
@@ -334,6 +371,9 @@ export function createWebSearchToolEntry(
           } else if (exaKey) {
             results = await searchExa(query, count, exaKey);
             backend = "Exa";
+          } else if (firecrawlKey) {
+            results = await searchFirecrawl(query, count, firecrawlKey);
+            backend = "Firecrawl";
           } else if (builderCredentials) {
             managedText = await searchBuilderManaged(
               query,
@@ -350,6 +390,7 @@ export function createWebSearchToolEntry(
               "  • BRAVE_SEARCH_API_KEY  — https://brave.com/search/api/",
               "  • TAVILY_API_KEY        — https://tavily.com/",
               "  • EXA_API_KEY           — https://exa.ai/",
+              "  • FIRECRAWL_API_KEY     — https://firecrawl.dev/",
             ].join("\n");
           }
         } catch (err: unknown) {

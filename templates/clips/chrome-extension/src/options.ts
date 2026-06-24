@@ -4,6 +4,7 @@ type ExtensionSettings = {
   clipsBaseUrl: string;
   captureSurface: CaptureSurface;
   includeCamera: boolean;
+  includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
 };
 
@@ -11,6 +12,7 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   clipsBaseUrl: "https://clips.agent-native.com",
   captureSurface: "browser",
   includeCamera: true,
+  includeMicrophone: true,
   includeDeveloperLogs: true,
 };
 
@@ -42,6 +44,10 @@ function readSettings(): Promise<ExtensionSettings> {
           typeof value.includeCamera === "boolean"
             ? value.includeCamera
             : DEFAULT_SETTINGS.includeCamera,
+        includeMicrophone:
+          typeof value.includeMicrophone === "boolean"
+            ? value.includeMicrophone
+            : DEFAULT_SETTINGS.includeMicrophone,
         includeDeveloperLogs:
           typeof value.includeDeveloperLogs === "boolean"
             ? value.includeDeveloperLogs
@@ -65,6 +71,8 @@ function render(settings: ExtensionSettings): void {
   byId<HTMLInputElement>("clips-base-url").value = settings.clipsBaseUrl;
   byId<HTMLSelectElement>("capture-surface").value = settings.captureSurface;
   byId<HTMLInputElement>("include-camera").checked = settings.includeCamera;
+  byId<HTMLInputElement>("include-microphone").checked =
+    settings.includeMicrophone;
   byId<HTMLInputElement>("include-developer-logs").checked =
     settings.includeDeveloperLogs;
 }
@@ -84,6 +92,7 @@ function readForm(): ExtensionSettings {
       byId<HTMLSelectElement>("capture-surface").value,
     ),
     includeCamera: byId<HTMLInputElement>("include-camera").checked,
+    includeMicrophone: byId<HTMLInputElement>("include-microphone").checked,
     includeDeveloperLogs: byId<HTMLInputElement>("include-developer-logs")
       .checked,
   };

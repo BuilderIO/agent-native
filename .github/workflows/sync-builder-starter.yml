@@ -1,0 +1,43 @@
+name: Sync Builder starter manifest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/chat/package.json"
+      - "pnpm-workspace.yaml"
+      - "packages/core/src/cli/create.ts"
+      - "packages/core/src/cli/sync-builder-starter-manifest.ts"
+      - "scripts/sync-builder-starter-manifest.ts"
+      - ".github/workflows/sync-builder-starter.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sync-builder-starter-manifest
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Trigger Builder starter manifest sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: builder-agent-native-starter
+
+      - name: Notify builder-agent-native-starter
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/BuilderIO/builder-agent-native-starter/dispatches \
+            --method POST \
+            -f event_type=agent-native-starter-template-changed \
+            -f "client_payload[sourceRepository]=${{ github.repository }}" \
+            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

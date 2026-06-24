@@ -17,7 +17,8 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
 ## Framework Docs Lookup
 
 Version-matched Agent Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`.
+`node_modules/@agent-native/core/docs`. A source-only corpus of core and
+first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 
 - Use `pnpm action docs-search --query "<topic>"` to search framework docs,
   bundled `AGENTS.md`, and codebase skills.
@@ -26,12 +27,17 @@ Version-matched Agent Native docs ship with `@agent-native/core` in
   `a2a-protocol`, `external-agents`, `mcp-protocol`, `database`, `sharing`,
   and `security` for advanced headless workflows.
 - Use `pnpm action docs-search --list` to see everything available.
+- Use `pnpm action source-search --query "<pattern>"` when you need current
+  implementation examples or template best practices, and
+  `pnpm action source-search --path <path>` to read a specific corpus file.
 - If the action runner is unavailable, read
   `node_modules/@agent-native/core/docs/AGENTS.md` and search
-  `node_modules/@agent-native/core/docs/content/` directly with `rg`.
+  `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
+  `node_modules/@agent-native/core/corpus/` for source examples.
 
 Read these local package docs before implementing advanced Agent Native
-features. Prefer this app's own `AGENTS.md` for app-specific rules.
+features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
+the corpus for reusable framework/template patterns.
 
 ## Actions
 

@@ -4,6 +4,7 @@
  * reliable reconnection after page refreshes.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -17,6 +18,21 @@ let _initPromise: Promise<void> | undefined;
  * reaped and a zombie would keep running, eventually clobbering the new row.
  */
 export const RUN_STALE_MS = 15_000;
+
+/**
+ * Stale window for runs dispatched into a Netlify background function
+ * (`dispatch_mode = 'background'`). The design doc flags the 15s reaper vs a
+ * background cold-start as the #1 false-failure risk: the foreground POST
+ * inserts the `running` row, then `fireInternalDispatch` returns 202 and the
+ * background function may take >15s to cold-start and emit its first heartbeat.
+ * With the normal 15s window the reaper would falsely kill that freshly-
+ * inserted-but-not-yet-heartbeaten row. 90s tolerates a slow background
+ * cold-start while still reaping a genuinely dead background worker promptly.
+ *
+ * Only applied to rows explicitly marked background-dispatched; ordinary
+ * foreground runs keep the tight 15s window unchanged.
+ */
+export const BACKGROUND_RUN_STALE_MS = 90_000;
 
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
@@ -44,7 +60,8 @@ async function ensureRunTables(): Promise<void> {
           last_progress_at ${intType()},
           turn_id TEXT,
           error_code TEXT,
-          error_detail TEXT
+          error_detail TEXT,
+          dispatch_mode TEXT
         )
       `);
       // Backfill heartbeat_at on older deployments.
@@ -97,7 +114,16 @@ async function ensureRunTables(): Promise<void> {
       //   error_code / error_detail = terminal failure classification captured
       //                at completion so errored/cut-off runs are queryable for
       //                pattern analysis (see listErroredRuns).
-      for (const col of ["turn_id", "error_code", "error_detail"] as const) {
+      // dispatch_mode marks how a run was started: NULL/"foreground" for the
+      // normal synchronous path, "background" for a run dispatched into a
+      // Netlify background function. The reaper/claim widen the stale window
+      // for background rows so a slow cold-start isn't falsely reaped.
+      for (const col of [
+        "turn_id",
+        "error_code",
+        "error_detail",
+        "dispatch_mode",
+      ] as const) {
         try {
           if (isPostgres()) {
             await client.execute(
@@ -134,6 +160,19 @@ async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (thread_id, tool_key)
         )
       `);
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+      // on every turn, so an int4 column makes every agent prompt fail on
+      // Postgres with "value … is out of range for type integer". No-op once
+      // widened (and on fresh DBs that already use BIGINT). See
+      // widenIntColumnsToBigInt.
+      await widenIntColumnsToBigInt("agent_runs", [
+        "started_at",
+        "completed_at",
+        "heartbeat_at",
+        "last_progress_at",
+      ]);
+      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -234,14 +273,66 @@ export async function insertRun(
   id: string,
   threadId: string,
   turnId?: string,
+  options?: { dispatchMode?: "foreground" | "background" },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id) VALUES (?, ?, 'running', ?, ?, ?, ?)`,
-    args: [id, threadId, now, now, now, turnId ?? id],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      threadId,
+      now,
+      now,
+      now,
+      turnId ?? id,
+      options?.dispatchMode ?? null,
+    ],
   });
+}
+
+/**
+ * SQL fragment that resolves the per-row stale cutoff. Background-dispatched
+ * runs (`dispatch_mode` starting with `background`) tolerate a much longer gap
+ * without a heartbeat (slow Netlify background-function cold-start) before being
+ * reaped; every other run keeps the tight 15s window. The bound `now` is
+ * subtracted by the resolved window so the comparison is
+ * `COALESCE(heartbeat_at, started_at) < (now - window)`.
+ *
+ * `dispatch_mode` is one of NULL/"foreground" (normal sync path), "background"
+ * (foreground inserted the row for a background dispatch), or
+ * "background-processing" (the background worker claimed it). Both background
+ * states get the wider window via a LIKE-prefix match.
+ */
+function backgroundAwareStaleCutoffSql(): string {
+  return `(? - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+}
+
+/**
+ * Atomically claim a background-dispatched run for processing. The foreground
+ * POST inserts the run row with `dispatch_mode = 'background'`; the FIRST
+ * delivery of the background dispatch flips it to `background-processing` and
+ * wins the claim. A duplicate Netlify delivery (background functions can be
+ * retried) sees `background-processing` and loses, so it no-ops — mirroring
+ * `claimAgentTeamRun` returning null. Returns true when this caller won.
+ *
+ * Idempotent and conditional: the WHERE clause only matches the unclaimed
+ * `background` state AND a still-running row, so a reaped/terminal row can't be
+ * re-claimed.
+ */
+export async function claimBackgroundRun(runId: string): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs
+          SET dispatch_mode = 'background-processing'
+          WHERE id = ?
+            AND status = 'running'
+            AND dispatch_mode = 'background'`,
+    args: [runId],
+  });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
@@ -256,18 +347,37 @@ export async function insertRun(
  */
 export async function tryClaimRunSlot(
   threadId: string,
-  maxStaleMs: number = RUN_STALE_MS,
+  maxStaleMs?: number,
 ): Promise<{ claimed: boolean; activeRunId: string | null }> {
   await ensureRunTables();
   const client = getDbExec();
-  const heartbeatCutoff = Date.now() - maxStaleMs;
+  const now = Date.now();
+  // Default: per-row background-aware window so a live background run (which can
+  // legitimately go >15s between heartbeats during a cold-start) isn't seen as
+  // "free" and double-claimed by a racing foreground POST. An explicit
+  // `maxStaleMs` override keeps a flat window for callers that want one.
+  if (typeof maxStaleMs === "number") {
+    const heartbeatCutoff = now - maxStaleMs;
+    const { rows } = await client.execute({
+      sql: `SELECT id FROM agent_runs
+            WHERE thread_id = ?
+              AND status = 'running'
+              AND COALESCE(heartbeat_at, started_at) >= ?
+            ORDER BY started_at DESC LIMIT 1`,
+      args: [threadId, heartbeatCutoff],
+    });
+    if (rows.length > 0) {
+      return { claimed: false, activeRunId: (rows[0] as { id: string }).id };
+    }
+    return { claimed: true, activeRunId: null };
+  }
   const { rows } = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE thread_id = ?
             AND status = 'running'
-            AND COALESCE(heartbeat_at, started_at) >= ?
+            AND COALESCE(heartbeat_at, started_at) >= ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at DESC LIMIT 1`,
-    args: [threadId, heartbeatCutoff],
+    args: [threadId, now],
   });
   if (rows.length > 0) {
     const row = rows[0] as { id: string };
@@ -335,12 +445,20 @@ export async function bumpRunProgress(runId: string): Promise<void> {
  */
 export async function reapIfStale(
   runId: string,
-  maxStaleMs: number = RUN_STALE_MS,
+  maxStaleMs?: number,
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   const completedAt = Date.now();
-  const cutoff = completedAt - maxStaleMs;
+  // Background-dispatched runs get the wider stale window so a slow cold-start
+  // isn't reaped; foreground runs keep the tight 15s window. An explicit
+  // override forces a flat window for callers that want one.
+  const staleClause =
+    typeof maxStaleMs === "number"
+      ? `COALESCE(heartbeat_at, started_at) < ?`
+      : `COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`;
+  const staleArgs =
+    typeof maxStaleMs === "number" ? [completedAt - maxStaleMs] : [completedAt];
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
@@ -349,13 +467,13 @@ export async function reapIfStale(
               error_detail = ?
           WHERE id = ?
             AND status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND ${staleClause}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
       runId,
-      cutoff,
+      ...staleArgs,
     ],
   });
   const reaped = (rowsAffected ?? 0) > 0;
@@ -675,12 +793,13 @@ export async function getCurrentTurnEventsForThread(
 export async function reapAllStaleRuns(): Promise<number> {
   await ensureRunTables();
   const client = getDbExec();
-  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const now = Date.now();
+  // Background-dispatched runs use the wider window; everything else 15s.
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [heartbeatCutoff],
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
+    args: [now],
   });
   const completedAt = Date.now();
   const { rowsAffected } = await client.execute({
@@ -690,12 +809,12 @@ export async function reapAllStaleRuns(): Promise<number> {
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      heartbeatCutoff,
+      completedAt,
     ],
   });
   for (const row of stale.rows) {
@@ -730,15 +849,15 @@ export async function cleanupOldRuns(
   // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
   // below catches every row we're about to flip — a 24h-old row with a
   // somehow-fresh heartbeat would slip past a heartbeat-only SELECT.
-  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const now = Date.now();
   const stale = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND (
-              COALESCE(heartbeat_at, started_at) < ?
+              COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}
               OR started_at < ?
     )`,
-    args: [heartbeatCutoff, cutoff],
+    args: [now, cutoff],
   });
   const completedAt = Date.now();
   await client.execute({
@@ -755,7 +874,8 @@ export async function cleanupOldRuns(
       cutoff,
     ],
   });
-  // Also expire runs whose heartbeat is stale — producer has died.
+  // Also expire runs whose heartbeat is stale — producer has died. Uses the
+  // background-aware window so a slow background cold-start isn't reaped early.
   await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
@@ -763,12 +883,12 @@ export async function cleanupOldRuns(
               error_code = ?,
               error_detail = ?
           WHERE status = 'running'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
+            AND COALESCE(heartbeat_at, started_at) < ${backgroundAwareStaleCutoffSql()}`,
     args: [
       completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      heartbeatCutoff,
+      completedAt,
     ],
   });
   for (const row of stale.rows) {

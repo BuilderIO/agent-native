@@ -187,6 +187,151 @@
         "yKey": "count",
         "color": "#10b981"
       }
+    },
+    {
+      "id": "virality-referrals-section",
+      "title": "Virality & Referrals",
+      "chartType": "section",
+      "width": 1,
+      "columns": 3,
+      "config": {
+        "description": "Signups attributed to shared clips and plans, who is driving referrals, and the share view to click to signup funnel. referral_* and utm_* fields are read from the signup event's properties JSON; share_view and share_cta_click track shared-surface engagement."
+      }
+    },
+    {
+      "id": "referred-signups-30d",
+      "title": "Referred Signups (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '30 days' AND properties::jsonb ->> 'referral_source' IS NOT NULL AND properties::jsonb ->> 'referral_source' <> '' AND properties::jsonb ->> 'referral_source' <> 'direct'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Signups in the last 30 days with a non-direct referral_source (clip_share, plan_share, external)."
+      }
+    },
+    {
+      "id": "viral-signup-share-30d",
+      "title": "Viral Signup Share (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE properties::jsonb ->> 'referral_source' IS NOT NULL AND properties::jsonb ->> 'referral_source' <> '' AND properties::jsonb ->> 'referral_source' <> 'direct') / COUNT(*) END AS rate FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '30 days'",
+      "config": {
+        "yKey": "rate",
+        "yFormatter": "percent",
+        "description": "Headline virality number: referred signups divided by all signups over the last 30 days."
+      }
+    },
+    {
+      "id": "clip-share-signups-30d",
+      "title": "Clip-Share Signups (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '30 days' AND properties::jsonb ->> 'referral_source' = 'clip_share'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Signups in the last 30 days attributed to a shared clip."
+      }
+    },
+    {
+      "id": "signups-by-referral-source",
+      "title": "Signups by Referral Source (90d)",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> 'referral_source', ''), 'direct') AS referral_source, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days' GROUP BY COALESCE(NULLIF(properties::jsonb ->> 'referral_source', ''), 'direct') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "referral_source",
+        "yKey": "count",
+        "color": "var(--brand-purple)",
+        "description": "Signups grouped by referral_source over the last 90 days. Null/empty sources are bucketed as direct."
+      }
+    },
+    {
+      "id": "referred-signups-over-time",
+      "title": "Referred Signups Over Time (90d)",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days' AND properties::jsonb ->> 'referral_source' IS NOT NULL AND properties::jsonb ->> 'referral_source' <> '' AND properties::jsonb ->> 'referral_source' <> 'direct' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "var(--brand-purple)",
+        "description": "Daily referred (non-direct) signups over the last 90 days."
+      }
+    },
+    {
+      "id": "top-referrers",
+      "title": "Top Referrers (90d)",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT properties::jsonb ->> 'referrer_user' AS referrer_user, COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days' AND properties::jsonb ->> 'referrer_user' IS NOT NULL AND properties::jsonb ->> 'referrer_user' <> '' GROUP BY properties::jsonb ->> 'referrer_user' ORDER BY signups DESC LIMIT 20",
+      "config": {
+        "description": "Users (by id) driving the most referred signups over the last 90 days.",
+        "columns": [
+          { "key": "referrer_user", "label": "Referrer (user id)" },
+          { "key": "signups", "label": "Signups", "format": "number" }
+        ]
+      }
+    },
+    {
+      "id": "share-funnel-30d",
+      "title": "Share Funnel (30d)",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT 'Share views' AS stage, COUNT(*) AS count FROM analytics_events WHERE event_name = 'share_view' AND timestamp::timestamptz >= now() - interval '30 days' UNION ALL SELECT 'CTA clicks' AS stage, COUNT(*) AS count FROM analytics_events WHERE event_name = 'share_cta_click' AND timestamp::timestamptz >= now() - interval '30 days' UNION ALL SELECT 'Clip-share signups' AS stage, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '30 days' AND properties::jsonb ->> 'referral_source' = 'clip_share'",
+      "config": {
+        "xKey": "stage",
+        "yKey": "count",
+        "color": "var(--brand-teal)",
+        "description": "View to click to signup funnel for shared surfaces over the last 30 days: share_view, share_cta_click, then clip_share signups."
+      }
+    },
+    {
+      "id": "viral-participation-rate-90d",
+      "title": "Viral Participation Rate (90d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(COUNT(*) FILTER (WHERE recent.auth_user_id IN (SELECT properties::jsonb ->> 'referrer_user' FROM analytics_events WHERE event_name = 'signup' AND properties::jsonb ->> 'referrer_user' IS NOT NULL AND properties::jsonb ->> 'referrer_user' <> ''))::float / NULLIF(COUNT(*), 0), 0) AS rate FROM (SELECT DISTINCT properties::jsonb ->> 'auth_user_id' AS auth_user_id FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days' AND properties::jsonb ->> 'auth_user_id' IS NOT NULL AND properties::jsonb ->> 'auth_user_id' <> '') AS recent",
+      "config": {
+        "yKey": "rate",
+        "yFormatter": "percent",
+        "description": "Share of users who signed up in the last 90d who have since referred at least one new signup (referrers counted across all time). New cohorts under-count: recent signups haven't had time to refer yet. Matches auth_user_id to referrer_user (both better-auth ids)."
+      }
+    },
+    {
+      "id": "viral-coefficient-90d",
+      "title": "Viral Coefficient K (90d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(COUNT(*) FILTER (WHERE properties::jsonb ->> 'referrer_user' IS NOT NULL AND properties::jsonb ->> 'referrer_user' <> '')::float / NULLIF(COUNT(DISTINCT properties::jsonb ->> 'auth_user_id'), 0), 0) AS k FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days'",
+      "config": {
+        "yKey": "k",
+        "yFormatter": "number",
+        "description": "Viral coefficient (K): referred signups divided by new users over the last 90d. K >= 1 means each user brings on at least one more, i.e. self-sustaining growth."
+      }
+    },
+    {
+      "id": "activated-referrers-90d",
+      "title": "Activated Referrers (90d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(DISTINCT properties::jsonb ->> 'referrer_user') AS count FROM analytics_events WHERE event_name = 'signup' AND timestamp::timestamptz >= now() - interval '90 days' AND properties::jsonb ->> 'referrer_user' IS NOT NULL AND properties::jsonb ->> 'referrer_user' <> ''",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Distinct users who drove at least one referred signup in the last 90d (distinct referrer_user on signups in the window)."
+      }
     }
   ]
 }
