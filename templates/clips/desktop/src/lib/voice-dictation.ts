@@ -956,7 +956,9 @@ export function installDesktopVoiceDictation(
    * as the native path, same voice:*-transcript events from Rust.
    */
   const startWhisper = async (cleanupProvider?: ServerVoiceProvider) => {
-    console.log("[voice-dictation] startWhisper: invoke audio_transcription_start");
+    console.log(
+      "[voice-dictation] startWhisper: invoke audio_transcription_start",
+    );
     try {
       // Open the mic BEFORE showing the bar so audio is capturing by the time
       // the user sees the recording state and starts speaking. The inverse order
@@ -1253,7 +1255,10 @@ export function installDesktopVoiceDictation(
         });
       } else if (current.kind === "whisper") {
         invoke("audio_transcription_stop").catch((err) => {
-          console.warn("[voice-dictation] audio_transcription_stop (cancel) failed:", err);
+          console.warn(
+            "[voice-dictation] audio_transcription_stop (cancel) failed:",
+            err,
+          );
         });
       } else {
         try {
@@ -1324,7 +1329,10 @@ export function installDesktopVoiceDictation(
         // `voice:final-transcript` lands (or after a safety timeout),
         // paste the text and let the chip sit for ~1s with the final
         // word visible — like a notification fading — then dismiss.
-        const stopCmd = current.kind === "whisper" ? "audio_transcription_stop" : "native_speech_stop";
+        const stopCmd =
+          current.kind === "whisper"
+            ? "audio_transcription_stop"
+            : "native_speech_stop";
         invoke(stopCmd).catch((err) => {
           console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
         });
@@ -1662,7 +1670,8 @@ export function installDesktopVoiceDictation(
   // don't re-emit it here.
   onPartialTranscript(({ text }) => {
     const current = session;
-    if (!current || (current.kind !== "native" && current.kind !== "whisper")) return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     if (current.cancelled || current.stopping) return;
     current.browserTranscript = text.trim();
   })
@@ -1677,7 +1686,8 @@ export function installDesktopVoiceDictation(
     // overwrite the new session's transcript with stale text.
     const current =
       lingeringSession &&
-      (lingeringSession.kind === "native" || lingeringSession.kind === "whisper")
+      (lingeringSession.kind === "native" ||
+        lingeringSession.kind === "whisper")
         ? lingeringSession
         : null;
     if (!current) return;
@@ -1694,7 +1704,8 @@ export function installDesktopVoiceDictation(
   onSpeechError(({ error }) => {
     const current = session;
     console.error("[voice-dictation] native speech error:", error);
-    if (!current || (current.kind !== "native" && current.kind !== "whisper")) return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     setFlowState("error");
     window.setTimeout(() => {
       if (!disposed && session === current) cleanup(current);
