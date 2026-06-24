@@ -1,10 +1,52 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import {
   AgentChatSurface,
+  appBasePath,
+  appPath,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
+
+function chatThreadPath(threadId: string | null): string {
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
+}
+
+function stripBasePath(pathname: string): string {
+  const basePath = appBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+// The chat surface renders for both `/chat` and the `/chat/:threadId` deep
+// link. The thread id is read from the pathname (not `useParams`) because the
+// param is owned by the nested deep-link route, not this leaf component.
+function threadIdFromPath(pathname: string): string | null {
+  const match = stripBasePath(pathname).match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+// Mirror the basename handling Dispatch's nav links use: pass a router-local
+// path when the live URL is already under the mount, otherwise prefix it.
+function dispatchNavTarget(path: string): string {
+  if (typeof window === "undefined") return path;
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  const pathname = window.location.pathname;
+  const routerHasBasename =
+    pathname === basePath || pathname.startsWith(`${basePath}/`);
+  return routerHasBasename ? path : appPath(path);
+}
 
 interface DispatchChatLocationState {
   dispatchPrompt?: {
@@ -25,7 +67,22 @@ export function meta() {
 export default function ChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
+  const routeThreadId = threadIdFromPath(location.pathname);
   const handledStateIds = useRef(new Set<string>());
+
+  const navigateThreadUrl = useCallback(
+    (path: string, options?: { replace?: boolean }) =>
+      navigate(dispatchNavTarget(path), options),
+    [navigate],
+  );
+  const threadUrlSync = useMemo(
+    () => ({
+      routeThreadId: routeThreadId ?? null,
+      getPath: chatThreadPath,
+      navigate: navigateThreadUrl,
+    }),
+    [routeThreadId, navigateThreadUrl],
+  );
   const state = location.state as DispatchChatLocationState | null;
   const prompt = state?.dispatchPrompt;
   const thread = state?.dispatchThread;
@@ -92,6 +149,7 @@ export default function ChatRoute() {
         className="dispatch-chat-panel"
         defaultMode="chat"
         storageKey="dispatch"
+        threadUrlSync={threadUrlSync}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

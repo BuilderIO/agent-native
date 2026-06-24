@@ -36,7 +36,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const isCreateRoute = location.pathname === "/";
+  const isCreateRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -44,7 +45,7 @@ export function Layout({ children }: LayoutProps) {
   });
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
-    chatPath: "/",
+    isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
   });
 
   useEffect(() => {

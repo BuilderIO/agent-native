@@ -286,6 +286,21 @@ function dispatchNavLinkTarget(path: string): string {
   return routerHasBasename ? path : appPath(path);
 }
 
+function chatThreadPath(threadId: string): string {
+  return `/chat/${encodeURIComponent(threadId)}`;
+}
+
+function threadIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
 function formatThreadAge(updatedAt: number) {
   const diffMs = Math.max(0, Date.now() - updatedAt);
   const minutes = Math.floor(diffMs / 60_000);
@@ -315,6 +330,7 @@ function threadUpdatedAt(thread: ChatThreadSummary) {
 
 function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     threads,
     activeThreadId,
@@ -370,7 +386,9 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     switchThread(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
-      dispatchNavLinkTarget("/chat"),
+      dispatchNavLinkTarget(
+        options?.isNew ? "/chat" : chatThreadPath(threadId),
+      ),
     );
     onNavigate?.();
     window.requestAnimationFrame(() => {
@@ -439,7 +457,11 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
       <div className="grid gap-0.5">
         {visibleThreads.length > 0 ? (
           visibleThreads.map((thread) => {
-            const isActive = thread.id === activeThreadId;
+            const localPathname = localDispatchPath(location.pathname);
+            const isActive =
+              thread.id ===
+              (threadIdFromPath(localPathname) ??
+                (localPathname === "/chat" ? null : activeThreadId));
             const isRenaming = thread.id === renamingThreadId;
             return (
               <div
@@ -692,13 +714,18 @@ export function Layout({
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const localPathname = localDispatchPath(location.pathname);
-  const isChatRoute = localPathname === "/chat";
+  const isChatRoute =
+    localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "dispatch",
     activePath: localPathname,
     enabled: !isChatRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "dispatch", chatPath: "/chat" });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "dispatch",
+    isChatPath: (pathname) =>
+      pathname === "/chat" || pathname.startsWith("/chat/"),
+  });
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;

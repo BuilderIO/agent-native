@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
@@ -25,7 +26,14 @@ export function meta() {
   ];
 }
 
+function chatThreadPath(threadId: string | null) {
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+}
+
 export default function ChatRoute() {
+  const { threadId } = useParams();
+  const navigate = useNavigate();
+
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -45,6 +53,11 @@ export default function ChatRoute() {
         className="h-full"
         defaultMode="chat"
         storageKey="chat"
+        threadUrlSync={{
+          routeThreadId: threadId ?? null,
+          getPath: chatThreadPath,
+          navigate,
+        }}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}

@@ -63,6 +63,12 @@ export interface UseChatThreadsOptions {
   autoCreate?: boolean;
   /** Restore the active thread from localStorage. Defaults to true. */
   restoreActiveThread?: boolean;
+  /**
+   * Route-owned active thread. `undefined` preserves the legacy localStorage
+   * source of truth; a string opens that thread; `null` means the URL is in
+   * create/new-chat mode.
+   */
+  routeThreadId?: string | null;
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
@@ -114,6 +120,12 @@ function createLocalThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeThreadId(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function scopesMatch(
   a?: ChatThreadScope | null,
   b?: ChatThreadScope | null,
@@ -155,6 +167,8 @@ export function useChatThreads(
 ) {
   const autoCreate = options?.autoCreate !== false;
   const restoreActiveThread = options?.restoreActiveThread !== false;
+  const routeControlsActiveThread = options?.routeThreadId !== undefined;
+  const routeThreadId = normalizeThreadId(options?.routeThreadId);
   // Each (storageKey, scope) pair gets its own active-thread localStorage key
   // for chats that belong to a resource. General chats keep using the unscoped
   // key even while the user is looking at a resource, so clicking into a deck,
@@ -180,10 +194,16 @@ export function useChatThreads(
     let id: string | null = null;
     let isNew = false;
     if (typeof window !== "undefined") {
-      try {
-        id = restoreActiveThread ? localStorage.getItem(activeThreadKey) : null;
-      } catch {
-        id = null;
+      if (routeControlsActiveThread) {
+        id = routeThreadId;
+      } else {
+        try {
+          id = restoreActiveThread
+            ? localStorage.getItem(activeThreadKey)
+            : null;
+        } catch {
+          id = null;
+        }
       }
       if (!id && autoCreate) {
         id = createLocalThreadId();
@@ -323,6 +343,10 @@ export function useChatThreads(
   const persistedKeyRef = useRef(activeThreadKey);
   useEffect(() => {
     if (persistedKeyRef.current !== activeThreadKey) {
+      if (routeControlsActiveThread) {
+        persistedKeyRef.current = activeThreadKey;
+        return;
+      }
       const currentId = activeThreadIdRef.current;
       if (currentId) {
         const currentThreadScope = readKnownThreadScope(currentId);
@@ -357,6 +381,11 @@ export function useChatThreads(
       return;
     }
     try {
+      if (routeControlsActiveThread && !routeThreadId) {
+        localStorage.removeItem(activeThreadKey);
+        localStorage.removeItem(activeThreadSeenKey);
+        return;
+      }
       if (activeThreadId) {
         const threadScope = readKnownThreadScope(activeThreadId);
         if (threadScope === undefined) return;
@@ -378,6 +407,8 @@ export function useChatThreads(
     addOptimisticThread,
     autoCreate,
     readKnownThreadScope,
+    routeControlsActiveThread,
+    routeThreadId,
     storageKey,
     threads,
   ]);
@@ -484,6 +515,10 @@ export function useChatThreads(
       const loadedHasSavedId = Boolean(
         savedId && loadedThreads.some((t) => t.id === savedId),
       );
+      const savedIdCameFromRoute =
+        Boolean(savedId) &&
+        routeControlsActiveThread &&
+        routeThreadId === savedId;
 
       if (
         savedId &&
@@ -491,6 +526,11 @@ export function useChatThreads(
         !loadedHasSavedId
       ) {
         addOptimisticThread(savedId, scopeRef.current ?? null);
+      } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
+        // A deep link may point to a thread that is not in the current list
+        // response. Keep it route-owned so AssistantChat can restore it via
+        // /threads/:id instead of reclassifying it as a new empty tab.
+        setActiveThreadId(savedId);
       } else if (
         savedId &&
         !newlyCreatedRef.current.has(savedId) &&
@@ -526,7 +566,13 @@ export function useChatThreads(
       }
       setIsLoading(false);
     })();
-  }, [fetchThreads, addOptimisticThread, autoCreate]);
+  }, [
+    fetchThreads,
+    addOptimisticThread,
+    autoCreate,
+    routeControlsActiveThread,
+    routeThreadId,
+  ]);
 
   const createThread = useCallback(
     (preferredId?: string): Promise<string | null> => {
@@ -542,6 +588,41 @@ export function useChatThreads(
     },
     [addOptimisticThread],
   );
+
+  useEffect(() => {
+    if (!routeControlsActiveThread) return;
+    if (routeThreadId) {
+      if (activeThreadIdRef.current !== routeThreadId) {
+        setActiveThreadId(routeThreadId);
+      }
+      return;
+    }
+
+    const currentId = activeThreadIdRef.current;
+    const currentThread = currentId
+      ? threadsRef.current.find((thread) => thread.id === currentId)
+      : undefined;
+    const currentIsUnsavedNewThread =
+      currentId !== null &&
+      newlyCreatedRef.current.has(currentId) &&
+      (currentThread?.messageCount ?? 0) === 0;
+    if (currentIsUnsavedNewThread) return;
+
+    if (!autoCreate) {
+      if (currentId !== null) setActiveThreadId(null);
+      return;
+    }
+
+    const id = createLocalThreadId();
+    newlyCreatedRef.current.add(id);
+    addOptimisticThread(id, scopeRef.current ?? null);
+    setActiveThreadId(id);
+  }, [
+    addOptimisticThread,
+    autoCreate,
+    routeControlsActiveThread,
+    routeThreadId,
+  ]);
 
   // Drop a thread's scope so it becomes a general (cross-resource) chat.
   // This is the "Detach from <deck>" escape hatch in the UI. The PUT

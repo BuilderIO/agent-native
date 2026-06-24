@@ -104,8 +104,24 @@ function persistedActiveThreadId() {
   }
 }
 
+function threadIdFromPath(pathname: string) {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+function chatThreadPath(threadId: string) {
+  return `/chat/${encodeURIComponent(threadId)}`;
+}
+
 function ChatThreadsSection() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     threads,
     activeThreadId,
@@ -162,7 +178,10 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      options?.isNew ? "/" : chatThreadPath(threadId),
+    );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -244,7 +263,10 @@ function ChatThreadsSection() {
       </div>
       <div className="grid gap-0.5">
         {visibleThreads.map((thread) => {
-          const isActive = thread.id === activeThreadId;
+          const isActive =
+            thread.id ===
+            (threadIdFromPath(location.pathname) ??
+              (location.pathname === "/" ? null : activeThreadId));
           const isRenaming = thread.id === renamingThreadId;
           return (
             <div
@@ -348,7 +370,8 @@ export function Sidebar({
 }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const isChatRoute = location.pathname === "/";
+  const isChatRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -440,7 +463,7 @@ export function Sidebar({
             const Icon = item.icon;
             const isActive =
               item.href === "/"
-                ? location.pathname === "/"
+                ? isChatRoute
                 : location.pathname.startsWith(item.href);
             const link = (
               <Link
