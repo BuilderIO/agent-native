@@ -1483,7 +1483,7 @@ export function findInstalledResvgPackages(
  * (`AGENT_CHAT_DURABLE_BACKGROUND`). Off by default — when off, the deploy
  * emits exactly one function (today's behavior, byte-for-byte).
  */
-function isDurableBackgroundDeployEnabled(): boolean {
+export function isDurableBackgroundDeployEnabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const v = raw.trim().toLowerCase();
@@ -1511,7 +1511,9 @@ function isDurableBackgroundDeployEnabled(): boolean {
  * soft-timeout path (no durable win, no regression). See
  * docs/design/durable-agent-runs.md (Open risks #1).
  */
-function emitSingleTemplateNetlifyBackgroundFunction(projectCwd: string): void {
+export function emitSingleTemplateNetlifyBackgroundFunction(
+  projectCwd: string,
+): void {
   const functionsDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverDir = path.join(functionsDir, "server");
   if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {

@@ -1,9 +1,27 @@
 # Design: Durable / Checkpointed Agent Runs
 
-Status: proposed
-Owner: core / run-manager
+Status: Phase 1 + Phase 2 implemented (flagged, off by default); Phase 0 shipped;
+internal per-step checkpointing (Option A core) still recommended-not-built.
+Owner: core / run-manager + deploy
 Related code: `packages/core/src/agent/run-manager.ts`,
+`packages/core/src/agent/durable-background.ts`,
+`packages/core/src/agent/production-agent.ts`,
+`packages/core/src/server/agent-chat-plugin.ts`,
+`packages/core/src/deploy/build.ts`,
+`packages/core/src/deploy/workspace-deploy.ts`,
 `packages/core/src/agent/engine/builder-engine.ts`
+
+> **Final architecture, in one line.** Durable background runs are a
+> **host-agnostic core** — the foreground turn fires an HMAC-signed _self
+> dispatch_ to a sibling worker route, the worker runs the full multi-step loop
+> and persists every event to SQL, and the browser streams those events through
+> the existing cross-isolate SQL-poll reconnect path — with the **Netlify 15-min
+> `-background` function as a per-host optimization** layered on top. The
+> portable baseline works on any host that can re-invoke itself (it just
+> server-chains continuations when the host budget is short); the Netlify layer
+> simply lets one invocation run ~15 min so a long turn finishes in **one**
+> chunk instead of many re-hydrating ones. Nothing about the baseline is
+> Netlify-specific; see [Final layered architecture](#final-layered-architecture).
 
 ## Problem
 

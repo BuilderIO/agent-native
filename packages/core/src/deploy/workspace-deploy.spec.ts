@@ -1124,6 +1124,109 @@ describe("workspace deploy", () => {
   });
 });
 
+// The deploy-time half of durable-background: a SECOND Netlify function whose
+// name ends in `-background` must be emitted ONLY when the flag is set, and the
+// single-function deploy must be byte-for-byte unchanged when it is not. These
+// drive the REAL workspace deploy path (not a private helper) so the gate is
+// proven where it actually fires. The env flag is captured/restored locally so
+// it never leaks into the surrounding suite.
+describe("durable-background Netlify function emit (workspace, flag-gated)", () => {
+  let previousFlag: string | undefined;
+
+  beforeEach(() => {
+    previousFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  });
+
+  afterEach(() => {
+    if (previousFlag === undefined)
+      delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    else process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousFlag;
+  });
+
+  function backgroundFuncDir(app: string): string {
+    return path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      `${app}-agent-background`,
+    );
+  }
+
+  it("emits NO -background function when the flag is unset (default)", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    // The normal single function per app is still emitted...
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "starter-server",
+          "starter-server.mjs",
+        ),
+      ),
+    ).toBe(true);
+    // ...and NO -background sibling exists for any app.
+    expect(fs.existsSync(backgroundFuncDir("dispatch"))).toBe(false);
+    expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
+  });
+
+  it("emits a per-app -background function (base-path-scoped process-run route) when the flag is on", async () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    for (const app of ["dispatch", "starter"]) {
+      const dest = backgroundFuncDir(app);
+      // Name MUST end in -background for Netlify async invocation.
+      expect(path.basename(dest).endsWith("-background")).toBe(true);
+      // Shares the SAME built handler bundle (re-exports ./main.mjs); the
+      // original Nitro entry is dropped.
+      expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
+      expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
+
+      const entry = fs.readFileSync(
+        path.join(dest, `${app}-agent-background.mjs`),
+        "utf8",
+      );
+      expect(entry).toContain('await import("./main.mjs")');
+      // The async function only claims the base-path-prefixed process-run POST.
+      expect(entry).toContain(
+        JSON.stringify([`/${app}/_agent-native/agent-chat/_process-run`]),
+      );
+      expect(entry).toContain('includedFiles: ["**"]');
+    }
+
+    // The synchronous per-app function is still present and unchanged.
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "starter-server",
+          "starter-server.mjs",
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
 function makeWorkspaceApp(
   workspaceRoot: string,
   app: string,
