@@ -1,6 +1,5 @@
 import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
-import SketchToggle from "./SketchToggle";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { IconMessage } from "@tabler/icons-react";
 import { FeedbackButton } from "@agent-native/core/client";
@@ -231,7 +230,6 @@ export default function Header() {
               side="bottom"
             />
             <SearchTrigger onClick={openModal} />
-            <SketchToggle />
             <ThemeToggle />
             <button
               onClick={() =>

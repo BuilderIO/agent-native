@@ -12,6 +12,12 @@
 // Lifecycle: ACQUIRE (show picker, hold stream) → BEGIN (start recorder after
 // the countdown) → PAUSE/RESUME → STOP/CANCEL, plus RESTART (discard and start
 // over on the same stream).
+//
+// MIME selection and the chunk-upload URL/param protocol are shared with the web
+// app recorder via @shared/recording-core so the server contract can't drift.
+
+import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
+import { scheduleReadyChime } from "@shared/recording-audio";
 
 type CaptureMode = "screen" | "camera";
 
@@ -126,20 +132,6 @@ function reportStatus(
     status,
     ...extra,
   });
-}
-
-function chooseMimeType(): string {
-  const preferred = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=opus",
-    "video/webm",
-  ];
-  if (typeof MediaRecorder === "undefined") return "video/webm";
-  return (
-    preferred.find((type) => MediaRecorder.isTypeSupported(type)) ??
-    "video/webm"
-  );
 }
 
 function waitForMetadata(video: HTMLVideoElement): Promise<void> {
@@ -358,21 +350,6 @@ async function createMixedAudio(
   return { audioContext, tracks: destination.stream.getAudioTracks() };
 }
 
-function appendUploadParams(
-  uploadUrl: string,
-  params: Record<string, string | number | boolean | undefined>,
-): string {
-  const url = new URL(uploadUrl);
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined) continue;
-    url.searchParams.set(
-      key,
-      typeof value === "boolean" ? (value ? "1" : "0") : String(value),
-    );
-  }
-  return url.toString();
-}
-
 async function uploadChunk(
   recording: ActiveRecording,
   blob: Blob,
@@ -387,10 +364,10 @@ async function uploadChunk(
     hasCamera?: boolean;
   } = {},
 ): Promise<UploadResult> {
-  const url = appendUploadParams(recording.uploadUrl, {
+  const url = chunkUploadUrl(recording.uploadUrl, {
     index,
     total: extra.total,
-    isFinal: extra.isFinal ? 1 : 0,
+    isFinal: extra.isFinal,
     mimeType: recording.mimeType,
     durationMs: extra.durationMs,
     width: extra.width,
@@ -573,7 +550,7 @@ async function begin(message: BeginMessage): Promise<{
   const mixedAudio = await createMixedAudio(audioInputs);
 
   const outputStream = new MediaStream([videoTrack, ...mixedAudio.tracks]);
-  const mimeType = chooseMimeType();
+  const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
     // Crisp 1080p capture — matches the web/desktop recorders. Files upload
@@ -677,9 +654,25 @@ async function begin(message: BeginMessage): Promise<{
   };
 }
 
+// The canonical Clips "ready" chime when recording starts — shared with the web
+// app recorder (and matching the desktop app) so every surface sounds the same.
+function playStartChime(): void {
+  try {
+    const ctx = new AudioContext();
+    void ctx.resume().catch(() => undefined);
+    void scheduleReadyChime(ctx).finally(() => {
+      void ctx.close().catch(() => undefined);
+    });
+  } catch {
+    /* audio unavailable */
+  }
+}
+
 function startRecorderNow(recording: ActiveRecording): void {
   if (recording.cancelled) return;
   try {
+    // Chime first (on "Go") so it mostly lands before the recording begins.
+    playStartChime();
     recording.recorder.start(2000);
     recording.startedAtMs = Date.now();
     console.log("[clips-offscreen] recorder.start ok");

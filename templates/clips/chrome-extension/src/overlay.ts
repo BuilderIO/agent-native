@@ -210,43 +210,38 @@ function initCountdown(): void {
   wrap.append(controls, hint);
   root.appendChild(wrap);
 
-  let lastShown = "";
-  // Compute the fallback end-time ONCE (if the worker's countdownEndsAtMs never
-  // arrives) — recomputing it every frame froze the number on "3".
-  let fallbackEndsAt = 0;
-  const render = (): void => {
-    let endsAt = state.countdownEndsAtMs;
-    if (endsAt <= 0) {
-      if (fallbackEndsAt === 0) {
-        const fallback =
-          Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
-          COUNTDOWN_FALLBACK;
-        fallbackEndsAt = Date.now() + fallback * 1000;
-      }
-      endsAt = fallbackEndsAt;
-    }
-    const remainingMs = endsAt - Date.now();
-    if (state.phase !== "countdown" || remainingMs <= 0) {
-      if (lastShown !== "Go") {
-        number.textContent = "Go";
-        number.classList.add("countdown-go");
-        lastShown = "Go";
-      }
-      return;
-    }
-    const text = String(Math.ceil(remainingMs / 1000));
-    if (text !== lastShown) {
-      number.textContent = text;
-      number.classList.remove("countdown-go");
-      number.style.animation = "none";
-      void number.offsetWidth;
-      number.style.animation = "";
-      lastShown = text;
+  // Even, locally-driven sequence: each step shows for exactly one second. The
+  // old remaining-time math made the first number short (the iframe loads partway
+  // into the worker's countdown), which felt uneven. At "Go" we tell the worker
+  // to start the recorder; the worker's own timer is just a fallback for pages
+  // where no overlay can be injected.
+  const STEP_MS = 1000;
+  const steps = ["3", "2", "1", "Go"];
+  let stepIndex = 0;
+  let doneSent = false;
+
+  const showStep = (): void => {
+    const text = steps[stepIndex];
+    number.textContent = text;
+    number.classList.toggle("countdown-go", text === "Go");
+    number.style.animation = "none";
+    void number.offsetWidth;
+    number.style.animation = "";
+    if (text === "Go" && !doneSent) {
+      doneSent = true;
+      send("CLIPS_OVERLAY_COUNTDOWN_DONE");
     }
   };
-  countdownRender = render;
-  window.setInterval(render, 100);
-  render();
+
+  showStep(); // "3" immediately
+  const interval = window.setInterval(() => {
+    stepIndex += 1;
+    if (stepIndex >= steps.length) {
+      window.clearInterval(interval);
+      return;
+    }
+    showStep();
+  }, STEP_MS);
 }
 
 /* --------------------------------------------------------------- toolbar --- */
@@ -371,7 +366,6 @@ const state: OverlayState = {
   countdownEndsAtMs: 0,
 };
 let toolbarRender: (() => void) | null = null;
-let countdownRender: (() => void) | null = null;
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return;
@@ -386,7 +380,6 @@ chrome.runtime.onMessage.addListener((message) => {
   if (typeof next.countdownEndsAtMs === "number")
     state.countdownEndsAtMs = next.countdownEndsAtMs;
   toolbarRender?.();
-  countdownRender?.();
 });
 
 if (part === "bubble") void initBubble();

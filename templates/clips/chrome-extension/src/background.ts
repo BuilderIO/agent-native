@@ -1025,7 +1025,11 @@ async function armRecording(args: {
   //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
-  const startDelayMs = Math.max(0, countdownEndsAtMs - nowMs());
+  // The on-page countdown drives the actual start (it sends COUNTDOWN_DONE at
+  // "Go"). This offscreen timer is only a FALLBACK for pages where no overlay
+  // can be injected — generous so the even on-page countdown wins everywhere it
+  // can run.
+  const startDelayMs = COUNTDOWN_SECONDS * 1000 + 1000;
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
