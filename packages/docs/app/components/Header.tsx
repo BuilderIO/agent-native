@@ -239,12 +239,13 @@ export default function Header() {
               align="end"
               side="bottom"
             />
-            <DocsLanguagePicker />
             <SearchTrigger
               onClick={openModal}
               label={t("header.searchAria")}
               placeholder={t("header.searchPlaceholder")}
             />
+            <DocsLanguagePicker />
+            <ThemeToggle />
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -255,8 +256,6 @@ export default function Header() {
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
-            <DocsLanguagePicker />
-            <ThemeToggle />
 
             {/* Mobile hamburger */}
             <button
