@@ -428,6 +428,41 @@ function resetOverlay(): void {
   void persistOverlay();
 }
 
+// ----- Pre-record camera preview --------------------------------------------
+// While the popup is open and idle, show the live face bubble on the active tab
+// (like the desktop app's pre-record bubble). The popup holds a runtime port
+// open; its disconnect (popup closed) tears the preview down.
+let previewTabId: number | null = null;
+
+async function startPreview(wantsCamera: boolean): Promise<void> {
+  await ensureRestored();
+  // Never show a preview over an active recording (the recording overlay owns
+  // the tab then). If the camera is off, make sure any preview is removed.
+  if (overlayPhase !== "idle" || !wantsCamera) {
+    await stopPreview();
+    return;
+  }
+  const tab = await queryActiveTab();
+  if (!tab || typeof tab.id !== "number") return;
+  if (previewTabId !== null && previewTabId !== tab.id) await stopPreview();
+  previewTabId = tab.id;
+  await ensureContentScript(tab.id);
+  // Injection / send fail silently on unsupported pages (chrome://, etc.).
+  await sendTabMessage(tab.id, {
+    type: "CLIPS_OVERLAY_MOUNT",
+    parts: ["bubble"],
+  });
+}
+
+async function stopPreview(): Promise<void> {
+  const tabId = previewTabId;
+  previewTabId = null;
+  if (tabId === null) return;
+  // Don't tear down a recording overlay that took over this tab.
+  if (overlayPhase !== "idle") return;
+  await sendTabMessage(tabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
+}
+
 // Mirrored into chrome.storage.local so content scripts can cheaply tell whether
 // a recording is in progress without waking the service worker on every page
 // load. Content scripts can read storage.local by default; storage.session
@@ -916,6 +951,9 @@ async function armRecording(args: {
   overlayShowsBubble = cameraInvolved;
   recordingShowsBubble = cameraInvolved;
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
+  // The recording overlay now owns this tab's bubble — hand off from any preview
+  // so the popup-close disconnect won't tear down the live recording overlay.
+  previewTabId = null;
   setRecordingFlag(true);
   // Clicking the icon now stops & saves immediately instead of opening the popup.
   setActionPopup("");
@@ -1948,6 +1986,11 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     return { ok: true };
   }
 
+  if (type === "CLIPS_PREVIEW") {
+    await startPreview(Boolean((message as { camera?: unknown }).camera));
+    return { ok: true };
+  }
+
   switch (type) {
     case "CLIPS_POPUP_START":
       return handlePopupStart(message as PopupStartMessage);
@@ -2012,6 +2055,16 @@ chrome.action.onClicked.addListener(() => {
       await stopRecording();
     }
   })();
+});
+
+// The popup opens a port for as long as it is visible; its disconnect (popup
+// closed) is our reliable signal to remove the pre-record preview bubble.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "clips-preview") return;
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError;
+    void stopPreview();
+  });
 });
 
 chrome.runtime.onMessageExternal.addListener(

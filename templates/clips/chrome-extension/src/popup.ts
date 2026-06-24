@@ -834,6 +834,28 @@ async function init(): Promise<void> {
     window.setInterval(() => renderActiveRecording(activeRecording), 1000);
   }
 
+  // Pre-record preview: while this popup is open and idle, show the live face
+  // bubble on the active tab (desktop-app style). The port stays open for the
+  // popup's lifetime; its disconnect (popup closed) tells the worker to remove
+  // the preview. Keep the reference so the port isn't garbage-collected early.
+  const previewPort = chrome.runtime.connect({ name: "clips-preview" });
+  const syncPreview = (): void => {
+    const wantsCamera =
+      !activeRecording &&
+      !isUnsupportedPage(activeTab?.url) &&
+      (settings.captureSurface === "camera" || settings.includeCamera);
+    try {
+      chrome.runtime.sendMessage(
+        { type: "CLIPS_PREVIEW", camera: wantsCamera },
+        () => void chrome.runtime.lastError,
+      );
+    } catch {
+      /* worker asleep; will re-sync on next interaction */
+    }
+  };
+  void previewPort;
+  syncPreview();
+
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     ".mode-option",
   )) {
@@ -842,6 +864,7 @@ async function init(): Promise<void> {
       closeDeviceMenus();
       render(settings);
       void saveSettings(settings);
+      syncPreview();
     });
   }
 
@@ -858,6 +881,7 @@ async function init(): Promise<void> {
       sourceMenu.hidden = true;
       render(settings);
       void saveSettings(settings);
+      syncPreview();
     });
   }
 
@@ -932,6 +956,7 @@ async function init(): Promise<void> {
     closeDeviceMenus();
     render(settings);
     void saveSettings(settings);
+    syncPreview();
   });
 
   includeMicrophone.addEventListener("click", () => {
