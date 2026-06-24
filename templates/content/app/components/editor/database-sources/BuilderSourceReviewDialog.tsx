@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,12 +10,85 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
 import type {
+  BuilderCmsPublicationTransitionIntent,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceReviewPayload,
+  ContentDatabaseSourceWriteMode,
   DocumentPropertyValue,
+  ExecuteBuilderSourceBatchTransition,
   ExecuteBuilderSourceBatchResponse,
 } from "@shared/api";
+
+export type BuilderReviewPublicationTransitionSelection = {
+  publicationTransition: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
+};
+
+export type BuilderReviewPublicationTransitionSelections = Record<
+  string,
+  BuilderReviewPublicationTransitionSelection
+>;
+
+export type BuilderReviewPublicationTransitions = Record<
+  string,
+  ExecuteBuilderSourceBatchTransition
+>;
+
+export function builderReviewDefaultPublicationEffectLabel(
+  writeMode?: ContentDatabaseSourceWriteMode,
+) {
+  if (writeMode === "stage_only") return "Stage autosave";
+  if (writeMode === "publish_updates") {
+    return "Update in place (keeps current published/draft state)";
+  }
+  return "Check only";
+}
+
+export function builderReviewPublicationIntentSummary(
+  changeSetIds: string[],
+  selections: BuilderReviewPublicationTransitionSelections,
+  writeMode?: ContentDatabaseSourceWriteMode,
+) {
+  const publish = changeSetIds.filter(
+    (changeSetId) =>
+      selections[changeSetId]?.publicationTransition === "publish",
+  ).length;
+  const unpublish = changeSetIds.filter(
+    (changeSetId) =>
+      selections[changeSetId]?.publicationTransition === "unpublish",
+  ).length;
+  const defaultAction = Math.max(changeSetIds.length - publish - unpublish, 0);
+  const defaultLabel =
+    writeMode === "stage_only" ? "stage autosave" : "update in place";
+
+  return `${defaultAction} ${defaultLabel} · ${publish} publish · ${unpublish} unpublish`;
+}
+
+export function builderReviewPublicationTransitionsMap(
+  selections: BuilderReviewPublicationTransitionSelections,
+) {
+  const transitions: BuilderReviewPublicationTransitions = {};
+
+  for (const [changeSetId, selection] of Object.entries(selections)) {
+    if (selection.publicationTransition === "publish") {
+      transitions[changeSetId] = { publicationTransition: "publish" };
+      continue;
+    }
+
+    if (
+      selection.publicationTransition === "unpublish" &&
+      selection.confirmUnpublish === true
+    ) {
+      transitions[changeSetId] = {
+        publicationTransition: "unpublish",
+        confirmUnpublish: true,
+      };
+    }
+  }
+
+  return transitions;
+}
 
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   if (risk === "high") {
@@ -79,12 +153,59 @@ export function BuilderSourceReviewDialog({
   batchResult: ExecuteBuilderSourceBatchResponse | null;
   checkedAt: string | null;
   onClose: () => void;
-  onValidate: () => void;
+  onValidate: (transitions: BuilderReviewPublicationTransitions) => void;
 }) {
   const checked = !!checkedAt;
   const safeModel =
     source?.sourceType === "builder-cms" &&
     source.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
+  const writeMode = source?.metadata.writeMode;
+  const defaultEffectLabel =
+    builderReviewDefaultPublicationEffectLabel(writeMode);
+  const allowPublicationTransitionControls =
+    safeModel &&
+    writeMode === "publish_updates" &&
+    source?.metadata.allowPublicationTransitions === true;
+  const reviewRowIds = useMemo(
+    () => review?.rows.map((row) => row.changeSetId) ?? [],
+    [review],
+  );
+  const reviewRowIdsKey = reviewRowIds.join("\u0000");
+  const [transitionSelections, setTransitionSelections] =
+    useState<BuilderReviewPublicationTransitionSelections>({});
+  useEffect(() => {
+    if (!open || !allowPublicationTransitionControls) {
+      setTransitionSelections({});
+      return;
+    }
+
+    const reviewRowIdSet = new Set(
+      reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
+    );
+    setTransitionSelections((current) => {
+      const next: BuilderReviewPublicationTransitionSelections = {};
+      for (const [changeSetId, selection] of Object.entries(current)) {
+        if (reviewRowIdSet.has(changeSetId)) next[changeSetId] = selection;
+      }
+      return Object.keys(next).length === Object.keys(current).length
+        ? current
+        : next;
+    });
+  }, [allowPublicationTransitionControls, open, reviewRowIdsKey]);
+  const transitionMap = useMemo(
+    () => builderReviewPublicationTransitionsMap(transitionSelections),
+    [transitionSelections],
+  );
+  const intentSummary = builderReviewPublicationIntentSummary(
+    reviewRowIds,
+    transitionSelections,
+    writeMode,
+  );
+  const hasUnconfirmedUnpublish = Object.values(transitionSelections).some(
+    (selection) =>
+      selection.publicationTransition === "unpublish" &&
+      selection.confirmUnpublish !== true,
+  );
   const batchHasIssues =
     !!batchResult &&
     (batchResult.summary.blocked > 0 || batchResult.summary.failed > 0);
@@ -100,7 +221,8 @@ export function BuilderSourceReviewDialog({
     (!retryable && checked) ||
     !review ||
     review.rows.length === 0 ||
-    unsafeLiveTarget;
+    unsafeLiveTarget ||
+    hasUnconfirmedUnpublish;
   const rowTitleById = new Map(
     review?.rows.map((row) => [row.changeSetId, row.title]) ?? [],
   );
@@ -120,19 +242,21 @@ export function BuilderSourceReviewDialog({
     ? review?.liveWritesEnabled
       ? "Preparing the Builder gate and sending through the guarded write path."
       : "Checking the Builder gate locally."
-    : unsafeLiveTarget
-      ? `Live batch pushes are limited to ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
-      : checked
-        ? review?.result.status === "succeeded"
-          ? "Pushed to Builder and reconciled locally."
-          : batchResult
-            ? batchSummaryText
-            : review?.liveWritesEnabled
-              ? (review?.result.message ?? "Builder push finished.")
-              : "Checked just now. Nothing was sent to Builder."
-        : review?.liveWritesEnabled
-          ? "Push will send approved writes through the guarded Builder path."
-          : "Builder writes are disabled. Push will check the update only.";
+    : hasUnconfirmedUnpublish
+      ? "Confirm unpublish on selected rows before pushing."
+      : unsafeLiveTarget
+        ? `Live batch pushes are limited to ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
+        : checked
+          ? review?.result.status === "succeeded"
+            ? "Pushed to Builder and reconciled locally."
+            : batchResult
+              ? batchSummaryText
+              : review?.liveWritesEnabled
+                ? (review?.result.message ?? "Builder push finished.")
+                : "Checked just now. Nothing was sent to Builder."
+          : review?.liveWritesEnabled
+            ? "Push will send approved writes through the guarded Builder path."
+            : "Builder writes are disabled. Push will check the update only.";
   const buttonLabel = pending
     ? review?.liveWritesEnabled
       ? "Pushing..."
@@ -148,6 +272,44 @@ export function BuilderSourceReviewDialog({
           : review?.liveWritesEnabled && (review?.rows.length ?? 0) > 1
             ? `Push all approved (${review?.rows.length ?? 0})`
             : "Push";
+
+  function setRowPublicationTransition(
+    changeSetId: string,
+    publicationTransition: BuilderCmsPublicationTransitionIntent,
+  ) {
+    setTransitionSelections((current) => {
+      const currentSelection = current[changeSetId];
+      const next = { ...current };
+
+      if (currentSelection?.publicationTransition === publicationTransition) {
+        delete next[changeSetId];
+        return next;
+      }
+
+      next[changeSetId] = {
+        publicationTransition,
+        confirmUnpublish:
+          publicationTransition === "unpublish" ? false : undefined,
+      };
+      return next;
+    });
+  }
+
+  function setRowConfirmUnpublish(changeSetId: string, confirmed: boolean) {
+    setTransitionSelections((current) => {
+      const currentSelection = current[changeSetId];
+      if (currentSelection?.publicationTransition !== "unpublish") {
+        return current;
+      }
+      return {
+        ...current,
+        [changeSetId]: {
+          publicationTransition: "unpublish",
+          confirmUnpublish: confirmed,
+        },
+      };
+    });
+  }
 
   return (
     <Dialog
@@ -209,6 +371,86 @@ export function BuilderSourceReviewDialog({
                         </span>
                       </div>
                       <div className="mt-3 grid gap-2">
+                        {safeModel ? (
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="rounded border border-border bg-muted/30 px-1.5 py-0.5 text-muted-foreground">
+                              {defaultEffectLabel}
+                            </span>
+                            {allowPublicationTransitionControls ? (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={
+                                    transitionSelections[row.changeSetId]
+                                      ?.publicationTransition === "publish"
+                                      ? "secondary"
+                                      : "outline"
+                                  }
+                                  className="h-7 px-2 text-xs"
+                                  disabled={pending}
+                                  aria-pressed={
+                                    transitionSelections[row.changeSetId]
+                                      ?.publicationTransition === "publish"
+                                  }
+                                  onClick={() =>
+                                    setRowPublicationTransition(
+                                      row.changeSetId,
+                                      "publish",
+                                    )
+                                  }
+                                >
+                                  Publish
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={
+                                    transitionSelections[row.changeSetId]
+                                      ?.publicationTransition === "unpublish"
+                                      ? "destructive"
+                                      : "outline"
+                                  }
+                                  className="h-7 px-2 text-xs"
+                                  disabled={pending}
+                                  aria-pressed={
+                                    transitionSelections[row.changeSetId]
+                                      ?.publicationTransition === "unpublish"
+                                  }
+                                  onClick={() =>
+                                    setRowPublicationTransition(
+                                      row.changeSetId,
+                                      "unpublish",
+                                    )
+                                  }
+                                >
+                                  Unpublish
+                                </Button>
+                                {transitionSelections[row.changeSetId]
+                                  ?.publicationTransition === "unpublish" ? (
+                                  <label className="flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+                                    <input
+                                      type="checkbox"
+                                      className="size-3 accent-destructive"
+                                      checked={
+                                        transitionSelections[row.changeSetId]
+                                          ?.confirmUnpublish === true
+                                      }
+                                      disabled={pending}
+                                      onChange={(event) =>
+                                        setRowConfirmUnpublish(
+                                          row.changeSetId,
+                                          event.currentTarget.checked,
+                                        )
+                                      }
+                                    />
+                                    Confirm unpublish
+                                  </label>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {row.fieldChanges.map((field) => (
                           <div
                             key={`${row.changeSetId}-${field.localFieldKey}`}
@@ -353,8 +595,11 @@ export function BuilderSourceReviewDialog({
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
-          <div className="min-w-0 text-xs text-muted-foreground">
-            {footerText}
+          <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
+            {safeModel && review ? (
+              <div className="font-medium text-foreground">{intentSummary}</div>
+            ) : null}
+            <div>{footerText}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
@@ -364,7 +609,7 @@ export function BuilderSourceReviewDialog({
               type="button"
               size="sm"
               disabled={disabled}
-              onClick={onValidate}
+              onClick={() => onValidate(transitionMap)}
             >
               {pending ? (
                 <Spinner className="mr-1.5 size-3.5" />

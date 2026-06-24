@@ -145,7 +145,10 @@ import {
   peekPreviewDocumentSaveController,
   releasePreviewDocumentSaveController,
 } from "./previewDocumentSaveRegistry";
-import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
+import {
+  BuilderSourceReviewDialog,
+  type BuilderReviewPublicationTransitions,
+} from "./database-sources/BuilderSourceReviewDialog";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -883,7 +886,9 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
   }
 
-  async function handleBuilderReviewPush() {
+  async function handleBuilderReviewPush(
+    transitions: BuilderReviewPublicationTransitions = {},
+  ) {
     setBuilderReviewResult(null);
     setBuilderBatchResult(null);
     setBuilderReviewCheckedAt(null);
@@ -898,9 +903,21 @@ function DatabaseTable({
         nextReview.liveWritesEnabled &&
         nextReview.result.status === "validated"
       ) {
+        const changeSetIds = nextReview.rows.map((row) => row.changeSetId);
+        const scopedTransitions = Object.fromEntries(
+          changeSetIds.flatMap((changeSetId) =>
+            transitions[changeSetId]
+              ? [[changeSetId, transitions[changeSetId]]]
+              : [],
+          ),
+        );
         batchResult = await executeBuilderBatch.mutateAsync({
           documentId: document.id,
-          changeSetIds: nextReview.rows.map((row) => row.changeSetId),
+          changeSetIds,
+          transitions:
+            Object.keys(scopedTransitions).length > 0
+              ? scopedTransitions
+              : undefined,
         });
         setBuilderBatchResult(batchResult);
       }
@@ -1528,7 +1545,7 @@ function DatabaseTable({
         batchResult={builderBatchResult}
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
-        onValidate={() => void handleBuilderReviewPush()}
+        onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
       {!database.isLoading ? (

@@ -7,6 +7,18 @@ function readDatabaseSource() {
   });
 }
 
+function readBuilderReviewDialogSource() {
+  return readFileSync(
+    new URL(
+      "./database-sources/BuilderSourceReviewDialog.tsx",
+      import.meta.url,
+    ),
+    {
+      encoding: "utf8",
+    },
+  );
+}
+
 describe("document database layout", () => {
   it("wraps database toolbar controls instead of clipping them", () => {
     const source = readDatabaseSource();
@@ -176,6 +188,42 @@ describe("document database layout", () => {
     expect(source).toContain("Disconnect source");
     // The aggregate field-mappings list is gone (mappings live in column menus).
     expect(source).not.toContain(">Field mappings<");
+  });
+
+  it("wires Builder review publication intent controls into the push path", () => {
+    const source = readDatabaseSource();
+    const dialog = readBuilderReviewDialogSource();
+
+    expect(dialog).toContain("Stage autosave");
+    expect(dialog).toContain(
+      "Update in place (keeps current published/draft state)",
+    );
+    expect(dialog).toContain('aria-pressed={');
+    expect(dialog).toContain("Publish");
+    expect(dialog).toContain("Unpublish");
+    expect(dialog).toContain("Confirm unpublish");
+    expect(dialog).toContain('writeMode === "publish_updates"');
+    expect(dialog).toContain(
+      "source?.metadata.allowPublicationTransitions === true",
+    );
+    expect(dialog).toContain(
+      'return `${defaultAction} ${defaultLabel} · ${publish} publish · ${unpublish} unpublish`;',
+    );
+    expect(dialog).toContain(
+      "builderReviewPublicationTransitionsMap(transitionSelections)",
+    );
+    expect(source).toContain(
+      "type BuilderReviewPublicationTransitions",
+    );
+    expect(source).toContain(
+      "transitions: BuilderReviewPublicationTransitions = {}",
+    );
+    expect(source).toContain(
+      "Object.keys(scopedTransitions).length > 0",
+    );
+    expect(source).toContain(
+      "onValidate={(transitions) => void handleBuilderReviewPush(transitions)}",
+    );
   });
 
   it("keeps the Layout settings panel limited to implemented controls", () => {
