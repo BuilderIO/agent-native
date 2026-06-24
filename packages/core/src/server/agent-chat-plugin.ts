@@ -152,6 +152,7 @@ import {
 } from "../a2a/auth-policy.js";
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
+  extractProcessRunId,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
 import {
@@ -7174,6 +7175,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
+              // Durable-background diagnostics: how the run was dispatched and
+              // the last reached `_process-run` worker stage (JSON
+              // `{stage,detail?,at}`). Surfaced here so a silent background
+              // worker death is diagnosable from the client WITHOUT the
+              // unreadable Netlify background-function logs — read
+              // `/runs/active?threadId=...` and inspect `diagStage`.
+              dispatchMode: run.dispatchMode ?? null,
+              diagStage: run.diagStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
               // server-relative, immune to client clock skew.
               serverNow: Date.now(),
@@ -7791,6 +7800,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          // DIAGNOSTIC: load the run-store diagnostic recorder. Each stage we
+          // reach is written onto the run row (diag_stage) so a silent failure
+          // INSIDE the Netlify background function — whose logs we cannot read —
+          // is still diagnosable from the client via /runs/active. Best-effort:
+          // the import + every record call is wrapped so diagnostics can never
+          // break the worker path.
+          const diag = await import("../agent/run-store.js")
+            .then((m) => ({
+              record: m.recordRunDiagnostic,
+              stages: m.RUN_DIAG_STAGE,
+            }))
+            .catch(() => null);
+
           // Consume the body ONCE (h3 v2's web Request stream is single-use).
           let processBody: any;
           try {
@@ -7798,6 +7820,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } catch {
             setResponseStatus(event, 400);
             return { error: "Invalid request body" };
+          }
+
+          // Record "the route handler was entered" against the run BEFORE auth
+          // runs. This is the proof the bg-fn invocation actually reached Nitro
+          // (vs. dying at the function entry / never being invoked). The runId
+          // is parsed without authenticating so we can attach it even on a
+          // subsequent auth failure.
+          const diagRunId = extractProcessRunId(processBody);
+          if (diag && diagRunId) {
+            await diag
+              .record(diagRunId, diag.stages.routeEntered)
+              .catch(() => {});
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
@@ -7808,8 +7842,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             getHeader(event, "authorization"),
           );
           if (!prepared.ok) {
+            // DIAGNOSTIC: record the auth/validation failure ONTO the run
+            // before returning the error status. Without this, a 401 (e.g.
+            // A2A_SECRET missing/mismatched in the bg-fn env, or the path not
+            // bypassing session auth) inside the unreadable bg function would
+            // leave the run to time out with NO clue. The detail carries the
+            // status + whether A2A_SECRET is even present in this isolate.
+            if (diag && prepared.runId) {
+              const a2aPresent = Boolean(
+                process.env.A2A_SECRET && process.env.A2A_SECRET.length > 0,
+              );
+              await diag
+                .record(
+                  prepared.runId,
+                  diag.stages.authFailed,
+                  `status=${prepared.status} error=${prepared.error} a2aSecretPresent=${a2aPresent}`,
+                )
+                .catch(() => {});
+            }
             setResponseStatus(event, prepared.status);
             return { error: prepared.error };
+          }
+
+          // DIAGNOSTIC: auth + body validation passed. Reaching here proves the
+          // request was authenticated and we are about to invoke the worker.
+          if (diag) {
+            await diag
+              .record(prepared.runId, diag.stages.authPassed)
+              .catch(() => {});
           }
 
           // Stash the verified+augmented body for the handler — the body stream
@@ -7821,6 +7881,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
+            // DIAGNOSTIC: the worker invocation threw at the route boundary —
+            // record the message so the failure cause is readable client-side.
+            if (diag) {
+              await diag
+                .record(
+                  prepared.runId,
+                  diag.stages.routeThrew,
+                  err instanceof Error ? err.message : String(err),
+                )
+                .catch(() => {});
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           }
