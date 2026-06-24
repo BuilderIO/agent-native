@@ -317,7 +317,7 @@
 .an-rich-md-prose h3.is-empty::before,
 .an-rich-md-prose h4.is-empty::before {
   content: attr(data-placeholder);
-  float: left;
+  float: inline-start;
   color: hsl(var(--muted-foreground));
   opacity: 0.55;
   pointer-events: none;
@@ -432,7 +432,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  text-align: left;
+  text-align: start;
   background: none;
   border: none;
   cursor: pointer;

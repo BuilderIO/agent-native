@@ -565,7 +565,7 @@ function ComposerPlusMenuFull({
       }}
       className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mb-1.5"
     >
-      <IconArrowLeft className="h-3 w-3" />
+      <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
       Back
     </button>
   );
@@ -656,7 +656,7 @@ function ComposerPlusMenuFull({
                       type="button"
                       onClick={item.action}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50",
+                        "flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50",
                         isSkill && skillFlyoutOpen && "bg-accent/50",
                       )}
                     >
@@ -670,7 +670,7 @@ function ComposerPlusMenuFull({
                         </div>
                       </div>
                       {isSkill && (
-                        <span className="ml-auto text-muted-foreground/60">
+                        <span className="ms-auto text-muted-foreground/60">
                           ›
                         </span>
                       )}
@@ -694,7 +694,7 @@ function ComposerPlusMenuFull({
                             setSkillFlyoutOpen(false);
                             setOpen(false);
                           }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
                         >
                           <span className="text-muted-foreground">
                             <IconBulb className="h-3.5 w-3.5" />
@@ -714,7 +714,7 @@ function ComposerPlusMenuFull({
                             setSkillFlyoutOpen(false);
                             skillFileInputRef.current?.click();
                           }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
                         >
                           <span className="text-muted-foreground">
                             <IconUpload className="h-3.5 w-3.5" />
@@ -743,7 +743,7 @@ function ComposerPlusMenuFull({
                 onClick={() => setView("menu")}
                 className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
               >
-                <IconArrowLeft className="h-3 w-3" />
+                <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
                 Back
               </button>
               <label className="mb-1 block text-[11px] font-semibold text-foreground">

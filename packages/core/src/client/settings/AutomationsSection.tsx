@@ -354,12 +354,12 @@ export function AutomationsSection() {
                   </span>
                 </div>
                 {item.scheduleDescription && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 ml-[17px]">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 ms-[17px]">
                     {item.scheduleDescription}
                   </p>
                 )}
                 {item.schedule && !item.scheduleDescription && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 ml-[17px] font-mono">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 ms-[17px] font-mono">
                     {item.schedule}
                   </p>
                 )}
@@ -430,7 +430,7 @@ export function AutomationsSection() {
               </div>
             </div>
             {item.lastRun && (
-              <p className="text-[10px] text-muted-foreground mt-1 ml-[17px]">
+              <p className="text-[10px] text-muted-foreground mt-1 ms-[17px]">
                 Last run:{" "}
                 {new Date(item.lastRun).toLocaleString(undefined, {
                   month: "short",

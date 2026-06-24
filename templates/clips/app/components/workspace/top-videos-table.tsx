@@ -39,7 +39,7 @@ export function TopVideosTable({
         <TableHeader>
           <TableRow>
             <TableHead>Recording</TableHead>
-            <TableHead className="text-right w-24">{metricLabel}</TableHead>
+            <TableHead className="text-end w-24">{metricLabel}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -53,7 +53,7 @@ export function TopVideosTable({
                   {row.title || "Untitled"}
                 </Link>
               </TableCell>
-              <TableCell className="text-right tabular-nums">
+              <TableCell className="text-end tabular-nums">
                 {row.count.toLocaleString()}
               </TableCell>
             </TableRow>

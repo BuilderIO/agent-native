@@ -101,7 +101,7 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
 
   return (
     <aside className="hidden w-[200px] shrink-0 xl:block">
-      <nav className="sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pl-4">
+      <nav className="sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 ps-4">
         <p className="mb-2 text-xs font-semibold text-[var(--fg-secondary)]">
           {t("docs.onThisPage")}
         </p>
@@ -113,7 +113,9 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
                 <a
                   href={`#${item.id}`}
                   className={`toc-link${activeId === item.id ? " is-active" : ""}`}
-                  style={depth > 0 ? { paddingLeft: 12 * depth } : undefined}
+                  style={
+                    depth > 0 ? { paddingInlineStart: 12 * depth } : undefined
+                  }
                 >
                   {item.label}
                 </a>

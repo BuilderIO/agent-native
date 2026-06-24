@@ -323,7 +323,7 @@ function ComposerModeChip({
       <button
         type="button"
         onClick={onRemove}
-        className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
+        className="ms-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
       >
         <IconX className="h-3 w-3" />
       </button>
@@ -539,7 +539,7 @@ function ModeSelector({
             onChange("build");
             setOpen(false);
           }}
-          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
+          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-start"
         >
           <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
@@ -561,7 +561,7 @@ function ModeSelector({
             onChange("plan");
             setOpen(false);
           }}
-          className={`flex w-full items-center gap-3 px-3 py-2 text-left ${
+          className={`flex w-full items-center gap-3 px-3 py-2 text-start ${
             planModeDisabled
               ? "cursor-not-allowed opacity-60"
               : "hover:bg-accent/50"
@@ -861,7 +861,7 @@ function ModelSelector({
                 }
               }}
               disabled={!onConnectProvider && builderFlow.connecting}
-              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-accent/50 disabled:opacity-60"
+              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
             >
               <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
               <span className="flex-1 min-w-0">
@@ -885,12 +885,12 @@ function ModelSelector({
                 type="button"
                 aria-expanded={imageExpanded}
                 onClick={() => setImageExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
               >
                 {imageExpanded ? (
                   <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                 ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                 )}
                 <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                   {imageModel.label ?? "Image model"}
@@ -911,7 +911,7 @@ function ModelSelector({
                     imageModel.onChange(option.value);
                     setImageExpanded(false);
                   }}
-                  className="flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left hover:bg-accent/50"
+                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
                     {option.label}
@@ -931,7 +931,7 @@ function ModelSelector({
               onChange("auto", autoModelGroup.engine);
               setOpen(false);
             }}
-            className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+            className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
           >
             <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
               Auto
@@ -956,9 +956,9 @@ function ModelSelector({
                   type="button"
                   aria-expanded={isExpanded}
                   onClick={() => toggleGroup(groupKey)}
-                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                     {group.label}
                   </span>
@@ -971,7 +971,7 @@ function ModelSelector({
                 {!group.configured && (
                   <button
                     type="button"
-                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pr-3 py-1.5"
+                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
                     onClick={openLlmSettings}
                   >
                     needs API key
@@ -999,7 +999,7 @@ function ModelSelector({
                       }
                       setOpen(false);
                     }}
-                    className={`flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left ${
+                    className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
                       group.configured
                         ? "hover:bg-accent/50"
                         : "opacity-40 cursor-default"
@@ -1024,12 +1024,12 @@ function ModelSelector({
                 type="button"
                 aria-expanded={reasoningExpanded}
                 onClick={() => setReasoningExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
               >
                 {reasoningExpanded ? (
                   <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                 ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                 )}
                 <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                   Reasoning
@@ -1047,7 +1047,7 @@ function ModelSelector({
                   key={option}
                   type="button"
                   onClick={() => onEffortChange?.(option)}
-                  className="flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left hover:bg-accent/50"
+                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
                     {reasoningEffortLabel(option)}
@@ -2154,7 +2154,7 @@ export function TiptapComposer({
                 type="button"
                 onClick={() => onRemoveContextItem?.(item.key)}
                 aria-label={`Remove ${item.title} context`}
-                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
               </button>

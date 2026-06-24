@@ -333,7 +333,7 @@ export function SearchModal({
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className="ml-auto shrink-0"
+                        className="ms-auto shrink-0 rtl:-scale-x-100"
                         aria-hidden="true"
                       >
                         <polyline points="9 10 4 15 9 20" />

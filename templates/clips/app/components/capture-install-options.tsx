@@ -71,7 +71,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
           href={clipsChromeExtensionUrl ?? undefined}
           target="_blank"
           rel="noreferrer"
-          className="flex items-start gap-3 rounded-md border border-border p-3 text-left transition hover:bg-accent"
+          className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
         >
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1">
@@ -84,7 +84,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
           <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </a>
       ) : (
-        <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-left opacity-70">
+        <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-start opacity-70">
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">Chrome extension</span>
@@ -97,7 +97,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
 
       <Link
         to={desktopHref}
-        className="flex items-start gap-3 rounded-md border border-border p-3 text-left transition hover:bg-accent"
+        className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
       >
         <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">

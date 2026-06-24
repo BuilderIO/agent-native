@@ -116,7 +116,7 @@ function SettingsSelect({
       </div>
       <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
         <SelectPrimitive.Trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
           aria-label={label}
           style={CONTROL_STYLE}
         >
@@ -141,7 +141,7 @@ function SettingsSelect({
                   className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                   style={CONTROL_STYLE}
                 >
-                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
+                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
                       <IconCheck size={14} />
                     </SelectPrimitive.ItemIndicator>
@@ -406,7 +406,7 @@ function UseBuilderCard({
       type="button"
       onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
-      className={`block w-full rounded-md border border-border px-3 py-3 text-left no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
+      className={`block w-full rounded-md border border-border px-3 py-3 text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
     >
       <div className="flex items-start gap-2.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
@@ -980,7 +980,7 @@ function LLMSectionInner({
                       <TooltipTrigger asChild>
                         <button
                           onClick={handleDisconnect}
-                          className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                          className="ms-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
                         >
                           Disconnect
                         </button>
@@ -1955,9 +1955,7 @@ function CapabilityStatusRow({
         />
         {label}
       </span>
-      <span className="min-w-0 truncate text-right text-foreground">
-        {value}
-      </span>
+      <span className="min-w-0 truncate text-end text-foreground">{value}</span>
     </div>
   );
 }

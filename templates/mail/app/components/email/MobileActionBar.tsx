@@ -78,15 +78,15 @@ const ACTION_META: Record<
   },
   reply: {
     label: "Reply",
-    icon: () => <IconArrowBackUp className="h-5 w-5" />,
+    icon: () => <IconArrowBackUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   replyAll: {
     label: "Reply All",
-    icon: () => <IconArrowBackUp className="h-5 w-5" />,
+    icon: () => <IconArrowBackUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   forward: {
     label: "Forward",
-    icon: () => <IconArrowForwardUp className="h-5 w-5" />,
+    icon: () => <IconArrowForwardUp className="h-5 w-5 rtl:-scale-x-100" />,
   },
   markUnread: {
     label: "Unread",

@@ -99,7 +99,7 @@ export function IntegrationCard({
     <div className="rounded-md border border-border bg-background">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-accent/50"
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-start hover:bg-accent/50"
       >
         {expanded ? (
           <IconChevronDown
@@ -109,7 +109,7 @@ export function IntegrationCard({
         ) : (
           <IconChevronRight
             size={12}
-            className="text-muted-foreground shrink-0"
+            className="text-muted-foreground shrink-0 rtl:-scale-x-100"
           />
         )}
         <Icon size={16} className="text-muted-foreground shrink-0" />

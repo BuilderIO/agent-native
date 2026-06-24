@@ -194,7 +194,7 @@ export default function InviteAcceptRoute() {
                   onClick={() => setDeclineOpen(true)}
                   disabled={accepting}
                 >
-                  <IconX className="size-4 mr-1.5" />
+                  <IconX className="size-4 me-1.5" />
                   Decline
                 </Button>
                 <Button
@@ -202,7 +202,7 @@ export default function InviteAcceptRoute() {
                   disabled={accepting}
                   className="bg-primary hover:bg-primary/90"
                 >
-                  <IconCheck className="size-4 mr-1.5" />
+                  <IconCheck className="size-4 me-1.5" />
                   {accepting ? "Joining…" : "Accept invite"}
                 </Button>
               </div>

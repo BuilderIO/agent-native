@@ -40,12 +40,12 @@ const Toaster = ({ className, toastOptions, ...props }: ToasterProps) => {
           content: cn(toastContentClasses, classNames?.content),
           actionButton: cn(
             toastButtonClasses,
-            "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(210,80%,65%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-normal group-[.toast]:!px-0 group-[.toast]:!ml-4 group-[.toast]:hover:!text-[hsl(210,80%,75%)]",
+            "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(210,80%,65%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-normal group-[.toast]:!px-0 group-[.toast]:!ms-4 group-[.toast]:hover:!text-[hsl(210,80%,75%)]",
             classNames?.actionButton,
           ),
           cancelButton: cn(
             toastButtonClasses,
-            "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(220,10%,50%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-normal group-[.toast]:!px-0 group-[.toast]:!ml-4 group-[.toast]:hover:!text-[hsl(220,10%,70%)]",
+            "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(220,10%,50%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-normal group-[.toast]:!px-0 group-[.toast]:!ms-4 group-[.toast]:hover:!text-[hsl(220,10%,70%)]",
             classNames?.cancelButton,
           ),
         },

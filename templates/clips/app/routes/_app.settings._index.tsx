@@ -1016,7 +1016,7 @@ export default function SettingsIndexRoute() {
                     <CollapsibleTrigger asChild>
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
+                        className="flex w-full items-center justify-between gap-3 px-3 py-3 text-start"
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 text-sm font-medium">

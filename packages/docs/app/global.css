@@ -460,7 +460,7 @@ h4 {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
-  text-align: left;
+  text-align: start;
 }
 
 .docs-sidebar-section-label {
@@ -538,9 +538,11 @@ h4 {
 
 .docs-sidebar-section-items {
   list-style: none;
-  margin: 2px 0 0 8px;
-  border-left: 1px solid var(--docs-border);
-  padding: 0 0 0 8px;
+  margin: 2px 0 0;
+  margin-inline-start: 8px;
+  border-inline-start: 1px solid var(--docs-border);
+  padding: 0;
+  padding-inline-start: 8px;
 }
 
 .docs-sidebar-section-items li {
@@ -582,7 +584,7 @@ h4 {
   border: 0;
   background: transparent;
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -594,9 +596,11 @@ h4 {
 /* Nested sub-docs (e.g. the plan docs under the Plans group) */
 .docs-sidebar-subitems {
   list-style: none;
-  margin: 2px 0 4px 6px;
-  border-left: 1px solid var(--docs-border);
-  padding: 0 0 0 8px;
+  margin: 2px 0 4px;
+  margin-inline-start: 6px;
+  border-inline-start: 1px solid var(--docs-border);
+  padding: 0;
+  padding-inline-start: 8px;
 }
 
 .docs-sidebar-subitems li {
@@ -1112,14 +1116,13 @@ html.dark .shiki span {
 }
 
 .mobile-docs-nav-trigger svg:last-child {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--fg-secondary);
 }
 
 .mobile-docs-nav-dropdown {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   top: 100%;
   background: var(--bg);
   border-bottom: 1px solid var(--docs-border);
@@ -1159,7 +1162,7 @@ html.dark .shiki span {
 }
 
 .mobile-docs-nav-sublink {
-  padding-left: 36px;
+  padding-inline-start: 36px;
   font-size: 13px;
 }
 
@@ -1257,11 +1260,11 @@ html.dark .shiki span {
 }
 
 .docs-next-link {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .docs-next-text {
-  text-align: right;
+  text-align: end;
   align-items: flex-end;
 }
 

@@ -178,7 +178,7 @@ export function QuickAskSidebar({
                   key={q.label}
                   type="button"
                   onClick={() => send(q.prompt)}
-                  className="text-left text-xs rounded-md border border-border bg-background px-2.5 py-2 hover:bg-accent/40 cursor-pointer"
+                  className="text-start text-xs rounded-md border border-border bg-background px-2.5 py-2 hover:bg-accent/40 cursor-pointer"
                 >
                   {q.label}
                 </button>
@@ -247,7 +247,7 @@ export function QuickAskSidebar({
             className="cursor-pointer h-9 w-9 shrink-0"
             aria-label="Send"
           >
-            <IconSend className="h-4 w-4" />
+            <IconSend className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
         </form>
       </SheetContent>

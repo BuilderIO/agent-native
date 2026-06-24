@@ -407,7 +407,7 @@ export function GoogleConnectBanner({
         )}
 
         {showWizard && !allConfigured && (
-          <div className="mt-10 w-full max-w-lg text-left">
+          <div className="mt-10 w-full max-w-lg text-start">
             <p className="text-xs text-muted-foreground mb-3">
               Follow these steps to connect your Google account. Takes about 3
               minutes.
@@ -423,7 +423,7 @@ export function GoogleConnectBanner({
                     key={i}
                     role="button"
                     tabIndex={0}
-                    className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+                    className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
                       isActive
                         ? "border-white/20 bg-white/[0.03]"
                         : isCompleted
@@ -450,7 +450,7 @@ export function GoogleConnectBanner({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">
-                          <span className="text-muted-foreground mr-1.5">
+                          <span className="text-muted-foreground me-1.5">
                             {i + 1}.
                           </span>
                           {step.title}
@@ -705,7 +705,7 @@ export function GoogleConnectBanner({
                   key={i}
                   role="button"
                   tabIndex={0}
-                  className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+                  className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
                     isActive
                       ? "border-primary/40 bg-primary/5"
                       : isCompleted
@@ -732,7 +732,7 @@ export function GoogleConnectBanner({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">
-                        <span className="text-muted-foreground mr-1.5">
+                        <span className="text-muted-foreground me-1.5">
                           {i + 1}.
                         </span>
                         {step.title}
@@ -877,7 +877,7 @@ function GoogleAuthIssuePanel({
 
   return (
     <div
-      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-start ${className}`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">

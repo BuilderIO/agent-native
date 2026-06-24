@@ -139,7 +139,7 @@ function BucketBars({
             </span>
             <span className="shrink-0 text-muted-foreground tabular-nums">
               {formatSpend(b.cents, billing)}
-              <span className="ml-1 opacity-60">
+              <span className="ms-1 opacity-60">
                 · {formatTokens(b.inputTokens + b.outputTokens)} tok
               </span>
             </span>
@@ -268,7 +268,7 @@ export function UsageSection() {
                   {formatSpend(data.totalCents, billing)}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-[10px] text-muted-foreground">
                   {data.totalCalls} calls
                 </div>
@@ -350,7 +350,7 @@ export function UsageSection() {
                         {new Date(r.createdAt).toLocaleString()} · {r.model}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right tabular-nums text-muted-foreground">
+                    <div className="shrink-0 text-end tabular-nums text-muted-foreground">
                       {formatSpend(r.cents, billing)}
                     </div>
                   </div>

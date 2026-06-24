@@ -230,7 +230,7 @@ export default function Settings() {
                 onClick={handleDisconnect}
                 disabled={disconnectGoogle.isPending}
               >
-                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
+                <IconUnlink className="me-1.5 h-3.5 w-3.5" />
                 {t("common.disconnect")}
               </Button>
             ) : (
@@ -243,7 +243,7 @@ export default function Settings() {
                   isGoogleDesktopAuthPending
                 }
               >
-                <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
                 {t("common.connect")}
               </Button>
             )}
@@ -302,7 +302,7 @@ export default function Settings() {
                 onClick={handleDisconnectZoom}
                 disabled={disconnectZoom.isPending}
               >
-                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
+                <IconUnlink className="me-1.5 h-3.5 w-3.5" />
                 Disconnect
               </Button>
             ) : (
@@ -313,7 +313,7 @@ export default function Settings() {
                   connectZoom.isPending || zoomStatus.data?.configured === false
                 }
               >
-                <IconBrandZoom className="mr-1.5 h-3.5 w-3.5" />
+                <IconBrandZoom className="me-1.5 h-3.5 w-3.5" />
                 Connect
               </Button>
             )}
@@ -407,7 +407,7 @@ export default function Settings() {
             </Button>
             <Button asChild variant="outline">
               <Link to="/booking-links">
-                <IconLink className="mr-1.5 h-3.5 w-3.5" />
+                <IconLink className="me-1.5 h-3.5 w-3.5" />
                 {t("navigation.bookingLinks")}
               </Link>
             </Button>

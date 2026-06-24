@@ -77,7 +77,7 @@ export function EmptyState() {
           {t("empty.noPageDescription")}
         </p>
         <Button onClick={handleCreate} size="sm">
-          <IconPlus size={14} className="mr-1.5" />
+          <IconPlus size={14} className="me-1.5" />
           {t("empty.newPage")}
         </Button>
       </div>

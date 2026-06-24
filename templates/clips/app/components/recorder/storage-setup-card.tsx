@@ -130,7 +130,7 @@ export function StorageSetupCard({
         onClick={handleConnect}
         disabled={connecting || connected}
         className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left " +
+          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start " +
           (connected
             ? "border-primary/50 bg-primary/5"
             : "border-border bg-background hover:border-foreground/30")

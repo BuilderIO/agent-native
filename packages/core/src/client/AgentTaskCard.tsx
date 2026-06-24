@@ -185,7 +185,7 @@ export function AgentTaskCard({
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45"
+        className="flex w-full items-center gap-2 px-3 py-2 text-start transition-colors hover:bg-muted/45"
         onClick={() => setExpanded(!expanded)}
       >
         <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground">
@@ -212,6 +212,7 @@ export function AgentTaskCard({
           className={cn(
             "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
             expanded && "rotate-90",
+            "rtl:-scale-x-100",
           )}
         />
       </button>

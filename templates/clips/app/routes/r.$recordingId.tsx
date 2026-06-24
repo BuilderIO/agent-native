@@ -544,7 +544,7 @@ export default function RecordingPage() {
         detail &&
         role &&
         role !== "viewer" ? (
-          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-left shadow-sm">
+          <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Details
             </div>
@@ -638,7 +638,7 @@ export default function RecordingPage() {
             onClick={() => navigate("/")}
             aria-label="Back"
           >
-            <IconArrowLeft className="h-4 w-4" />
+            <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
           <div className="flex-1 min-w-0">
             <EditableRecordingTitle
@@ -912,7 +912,7 @@ export default function RecordingPage() {
 
       {/* Side panel */}
       {!editing ? (
-        <aside className="w-[380px] border-l border-border flex flex-col shrink-0 bg-background">
+        <aside className="w-[380px] border-s border-border flex flex-col shrink-0 bg-background">
           <Tabs
             value={panel}
             onValueChange={(v) => setPanel(v as SidePanel)}

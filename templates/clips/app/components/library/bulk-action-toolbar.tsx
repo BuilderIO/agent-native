@@ -46,7 +46,7 @@ export function BulkActionToolbar({
         "w-fit",
       )}
     >
-      <span className="pr-2 text-xs font-medium text-foreground">
+      <span className="pe-2 text-xs font-medium text-foreground">
         {count} selected
       </span>
       <div className="h-4 w-px bg-border" />
@@ -82,12 +82,12 @@ export function BulkActionToolbar({
               >
                 <span
                   className="truncate"
-                  style={{ paddingLeft: (target.depth ?? 0) * 12 }}
+                  style={{ paddingInlineStart: (target.depth ?? 0) * 12 }}
                 >
                   {target.name}
                 </span>
                 {target.disabled && (
-                  <span className="ml-auto text-xs text-muted-foreground">
+                  <span className="ms-auto text-xs text-muted-foreground">
                     Current
                   </span>
                 )}

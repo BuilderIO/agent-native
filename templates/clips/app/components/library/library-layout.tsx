@@ -256,11 +256,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           {/* Left sidebar */}
           <aside
             className={cn(
-              "fixed inset-y-0 left-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-r border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
+              "fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
               showCollapsedSidebar && "md:w-14",
               sidebarOpen
                 ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0",
+                : "-translate-x-full rtl:translate-x-full md:translate-x-0",
             )}
           >
             <div
@@ -550,7 +550,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   ref={setHeaderSlot}
                   className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
                 />
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ms-auto flex items-center gap-2">
                   <ClipsAgentToggleButton />
                 </div>
               </header>

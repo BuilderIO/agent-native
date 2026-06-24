@@ -132,7 +132,7 @@ function ErrorScreen({ error }: { error: unknown }) {
           Reload
         </button>
         {stack && (
-          <pre className="mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded">
+          <pre className="mt-6 w-full text-start text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>
           </pre>
         )}

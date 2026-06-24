@@ -261,8 +261,8 @@ function AssetsChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-l border-border/70 pl-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pr-1">
+    <div className="mt-2 border-s border-border/70 ps-3">
+      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
           {t("chat.chats")}
         </div>
@@ -323,13 +323,13 @@ function AssetsChatsSection() {
                   <button
                     type="button"
                     onClick={() => openThread(thread.id)}
-                    className="flex h-full min-w-0 flex-1 items-center px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex h-full min-w-0 flex-1 items-center px-2 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="min-w-0 flex-1 truncate">
                       {threadTitle(thread)}
                     </span>
                   </button>
-                  <div className="relative flex w-auto min-w-7 shrink-0 items-center justify-end pr-1">
+                  <div className="relative flex w-auto min-w-7 shrink-0 items-center justify-end pe-1">
                     <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground/75 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
                       {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
                     </span>
@@ -340,7 +340,7 @@ function AssetsChatsSection() {
                           aria-label={t("chat.optionsFor", {
                             title: threadTitle(thread),
                           })}
-                          className="absolute right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                          className="absolute end-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
                         >
                           <IconDots className="size-4" />
                         </button>
@@ -353,7 +353,7 @@ function AssetsChatsSection() {
                         <DropdownMenuItem
                           onSelect={() => startRenameThread(thread)}
                         >
-                          <IconEdit className="mr-2 size-4" />
+                          <IconEdit className="me-2 size-4" />
                           {t("chat.renameChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -361,7 +361,7 @@ function AssetsChatsSection() {
                             void pinThread(thread.id, !thread.pinnedAt)
                           }
                         >
-                          <IconPin className="mr-2 size-4" />
+                          <IconPin className="me-2 size-4" />
                           {thread.pinnedAt
                             ? t("chat.unpinChat")
                             : t("chat.pinChat")}
@@ -369,14 +369,14 @@ function AssetsChatsSection() {
                         <DropdownMenuItem
                           onSelect={() => void handleCopyShareLink(thread.id)}
                         >
-                          <IconShare3 className="mr-2 size-4" />
+                          <IconShare3 className="me-2 size-4" />
                           {t("chat.copyShareLink")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onSelect={() => void handleArchiveThread(thread.id)}
                         >
-                          <IconArchive className="mr-2 size-4" />
+                          <IconArchive className="me-2 size-4" />
                           {t("chat.archiveChat")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -425,7 +425,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground",
         collapsed ? "w-14" : "w-56",
       )}
     >
@@ -466,9 +466,9 @@ export function Sidebar() {
               }
             >
               {collapsed ? (
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
               ) : (
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
               )}
             </button>
           </TooltipTrigger>

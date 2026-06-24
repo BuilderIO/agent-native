@@ -196,7 +196,7 @@ function ChatSkeleton({
       {header ?? (
         <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
           <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
-          <div className="ml-auto flex gap-0.5">
+          <div className="ms-auto flex gap-0.5">
             <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
             <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
           </div>
@@ -290,7 +290,7 @@ function ScopeBadge({
             <span className="min-w-0 truncate">{heading}</span>
             {otherCount > 0 && (
               <span
-                className="ml-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
+                className="ms-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
                 aria-label={`${otherCount} other chats for ${objectLabel}`}
               >
                 +{otherCount}
@@ -373,7 +373,7 @@ function PreviousScopedChatsHint({
             key={thread.id}
             type="button"
             onClick={() => onSelectThread(thread.id)}
-            className="flex items-baseline justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-left hover:bg-accent cursor-pointer"
+            className="flex items-baseline justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-start hover:bg-accent cursor-pointer"
           >
             <span className="truncate text-[12px] text-foreground">
               {thread.title || thread.preview || "Chat"}
@@ -443,7 +443,7 @@ function renderThreadRow(
         onClose();
       }}
       className={cn(
-        "w-full px-3 py-2 text-left hover:bg-accent/50 cursor-pointer",
+        "w-full px-3 py-2 text-start hover:bg-accent/50 cursor-pointer",
         isActive && "bg-accent/30",
       )}
     >
@@ -568,7 +568,7 @@ function HistoryPopover({
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor asChild>
-        <span aria-hidden className="absolute right-2 top-0 h-px w-px" />
+        <span aria-hidden className="absolute end-2 top-0 h-px w-px" />
       </PopoverAnchor>
       <PopoverContent
         align="end"
@@ -682,7 +682,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
+      <div className="absolute end-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border">
           <span className="text-xs font-medium text-foreground">
             Available Commands
@@ -2548,9 +2548,9 @@ export function MultiTabAssistantChat({
                             <button
                               type="button"
                               onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-left"
+                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-start"
                             >
-                              <span className="truncate pr-1">{tab.label}</span>
+                              <span className="truncate pe-1">{tab.label}</span>
                               {tab.status === "running" && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
                               )}
@@ -2583,7 +2583,7 @@ export function MultiTabAssistantChat({
                       })}
                     </div>
                     <TooltipProvider delayDuration={200}>
-                      <div className="flex items-center gap-px shrink-0 ml-auto">
+                      <div className="flex items-center gap-px shrink-0 ms-auto">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
@@ -2646,9 +2646,9 @@ export function MultiTabAssistantChat({
                             <button
                               type="button"
                               onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-left"
+                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-start"
                             >
-                              <span className="truncate pr-1">
+                              <span className="truncate pe-1">
                                 {tab.subAgentName || tab.label}
                               </span>
                               {tab.status === "running" && (

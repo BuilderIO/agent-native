@@ -299,7 +299,7 @@ export const MentionPopover = forwardRef<
                           <button
                             key={item.id}
                             data-mention-index={idx}
-                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
                               idx === selectedIndex
                                 ? "bg-accent text-accent-foreground"
                                 : "hover:bg-accent/50"
@@ -312,7 +312,7 @@ export const MentionPopover = forwardRef<
                               {item.label}
                             </span>
                             {item.description && (
-                              <span className="ml-auto shrink-0 truncate max-w-[160px] text-xs text-muted-foreground">
+                              <span className="ms-auto shrink-0 truncate max-w-[160px] text-xs text-muted-foreground">
                                 {item.description}
                               </span>
                             )}
@@ -337,7 +337,7 @@ export const MentionPopover = forwardRef<
                               <button
                                 key={cmd.name}
                                 data-mention-index={i}
-                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
                                   i === selectedIndex
                                     ? "bg-accent text-accent-foreground"
                                     : "hover:bg-accent/50"
@@ -374,7 +374,7 @@ export const MentionPopover = forwardRef<
                               <button
                                 key={skill.path}
                                 data-mention-index={i}
-                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
                                   i === selectedIndex
                                     ? "bg-accent text-accent-foreground"
                                     : "hover:bg-accent/50"

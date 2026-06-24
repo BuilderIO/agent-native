@@ -74,7 +74,7 @@ const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
 const STARTER_PRESET = DEFAULT_LIBRARY_PRESETS[0];
 const STARTER_LIBRARY_ID = `starter:${STARTER_PRESET.id}`;
 const PICKER_INLINE_SELECT_CLASS =
-  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ms-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
 
 type Asset = {
@@ -1633,7 +1633,7 @@ export default function AssetPicker() {
                     }
                   }}
                   title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+                  className="block w-full text-start focus-visible:outline-none"
                 >
                   <div className="aspect-square bg-muted">
                     {asset.mediaType === "video" ||
@@ -1660,7 +1660,7 @@ export default function AssetPicker() {
                           event.stopPropagation();
                           chooseAsset(asset);
                         }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        className="absolute end-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                       >
                         <IconClipboard className="h-4 w-4" />
                       </button>

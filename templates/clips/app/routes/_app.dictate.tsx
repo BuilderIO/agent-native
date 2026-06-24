@@ -213,7 +213,7 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
         {open ? (
           <IconChevronDown className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <IconChevronRight className="h-4 w-4 text-muted-foreground" />
+          <IconChevronRight className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -439,7 +439,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
           {expanded ? (
             <IconChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <IconChevronRight className="h-3.5 w-3.5" />
+            <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
           )}
           {formatTime(dictation.createdAt)}
         </div>
@@ -454,7 +454,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
             <span className="text-muted-foreground italic">No text</span>
           )}
         </div>
-        <div className="col-span-1 text-right text-xs text-muted-foreground tabular-nums">
+        <div className="col-span-1 text-end text-xs text-muted-foreground tabular-nums">
           {formatDuration(dictation.durationMs)}
         </div>
         <div className="col-span-1 flex justify-end">
@@ -946,7 +946,7 @@ export default function DictateRoute() {
                         <div className="col-span-2">When</div>
                         <div className="col-span-2">Source</div>
                         <div className="col-span-6">Text</div>
-                        <div className="col-span-1 text-right">Duration</div>
+                        <div className="col-span-1 text-end">Duration</div>
                         <div className="col-span-1" />
                       </div>
                       <div>

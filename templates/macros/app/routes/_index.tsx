@@ -127,7 +127,7 @@ export default function IndexPage() {
             className="h-11 w-11 sm:h-8 sm:w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5"
             onClick={() => setDate(subDays(date, 1))}
           >
-            <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4" />
+            <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4 rtl:-scale-x-100" />
           </Button>
           <div className="min-w-[140px] sm:min-w-[160px] text-center px-3 sm:px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06]">
             <span className="text-sm font-medium text-foreground">
@@ -143,7 +143,7 @@ export default function IndexPage() {
             onClick={() => setDate(addDays(date, 1))}
             disabled={isSameDay(date, new Date())}
           >
-            <IconChevronRight className="h-5 w-5 sm:h-4 sm:w-4" />
+            <IconChevronRight className="h-5 w-5 sm:h-4 sm:w-4 rtl:-scale-x-100" />
           </Button>
         </div>
 

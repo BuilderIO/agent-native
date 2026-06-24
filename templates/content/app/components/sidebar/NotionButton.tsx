@@ -269,7 +269,7 @@ export function NotionButton() {
                   )}
                 >
                   <button
-                    className="flex items-start gap-2 w-full text-left"
+                    className="flex items-start gap-2 w-full text-start"
                     onClick={() => setCurrentStep(i)}
                   >
                     <span className="mt-0.5 shrink-0">
@@ -303,7 +303,7 @@ export function NotionButton() {
                   </button>
 
                   {active && (
-                    <div className="mt-2 ml-5 space-y-2">
+                    <div className="mt-2 ms-5 space-y-2">
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         {step.description}
                       </p>
@@ -391,7 +391,7 @@ export function NotionButton() {
                             <>
                               <IconLoader2
                                 size={12}
-                                className="mr-1 animate-spin"
+                                className="me-1 animate-spin"
                               />
                               Complete steps above first
                             </>

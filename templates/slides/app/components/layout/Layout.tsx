@@ -88,7 +88,7 @@ export function Layout({ children }: LayoutProps) {
               "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
               sidebarOpen
                 ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0",
+                : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
             )}
           >
             <Sidebar
