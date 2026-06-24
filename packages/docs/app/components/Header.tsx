@@ -2,17 +2,26 @@ import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { IconMessage } from "@tabler/icons-react";
-import { FeedbackButton } from "@agent-native/core/client";
+import { FeedbackButton, useT } from "@agent-native/core/client";
+import DocsLanguagePicker from "./DocsLanguagePicker";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
 );
 
-function SearchTrigger({ onClick }: { onClick: () => void }) {
+function SearchTrigger({
+  onClick,
+  label,
+  placeholder,
+}: {
+  onClick: () => void;
+  label: string;
+  placeholder: string;
+}) {
   return (
     <button
       onClick={onClick}
-      aria-label="Search docs"
+      aria-label={label}
       className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
     >
       <svg
@@ -28,7 +37,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
-      <span className="hidden sm:inline">Search docs...</span>
+      <span className="hidden sm:inline">{placeholder}</span>
       <kbd className="hidden rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] sm:inline-block">
         ⌘K
       </kbd>
@@ -102,6 +111,7 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isHome = useLocation().pathname === "/";
   const [scrolled, setScrolled] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     if (!isHome) return;
@@ -178,7 +188,7 @@ export default function Header() {
                 isActive ? "header-link is-active" : "header-link"
               }
             >
-              Docs
+              {t("header.docs")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
@@ -187,7 +197,7 @@ export default function Header() {
                 isActive ? "header-link is-active" : "header-link"
               }
             >
-              Templates
+              {t("header.templates")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
@@ -196,7 +206,7 @@ export default function Header() {
                 isActive ? "header-link is-active" : "header-link"
               }
             >
-              Skills
+              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
@@ -229,15 +239,20 @@ export default function Header() {
               align="end"
               side="bottom"
             />
-            <SearchTrigger onClick={openModal} />
+            <DocsLanguagePicker />
+            <SearchTrigger
+              onClick={openModal}
+              label={t("header.searchAria")}
+              placeholder={t("header.searchPlaceholder")}
+            />
             <ThemeToggle />
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
               }
-              aria-label="Ask the AI assistant"
+              aria-label={t("header.askAssistant")}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-              title="Ask the AI assistant"
+              title={t("header.askAssistant")}
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
@@ -246,7 +261,7 @@ export default function Header() {
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)] lg:hidden"
-              aria-label="Toggle navigation menu"
+              aria-label={t("header.toggleNavigation")}
               aria-expanded={mobileMenuOpen}
             >
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
@@ -265,7 +280,7 @@ export default function Header() {
               }
               onClick={closeMobileMenu}
             >
-              Docs
+              {t("header.docs")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
@@ -275,7 +290,7 @@ export default function Header() {
               }
               onClick={closeMobileMenu}
             >
-              Templates
+              {t("header.templates")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
@@ -285,7 +300,7 @@ export default function Header() {
               }
               onClick={closeMobileMenu}
             >
-              Skills
+              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"

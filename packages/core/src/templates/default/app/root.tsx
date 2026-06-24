@@ -14,11 +14,13 @@ import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   appPath,
+  getLocaleInitScript,
   getThemeInitScript,
   createAgentNativeQueryClient,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { useNavigationState } from "./hooks/use-navigation-state";
+import { i18nCatalog } from "./i18n";
 import { TAB_ID } from "./lib/tab-id";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -29,6 +31,7 @@ configureTracking({
 import "./global.css";
 
 const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 function getHydrationStableThemeInitScript() {
   if (typeof document !== "undefined") {
@@ -40,7 +43,18 @@ function getHydrationStableThemeInitScript() {
   return getThemeInitScript();
 }
 
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -55,6 +69,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
@@ -88,7 +107,7 @@ function DbSyncSetup() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
       <DbSyncSetup />
       <Outlet />
     </AppProviders>

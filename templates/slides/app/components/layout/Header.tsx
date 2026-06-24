@@ -1,31 +1,38 @@
 import { useLocation } from "react-router";
 import { useDecks } from "@/context/DeckContext";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  LanguagePicker,
+  useT,
+} from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
 
-const pageTitles: Record<string, string> = {
-  "/": "Decks",
-  "/design-systems": "Design Systems",
-  "/team": "Team",
-  "/extensions": "Extensions",
+const pageTitleKeys: Record<string, string> = {
+  "/": "header.decks",
+  "/design-systems": "header.designSystems",
+  "/settings": "header.settings",
+  "/team": "header.team",
+  "/extensions": "header.extensions",
 };
 
 function DeckTitle({ id }: { id: string }) {
   const { getDeck } = useDecks();
+  const t = useT();
   const deck = getDeck(id);
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">
-      {deck?.title || "Deck"}
+      {deck?.title || t("header.deck")}
     </h1>
   );
 }
 
 function ResolvedTitle({ pathname }: { pathname: string }) {
-  if (pageTitles[pathname]) {
+  const t = useT();
+  if (pageTitleKeys[pathname]) {
     return (
       <h1 className="text-lg font-semibold tracking-tight truncate">
-        {pageTitles[pathname]}
+        {t(pageTitleKeys[pathname])}
       </h1>
     );
   }
@@ -35,12 +42,16 @@ function ResolvedTitle({ pathname }: { pathname: string }) {
 
   if (pathname.startsWith("/extensions/")) {
     return (
-      <h1 className="text-lg font-semibold tracking-tight truncate">Tool</h1>
+      <h1 className="text-lg font-semibold tracking-tight truncate">
+        {t("header.tool")}
+      </h1>
     );
   }
 
   return (
-    <h1 className="text-lg font-semibold tracking-tight truncate">Slides</h1>
+    <h1 className="text-lg font-semibold tracking-tight truncate">
+      {t("header.slides")}
+    </h1>
   );
 }
 
@@ -56,6 +67,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <LanguagePicker variant="icon" />
         <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>

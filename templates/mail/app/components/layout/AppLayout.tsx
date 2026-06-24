@@ -51,8 +51,10 @@ import {
   AgentToggleButton,
   DevDatabaseLink,
   FeedbackButton,
+  LanguagePicker,
   NotificationsBell,
   agentNativePath,
+  useT,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
@@ -161,6 +163,7 @@ const collapsibleViews = [
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const isMobile = useIsMobile();
+  const t = useT();
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -175,11 +178,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       position="right"
       defaultOpen={!isMobile}
-      emptyStateText="Ask me anything about your emails"
+      emptyStateText={t("agent.emptyState")}
       suggestions={[
-        "Summarize my unread emails",
-        "What needs my reply today?",
-        "Build me a custom widget for my inbox",
+        t("agent.suggestionSummarize"),
+        t("agent.suggestionReplies"),
+        t("agent.suggestionWidget"),
       ]}
     >
       {content}
@@ -1199,6 +1202,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </Tooltip>
 
           <NotificationsBell />
+          <LanguagePicker variant="icon" />
 
           {/* Compose — prominent outline button */}
           <Tooltip>
@@ -1773,6 +1777,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
             <NotificationsBell />
+            <LanguagePicker variant="icon" />
             <AgentToggleButton />
           </div>
         </header>

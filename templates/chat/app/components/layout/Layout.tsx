@@ -10,6 +10,7 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  useT,
 } from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
@@ -44,6 +45,7 @@ function routeOwnsToolbar(pathname: string): boolean {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isChatRoute =
@@ -105,7 +107,7 @@ export function Layout({ children }: LayoutProps) {
             variant="ghost"
             size="icon"
             onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t("navigation.openNavigation")}
           >
             <IconMenu2 className="size-4" />
           </Button>
@@ -116,7 +118,7 @@ export function Layout({ children }: LayoutProps) {
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t("navigation.openNavigation")}
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <IconMenu2 className="h-4 w-4" />
@@ -142,9 +144,11 @@ export function Layout({ children }: LayoutProps) {
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetTitle className="sr-only">
+              {t("navigation.navigation")}
+            </SheetTitle>
             <SheetDescription className="sr-only">
-              App navigation links
+              {t("navigation.navigationDescription")}
             </SheetDescription>
             <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
@@ -159,11 +163,11 @@ export function Layout({ children }: LayoutProps) {
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
-            emptyStateText="Ask the agent to inspect or change this app."
+            emptyStateText={t("chat.inspectEmptyState")}
             suggestions={[
-              "What can you do here?",
-              "Call hello for Builder",
-              "Add a new action and show it in the UI",
+              t("chat.inspectSuggestionCapabilities"),
+              t("chat.inspectSuggestionHello"),
+              t("chat.inspectSuggestionAction"),
             ]}
           >
             {contentFrame}

@@ -52,6 +52,7 @@ import {
   appPath,
   DevDatabaseLink,
   FeedbackButton,
+  useT,
 } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
@@ -85,10 +86,14 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 
 const navItems = [
-  { path: "/", label: "Calendar", icon: IconCalendar },
-  { path: "/booking-links", label: "Booking Links", icon: IconLink },
-  { path: "/team", label: "Team", icon: IconUsers },
-  { path: "/settings", label: "Settings", icon: IconSettings },
+  { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },
+  {
+    path: "/booking-links",
+    labelKey: "navigation.bookingLinks",
+    icon: IconLink,
+  },
+  { path: "/team", labelKey: "navigation.team", icon: IconUsers },
+  { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -304,6 +309,7 @@ function MiniCalendar({
 }
 
 function GoogleConnectSidebarButton() {
+  const t = useT();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const {
@@ -332,10 +338,10 @@ function GoogleConnectSidebarButton() {
     <div className="border-t border-border p-3">
       <div className="rounded-lg bg-primary/10 p-3">
         <p className="mb-1 text-xs font-semibold text-foreground">
-          Connect Google Calendar
+          {t("settings.connectGoogleCalendar")}
         </p>
         <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-          Sync your events and manage everything in one place.
+          {t("settings.connectGoogleDescription")}
         </p>
         <Button
           size="sm"
@@ -348,7 +354,7 @@ function GoogleConnectSidebarButton() {
           }
         >
           <IconExternalLink className="h-3 w-3" />
-          {authUrl.isLoading ? "Connecting..." : "Connect"}
+          {authUrl.isLoading ? t("common.connecting") : t("common.connect")}
         </Button>
       </div>
     </div>
@@ -590,6 +596,7 @@ function GoogleAccountsSection({
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const {
     selectedDate,
     setSelectedDate,
@@ -669,7 +676,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               className="hidden h-4 w-auto shrink-0 dark:block"
             />
             <span className="text-base font-semibold tracking-tight">
-              Calendar
+              {t("navigation.brand")}
             </span>
           </Link>
         </div>
@@ -702,7 +709,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   )}
                 >
                   <item.icon className="h-4 w-4" />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}

@@ -24,6 +24,7 @@ import {
   navigateWithAgentChatViewTransition,
   useActionQuery,
   useChatThreads,
+  useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
@@ -43,15 +44,15 @@ import {
 } from "@/components/ui/tooltip";
 
 const baseNavItems = [
-  { icon: IconPhotoPlus, label: "Create", href: "/" },
-  { icon: IconLayoutGrid, label: "Library", href: "/library" },
-  { icon: IconPalette, label: "Brand Kits", href: "/brand-kits" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
+  { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
+  { icon: IconPalette, labelKey: "navigation.brandKits", href: "/brand-kits" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 const auditNavItem = {
   icon: IconClipboardList,
-  label: "Audit log",
+  labelKey: "navigation.auditLog",
   href: "/audit",
 };
 
@@ -118,6 +119,7 @@ function chatThreadPath(threadId: string) {
 function AssetsChatsSection() {
   const navigate = useNavigate();
   const location = useLocation();
+  const t = useT();
   const {
     threads,
     activeThreadId,
@@ -198,7 +200,7 @@ function AssetsChatsSection() {
       threadId === activeThreadId || threadId === persistedActiveThreadId();
     const archived = await archiveThread(threadId);
     if (!archived) {
-      toast.error("Could not archive chat.");
+      toast.error(t("chat.archiveFailed"));
       return;
     }
     if (wasActive) {
@@ -209,7 +211,7 @@ function AssetsChatsSection() {
   async function handleCopyShareLink(threadId: string) {
     const link = await createThreadShareLink(threadId);
     if (!link?.url) {
-      toast.error("Could not create a share link.");
+      toast.error(t("chat.shareLinkFailed"));
       return;
     }
 
@@ -218,9 +220,9 @@ function AssetsChatsSection() {
         throw new Error("Clipboard unavailable");
       }
       await navigator.clipboard.writeText(link.url);
-      toast.success("Chat share link copied.");
+      toast.success(t("chat.shareLinkCopied"));
     } catch {
-      toast.success("Chat share link ready.", {
+      toast.success(t("chat.shareLinkReady"), {
         description: link.url,
       });
     }
@@ -248,7 +250,7 @@ function AssetsChatsSection() {
     setRenameDraft("");
     if (title) {
       const renamed = await renameThread(threadId, title);
-      if (!renamed) toast.error("Could not rename chat.");
+      if (!renamed) toast.error(t("chat.renameFailed"));
     }
     committingRenameRef.current = false;
   }
@@ -262,7 +264,7 @@ function AssetsChatsSection() {
     <div className="mt-2 border-l border-border/70 pl-3">
       <div className="mb-1 flex h-7 items-center gap-2 pr-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-          Chats
+          {t("chat.chats")}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -270,12 +272,12 @@ function AssetsChatsSection() {
               type="button"
               onClick={handleNewChat}
               className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label="New Assets chat"
+              aria-label={t("chat.newAssetsChat")}
             >
               <IconPlus className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">New chat</TooltipContent>
+          <TooltipContent side="right">{t("chat.newChat")}</TooltipContent>
         </Tooltip>
       </div>
       <div className="grid gap-0.5">
@@ -335,7 +337,9 @@ function AssetsChatsSection() {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`Chat options for ${threadTitle(thread)}`}
+                          aria-label={t("chat.optionsFor", {
+                            title: threadTitle(thread),
+                          })}
                           className="absolute right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
                         >
                           <IconDots className="size-4" />
@@ -350,7 +354,7 @@ function AssetsChatsSection() {
                           onSelect={() => startRenameThread(thread)}
                         >
                           <IconEdit className="mr-2 size-4" />
-                          Rename chat
+                          {t("chat.renameChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() =>
@@ -358,20 +362,22 @@ function AssetsChatsSection() {
                           }
                         >
                           <IconPin className="mr-2 size-4" />
-                          {thread.pinnedAt ? "Unpin chat" : "Pin chat"}
+                          {thread.pinnedAt
+                            ? t("chat.unpinChat")
+                            : t("chat.pinChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => void handleCopyShareLink(thread.id)}
                         >
                           <IconShare3 className="mr-2 size-4" />
-                          Copy share link
+                          {t("chat.copyShareLink")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onSelect={() => void handleArchiveThread(thread.id)}
                         >
                           <IconArchive className="mr-2 size-4" />
-                          Archive chat
+                          {t("chat.archiveChat")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -389,6 +395,7 @@ function AssetsChatsSection() {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
   const { data: auditAdmin } = useActionQuery("is-audit-admin", {}, {
@@ -442,7 +449,9 @@ export function Sidebar() {
               aria-hidden="true"
               className="hidden h-4 w-auto dark:block"
             />
-            <span className="text-sm font-semibold tracking-tight">Assets</span>
+            <span className="text-sm font-semibold tracking-tight">
+              {t("navigation.brand")}
+            </span>
           </div>
         )}
         <Tooltip delayDuration={0}>
@@ -450,7 +459,11 @@ export function Sidebar() {
             <button
               onClick={() => setCollapsed((c) => !c)}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={
+                collapsed
+                  ? t("navigation.expandSidebar")
+                  : t("navigation.collapseSidebar")
+              }
             >
               {collapsed ? (
                 <IconLayoutSidebarLeftExpand className="h-4 w-4" />
@@ -460,7 +473,9 @@ export function Sidebar() {
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            {collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -510,14 +525,16 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && item.label}
+                {!collapsed && t(item.labelKey)}
               </Link>
             );
             if (collapsed) {
               return (
                 <Tooltip key={item.href} delayDuration={0}>
                   <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
                 </Tooltip>
               );
             }

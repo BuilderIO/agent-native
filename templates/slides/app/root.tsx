@@ -20,6 +20,7 @@ import {
   exitSelectionMode as coreExitSelectionMode,
   useCommandMenuShortcut,
   useDbSync,
+  useT,
 } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -29,8 +30,12 @@ import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
 import changelog from "../CHANGELOG.md?raw";
-import { getThemeInitScript } from "@agent-native/core/client";
+import {
+  getLocaleInitScript,
+  getThemeInitScript,
+} from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
+import { i18nCatalog } from "./i18n";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -90,11 +95,35 @@ function useExitSelectionOnOutsideClick() {
   }, []);
 }
 
-const THEME_INIT_SCRIPT = getThemeInitScript("dark", true);
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript("dark", true);
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en-US" dir="ltr" data-locale="en-US" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -102,8 +131,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -145,6 +180,7 @@ function AppContent() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
 
@@ -169,16 +205,18 @@ function AppContent() {
         changelog={changelog}
         changelogKey="slides"
       >
-        <CommandMenu.Group heading="Presentations">
-          <CommandMenu.Item onSelect={() => {}}>Search decks</CommandMenu.Item>
+        <CommandMenu.Group heading={t("root.commandPresentations")}>
+          <CommandMenu.Item onSelect={() => {}}>
+            {t("root.searchDecks")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
             {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-            Toggle {isDark ? "light" : "dark"} mode
+            {t("root.toggleTheme")}
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
@@ -200,7 +238,11 @@ export default function Root() {
   }
 
   return (
-    <AppProviders queryClient={queryClient} defaultTheme="dark">
+    <AppProviders
+      queryClient={queryClient}
+      defaultTheme="dark"
+      i18n={{ catalog: i18nCatalog }}
+    >
       <AppContent />
       {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
           Components throughout the app call toast() from @/hooks/use-toast,

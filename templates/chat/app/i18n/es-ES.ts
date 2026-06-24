@@ -1,0 +1,63 @@
+const messages = {
+  settings: {
+    title: "Ajustes",
+    description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
+    languageLabel: "Idioma de la interfaz",
+    workspaceTitle: "Espacio de trabajo",
+    workspaceDescription:
+      "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
+    openTeamSettings: "Abrir ajustes del equipo",
+    openResourceSettings: "Abrir ajustes de recursos",
+    agentTitle: "Ajustes del agente",
+    agentDescription:
+      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Abrir ajustes del agente",
+  },
+  chat: {
+    archiveChat: "Archive Chat",
+    archiveFailed: "Archive Failed",
+    chats: "Chats",
+    composerPlaceholder: "Ask the agent...",
+    emptyState: "Ask me anything",
+    heroDescription: "Ask the agent to inspect, explain, or change this app.",
+    heroTitle: "How can I help?",
+    inspectEmptyState: "Ask me anything about this app",
+    inspectSuggestionAction: "Show available actions",
+    inspectSuggestionCapabilities: "What can this app do?",
+    inspectSuggestionHello: "Help me get started",
+    newChat: "New Chat",
+    optionsFor: "Options For",
+    pinChat: "Pin Chat",
+    renameChat: "Rename Chat",
+    renameFailed: "Rename Failed",
+    renameThread: "Rename Thread",
+    suggestionActions: "Show me the available actions",
+    suggestionCapabilities: "What can this app do?",
+    suggestionCustomize: "Help me customize this app",
+    unpinChat: "Unpin Chat",
+  },
+  navigation: {
+    chat: "Chat",
+    collapseSidebar: "Collapse Sidebar",
+    database: "Base de datos",
+    expandSidebar: "Expand Sidebar",
+    extensions: "Extensiones",
+    navigation: "Navegación",
+    navigationDescription: "Navegación principal",
+    observability: "Observabilidad",
+    openNavigation: "Abrir navegación",
+    settings: "Ajustes",
+    team: "Equipo",
+  },
+  root: {
+    commandActions: "Acciones",
+    commandAppearance: "Apariencia",
+    commandSearch: "Buscar",
+    toggleTheme: "Cambiar tema",
+  },
+};
+
+export default messages;

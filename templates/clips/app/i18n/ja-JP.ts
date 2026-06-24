@@ -1,0 +1,180 @@
+const messages = {
+  common: {
+    cancel: "キャンセル",
+    create: "作成",
+    save: "保存",
+    saving: "保存中…",
+    saveChanges: "変更を保存",
+    connected: "接続済み",
+    notConnected: "未接続",
+    disconnect: "接続解除",
+    disconnecting: "接続解除中...",
+  },
+  root: {
+    commandActions: "アクション",
+    commandSearch: "検索",
+    commandAppearance: "表示",
+    toggleTheme: "テーマを切り替え",
+    extensionSignedInTitle: "サインインしました",
+    extensionSignedInDescription:
+      "録画を開始するには Clips 拡張機能をもう一度開いてください。",
+    gotIt: "了解",
+  },
+  navigation: {
+    brand: "Clips",
+    library: "ライブラリ",
+    spaces: "スペース",
+    meetings: "ミーティング",
+    dictate: "ディクテーション",
+    archive: "アーカイブ",
+    trash: "ゴミ箱",
+    settings: "設定",
+    notifications: "通知",
+    insights: "インサイト",
+    space: "スペース",
+    folder: "フォルダ",
+    extensions: "拡張機能",
+    newRecording: "新規録画",
+    folders: "フォルダ",
+    newFolder: "新規フォルダ",
+    noSpaces: "スペースはまだありません",
+    desktopCta: "デスクトップアプリを入手",
+    desktopTitle: "Clips デスクトップアプリを入手しましょう。",
+    desktopBody:
+      "メニューバー、グローバルショートカット、自動更新から録画できます。",
+    expandSidebar: "サイドバーを展開",
+    collapseSidebar: "サイドバーを折りたたむ",
+    agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
+    agentSuggestionSummary: "最新の録画を要約して",
+    agentSuggestionPricing: "価格について話した箇所を探して",
+    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    createFolderError: "作成に失敗しました",
+    folderCreated: "フォルダを作成しました",
+    folderNamePlaceholder: "フォルダ名",
+  },
+  empty: {
+    library: {
+      title: "ライブラリは空です",
+      body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
+      cta: "最初の Clip を録画",
+    },
+    folder: {
+      title: "このフォルダは空です",
+      body: "録画をドラッグするか、録画を押してこのフォルダで新しい内容を始めましょう。",
+      cta: "ここに録画",
+    },
+    space: {
+      title: "このスペースにはまだ録画がありません",
+      body: "録画をスペースに共有するか、新しく録画するとチームがここで確認できます。",
+      cta: "このスペース用に録画",
+    },
+    archive: {
+      title: "アーカイブはありません",
+      body: "アーカイブした録画はライブラリから非表示になりますが、安全に保持されます。後でいつでも復元できます。",
+    },
+    trash: {
+      title: "ゴミ箱は空です",
+      body: "削除した録画は完全に削除される前に 30 日間ここに表示されます。",
+    },
+    search: {
+      title: "一致する結果はありません",
+      body: "別の検索語を試すか、フィルターを確認してください。",
+    },
+  },
+  settings: {
+    openAgentSettings: "エージェント設定を開く",
+    agentDescription:
+      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェント設定",
+    title: "設定",
+    intro: "この Clips ワークスペースの設定と接続済みサービスです。",
+    languageTitle: "言語",
+    languageDescription:
+      "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
+    languageLabel: "インターフェイス言語",
+    profile: "プロフィール",
+    email: "メール",
+    displayName: "表示名",
+    displayNamePlaceholder: "あなたの名前",
+    playback: "再生",
+    defaultPlaybackSpeed: "デフォルト再生速度",
+    playbackDescription: "録画を開いたときに自動的に適用されます。",
+    transcript: "文字起こし",
+    transcriptCleanup: "バックグラウンド整形",
+    transcriptCleanupDescription:
+      "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
+    notifications: "通知",
+    emailNotifications: "メール通知",
+    emailNotificationsDescription:
+      "誰かがコメント、リアクション、または録画を共有したときにメールを受け取ります。",
+    saved: "設定を保存しました",
+    saveFailed: "保存に失敗しました",
+    builderConnectedToast: "Builder.io に接続しました",
+    videoStorage: "動画ストレージ",
+    videoStorageDescription:
+      "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
+    checkingBuilder: "Builder.io を確認中",
+    builderConnected: "Builder.io 接続済み",
+    connectBuilder: "Builder.io に接続",
+    builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
+    builderConnectedGeneric:
+      "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
+    builderIncludes:
+      "新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしを含みます。",
+    s3Title: "S3 互換ストレージ",
+    secondary: "セカンダリ",
+    active: "有効",
+    s3BuilderConnectedDescription:
+      "このワークスペースを Builder.io ではなく独自バケットにアップロードする場合のみ使用してください。",
+    s3CurrentProvider: "現在 {{providerName}} を使用中です。",
+    s3OwnBucketDescription:
+      "Builder.io ストレージを使わない場合は独自バケットを使用してください。",
+    configureS3: "S3 を設定",
+    hideS3: "S3 を非表示",
+    saveStorage: "ストレージを保存",
+    storageSaved: "ストレージ設定を保存しました",
+    storageRequired: "Endpoint、bucket、access key、secret は必須です。",
+    apiSetup: "AI 設定",
+    apiSetupDescription:
+      "Builder.io はマネージド AI クレジットのデフォルト経路です。プロバイダーキーは任意でここに追加できます。",
+    builderEasySetup: "Builder.io が最も簡単な設定です",
+    builderAiAvailable:
+      "Clips では付属の AI クレジットとマネージド文字起こしを利用できます。",
+    builderAiDescription:
+      "付属の AI クレジット、オブジェクトストレージ、アップロード、マネージド文字起こしを使うには、先に Builder を接続してください。",
+    providerKeyTitle: "独自のプロバイダーキーを使用",
+    providerKeyDescription:
+      "プロバイダー課金で使用する Anthropic、OpenAI、Gemini、Groq、OpenRouter のキーを追加します。",
+    providerKeysSet: "{{count}} 件設定済み",
+    checkingProviderKeys: "プロバイダーキーを確認中…",
+    keySet: "設定済み",
+    replaceKey: "キーを置換…",
+    pasteProviderKey: "先にプロバイダーキーを貼り付けてください。",
+    apiKeySaved: "API キーを保存しました",
+    apiKeyFailed: "キーの保存に失敗しました",
+    slackTitle: "Agent-Native Clips for Slack",
+    slackDescription:
+      "公開クリップを共有し、Slack にリンクを貼ると、その場で再生できます。閲覧者の追加操作は不要です。各ワークスペースを一度だけ接続してください。",
+    checkingSlack: "Slack を確認中",
+    slackConnected_other: "{{count}} 件のワークスペースが接続済み",
+    slackOauthNeeded: "OAuth 認証情報が必要です",
+    slackPreviewDescription:
+      "公開 Clips リンクは Slack で再生可能なプレビューとして表示できます。",
+    connectSlack: "Slack に接続",
+    slackClientMissing:
+      "ワークスペースを接続する前に、このデプロイに SLACK_CLIENT_ID と SLACK_CLIENT_SECRET を設定してください。",
+    slackSigningMissing:
+      "Slack イベントコールバックを検証できるように SLACK_SIGNING_SECRET を設定してください。",
+    connectedBy: "{{email}} が接続",
+    disconnectSlackLabel: "{{team}} を切断",
+    slackConnectedToast: "Slack に接続しました",
+    slackCheckedToast: "Slack 接続を確認しました",
+    slackDisconnectedToast: "Slack を切断しました",
+    disconnectSlackTitle: "Slack を切断しますか？",
+    disconnectSlackDescription:
+      "Clips は {{team}} の保存済みボットトークンを削除し、再生可能な Slack プレビューの送信を停止します。",
+    thisWorkspace: "このワークスペース",
+  },
+};
+
+export default messages;

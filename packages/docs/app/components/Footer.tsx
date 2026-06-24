@@ -1,7 +1,9 @@
 import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 
 export default function Footer() {
   const year = new Date().getFullYear();
+  const t = useT();
 
   return (
     <footer className="border-t border-[var(--docs-border)] px-6 py-8">
@@ -12,19 +14,19 @@ export default function Footer() {
             to="/download"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            Download
+            {t("footer.download")}
           </Link>
           <Link
             to="/privacy"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            Privacy
+            {t("footer.privacy")}
           </Link>
           <Link
             to="/terms"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
-            Terms
+            {t("footer.terms")}
           </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"

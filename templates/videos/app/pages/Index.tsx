@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Navigate } from "react-router";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { compositions } from "@/remotion/registry";
 import { Spinner } from "@/components/ui/spinner";
@@ -27,6 +27,7 @@ function StudioContent({
   collab: ReturnType<typeof useCompositionCollab>;
 }) {
   const isMobile = useIsMobile();
+  const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const initialSidebarSet = useRef(false);
   const {
@@ -72,11 +73,11 @@ function StudioContent({
       <AgentSidebar
         position="right"
         defaultOpen
-        emptyStateText="Ask me anything about your videos"
+        emptyStateText={t("agent.emptyState")}
         suggestions={[
-          "Make a logo reveal for Acme",
-          "Add a camera zoom on this scene",
-          "Slow down the intro animation",
+          t("agent.suggestionLogo"),
+          t("agent.suggestionZoom"),
+          t("agent.suggestionSlow"),
         ]}
       >
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -136,6 +137,7 @@ function StudioContent({
 
 export default function Studio() {
   const { compositionId } = useParams<{ compositionId: string }>();
+  const t = useT();
   const dbCompositions = useDatabaseCompositions();
   const collab = useCompositionCollab(
     compositionId && compositionId !== "new" ? compositionId : null,
@@ -197,11 +199,11 @@ export default function Studio() {
                 <AgentSidebar
                   position="right"
                   defaultOpen
-                  emptyStateText="Ask me anything about your videos"
+                  emptyStateText={t("agent.emptyState")}
                   suggestions={[
-                    "Make a logo reveal for Acme",
-                    "Add a camera zoom on this scene",
-                    "Slow down the intro animation",
+                    t("agent.suggestionLogo"),
+                    t("agent.suggestionZoom"),
+                    t("agent.suggestionSlow"),
                   ]}
                 >
                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden">

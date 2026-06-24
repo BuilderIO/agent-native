@@ -24,24 +24,25 @@ Every skill's frontmatter `name` and `description` are always injected into the 
 
 These are the skills bundled with the **default template**. The exact set available in any given app depends on the template you scaffolded from — check that template's `.agents/skills/` directory for what it actually ships.
 
-| Skill                 | When to use                                             |
-| --------------------- | ------------------------------------------------------- |
-| `storing-data`        | Adding data models, reading/writing config or state     |
-| `real-time-sync`      | Wiring polling sync, debugging UI not updating          |
-| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent      |
-| `actions`             | Creating or running agent actions                       |
-| `self-modifying-code` | Editing app source, components, or styles               |
-| `create-skill`        | Adding new skills for the agent                         |
-| `capture-learnings`   | Recording corrections and patterns                      |
-| `frontend-design`     | Building or styling any web UI, components, or pages    |
-| `adding-a-feature`    | The four-area checklist: UI, actions, skills, app-state |
-| `shadcn-ui`           | Using shadcn/ui primitives and components               |
-| `security`            | Auth, access control, and secret handling               |
-| `real-time-collab`    | Multi-user collaborative editing                        |
-| `agent-engines`       | Swapping or configuring the underlying agent engine     |
-| `notifications`       | In-app and push notification patterns                   |
-| `progress`            | Tracking and surfacing background task progress         |
-| `inline-embeds`       | Embedding apps or iframes inside the agent chat         |
+| Skill                  | When to use                                                        |
+| ---------------------- | ------------------------------------------------------------------ |
+| `storing-data`         | Adding data models, reading/writing config or state                |
+| `real-time-sync`       | Wiring polling sync, debugging UI not updating                     |
+| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent                 |
+| `actions`              | Creating or running agent actions                                  |
+| `self-modifying-code`  | Editing app source, components, or styles                          |
+| `create-skill`         | Adding new skills for the agent                                    |
+| `capture-learnings`    | Recording corrections and patterns                                 |
+| `frontend-design`      | Building or styling any web UI, components, or pages               |
+| `adding-a-feature`     | The four-area checklist: UI, actions, skills, app-state            |
+| `internationalization` | Updating localized UI copy, language catalogs, and RTL-safe styles |
+| `shadcn-ui`            | Using shadcn/ui primitives and components                          |
+| `security`             | Auth, access control, and secret handling                          |
+| `real-time-collab`     | Multi-user collaborative editing                                   |
+| `agent-engines`        | Swapping or configuring the underlying agent engine                |
+| `notifications`        | In-app and push notification patterns                              |
+| `progress`             | Tracking and surfacing background task progress                    |
+| `inline-embeds`        | Embedding apps or iframes inside the agent chat                    |
 
 `context-awareness` and `a2a-protocol` are framework-level skills available in the `.agents/skills/` directory at the repo root — see each template's own `.agents/skills/` for what it inherits.
 

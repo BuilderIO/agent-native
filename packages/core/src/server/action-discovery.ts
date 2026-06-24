@@ -576,6 +576,14 @@ export async function mergeCoreSharingActions(
       () => import("../agent/context-xray/actions/context-report.js"),
     ],
     [
+      "get-localization-preference",
+      () => import("../localization/actions/get-localization-preference.js"),
+    ],
+    [
+      "set-localization-preference",
+      () => import("../localization/actions/set-localization-preference.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],

@@ -1,9 +1,14 @@
+import { useLoaderData } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import DocContent from "../components/DocContent";
-import { getDoc } from "../components/docs-content";
+import { getDoc, type DocEntry } from "../components/docs-content";
 import { withDocsSocialImage } from "../seo";
 
 const doc = getDoc("getting-started")!;
+
+export function loader(): DocEntry {
+  return doc;
+}
 
 export const meta = () =>
   withDocsSocialImage(
@@ -18,7 +23,9 @@ export const meta = () =>
   );
 
 export default function DocsIndex() {
-  const toc = doc.headings.map((h) => ({
+  const currentDoc = useLoaderData<typeof loader>();
+
+  const toc = currentDoc.headings.map((h) => ({
     id: h.id,
     label: h.label,
     level: h.level,
@@ -26,7 +33,7 @@ export default function DocsIndex() {
 
   return (
     <DocsLayout toc={toc}>
-      <DocContent markdown={doc.body} />
+      <DocContent markdown={currentDoc.body} />
     </DocsLayout>
   );
 }

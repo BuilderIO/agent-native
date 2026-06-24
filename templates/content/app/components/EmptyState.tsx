@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useCreateDocument } from "@/hooks/use-documents";
 import type { Document } from "@shared/api";
 import { toast } from "sonner";
+import { useT } from "@agent-native/core/client";
 
 function nanoid(size = 12): string {
   const chars =
@@ -17,6 +18,7 @@ export function EmptyState() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
+  const t = useT();
 
   const handleCreate = async () => {
     const id = nanoid();
@@ -55,9 +57,9 @@ export function EmptyState() {
         queryKey: ["action", "get-document", { id }],
       });
       navigate("/");
-      toast.error("Failed to create page", {
+      toast.error(t("empty.createFailed"), {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          err instanceof Error ? err.message : t("empty.genericError"),
       });
     }
   };
@@ -69,14 +71,14 @@ export function EmptyState() {
           <IconFileText size={24} className="text-muted-foreground" />
         </div>
         <h2 className="text-lg font-semibold text-foreground mb-2">
-          No page selected
+          {t("empty.noPageTitle")}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-          Select a page from the sidebar or create a new one to get started.
+          {t("empty.noPageDescription")}
         </p>
         <Button onClick={handleCreate} size="sm">
           <IconPlus size={14} className="mr-1.5" />
-          New page
+          {t("empty.newPage")}
         </Button>
       </div>
     </div>

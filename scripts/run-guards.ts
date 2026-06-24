@@ -16,6 +16,7 @@ const guards = [
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
+  "guard:i18n-catalogs",
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",

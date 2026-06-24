@@ -12,6 +12,7 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -35,6 +36,7 @@ export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
@@ -95,11 +97,13 @@ export function Layout({ children }: LayoutProps) {
           <button
             onClick={() => setMobileSidebarOpen(true)}
             className="-ml-1 mr-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
-            aria-label="Open navigation"
+            aria-label={t("navigation.openNavigation")}
           >
             <IconMenu2 className="h-5 w-5 text-foreground" />
           </button>
-          <span className="text-base font-bold tracking-tight">Assets</span>
+          <span className="text-base font-bold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </div>
         {!hideHeader && <Header />}
         <InvitationBanner />
@@ -126,11 +130,11 @@ export function Layout({ children }: LayoutProps) {
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
-        emptyStateText="Describe the asset you want to make"
+        emptyStateText={t("chat.emptyState")}
         suggestions={[
-          "Generate 3 blog heroes from this brand kit",
-          "Make an 8-second product reveal video",
-          "Match the style of my reference assets",
+          t("chat.suggestionBlogHeroes"),
+          t("chat.suggestionProductVideo"),
+          t("chat.suggestionReferenceStyle"),
         ]}
       >
         {appFrame}

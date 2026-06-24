@@ -28,6 +28,15 @@ vi.mock("@agent-native/core/client", () => ({
   appPath: (path: string) => path,
   DevDatabaseLink: () => null,
   FeedbackButton: () => null,
+  useT: () => (key: string) =>
+    ({
+      "navigation.brand": "Slides",
+      "navigation.decks": "Decks",
+      "navigation.designSystems": "Design Systems",
+      "navigation.team": "Team",
+      "sidebar.expandSidebar": "Expand sidebar",
+      "sidebar.collapseSidebar": "Collapse sidebar",
+    })[key] ?? key,
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,

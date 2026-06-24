@@ -59,6 +59,7 @@ const workspaceSkillIncludes = [
   "external-agents",
   "frontend-design",
   "harness-agents",
+  "internationalization",
   "integration-webhooks",
   "mvp-followup",
   "observability",
@@ -96,6 +97,7 @@ const templateSharedSkillIncludes = [
   "create-skill",
   "delegate-to-agent",
   "frontend-design",
+  "internationalization",
   "performance",
   "real-time-collab",
   "real-time-sync",
@@ -108,6 +110,8 @@ const templateSharedSkillIncludes = [
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
+
+const requiredDefaultTemplateSharedSkills = ["internationalization"];
 
 const actionFirstInstructionFiles = [
   join(
@@ -364,7 +368,10 @@ function checkActionFirstInstructionPhrases() {
 function forEachExistingTemplateSharedSkill(fn) {
   for (const skill of templateSharedSkillIncludes) {
     const targetSkillDir = join(defaultTemplateSkillsDir, skill);
-    if (existsSync(targetSkillDir)) {
+    if (
+      existsSync(targetSkillDir) ||
+      requiredDefaultTemplateSharedSkills.includes(skill)
+    ) {
       fn(
         "packages/core/src/templates/default/.agents/skills",
         skill,

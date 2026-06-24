@@ -15,6 +15,10 @@ import { featuredTemplates, templates } from "../app/components/TemplateCard";
 import { getTemplateDocsPath } from "../app/components/template-docs";
 import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
+import {
+  canonicalPathForPath,
+  docsAlternateLinksForPath,
+} from "../app/components/docs-seo";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
@@ -86,6 +90,32 @@ describe("template routes", () => {
     });
     expect(ogImageTitle(docsPage)).toBe("Workspace Connections");
     expect(ogImageAccentText(docsPage)).toBe("Agent-Native Docs");
+  });
+
+  it("emits docs canonical paths and hreflang alternates for localized docs", () => {
+    expect(canonicalPathForPath("/docs/getting-started")).toBe("/docs");
+
+    const localized = docsAlternateLinksForPath(
+      "/docs/zh-CN/internationalization",
+    );
+    expect(localized).toContainEqual({
+      hrefLang: "en-US",
+      path: "/docs/internationalization",
+    });
+    expect(localized).toContainEqual({
+      hrefLang: "zh-CN",
+      path: "/docs/zh-CN/internationalization",
+    });
+    expect(localized).toContainEqual({
+      hrefLang: "x-default",
+      path: "/docs/internationalization",
+    });
+
+    expect(docsAlternateLinksForPath("/docs/workspace-connections")).toEqual([
+      { hrefLang: "en-US", path: "/docs/workspace-connections" },
+      { hrefLang: "x-default", path: "/docs/workspace-connections" },
+    ]);
+    expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
 
   it("keeps docs sidebar template links aligned with the featured catalog", () => {
