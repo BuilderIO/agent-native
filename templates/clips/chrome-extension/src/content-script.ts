@@ -1,10 +1,15 @@
-// Loom-style in-page overlay host. This content script is injected into every
-// page (declared for <all_urls>) and is wrapped in an IIFE so it emits a single
-// self-contained classic script with no module imports/exports and leaks no
-// names into the shared global scope. Its only job is to mount/unmount the
-// overlay iframes; all UI and control logic lives inside the extension-origin
-// overlay pages (src/overlay.html). The background service worker is the source
-// of truth for which "parts" are visible and pushes them here.
+// Loom-style in-page overlay host. The background service worker injects this
+// into the LAUNCH TAB on demand via chrome.scripting.executeScript (covered by
+// the activeTab permission the user grants when they click the extension), NOT
+// declaratively on every page — that would need broad "<all_urls>" host access
+// and Chrome's in-depth review. So the overlay lives on the tab the recording
+// was started from; it does not follow across tabs unless CROSS_TAB_FOLLOW is
+// re-enabled in background.ts (see PERMISSIONS.md). Wrapped in an IIFE so it
+// emits a single self-contained classic script with no module imports/exports
+// and leaks no names into the shared global scope. Its only job is to
+// mount/unmount the overlay iframes; all UI and control logic lives inside the
+// extension-origin overlay pages (src/overlay.html). The worker is the source of
+// truth for which "parts" are visible and pushes them here.
 
 (function clipsOverlayHost() {
   type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
