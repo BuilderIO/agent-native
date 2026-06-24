@@ -207,6 +207,14 @@ export default defineAction({
       .limit(args.limit)
       .offset(args.offset);
 
+    // True total for the same filters, ignoring limit/offset, so callers
+    // aren't stuck with the page-capped row count.
+    const totalRows = await db
+      .select({ count: sql<number>`COUNT(1)` })
+      .from(schema.recordings)
+      .where(and(...whereClauses));
+    const total = Number(totalRows[0]?.count ?? 0);
+
     const ids = rows.map((r) => r.recording.id);
 
     // Gather tags for the result set in one query
@@ -277,6 +285,6 @@ export default defineAction({
       };
     });
 
-    return { recordings };
+    return { recordings, total };
   },
 });

@@ -124,10 +124,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item; reuses the library page's
-  // `list-recordings` query so react-query dedupes it on /library.
+  // Clip count for the "Library" nav item, deduped with the library page's
+  // own `list-recordings` query.
   const { data: libraryRecordings } = useRecordings({ view: "library" });
-  const libraryCount = libraryRecordings?.recordings.length;
+  const libraryCount = libraryRecordings?.total;
 
   const libFolderList: FolderNode[] = useMemo(
     () =>

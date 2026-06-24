@@ -63,13 +63,19 @@ function isAwaitingAutoTitle(recording: RecordingSummary): boolean {
 }
 
 export function useRecordings(args: ListRecordingsArgs = {}) {
-  return useActionQuery<{ recordings: RecordingSummary[] }>(
+  return useActionQuery<{ recordings: RecordingSummary[]; total: number }>(
     "list-recordings",
     args as any,
     {
       select: (data: any) => {
+        const recordings = Array.isArray(data?.recordings)
+          ? data.recordings
+          : [];
         return {
-          recordings: Array.isArray(data?.recordings) ? data.recordings : [],
+          recordings,
+          // Fall back to row count if `total` is absent.
+          total:
+            typeof data?.total === "number" ? data.total : recordings.length,
         };
       },
       // If any recording is still on a replaceable seed title, keep a 3s
