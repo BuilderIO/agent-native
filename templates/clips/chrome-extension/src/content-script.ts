@@ -268,18 +268,76 @@
     if (part === "bubble") applyBubbleGeom();
   }
 
-  // Camera-ready gating: hold the countdown until the bubble's camera feed is
-  // live, so the "3" doesn't hang on screen while a slow camera (e.g. an iPhone
-  // Continuity Camera) connects. The bubble posts "camera-ready" once its video
-  // plays (or fails); a fallback timer starts the countdown anyway if it never
-  // arrives.
+  // Camera-ready gating + connecting spinner: while the camera connects we show a
+  // simple centered spinner and keep the bubble hidden, then reveal the bubble and
+  // start the countdown once the feed is live — so the "3" never hangs and there's
+  // no half-loaded, un-draggable bubble during the wait. The bubble posts
+  // "camera-ready" when its video plays (or fails); a fallback timer proceeds
+  // anyway if the camera never connects.
+  const CONNECTING_ID = `${CONTAINER_ID}-connecting`;
   let cameraReady = false;
   let countdownDeferred = false;
   let countdownFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
+  function showConnecting(container: HTMLDivElement): void {
+    if (document.getElementById(CONNECTING_ID)) return;
+    const wrap = document.createElement("div");
+    wrap.id = CONNECTING_ID;
+    Object.assign(wrap.style, {
+      position: "absolute",
+      inset: "0",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      pointerEvents: "none",
+      zIndex: "4",
+    });
+    const chip = document.createElement("div");
+    Object.assign(chip.style, {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "84px",
+      height: "84px",
+      borderRadius: "20px",
+      background: "rgba(24, 24, 27, 0.92)",
+      boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
+    });
+    const spinner = document.createElement("div");
+    Object.assign(spinner.style, {
+      width: "40px",
+      height: "40px",
+      borderRadius: "50%",
+      border: "4px solid rgba(255, 255, 255, 0.18)",
+      borderTopColor: "rgba(255, 255, 255, 0.92)",
+    });
+    chip.appendChild(spinner);
+    wrap.appendChild(chip);
+    container.appendChild(wrap);
+    try {
+      spinner.animate(
+        [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+        { duration: 800, iterations: Infinity },
+      );
+    } catch {
+      /* Web Animations unavailable — a static ring is fine */
+    }
+  }
+
+  function hideConnecting(): void {
+    document.getElementById(CONNECTING_ID)?.remove();
+  }
+
+  function setBubbleHidden(hidden: boolean): void {
+    const frame = document.getElementById(partFrameId("bubble"));
+    if (frame) (frame as HTMLElement).style.visibility = hidden ? "hidden" : "";
+  }
+
   function mountDeferredCountdown(): void {
     countdownDeferred = false;
     clearTimeout(countdownFallbackTimer);
+    hideConnecting();
+    setBubbleHidden(false);
     const container = document.getElementById(
       CONTAINER_ID,
     ) as HTMLDivElement | null;
@@ -291,20 +349,28 @@
   function reconcile(parts: OverlayPart[]): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
+    // Leaving the countdown phase (recording / saving / idle): cancel any pending
+    // deferred countdown + spinner so a late fallback timer can't pop the "3-2-1"
+    // back up over a later overlay (this was the "countdown over the saving card"
+    // bug).
+    if (!wanted.has("countdown")) {
+      countdownDeferred = false;
+      clearTimeout(countdownFallbackTimer);
+      hideConnecting();
+    }
     if (wanted.size === 0) {
       document.getElementById(CONTAINER_ID)?.remove();
       cameraReady = false;
-      countdownDeferred = false;
-      clearTimeout(countdownFallbackTimer);
       return;
     }
     const container = ensureContainer();
+    const gateCountdown =
+      wanted.has("countdown") && wanted.has("bubble") && !cameraReady;
     for (const part of ALL_PARTS) {
       const existing = document.getElementById(partFrameId(part));
       if (wanted.has(part)) {
-        // Only show the countdown once the camera is live (when a bubble is also
-        // requested). The fallback timer covers a camera that never connects.
-        if (part === "countdown" && wanted.has("bubble") && !cameraReady) {
+        // Hold the countdown (showing the spinner) until the camera feed is live.
+        if (part === "countdown" && gateCountdown) {
           if (!existing && !countdownDeferred) {
             countdownDeferred = true;
             clearTimeout(countdownFallbackTimer);
@@ -313,10 +379,13 @@
           continue;
         }
         if (!existing) mountPart(container, part);
+        // Keep the bubble hidden behind the spinner until the feed is live.
+        if (part === "bubble" && gateCountdown) setBubbleHidden(true);
       } else if (existing) {
         existing.remove();
       }
     }
+    if (gateCountdown) showConnecting(container);
   }
 
   // Guard against rare double-injection (SPA soft-reloads re-running the script).
