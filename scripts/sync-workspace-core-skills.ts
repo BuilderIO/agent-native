@@ -42,6 +42,7 @@ const workspaceSkillIncludes = [
   "agent-native-docs",
   "adding-a-feature",
   "address-feedback",
+  "audit-log",
   "authentication",
   "automations",
   "capture-learnings",
