@@ -322,7 +322,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       : docsPath
         ? getLocaleInitScript({
             locale,
-            preference: locale,
           })
         : getSiteLocaleInitScript();
 
