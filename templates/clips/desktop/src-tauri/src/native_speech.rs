@@ -597,6 +597,15 @@ pub(crate) mod macos {
             mic_device_label.as_deref(),
         )?;
         let input_node = unsafe { engine.inputNode() };
+        // Finalize input-device format negotiation before reading the format.
+        // When `configure_engine_input_device` pins a specific mic, the AUHAL's
+        // current device is switched; the input node's `outputFormatForBus(0)`
+        // only reflects the new device after `prepare()` runs. Reading it first
+        // returns a stale format, so the tap gets installed with a mismatched
+        // format and forwards no usable audio to the recognizer — the user
+        // speaks but SFSpeechRecognizer reports "No speech detected". Mirrors
+        // the working `start_raw_mic_capture` ordering.
+        unsafe { engine.prepare() };
         let format = unsafe { input_node.outputFormatForBus(0) };
 
         // Install a tap that forwards every PCM buffer into the recognition
