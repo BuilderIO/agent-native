@@ -816,6 +816,7 @@ export function safeDashboardLinkHref(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const href = value.trim();
   if (!href) return null;
+  if (href.startsWith("//")) return null;
 
   try {
     const parsed = href.startsWith("/")

@@ -168,6 +168,7 @@ describe("compose-dashboard", () => {
     const topUrls = panels.find((p) => p.id === "top-visited-urls")!;
     expect(topUrls.sql).toContain("LIKE 'http://%'");
     expect(topUrls.sql).toContain("LIKE 'https://%'");
+    expect(topUrls.sql).toContain("substr(path, 1, 2) != '//'");
     expect(topUrls.sql).not.toContain("LIKE 'http%'");
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;

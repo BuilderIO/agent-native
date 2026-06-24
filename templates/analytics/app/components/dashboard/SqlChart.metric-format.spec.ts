@@ -83,6 +83,7 @@ describe("safeDashboardLinkHref", () => {
   it("blocks unsafe or incomplete link targets", () => {
     expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
     expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
+    expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
   });

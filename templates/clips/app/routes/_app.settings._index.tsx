@@ -111,26 +111,31 @@ const AI_PROVIDER_FIELDS = [
     key: "ANTHROPIC_API_KEY",
     label: "Anthropic",
     placeholder: "sk-ant-...",
+    storage: "agent-engine",
   },
   {
     key: "OPENAI_API_KEY",
     label: "OpenAI",
     placeholder: "sk-...",
+    storage: "agent-engine",
   },
   {
-    key: "GOOGLE_GENERATIVE_AI_API_KEY",
+    key: "GEMINI_API_KEY",
     label: "Gemini",
     placeholder: "AI...",
+    storage: "secret",
   },
   {
     key: "GROQ_API_KEY",
     label: "Groq",
     placeholder: "gsk_...",
+    storage: "secret",
   },
   {
     key: "OPENROUTER_API_KEY",
     label: "OpenRouter",
     placeholder: "sk-or-...",
+    storage: "agent-engine",
   },
 ] as const;
 
@@ -313,6 +318,24 @@ async function saveAgentEngineApiKey(
   }
 }
 
+async function saveRegisteredSecret(key: string, value: string): Promise<void> {
+  const res = await fetch(
+    agentNativePath(`/_agent-native/secrets/${encodeURIComponent(key)}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Save failed (${res.status})`);
+  }
+}
+
 function CompactChangelogAside() {
   const entries = useMemo(() => parseChangelog(changelog), []);
   const [expanded, setExpanded] = useState(false);
@@ -401,18 +424,29 @@ export default function SettingsIndexRoute() {
   const refreshApiKeyStatus = useCallback(async () => {
     setApiKeyStatusLoading(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-status"));
-      const data = res.ok
-        ? ((await res.json()) as Array<{
+      const [envRes, secretsRes] = await Promise.all([
+        fetch(agentNativePath("/_agent-native/env-status")),
+        fetch(agentNativePath("/_agent-native/secrets")),
+      ]);
+      const envData = envRes.ok
+        ? ((await envRes.json()) as Array<{
             key: string;
             configured?: boolean;
           }>)
         : [];
-      setApiKeyStatus(
-        Object.fromEntries(
-          data.map((entry) => [entry.key, Boolean(entry.configured)]),
-        ),
+      const secretsData = secretsRes.ok
+        ? ((await secretsRes.json()) as Array<{
+            key: string;
+            status?: string;
+          }>)
+        : [];
+      const next = Object.fromEntries(
+        envData.map((entry) => [entry.key, Boolean(entry.configured)]),
       );
+      for (const entry of secretsData) {
+        next[entry.key] = entry.status === "set";
+      }
+      setApiKeyStatus(next);
     } catch {
       setApiKeyStatus({});
     } finally {
@@ -496,7 +530,12 @@ export default function SettingsIndexRoute() {
 
     setSavingApiKey(key);
     try {
-      await saveAgentEngineApiKey(key, value);
+      const field = AI_PROVIDER_FIELDS.find((item) => item.key === key);
+      if (field?.storage === "secret") {
+        await saveRegisteredSecret(key, value);
+      } else {
+        await saveAgentEngineApiKey(key, value);
+      }
       setApiKeyValues((current) => ({ ...current, [key]: "" }));
       setApiKeyStatus((current) => ({ ...current, [key]: true }));
       window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
