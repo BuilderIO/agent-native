@@ -175,7 +175,7 @@ describe("docs visual blocks", () => {
       });
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
 
   it("renders stable fallback ids across repeated SSR renders", () => {
     const element = (

@@ -289,8 +289,7 @@ const zhCN = {
     title: "您拥有的开源、代理本机应用程序",
     eyebrow: "100% 免费和开源",
     body: "分叉一个模板，在本地运行它，然后让代理对其进行改进。您拥有代码并可以自定义一切。",
-    community:
-      "每个模板都是可分叉且开源的。社区可以构建和共享自己的社区。",
+    community: "每个模板都是可分叉且开源的。社区可以构建和共享自己的社区。",
     createYourOwn: "创建您自己的",
   },
   templateCard: {
@@ -352,14 +351,12 @@ const zhCN = {
         "代理原生表单生成器。根据提示生成表单，以可视方式或对话方式编辑字段，并将提交内容发送到 Slack、Discord、Google Sheets 或 webhooks。",
     },
     brain: {
-      replaces:
-        "替换或增强团队维基、Glean 式回忆和机构记忆工具",
+      replaces: "替换或增强团队维基、Glean 式回忆和机构记忆工具",
       description:
         "通过来自批准的 Slack、Clips、Granola、GitHub 和转录源的引用内存进行整页公司聊天，并内置审核门、评估和共享连接准备情况。",
     },
     assets: {
-      replaces:
-        "替换或增强 DAMs、品牌资产库和 AI 媒体生成器",
+      replaces: "替换或增强 DAMs、品牌资产库和 AI 媒体生成器",
       description:
         "用于上传、品牌库、可搜索参考和品牌图像/视频生成的数字资产管理器，其他应用程序可以通过 A2A 调用或嵌入为选择器。",
     },
@@ -1160,8 +1157,7 @@ const zhCN = {
       paragraphs: {
         scope1:
           "Agent-Native 是开源的，源代码可在 MIT 许可证下获得。本政策仅适用于 Builder.io 为 Agent-Native 用户运营的托管应用程序和服务。它不适用于其他人对代码的使用，包括分叉、自定义模板、私有部署或自托管版本。如果您操作自己的部署，则您应对自己的数据实践和隐私政策负责。",
-        scope2Prefix:
-          "本政策旨在补充 Builder.io 更广泛的政策",
+        scope2Prefix: "本政策旨在补充 Builder.io 更广泛的政策",
         scope2Suffix: "对于 Agent-Native 托管应用程序行为。",
         clips1:
           "Agent-Native Clips Chrome extension 可帮助您开始基于浏览器的录制，并在启用后将浏览器诊断附加到剪辑。它可能会收集所选的捕获源、您选择包含的摄像头和麦克风媒体、活动选项卡标题和 URL，以及将扩展程序连接到托管 Clips 所需的身份验证状态。",
@@ -1210,8 +1206,7 @@ const zhCN = {
         transform:
           "当您要求托管应用程序执行此操作时，可以记录、转录、总结、搜索、共享或转换内容。",
         auth: "验证用户身份、管理组织、实施访问控制并防止滥用。",
-        support:
-          "调试事件、提供支持、衡量可靠性并改善托管产品体验。",
+        support: "调试事件、提供支持、衡量可靠性并改善托管产品体验。",
         comply: "遵守法律、安全和平台义务。",
       },
       links: {
@@ -1279,29 +1274,23 @@ const zhCN = {
           "托管 Agent-Native 服务按原样和可用状态提供，并遵守适用法律以及您与 Builder.io 签订的任何单独书面协议。 Builder.io 不保证托管应用程序、集成、自动化或 AI 输出不会中断、无错误或满足所有要求。",
         disclaimers2Prefix:
           "在法律允许的最大范围内，Builder.io 对托管 Agent-Native 服务的责任受到 Builder.io 更广泛的条款中所述的限制。",
-        disclaimers2Suffix:
-          "或适用于您的使用的其他书面协议。",
+        disclaimers2Suffix: "或适用于您的使用的其他书面协议。",
         changes1:
           "随着 Agent-Native 托管应用程序的变化，我们可能会更新这些条款。页面顶部的更新日期显示了条款的最新修订时间。",
         changes2Prefix:
           "如果对这些条款有疑问，请通过 Builder.io 中列出的支持渠道联系 Builder.io",
       },
       hostedServicePoints: {
-        create:
-          "创建和操作托管 Agent-Native 工作区和模板应用程序。",
-        workflows:
-          "运行您选择使用的代理工作流程、操作、自动化和集成。",
+        create: "创建和操作托管 Agent-Native 工作区和模板应用程序。",
+        workflows: "运行您选择使用的代理工作流程、操作、自动化和集成。",
         store:
           "存储提供服务所需的托管应用程序内容、设置、组织数据和连接帐户状态。",
-        improve:
-          "测量、保护、调试和改进托管 Agent-Native 服务。",
+        improve: "测量、保护、调试和改进托管 Agent-Native 服务。",
       },
       acceptableUse: {
         laws: "请勿使用托管 Agent-Native 应用程序来违反法律、侵犯权利或伤害人员或系统。",
-        bypass:
-          "不要尝试绕过访问控制、速率限制、安全边界或租户隔离。",
-        malware:
-          "请勿上传恶意软件、凭证盗窃材料或旨在破坏服务的内容。",
+        bypass: "不要尝试绕过访问控制、速率限制、安全边界或租户隔离。",
+        malware: "请勿上传恶意软件、凭证盗窃材料或旨在破坏服务的内容。",
         spam: "请勿使用该服务发送垃圾邮件、未经授权进行抓取或滥用连接的提供商。",
         sensitive:
           "除非您获得授权并且该应用程序适合该用途，否则请勿将机密或敏感的受监管数据放入托管应用程序中。",

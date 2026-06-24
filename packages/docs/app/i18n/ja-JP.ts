@@ -306,7 +306,8 @@ const jaJP = {
   templateDetail: {
     allTemplates: "すべてのテンプレート",
     notFoundTitle: "テンプレートが見つかりません",
-    notFoundBody: "テンプレート カタログを参照して、利用可能なアプリを見つけます。",
+    notFoundBody:
+      "テンプレート カタログを参照して、利用可能なアプリを見つけます。",
     badge: "Agent-Native {{name}}",
     title: "{{name}} テンプレート",
   },
@@ -1168,7 +1169,8 @@ const jaJP = {
           "Agent-Native はオープン ソースであり、ソース コードは MIT ライセンスに基づいて入手できます。このポリシーは、Builder.io が Agent-Native ユーザー向けに運用するホスト型アプリケーションおよびサービスにのみ適用されます。これは、フォーク、カスタマイズされたテンプレート、プライベート展開、自己ホスト型バージョンなど、他人によるコードの使用には適用されません。独自の展開を運用する場合は、独自のデータ慣行とプライバシー ポリシーに対して責任を負います。",
         scope2Prefix:
           "このポリシーは、Builder.io の広範なポリシーを補足することを目的としています。",
-        scope2Suffix: "Agent-Native ホストされたアプリケーションの動作について。",
+        scope2Suffix:
+          "Agent-Native ホストされたアプリケーションの動作について。",
         clips1:
           "Agent-Native Clips Chrome extension は、ブラウザベースの録画を開始し、有効になっている場合はブラウザ診断をクリップに添付するのに役立ちます。 It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1218,7 +1220,8 @@ const jaJP = {
         auth: "ユーザーを認証し、組織を管理し、アクセス制御を実施し、悪用を防止します。",
         support:
           "インシデントをデバッグし、サポートを提供し、信頼性を測定し、ホストされる製品エクスペリエンスを向上させます。",
-        comply: "法的義務、セキュリティ義務、およびプラットフォーム上の義務を遵守します。",
+        comply:
+          "法的義務、セキュリティ義務、およびプラットフォーム上の義務を遵守します。",
       },
       links: {
         builderPrivacy: "プライバシーポリシー",
@@ -1259,7 +1262,8 @@ const jaJP = {
       paragraphs: {
         scope1:
           "Agent-Native はオープン ソースであり、そのソース コードは MIT ライセンスの下で入手できます。 These terms apply only to hosted applications and services operated by Builder.io for Agent-Native users. They do not govern forks, custom templates, private deployments, or self-hosted versions operated outside Builder.io.",
-        scope2Prefix: "これらの用語は、Builder.io のより広範な内容を補足するものです",
+        scope2Prefix:
+          "これらの用語は、Builder.io のより広範な内容を補足するものです",
         scope2Middle: "そしてAgent-Native",
         scope2Suffix:
           "企業または組織を代表してホストされた Agent-Native アプリを使用する場合、その組織に対してこれらの規約に同意する権限があることを表明することになります。",

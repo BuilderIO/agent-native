@@ -80,8 +80,7 @@ const messages = {
     suggestionAuth: "認証APIはいつ変更されましたか？",
     suggestionApi: "課金APIの構造はどうなっていますか？",
     emptyState: "Plan に質問",
-    placeholder:
-      "出荷内容、変更点、現在のコードの状態を質問...",
+    placeholder: "出荷内容、変更点、現在のコードの状態を質問...",
     heading: "Plan に質問",
     description:
       "マージ済み PR の要約を検索し、ビジュアルブロックを確認し、コード回答を図、ワイヤーフレーム、API 仕様、データモデルとして公開します。",

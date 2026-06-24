@@ -306,7 +306,8 @@ const deDE = {
   templateDetail: {
     allTemplates: "Alle Vorlagen",
     notFoundTitle: "Vorlage nicht gefunden",
-    notFoundBody: "Durchsuchen Sie den Vorlagenkatalog, um eine verfügbare App zu finden.",
+    notFoundBody:
+      "Durchsuchen Sie den Vorlagenkatalog, um eine verfügbare App zu finden.",
     badge: "Agent-Native {{name}}",
     title: "{{name}}-Vorlage",
   },
@@ -379,7 +380,8 @@ const deDE = {
         "Zentralisierte Nachrichtenübermittlung und Verwaltung für jeden Agenten in Ihrem Stack. Sprechen Sie mit Ihren Agenten über Slack, Telegram oder das Internet. Leiten Sie Jobs weiter, halten Sie Speicher bereit, genehmigen Sie Aktionen und delegieren Sie Apps über A2A hinweg.",
     },
     chat: {
-      replaces: "Eine minimalistische App im ChatGPT-Stil für Ihren eigenen Agenten",
+      replaces:
+        "Eine minimalistische App im ChatGPT-Stil für Ihren eigenen Agenten",
       description:
         "Chat – erstes App-Gerüst mit dauerhaften Threads, einer Standard-Seitenleiste, Aktionen, Authentifizierung, Live-Synchronisierung und einem sauberen Pfad zum Hinzufügen von Bildschirmen oder zum Einbinden Ihres eigenen Agent-Backends.",
     },
@@ -1167,7 +1169,8 @@ const deDE = {
           "Agent-Native ist Open Source und der Quellcode ist unter der MIT-Lizenz verfügbar. Diese Richtlinie gilt nur für gehostete Anwendungen und Dienste, die von Builder.io für Agent-Native-Benutzer betrieben werden. Sie gilt nicht für die Nutzung des Codes durch Dritte, einschließlich Forks, benutzerdefinierter Vorlagen, privater Bereitstellungen oder selbst gehosteter Versionen. Wenn Sie Ihre eigene Bereitstellung betreiben, sind Sie für Ihre eigenen Datenpraktiken und Datenschutzrichtlinien verantwortlich.",
         scope2Prefix:
           "Diese Richtlinie soll das allgemeinere von Builder.io ergänzen",
-        scope2Suffix: "für das Verhalten gehosteter Anwendungen von Agent-Native.",
+        scope2Suffix:
+          "für das Verhalten gehosteter Anwendungen von Agent-Native.",
         clips1:
           "Mit Agent-Native Clips Chrome extension können Sie browserbasierte Aufzeichnungen starten und, wenn aktiviert, Browser-Diagnosen an einen Clip anhängen. Möglicherweise werden die ausgewählte Aufnahmequelle, die von Ihnen ausgewählten Kamera- und Mikrofonmedien, der Titel und die URL der aktiven Registerkarte sowie der Authentifizierungsstatus erfasst, der zum Herstellen einer Verbindung der Erweiterung mit dem gehosteten Clips erforderlich ist.",
         clips2:
@@ -1217,7 +1220,8 @@ const deDE = {
         auth: "Authentifizieren Sie Benutzer, verwalten Sie Organisationen, erzwingen Sie Zugriffskontrollen und verhindern Sie Missbrauch.",
         support:
           "Debuggen Sie Vorfälle, bieten Sie Support, messen Sie die Zuverlässigkeit und verbessern Sie das gehostete Produkterlebnis.",
-        comply: "Halten Sie rechtliche, Sicherheits- und Plattformverpflichtungen ein.",
+        comply:
+          "Halten Sie rechtliche, Sicherheits- und Plattformverpflichtungen ein.",
       },
       links: {
         builderPrivacy: "Datenschutzrichtlinie",
