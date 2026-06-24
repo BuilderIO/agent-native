@@ -3569,6 +3569,15 @@ function endsAtInternalContinuationBoundary(run: ActiveRun): boolean {
   return last.type === "error" && isRecoverableContinuationError(last);
 }
 
+/**
+ * Hard cap on server-driven background→background continuation chunks for a
+ * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
+ * so reaching this boundary at all is the rare exception (most turns finish in
+ * one chunk). The cap bounds a pathological turn that would otherwise chain
+ * background invocations forever, mirroring `MAX_AGENT_TEAM_CONTINUATIONS`.
+ */
+export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
+
 function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
   switch (event.type) {
     case "activity":
@@ -3679,6 +3688,14 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // How many server-driven background continuations have already chained into
+    // this logical turn (0 on the first chunk). Used to bound the chain.
+    const backgroundContinuationCount =
+      isBackgroundWorker &&
+      typeof backgroundRunMarker?.continuationCount === "number" &&
+      Number.isFinite(backgroundRunMarker.continuationCount)
+        ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
+        : 0;
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
@@ -4222,8 +4239,20 @@ export function createProductionAgentHandler(
     }
 
     // Start agent loop in background via run-manager. The background worker
-    // reuses the runId the foreground generated (carried in the marker) so the
-    // event stream the client is already subscribed to is the one we write to.
+    // reuses the runId carried in the marker (signed into the dispatch token):
+    //  - First background chunk (count 0): the foreground generated + INSERTED
+    //    this runId, so the event stream the client is already subscribed to is
+    //    the one we write to.
+    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
+    //    runId for this one (a reused runId would restart `startRun`'s in-memory
+    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
+    //    insertRunEvent's ON CONFLICT would drop — making the continuation
+    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
+    //    one assistant message and is surfaced by the existing
+    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
+    //    its own background row below (the foreground only inserted chunk-0's).
+    const isChainedBackgroundContinuation =
+      isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -4238,6 +4267,34 @@ export function createProductionAgentHandler(
       requestDisplayMessage.trim().length > 0
         ? requestDisplayMessage
         : requestMessage;
+
+    // Server-driven background continuation: when the background worker re-fired
+    // itself at a soft-timeout boundary (a chained continuation chunk), rebuild
+    // the conversation from the persisted thread_data so the next chunk resumes
+    // from committed progress instead of restarting from the original user
+    // message (which would re-do work — the re-hydration thrash the design doc
+    // calls out). Mirrors the agent-teams continuation, which seeds from
+    // thread_data + appends a continuation nudge. Falls back to the body-derived
+    // `messages` if thread_data is empty/unreadable — a continuation that
+    // restarts is worse than one that resumes, but both are correct.
+    if (isChainedBackgroundContinuation && effectiveThreadId) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { threadDataToEngineMessages } =
+          await import("./thread-data-builder.js");
+        const priorThreadData = (await getThread(effectiveThreadId))
+          ?.threadData;
+        const resumed = threadDataToEngineMessages(priorThreadData);
+        if (resumed.length > 0) {
+          appendAgentLoopContinuation(resumed, "run_timeout");
+          messages.length = 0;
+          messages.push(...resumed);
+        }
+      } catch {
+        // Keep the body-derived messages — never drop the run.
+      }
+    }
+
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
     // with the same body, which would double-persist the user message).
@@ -4430,7 +4487,60 @@ export function createProductionAgentHandler(
       isBackgroundWorker || baseHandleRunComplete
         ? async (run: ActiveRun) => {
             try {
+              // Persist the (partial) assistant turn to thread_data FIRST — the
+              // server-driven continuation below rebuilds from it, so it must be
+              // committed before we re-fire.
               await baseHandleRunComplete?.(run);
+
+              // Server-driven background→background continuation. If this chunk
+              // hit its soft-timeout still unfinished (ended at an auto_continue
+              // / loop_limit / recoverable boundary), chain the next chunk by
+              // re-firing the `_process-run` self-dispatch with mode "continue"
+              // (carried as internalContinuation + an incremented count),
+              // instead of relying on the client to re-POST. Mirrors the
+              // agent-teams `fireInternalDispatch({ body: { mode: "continue" }})`
+              // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
+              // user-stopped runs do NOT chain.
+              if (
+                isBackgroundWorker &&
+                run.status !== "aborted" &&
+                endsAtInternalContinuationBoundary(run) &&
+                backgroundContinuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+              ) {
+                // Mint the next chunk's runId here and sign the dispatch token
+                // over it, so the `_process-run` route's HMAC check and the
+                // worker's run identity agree. Fresh runId (not this chunk's) so
+                // its seq log starts clean; same turnId folds the assistant
+                // message across chunks.
+                const nextRunId = generateRunId();
+                try {
+                  await fireInternalDispatch({
+                    event,
+                    path: AGENT_CHAT_PROCESS_RUN_PATH,
+                    taskId: nextRunId,
+                    body: {
+                      ...body,
+                      internalContinuation: true,
+                      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                        runId: nextRunId,
+                        turnId: effectiveTurnId,
+                        continuationCount: backgroundContinuationCount + 1,
+                      },
+                    },
+                  });
+                } catch (chainErr) {
+                  // Chain dispatch failed — fail loud so the held row goes
+                  // terminal instead of spinning. The reaper would also catch
+                  // it, but this is immediate and truthful.
+                  console.error(
+                    "[agent-chat] background continuation dispatch failed:",
+                    chainErr instanceof Error ? chainErr.message : chainErr,
+                  );
+                  await updateRunStatusIfRunning(runId, "errored").catch(
+                    () => {},
+                  );
+                }
+              }
             } finally {
               resolveBackgroundRunDone?.();
             }
@@ -4443,6 +4553,16 @@ export function createProductionAgentHandler(
     // on entry so a slow cold-start doesn't leave the row looking stale to the
     // reaper before startRun's 1.5s heartbeat timer takes over.
     if (isBackgroundWorker) {
+      // A chained continuation chunk's runId was minted by the prior chunk and
+      // never inserted, so insert its background row now (idempotently — a
+      // duplicate Netlify delivery that already inserted it just PK-collides and
+      // the claim below dedups). The first chunk's row was inserted by the
+      // foreground, so skip the insert there.
+      if (isChainedBackgroundContinuation) {
+        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+          dispatchMode: "background",
+        }).catch(() => {});
+      }
       const won = await claimBackgroundRun(runId);
       if (!won) {
         // Already claimed by an earlier delivery — return a benign ack so

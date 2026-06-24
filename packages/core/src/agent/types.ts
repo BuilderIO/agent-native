@@ -141,6 +141,13 @@ export interface AgentChatRequest {
   __backgroundRun?: {
     runId: string;
     turnId?: string;
+    /**
+     * Number of server-driven background→background continuations already
+     * chained into this logical turn (0 on the first chunk). The worker
+     * increments this when it re-fires `_process-run` at a soft-timeout
+     * boundary and refuses to chain past `MAX_BACKGROUND_RUN_CONTINUATIONS`.
+     */
+    continuationCount?: number;
   };
   /**
    * Stable identity for the logical assistant turn this request belongs to.
