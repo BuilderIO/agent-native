@@ -25,6 +25,7 @@ interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
   startPaused?: boolean;
+  startExpanded?: boolean;
 }
 
 /**
@@ -119,6 +120,10 @@ export function RecordingPill() {
         setStopping(false);
         setError(null);
         setPaused(ev.payload?.startPaused ?? false);
+        if (ev.payload?.startExpanded) {
+          setExpanded(true);
+          invoke("recording_pill_expand", { expanded: true }).catch(() => {});
+        }
         // Reset notes and transcript state for the new session.
         setNotes("");
         setSaveError(false);

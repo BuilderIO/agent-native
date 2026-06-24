@@ -23,6 +23,7 @@ export interface MeetingTranscriptionPayload {
   joinUrl?: string | null;
   reason?: "user" | "calendar-auto" | string;
   startPaused?: boolean;
+  startExpanded?: boolean;
 }
 
 interface MeetingTranscriptionSession {
@@ -355,6 +356,7 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
           mode: "meeting",
           startPaused: payload.startPaused ?? false,
+          startExpanded: payload.startExpanded ?? false,
         }).catch(() => {});
 
         callClipsAction<{

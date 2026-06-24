@@ -2380,7 +2380,9 @@ export function App() {
                 <CalendarIcon />
               </span>
               <span className="meetings-connect-text">
-                <span className="meetings-connect-title">Connect your calendar</span>
+                <span className="meetings-connect-title">
+                  Connect your calendar
+                </span>
                 <span className="meetings-connect-sub">
                   See today's meetings here
                 </span>
@@ -2388,7 +2390,9 @@ export function App() {
               <span className="meetings-connect-arrow">›</span>
             </button>
           ) : todayMeetings.length === 0 ? (
-            <div className="meetings-empty">No meetings scheduled for today</div>
+            <div className="meetings-empty">
+              No meetings scheduled for today
+            </div>
           ) : (
             todayMeetings.map((m) => {
               const title = m.title ?? "Meeting";
@@ -2424,15 +2428,13 @@ export function App() {
                         joinUrl: m.joinUrl ?? null,
                         reason: "user",
                         startPaused: !isLive,
+                        startExpanded: true,
                       }).catch(() => {});
                       hidePopover();
                     }
                   }}
                 >
-                  <span
-                    className="meeting-status-dot"
-                    data-status={status}
-                  />
+                  <span className="meeting-status-dot" data-status={status} />
                   <span className="meeting-row-meta">
                     <span className="meeting-row-title">{title}</span>
                     {timeLabel && (

@@ -1286,7 +1286,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 @keyframes meetings-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .meetings-refresh-spin {
