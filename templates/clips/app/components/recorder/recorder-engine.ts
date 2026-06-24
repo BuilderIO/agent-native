@@ -19,6 +19,15 @@ import {
   createCameraCompositeStream,
   type CameraCompositeHandle,
 } from "@/lib/camera-composite";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  pickMimeTypeCandidates,
+} from "@shared/recording-core";
+
+// Re-exported for existing callers; the canonical impls live in
+// @shared/recording-core and are shared with the Chrome extension recorder.
+export { pickMimeType, pickMimeTypeCandidates };
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
@@ -279,34 +288,6 @@ function isScreenPickerDismissal(err: unknown): boolean {
     return true;
   }
   return false;
-}
-
-/** Pick a MediaRecorder mimeType the current browser actually supports. */
-export function pickMimeTypeCandidates(): string[] {
-  // Chrome can report MP4 support but still reject the encoder configuration
-  // for some display-capture streams. Prefer the WebM combinations that are
-  // broadly supported by MediaRecorder, then fall back to MP4/Safari.
-  return [
-    "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8",
-    "video/webm;codecs=vp9",
-    "video/webm",
-    "video/mp4;codecs=avc1",
-    "video/mp4",
-  ];
-}
-
-export function pickMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "video/webm";
-  for (const type of pickMimeTypeCandidates()) {
-    try {
-      if (MediaRecorder.isTypeSupported(type)) return type;
-    } catch {
-      // continue
-    }
-  }
-  return "";
 }
 
 function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
@@ -1589,21 +1570,17 @@ export class RecorderEngine {
       signal?: AbortSignal;
     } = {},
   ): Promise<Record<string, unknown> | undefined> {
-    const params = new URLSearchParams();
-    params.set("index", String(index));
-    if (extra.total !== undefined) params.set("total", String(extra.total));
-    params.set("isFinal", extra.isFinal ? "1" : "0");
-    if (extra.mimeType) params.set("mimeType", extra.mimeType);
-    if (extra.durationMs !== undefined)
-      params.set("durationMs", String(Math.round(extra.durationMs)));
-    if (extra.width !== undefined) params.set("width", String(extra.width));
-    if (extra.height !== undefined) params.set("height", String(extra.height));
-    if (extra.hasAudio !== undefined)
-      params.set("hasAudio", extra.hasAudio ? "1" : "0");
-    if (extra.hasCamera !== undefined)
-      params.set("hasCamera", extra.hasCamera ? "1" : "0");
-
-    const url = `${this.opts.uploadUrl}?${params.toString()}`;
+    const url = chunkUploadUrl(this.opts.uploadUrl, {
+      index,
+      total: extra.total,
+      isFinal: extra.isFinal,
+      mimeType: extra.mimeType,
+      durationMs: extra.durationMs,
+      width: extra.width,
+      height: extra.height,
+      hasAudio: extra.hasAudio,
+      hasCamera: extra.hasCamera,
+    });
 
     const body = await blob.arrayBuffer();
     let res: Response | null = null;

@@ -70,6 +70,7 @@ import {
   retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
@@ -869,6 +870,10 @@ async function ensureSessionTable(): Promise<void> {
       } catch {
         // Column already exists
       }
+      // Older deployments have a 32-bit `created_at`; on Postgres the
+      // `Date.now()` written on session create overflows int4. Widen in place
+      // (no-op once done / on fresh DBs).
+      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;

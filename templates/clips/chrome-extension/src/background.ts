@@ -215,6 +215,17 @@ let overlayBaseEpochMs = 0;
 // show the on-page bubble for camera-only mode (recordingShowsBubble).
 let overlayShowsBubble = false;
 let recordingShowsBubble = false;
+// Cross-tab follow: when true, the overlay is pushed to whatever tab the user
+// switches to mid-recording. That requires "<all_urls>" + a declarative content
+// script, which triggers Chrome's broad-host in-depth review. Shipped OFF
+// (activeTab-only: the overlay lives on the launch tab the user invoked the
+// extension from). Capture is unaffected — it runs in the offscreen document via
+// getDisplayMedia regardless. See PERMISSIONS.md to re-enable.
+// Typed `boolean` (not inferred literal `false`) so the cross-tab branches below
+// don't read as unreachable code; flip the value to re-enable. See PERMISSIONS.md.
+const CROSS_TAB_FOLLOW: boolean = false;
+// The tab the recording was launched from — the only tab activeTab lets us touch.
+let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
 
 function desiredParts(): OverlayPart[] {
@@ -292,6 +303,7 @@ function persistOverlay(): Promise<void> {
       showsBubble: overlayShowsBubble,
       recordingShowsBubble,
       countdownEndsAtMs,
+      overlayTabId,
     },
   }).catch(() => undefined);
 }
@@ -313,6 +325,7 @@ async function restoreRuntimeState(): Promise<void> {
         showsBubble?: boolean;
         recordingShowsBubble?: boolean;
         countdownEndsAtMs?: number;
+        overlayTabId?: number;
       }
     | undefined;
   if (rt && typeof rt.phase === "string" && overlayPhase === "idle") {
@@ -325,6 +338,7 @@ async function restoreRuntimeState(): Promise<void> {
     recordingShowsBubble = Boolean(rt.recordingShowsBubble);
     countdownEndsAtMs =
       typeof rt.countdownEndsAtMs === "number" ? rt.countdownEndsAtMs : 0;
+    overlayTabId = typeof rt.overlayTabId === "number" ? rt.overlayTabId : null;
   }
 
   if (overlayPhase !== "idle" && activeNativeRecording) {
@@ -393,6 +407,13 @@ function allTabs(): Promise<chrome.tabs.Tab[]> {
 }
 
 async function broadcastMount(): Promise<void> {
+  // activeTab-only: keep the overlay on the launch tab (re-ensures the injected
+  // content script too, so it survives a worker suspend). Cross-tab broadcast is
+  // gated behind CROSS_TAB_FOLLOW because it needs broad host access.
+  if (!CROSS_TAB_FOLLOW) {
+    if (overlayTabId !== null) await mountOverlayOnTab(overlayTabId);
+    return;
+  }
   const parts = desiredParts();
   const tabs = await allTabs();
   await Promise.all(
@@ -405,6 +426,11 @@ async function broadcastMount(): Promise<void> {
 }
 
 async function broadcastUnmount(): Promise<void> {
+  if (!CROSS_TAB_FOLLOW) {
+    if (overlayTabId !== null)
+      await sendTabMessage(overlayTabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
+    return;
+  }
   const tabs = await allTabs();
   await Promise.all(
     tabs.map((tab) =>
@@ -957,6 +983,7 @@ async function armRecording(args: {
   setRecordingFlag(true);
   // Clicking the icon now stops & saves immediately instead of opening the popup.
   setActionPopup("");
+  overlayTabId = tab.id as number;
   await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
 
@@ -1025,7 +1052,12 @@ async function armRecording(args: {
   //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
-  const startDelayMs = Math.max(0, countdownEndsAtMs - nowMs());
+  // The on-page countdown drives the actual start (it sends COUNTDOWN_DONE at
+  // "Go"). This offscreen timer is only a FALLBACK. When a camera is involved the
+  // countdown waits for the camera feed before it even shows "3" (the content
+  // script holds it, with its own 12s cap), so the fallback must be generous
+  // enough not to start the recorder mid-connect; otherwise a short pre-roll.
+  const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -2028,6 +2060,7 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
 // switch tabs (programmatic injection covers tabs opened before the extension
 // loaded; declared content scripts cover navigations).
 chrome.tabs.onActivated.addListener((info) => {
+  if (!CROSS_TAB_FOLLOW) return; // activeTab-only: overlay stays on the launch tab
   void (async () => {
     await ensureRestored();
     if (overlayPhase === "idle" || !activeNativeRecording) return;

@@ -834,27 +834,11 @@ async function init(): Promise<void> {
     window.setInterval(() => renderActiveRecording(activeRecording), 1000);
   }
 
-  // Pre-record preview: while this popup is open and idle, show the live face
-  // bubble on the active tab (desktop-app style). The port stays open for the
-  // popup's lifetime; its disconnect (popup closed) tells the worker to remove
-  // the preview. Keep the reference so the port isn't garbage-collected early.
-  const previewPort = chrome.runtime.connect({ name: "clips-preview" });
-  const syncPreview = (): void => {
-    const wantsCamera =
-      !activeRecording &&
-      !isUnsupportedPage(activeTab?.url) &&
-      (settings.captureSurface === "camera" || settings.includeCamera);
-    try {
-      chrome.runtime.sendMessage(
-        { type: "CLIPS_PREVIEW", camera: wantsCamera },
-        () => void chrome.runtime.lastError,
-      );
-    } catch {
-      /* worker asleep; will re-sync on next interaction */
-    }
-  };
-  void previewPort;
-  syncPreview();
+  // No on-page pre-record preview. A Chrome action popup closes the instant you
+  // click the page, so an interactive on-page bubble before recording isn't
+  // possible — the face bubble appears only once recording starts. syncPreview
+  // is kept as a no-op so the settings handlers below stay unchanged.
+  const syncPreview = (): void => {};
 
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     ".mode-option",
@@ -1080,7 +1064,7 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
-    setStatus("Checking sign in...");
+    setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
     authStatus = await readAuthStatus(settings);
     if (authStatus === "signed-out") {
       start.disabled = false;
@@ -1089,7 +1073,6 @@ async function init(): Promise<void> {
       setStatus("");
       return;
     }
-    setStatus("Checking video storage...");
     const storageConfigured = await readVideoStorageConfigured(settings);
     if (!storageConfigured) {
       start.disabled = false;
@@ -1112,7 +1095,6 @@ async function init(): Promise<void> {
       window.close();
       return;
     }
-    setStatus("Starting recording...");
     await saveSettings(settings);
     const response = await sendStartMessage(settings);
     if (response.ok) {

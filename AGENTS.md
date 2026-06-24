@@ -185,6 +185,8 @@ Read the relevant skill before making changes in that area:
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
+- `audit-log` for the automatic action-level audit trail (who changed what,
+  when, agent vs human) and the scoped `list-audit-events` read surface.
 - `performance` for keeping lists, reads, and page loads fast — column
   projection, indexing hot-path queries, and avoiding round-trip waterfalls.
 - `reliable-mutations` for writing data so it persists under the hosted run

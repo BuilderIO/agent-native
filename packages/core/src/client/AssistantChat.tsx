@@ -151,6 +151,7 @@ import {
   getRepoMessages,
   getRepoMessage,
   shouldImportServerThreadData,
+  dedupeRepoMessagesById,
 } from "./chat/repo-helpers.js";
 
 export {
@@ -829,6 +830,11 @@ export function clearChatStorage(tabId?: string) {
  * messages missing these fields crash.
  */
 function ensureMessageMetadata(repo: any): any {
+  // Drop duplicate message ids before import — assistant-ui's MessageRepository
+  // throws "performOp/link: A message with the same id already exists in the
+  // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
+  // for the normal no-duplicate case. See dedupeRepoMessagesById.
+  repo = dedupeRepoMessagesById(repo);
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
   for (const entry of repo.messages) {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats

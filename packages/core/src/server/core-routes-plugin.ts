@@ -757,6 +757,20 @@ export function createCoreRoutesPlugin(
         // Observability module not available — skip
       }
 
+      // Audit log — durable, append-only record of who mutated what app data,
+      // when, and (for the agent) in which run. Capture is automatic at the
+      // action seam; here we just ensure the table exists and start the
+      // retention purge. Best-effort so a missing DB never crashes boot.
+      try {
+        const { ensureAuditTables } = await import("../audit/store.js");
+        const { startAuditCleanupJob } =
+          await import("../audit/cleanup-job.js");
+        ensureAuditTables().catch(() => {});
+        startAuditCleanupJob();
+      } catch {
+        // Audit module not available — skip
+      }
+
       const P = FRAMEWORK_ROUTE_PREFIX;
 
       // Security response headers — emitted on every framework response.
