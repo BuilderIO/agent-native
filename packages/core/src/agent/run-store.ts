@@ -306,7 +306,10 @@ export async function insertRun(
  * states get the wider window via a LIKE-prefix match.
  */
 function backgroundAwareStaleCutoffSql(): string {
-  return `(? - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
+  // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
+  // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
 /**
