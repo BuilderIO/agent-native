@@ -6,7 +6,7 @@ const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
   intType: () => "INTEGER",
-  widenIntColumnsToBigInt: async () => {},
+  isPostgres: () => false,
 }));
 
 vi.mock("./emitter.js", () => ({
