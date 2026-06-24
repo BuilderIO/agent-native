@@ -411,7 +411,7 @@ async function reconcileBuilderCmsWrite(args: {
     .where(eq(schema.contentDatabaseSources.id, args.source.id));
 }
 
-function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
+export function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
   return {
     now: () => new Date().toISOString(),
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),

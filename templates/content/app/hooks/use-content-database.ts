@@ -10,6 +10,8 @@ import type {
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
   DisconnectContentDatabaseSourceRequest,
+  ExecuteBuilderSourceBatchRequest,
+  ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
@@ -365,6 +367,23 @@ export function useExecuteBuilderSourceExecution(documentId: string) {
     ContentDatabaseResponse,
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useExecuteBuilderSourceBatch(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ExecuteBuilderSourceBatchResponse,
+    ExecuteBuilderSourceBatchRequest
+  >("execute-builder-source-batch", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

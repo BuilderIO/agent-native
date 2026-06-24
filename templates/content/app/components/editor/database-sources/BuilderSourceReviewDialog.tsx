@@ -7,11 +7,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
 import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceReviewPayload,
   DocumentPropertyValue,
+  ExecuteBuilderSourceBatchResponse,
 } from "@shared/api";
 
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
@@ -64,6 +66,7 @@ export function BuilderSourceReviewDialog({
   source,
   canEdit,
   pending,
+  batchResult,
   checkedAt,
   onClose,
   onValidate,
@@ -73,43 +76,78 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  batchResult: ExecuteBuilderSourceBatchResponse | null;
   checkedAt: string | null;
   onClose: () => void;
   onValidate: () => void;
 }) {
   const checked = !!checkedAt;
+  const safeModel =
+    source?.sourceType === "builder-cms" &&
+    source.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
+  const batchHasIssues =
+    !!batchResult &&
+    (batchResult.summary.blocked > 0 || batchResult.summary.failed > 0);
   const retryable =
     review?.result.status === "failed" ||
     review?.result.status === "blocked" ||
-    review?.result.status === "stale";
+    review?.result.status === "stale" ||
+    batchHasIssues;
+  const unsafeLiveTarget = review?.liveWritesEnabled === true && !safeModel;
   const disabled =
     !canEdit ||
     pending ||
     (!retryable && checked) ||
     !review ||
-    review.rows.length === 0;
+    review.rows.length === 0 ||
+    unsafeLiveTarget;
+  const rowTitleById = new Map(
+    review?.rows.map((row) => [row.changeSetId, row.title]) ?? [],
+  );
+  const batchIssueResults =
+    batchResult?.results.filter((result) => result.status !== "succeeded") ??
+    [];
+  const batchSummaryText = batchResult
+    ? `${batchResult.summary.succeeded} succeeded, ${batchResult.summary.blocked} blocked, ${batchResult.summary.failed} failed.`
+    : null;
+  const resultMessage = batchSummaryText ?? review?.result.message;
+  const resultStatus = batchResult
+    ? batchHasIssues
+      ? "partial"
+      : "succeeded"
+    : review?.result.status;
   const footerText = pending
     ? review?.liveWritesEnabled
       ? "Preparing the Builder gate and sending through the guarded write path."
       : "Checking the Builder gate locally."
-    : checked
-      ? review?.result.status === "succeeded"
-        ? "Pushed to Builder and reconciled locally."
+    : unsafeLiveTarget
+      ? `Live batch pushes are limited to ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
+      : checked
+        ? review?.result.status === "succeeded"
+          ? "Pushed to Builder and reconciled locally."
+          : batchResult
+            ? batchSummaryText
+            : review?.liveWritesEnabled
+              ? (review?.result.message ?? "Builder push finished.")
+              : "Checked just now. Nothing was sent to Builder."
         : review?.liveWritesEnabled
-          ? (review?.result.message ?? "Builder push finished.")
-          : "Checked just now. Nothing was sent to Builder."
-      : review?.liveWritesEnabled
-        ? "Push will send autosave writes through the guarded Builder path."
-        : "Builder writes are disabled. Push will check the update only.";
+          ? "Push will send approved writes through the guarded Builder path."
+          : "Builder writes are disabled. Push will check the update only.";
   const buttonLabel = pending
     ? review?.liveWritesEnabled
       ? "Pushing..."
       : "Checking..."
-    : checked && review?.result.status === "succeeded"
-      ? "Pushed"
-      : checked && !retryable
-        ? "Checked"
-        : "Push";
+    : checked && batchResult
+      ? batchHasIssues
+        ? "Retry"
+        : "Pushed"
+      : checked && review?.result.status === "succeeded"
+        ? "Pushed"
+        : checked && !retryable
+          ? "Checked"
+          : review?.liveWritesEnabled && (review?.rows.length ?? 0) > 1
+            ? `Push all approved (${review?.rows.length ?? 0})`
+            : "Push";
 
   return (
     <Dialog
@@ -264,13 +302,47 @@ export function BuilderSourceReviewDialog({
                   <div>
                     <div className="text-sm font-medium">Result</div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {review.result.message}
+                      {resultMessage}
                     </div>
                   </div>
                   <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {review.result.status.replace(/_/g, " ")}
+                    {resultStatus?.replace(/_/g, " ")}
                   </span>
                 </div>
+                {batchResult ? (
+                  <div className="grid gap-2 border-t border-border pt-3 text-xs">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
+                        {batchResult.summary.succeeded} succeeded
+                      </span>
+                      <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700">
+                        {batchResult.summary.blocked} blocked
+                      </span>
+                      <span className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                        {batchResult.summary.failed} failed
+                      </span>
+                    </div>
+                    {batchIssueResults.length > 0 ? (
+                      <div className="grid gap-1.5">
+                        {batchIssueResults.map((result) => (
+                          <div
+                            key={result.changeSetId}
+                            className="rounded border border-border/70 bg-muted/20 p-2"
+                          >
+                            <div className="font-medium">
+                              {rowTitleById.get(result.changeSetId) ??
+                                result.changeSetId}
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              {result.status}:{" "}
+                              {result.message ?? "No details returned."}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             </div>
           ) : (

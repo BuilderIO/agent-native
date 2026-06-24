@@ -25,6 +25,14 @@ export default defineAction({
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the planned write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: PrepareBuilderSourceExecutionRequest,
@@ -49,6 +57,8 @@ export default defineAction({
       source,
       changeSet,
       pushModeConfirmation: args.pushModeConfirmation,
+      publicationTransition: args.publicationTransition,
+      confirmUnpublish: args.confirmUnpublish,
     });
     const now = new Date().toISOString();
     const db = getDb();

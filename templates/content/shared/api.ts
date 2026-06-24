@@ -767,6 +767,37 @@ export interface ExecuteBuilderSourceExecutionRequest {
   confirmUnpublish?: boolean;
 }
 
+export interface ExecuteBuilderSourceBatchTransition {
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
+}
+
+export interface ExecuteBuilderSourceBatchRequest {
+  databaseId?: string;
+  documentId?: string;
+  changeSetIds?: string[];
+  maxConcurrency?: number;
+  transitions?: Record<string, ExecuteBuilderSourceBatchTransition>;
+}
+
+export type BuilderSourceBatchItemStatus = "succeeded" | "blocked" | "failed";
+
+export interface BuilderSourceBatchItemResult {
+  changeSetId: string;
+  status: BuilderSourceBatchItemStatus;
+  message?: string;
+}
+
+export interface ExecuteBuilderSourceBatchResponse {
+  summary: {
+    total: number;
+    succeeded: number;
+    blocked: number;
+    failed: number;
+  };
+  results: BuilderSourceBatchItemResult[];
+}
+
 export interface SetContentDatabaseSourceWriteModeRequest {
   databaseId?: string;
   documentId?: string;

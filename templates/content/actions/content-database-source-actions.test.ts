@@ -5,6 +5,7 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import disconnectSource from "./disconnect-content-database-source";
+import executeBatch from "./execute-builder-source-batch";
 import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
@@ -28,6 +29,26 @@ describe("content database source actions", () => {
     });
     expect(getSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("accepts Builder source batch execution args", () => {
+    expect(
+      executeBatch.schema.parse({
+        documentId: "database-page",
+        changeSetIds: ["change-1", "change-2"],
+        maxConcurrency: 2,
+        transitions: {
+          "change-2": { publicationTransition: "publish" },
+        },
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      changeSetIds: ["change-1", "change-2"],
+      maxConcurrency: 2,
+      transitions: {
+        "change-2": { publicationTransition: "publish" },
+      },
     });
   });
 

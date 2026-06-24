@@ -99,7 +99,7 @@ import {
   useContentDatabases,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
-  useExecuteBuilderSourceExecution,
+  useExecuteBuilderSourceBatch,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
   useRefreshContentDatabaseSource,
@@ -156,6 +156,7 @@ import {
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
   type ContentDatabaseSourceWriteMode,
+  type ExecuteBuilderSourceBatchResponse,
   type SourceJoinSuggestion,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
@@ -415,7 +416,7 @@ function DatabaseTable({
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
-  const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
+  const executeBuilderBatch = useExecuteBuilderSourceBatch(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
@@ -442,6 +443,8 @@ function DatabaseTable({
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
   const [builderReviewResult, setBuilderReviewResult] =
     useState<ContentDatabaseSourceReviewPayload | null>(null);
+  const [builderBatchResult, setBuilderBatchResult] =
+    useState<ExecuteBuilderSourceBatchResponse | null>(null);
   const [builderReviewCheckedAt, setBuilderReviewCheckedAt] = useState<
     string | null
   >(null);
@@ -882,54 +885,34 @@ function DatabaseTable({
 
   async function handleBuilderReviewPush() {
     setBuilderReviewResult(null);
+    setBuilderBatchResult(null);
     setBuilderReviewCheckedAt(null);
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
-        pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;
+      let batchResult: ExecuteBuilderSourceBatchResponse | null = null;
 
       if (
         nextReview.liveWritesEnabled &&
         nextReview.result.status === "validated"
       ) {
-        const executableRows = builderReviewExecutableRows(nextReview);
-        let executedResponse: ContentDatabaseResponse | null = null;
-        for (const row of executableRows) {
-          if (!row.execution?.idempotencyKey) continue;
-          executedResponse = await executeBuilderExecution.mutateAsync({
-            documentId: document.id,
-            changeSetId: row.changeSetId,
-            idempotencyKey: row.execution.idempotencyKey,
-            pushModeConfirmation: nextReview.pushMode,
-          });
-        }
-        const executedSource = executedResponse?.source ?? null;
-        if (executedSource) {
-          const reviewedIds = new Set(
-            nextReview.rows.map((row) => row.changeSetId),
-          );
-          const reviewedChangeSets = executedSource.changeSets.filter(
-            (changeSet) => reviewedIds.has(changeSet.id),
-          );
-          if (reviewedChangeSets.length > 0) {
-            nextReview = buildClientBuilderReviewPayload(
-              executedSource,
-              reviewedChangeSets,
-            );
-          }
-        }
+        batchResult = await executeBuilderBatch.mutateAsync({
+          documentId: document.id,
+          changeSetIds: nextReview.rows.map((row) => row.changeSetId),
+        });
+        setBuilderBatchResult(batchResult);
       }
 
       setBuilderReviewResult(nextReview);
       setBuilderReviewCheckedAt(new Date().toISOString());
       toast.success(
-        nextReview.result.status === "succeeded"
-          ? "Builder update pushed"
+        builderBatchSucceeded(batchResult)
+          ? "Builder updates pushed"
           : "Builder update checked",
         {
-          description: nextReview.result.message,
+          description: builderBatchToastMessage(batchResult, nextReview),
         },
       );
     } catch (error) {
@@ -1458,6 +1441,7 @@ function DatabaseTable({
                 setSettingsPanel("source");
                 setBuilderReviewOpen(false);
                 setBuilderReviewResult(null);
+                setBuilderBatchResult(null);
                 setBuilderReviewCheckedAt(null);
                 toast.success("Source disconnected", {
                   description:
@@ -1475,6 +1459,7 @@ function DatabaseTable({
         }
         onReviewBuilderUpdate={() => {
           setBuilderReviewResult(null);
+          setBuilderBatchResult(null);
           setBuilderReviewCheckedAt(null);
           setBuilderReviewOpen(true);
         }}
@@ -1513,7 +1498,7 @@ function DatabaseTable({
           refreshSource.isPending ||
           disconnectSource.isPending ||
           prepareBuilderReview.isPending ||
-          executeBuilderExecution.isPending ||
+          executeBuilderBatch.isPending ||
           setSourceWriteMode.isPending
         }
         onViewTypeChange={(type) =>
@@ -1538,8 +1523,9 @@ function DatabaseTable({
         source={source}
         canEdit={canEdit}
         pending={
-          prepareBuilderReview.isPending || executeBuilderExecution.isPending
+          prepareBuilderReview.isPending || executeBuilderBatch.isPending
         }
+        batchResult={builderBatchResult}
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
         onValidate={() => void handleBuilderReviewPush()}
@@ -3674,6 +3660,26 @@ export function builderReviewExecutableRows(
   return review.rows.filter(
     (row) => row.execution?.state === "ready" && row.execution.idempotencyKey,
   );
+}
+
+function builderBatchSucceeded(
+  result: ExecuteBuilderSourceBatchResponse | null,
+) {
+  return (
+    !!result &&
+    result.summary.total > 0 &&
+    result.summary.blocked === 0 &&
+    result.summary.failed === 0
+  );
+}
+
+function builderBatchToastMessage(
+  result: ExecuteBuilderSourceBatchResponse | null,
+  review: ContentDatabaseSourceReviewPayload,
+) {
+  if (!result) return review.result.message;
+  const { succeeded, blocked, failed } = result.summary;
+  return `${succeeded} succeeded, ${blocked} blocked, ${failed} failed.`;
 }
 
 export function builderSourceLiveWriteControlState(
