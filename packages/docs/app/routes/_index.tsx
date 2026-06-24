@@ -161,224 +161,212 @@ const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
-const orbitPrimaryCapabilities = [
+const featureCloudRows = [
   {
-    label: "Actions",
-    detail: "source of truth",
-    className: "left-1/2 top-[12%] -translate-x-1/2 text-center",
+    className: "-translate-x-10",
+    words: [
+      {
+        label: "Notifications",
+        className: "text-base uppercase opacity-[0.18]",
+      },
+      {
+        label: "Recurring jobs",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { label: "Actions", className: "text-5xl opacity-[0.95]" },
+      {
+        label: "Agent teams",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        label: "Monorepos",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
   },
   {
-    label: "SQL state",
-    detail: "shared context",
-    className: "right-[9%] top-[27%] text-right",
+    className: "translate-x-12",
+    words: [
+      { label: "Permissions", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "RBAC", className: "text-lg uppercase opacity-[0.18]" },
+      { label: "Organizations", className: "text-2xl opacity-[0.24]" },
+      { label: "Workspace secrets", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "Docs search", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Source search", className: "text-xl uppercase opacity-[0.18]" },
+    ],
   },
   {
-    label: "MCP + A2A",
-    detail: "protocols included",
-    className: "right-[2%] top-1/2 -translate-y-1/2 text-right",
+    className: "translate-x-8",
+    words: [
+      {
+        label: "Context awareness",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Observability", className: "text-4xl opacity-[0.86]" },
+      {
+        label: "Realtime sync",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "SQL state", className: "text-4xl opacity-[0.86]" },
+      {
+        label: "Multi-tenancy",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+    ],
   },
   {
-    label: "Jobs",
-    detail: "scheduled work",
-    className: "bottom-[18%] right-[9%] text-right",
+    className: "-translate-x-14",
+    words: [
+      { label: "Agent instructions", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Provider grants", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "Notifications", className: "text-2xl opacity-[0.24]" },
+      { label: "Comments", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Review links", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Privacy controls", className: "text-lg uppercase opacity-[0.16]" },
+    ],
   },
   {
-    label: "Templates",
-    detail: "production-refined",
-    className: "bottom-[11%] left-1/2 -translate-x-1/2 text-center",
+    className: "-translate-x-4",
+    words: [
+      {
+        label: "Skills",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "Security", className: "text-3xl opacity-[0.58]" },
+      { label: "Audit logs", className: "text-3xl opacity-[0.54]" },
+      { label: "Workspaces", className: "text-3xl opacity-[0.46]" },
+      {
+        label: "Voice input",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        label: "MCP apps",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+    ],
   },
   {
-    label: "Auth",
-    detail: "orgs and sharing",
-    className: "bottom-[17%] left-[10%]",
+    className: "feature-cloud-center-row",
+    words: [
+      { label: "i18n", className: "text-5xl opacity-[0.92]" },
+      { label: "MCP Auth", className: "text-2xl opacity-[0.44]" },
+      {
+        label: "Battle-tested components",
+        className:
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-[#151515] px-6 py-5 text-center text-2xl opacity-100 shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
+      },
+      { label: "MCP + A2A", className: "text-5xl opacity-[0.92]" },
+    ],
   },
   {
-    label: "i18n",
-    detail: "global-ready UI",
-    className: "left-[4%] top-1/2 -translate-y-1/2",
+    className: "translate-x-6",
+    words: [
+      {
+        label: "Durable resume",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Extensions", className: "text-3xl opacity-[0.48]" },
+      { label: "Sharing & privacy", className: "text-2xl opacity-[0.34]" },
+      {
+        label: "Real-time collaboration",
+        className: "text-2xl opacity-[0.30]",
+      },
+      { label: "SSO", className: "text-2xl opacity-[0.44]" },
+      {
+        label: "OAuth",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
   },
   {
-    label: "Observability",
-    detail: "audit and tracking",
-    className: "left-[9%] top-[27%]",
-  },
-];
-
-const orbitSecondaryCapabilities = [
-  {
-    label: "Security",
-    className: "left-[28%] top-[33%]",
-  },
-  {
-    label: "Sharing & privacy",
-    className: "left-[24%] top-[42%]",
-  },
-  {
-    label: "Audit logs",
-    className: "right-[31%] top-[33%]",
+    className: "-translate-x-8",
+    words: [
+      {
+        label: "DB adapters",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { label: "Auth", className: "text-4xl opacity-[0.84]" },
+      { label: "Approvals", className: "text-3xl opacity-[0.44]" },
+      { label: "Automations", className: "text-3xl opacity-[0.46]" },
+      { label: "Governance", className: "text-3xl opacity-[0.48]" },
+      { label: "Jobs", className: "text-4xl opacity-[0.84]" },
+      {
+        label: "AG-UI",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
   },
   {
-    label: "Real-time collab",
-    className: "right-[19%] top-[42%]",
+    className: "translate-x-4",
+    words: [
+      { label: "Rate limits", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "Queues", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Cron schedules", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Analytics", className: "text-2xl opacity-[0.28]" },
+      { label: "Experiments", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Feedback loops", className: "text-lg uppercase opacity-[0.16]" },
+    ],
   },
   {
-    label: "Governance",
-    className: "right-[18%] top-[62%]",
+    className: "translate-x-12",
+    words: [
+      {
+        label: "File uploads",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { label: "Evals", className: "text-2xl opacity-[0.46]" },
+      { label: "Templates", className: "text-5xl opacity-[0.92]" },
+      { label: "Provider APIs", className: "text-2xl opacity-[0.36]" },
+      {
+        label: "Agent web surfaces",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
   },
   {
-    label: "Provider APIs",
-    className: "right-[22%] bottom-[29%]",
+    className: "-translate-x-2",
+    words: [
+      {
+        label: "Local file mode",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Memory",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        label: "Webhooks",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        label: "HTTP",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      {
+        label: "Self-editing code",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "CLI",
+        className: "text-xl uppercase opacity-[0.24]",
+      },
+      {
+        label: "Cross-app SSO",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
   },
   {
-    label: "Automations",
-    className: "right-[34%] bottom-[17%]",
+    className: "translate-x-16",
+    words: [
+      { label: "Schema migrations", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "Hosted deploys", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Environment setup", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "OAuth callbacks", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Exports", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Dashboards", className: "text-2xl opacity-[0.24]" },
+    ],
   },
-  {
-    label: "Approvals",
-    className: "left-[29%] bottom-[20%]",
-  },
-  {
-    label: "Extensions",
-    className: "left-[18%] bottom-[31%]",
-  },
-  {
-    label: "MCP Auth",
-    className: "left-[15%] top-[62%]",
-  },
-  {
-    label: "SSO",
-    className: "right-[11%] bottom-[39%]",
-  },
-  {
-    label: "Evals",
-    className: "left-[40%] bottom-[28%]",
-  },
-  {
-    label: "Workspaces",
-    className: "left-[47%] top-[35%] -translate-x-1/2 text-center",
-  },
-];
-
-const orbitTertiaryCapabilities = [
-  {
-    label: "recurring jobs",
-    className: "left-[18%] top-[13%]",
-  },
-  {
-    label: "tracking",
-    className: "left-[43%] top-[26%]",
-  },
-  {
-    label: "monorepos",
-    className: "right-[17%] top-[8%]",
-  },
-  {
-    label: "MCP apps",
-    className: "right-[-10px] top-[33%]",
-  },
-  {
-    label: "external agents",
-    className: "right-[-44px] top-[46%]",
-  },
-  {
-    label: "AG-UI",
-    className: "right-[4%] top-[60%]",
-  },
-  {
-    label: "ACP",
-    className: "right-[19%] top-[57%]",
-  },
-  {
-    label: "CLI",
-    className: "right-[8%] bottom-[12%]",
-  },
-  {
-    label: "HTTP",
-    className: "right-[29%] bottom-[6%]",
-  },
-  {
-    label: "native chat UI",
-    className: "left-[44%] bottom-[-10px]",
-  },
-  {
-    label: "file uploads",
-    className: "left-[8%] bottom-[11%]",
-  },
-  {
-    label: "sandbox adapters",
-    className: "left-[-36px] bottom-[28%]",
-  },
-  {
-    label: "durable resume",
-    className: "left-[-12px] top-[35%]",
-  },
-  {
-    label: "context awareness",
-    className: "left-[-54px] top-[25%]",
-  },
-  {
-    label: "notifications",
-    className: "left-[25%] -top-2",
-  },
-  {
-    label: "multi-tenancy",
-    className: "left-[51%] -top-4",
-  },
-  {
-    label: "agent teams",
-    className: "right-[6%] -top-1",
-  },
-  {
-    label: "cross-app SSO",
-    className: "right-[-44px] bottom-[26%]",
-  },
-  {
-    label: "OAuth",
-    className: "right-[8%] bottom-[32%]",
-  },
-  {
-    label: "webhooks",
-    className: "right-[42%] bottom-[7%]",
-  },
-  {
-    label: "memory",
-    className: "left-[31%] bottom-[8%]",
-  },
-  {
-    label: "skills",
-    className: "left-[20%] top-[31%]",
-  },
-  {
-    label: "voice input",
-    className: "left-[43%] top-[38%]",
-  },
-  {
-    label: "realtime sync",
-    className: "right-[39%] top-[25%]",
-  },
-  {
-    label: "local file mode",
-    className: "left-[21%] bottom-[4%]",
-  },
-  {
-    label: "DB adapters",
-    className: "left-[13%] top-[72%]",
-  },
-  {
-    label: "self-editing code",
-    className: "right-[17%] top-[72%]",
-  },
-  {
-    label: "agent web surfaces",
-    className: "right-[28%] top-[82%]",
-  },
-];
-
-const orbitPillars = [
-  "UI-ready",
-  "agent-ready",
-  "best-practice instructions",
-  "battle-tested defaults",
 ];
 
 function BidirectionalTabs() {
@@ -502,134 +490,52 @@ function BidirectionalTabs() {
   );
 }
 
-function BatteriesIncludedOrbit() {
-  const orbitRef = useRef<HTMLDivElement | null>(null);
-  const [orbitActive, setOrbitActive] = useState(false);
-
-  useEffect(() => {
-    const node = orbitRef.current;
-    if (!node || typeof window === "undefined") return;
-
-    if (!("IntersectionObserver" in window)) {
-      setOrbitActive(true);
-      return;
-    }
-
-    let releaseTimer: number | undefined;
-    const observer = new window.IntersectionObserver(
-      ([entry]) => {
-        window.clearTimeout(releaseTimer);
-        if (entry?.isIntersecting) {
-          setOrbitActive(true);
-          releaseTimer = window.setTimeout(() => setOrbitActive(false), 2200);
-        } else {
-          setOrbitActive(false);
-        }
-      },
-      { threshold: 0.35 },
-    );
-
-    observer.observe(node);
-
-    return () => {
-      window.clearTimeout(releaseTimer);
-      observer.disconnect();
-    };
-  }, []);
-
+function FeatureWordCloud({ className = "" }: { className?: string }) {
   return (
-    <section className="border-t border-[var(--docs-border)] px-6 py-20">
-      <div className="mx-auto max-w-[1200px]">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,0.78fr)_minmax(420px,1fr)] lg:items-center">
-          <div>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
-              Batteries included, battle-tested
-            </p>
-            <h2 className="mb-4 max-w-xl text-3xl font-bold tracking-tight md:text-4xl">
-              Agents generate better apps when the parts are already proven
-            </h2>
-            <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Instead of starting from a blank prompt and a pile of improvised
-              code, Agent-Native gives agents the battle-tested parts and best
-              practices they need to build real app software.
-            </p>
-            <p className="mb-7 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Actions, SQL state, auth, i18n, protocols, jobs, templates,
-              real-time collaboration, security, audit logs, evals, sharing, and
-              observability all ship as UI-ready and agent-ready defaults,
-              refined through production template apps and feedback.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {orbitPillars.map((pillar) => (
-                <span
-                  key={pillar}
-                  className="rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg)]"
-                >
-                  {pillar}
-                </span>
-              ))}
-            </div>
-          </div>
-
+    <div
+      className={`feature-cloud pointer-events-none overflow-hidden bg-black ${className}`}
+      aria-hidden="true"
+    >
+      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[780px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[960px] sm:scale-[0.78] sm:gap-8 lg:w-[1240px] lg:scale-[0.72] lg:gap-10">
+        {featureCloudRows.map((row, rowIndex) => (
           <div
-            ref={orbitRef}
-            className={`batteries-orbit relative mx-auto aspect-square w-full max-w-[560px] overflow-hidden rounded-2xl border p-5 sm:p-8 ${
-              orbitActive ? "batteries-orbit--active" : ""
-            }`}
+            key={rowIndex}
+            className={`feature-cloud-row flex max-w-none items-center justify-center gap-x-7 gap-y-3 whitespace-nowrap sm:gap-x-9 lg:gap-x-11 ${row.className}`}
           >
-            <div className="orbit-star-field" />
-            <div className="orbit-ring orbit-ring--outer absolute inset-7 rounded-full border border-[var(--docs-border)]" />
-            <div className="orbit-ring orbit-ring--middle absolute inset-16 rounded-full border border-[var(--docs-border)] opacity-70" />
-            <div className="orbit-ring orbit-ring--inner absolute inset-24 rounded-full border border-[var(--docs-border)] opacity-50" />
-
-            <div className="orbit-center-card absolute left-1/2 top-1/2 z-40 w-[46%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--docs-accent)] bg-[var(--bg)] p-4 text-center sm:p-5">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
-                Shared substrate
-              </p>
-              <h3 className="m-0 text-xl font-semibold leading-tight">
-                One app surface
-              </h3>
-              <p className="orbit-center-copy m-0 mt-2 text-sm leading-relaxed">
-                UI, agent, protocols, jobs, and audit call the same operations.
-              </p>
-            </div>
-
-            <div className="orbit-label-layer orbit-label-layer--tertiary absolute inset-0 z-[4]">
-              {orbitTertiaryCapabilities.map((capability) => (
-                <span
-                  key={capability.label}
-                  className={`orbit-word orbit-word--tertiary absolute max-w-[140px] truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--fg-secondary)] opacity-35 ${capability.className}`}
-                >
-                  {capability.label}
-                </span>
-              ))}
-            </div>
-
-            <div className="orbit-label-layer orbit-label-layer--secondary absolute inset-0 z-[12]">
-              {orbitSecondaryCapabilities.map((capability) => (
-                <span
-                  key={capability.label}
-                  className={`orbit-word orbit-word--secondary absolute max-w-[168px] truncate text-sm font-semibold text-[var(--fg-secondary)] opacity-75 ${capability.className}`}
-                >
-                  {capability.label}
-                </span>
-              ))}
-            </div>
-
-            <div className="orbit-label-layer orbit-label-layer--primary absolute inset-0 z-20">
-              {orbitPrimaryCapabilities.map((capability) => (
-                <div
-                  key={capability.label}
-                  className={`orbit-word orbit-word--primary absolute max-w-[132px] ${capability.className}`}
-                >
-                  <div className="truncate text-lg font-semibold leading-tight text-[var(--fg)]">
-                    {capability.label}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {row.words.map((word) => (
+              <span
+                key={word.label}
+                className={`feature-cloud-word font-semibold leading-none text-white ${word.className}`}
+              >
+                {word.label}
+              </span>
+            ))}
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BatteriesIncludedCloud() {
+  return (
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-black px-6 py-24 text-white sm:py-28 lg:min-h-[680px] lg:py-36">
+      <FeatureWordCloud className="absolute inset-y-0 left-[28%] right-[-24vw] z-0 hidden lg:block" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[62%] bg-gradient-to-r from-black via-black via-75% to-transparent lg:block" />
+
+      <div className="relative z-10 mx-auto max-w-[1200px]">
+        <div className="max-w-[410px]">
+          <h2 className="mb-4 text-3xl font-bold tracking-tight md:text-4xl">
+            Batteries included, battle-tested
+          </h2>
+          <p className="mb-5 text-base leading-relaxed text-white/58">
+            Instead of starting from a blank prompt and a pile of improvised
+            code, Agent-Native gives agents the battle-tested parts and best
+            practices they need to build real app software.
+          </p>
         </div>
+
+        <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
       </div>
     </section>
   );
@@ -725,7 +631,7 @@ export default function Home() {
               top: "-65px",
             }}
           >
-            <Seascape className="opacity-30 dark:opacity-70" />
+            <Seascape className="opacity-[0.30] dark:opacity-[0.70]" />
           </div>
           <div
             className="pointer-events-none absolute inset-0 z-[5]"
@@ -975,7 +881,7 @@ export default function Home() {
           </div>
         </section>
 
-        <BatteriesIncludedOrbit />
+        <BatteriesIncludedCloud />
 
         {/* Bidirectional Awareness */}
         <section className="border-t border-[var(--docs-border)] px-6 py-20">

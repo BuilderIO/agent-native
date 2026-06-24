@@ -776,162 +776,25 @@ html.dark .shiki span {
   -webkit-line-clamp: 4;
 }
 
-.batteries-orbit {
+.feature-cloud {
   isolation: isolate;
-  background: #000;
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f5f5f5;
-  box-shadow: inset 0 0 90px rgba(255, 255, 255, 0.035);
 }
 
-.batteries-orbit::after {
-  content: "";
-  position: absolute;
-  inset: -18%;
+.batteries-cloud-section h2 {
+  color: #fff;
+}
+
+.batteries-cloud-section p {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.feature-cloud-word {
   z-index: 1;
   pointer-events: none;
-  background:
-    radial-gradient(
-      circle at 50% 50%,
-      rgba(82, 168, 255, 0.1),
-      transparent 34%
-    ),
-    radial-gradient(
-      circle at 20% 78%,
-      rgba(255, 255, 255, 0.05),
-      transparent 28%
-    );
-}
-
-.orbit-star-field {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  opacity: 0.54;
-  background-image:
-    radial-gradient(
-      circle at 12% 18%,
-      color-mix(in srgb, var(--fg) 52%, transparent) 0 1px,
-      transparent 1.5px
-    ),
-    radial-gradient(
-      circle at 28% 64%,
-      color-mix(in srgb, var(--fg) 42%, transparent) 0 1px,
-      transparent 1.5px
-    ),
-    radial-gradient(
-      circle at 47% 12%,
-      color-mix(in srgb, var(--fg) 38%, transparent) 0 1px,
-      transparent 1.5px
-    ),
-    radial-gradient(
-      circle at 69% 74%,
-      color-mix(in srgb, var(--fg) 45%, transparent) 0 1px,
-      transparent 1.5px
-    ),
-    radial-gradient(
-      circle at 86% 31%,
-      color-mix(in srgb, var(--fg) 50%, transparent) 0 1px,
-      transparent 1.5px
-    ),
-    radial-gradient(
-      circle at 84% 88%,
-      color-mix(in srgb, var(--fg) 34%, transparent) 0 1px,
-      transparent 1.5px
-    );
-}
-
-.orbit-ring,
-.orbit-label-layer {
-  transform-origin: center;
-  transition: transform 1100ms cubic-bezier(0.2, 0.75, 0.2, 1);
-  will-change: transform;
-}
-
-.orbit-ring {
-  border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-.orbit-center-card {
-  background: #000;
-  color: #fff;
-  box-shadow:
-    0 18px 70px rgba(0, 0, 0, 0.96),
-    0 0 70px rgba(82, 168, 255, 0.12);
-}
-
-.orbit-center-copy {
-  color: rgba(255, 255, 255, 0.66);
-}
-
-.orbit-word {
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: rgba(255, 255, 255, 0.62);
-  pointer-events: none;
-  white-space: nowrap;
+  letter-spacing: 0;
   text-shadow:
-    0 1px 18px rgba(0, 0, 0, 0.88),
+    0 1px 18px rgba(0, 0, 0, 0.9),
     0 0 1px #000;
-}
-
-.orbit-word--primary {
-  color: rgba(255, 255, 255, 0.96);
-  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.78));
-}
-
-.orbit-word--secondary {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.orbit-word--tertiary {
-  color: rgba(255, 255, 255, 0.28);
-}
-
-.batteries-orbit:hover .orbit-ring--outer,
-.batteries-orbit--active .orbit-ring--outer {
-  transform: rotate(3deg) translate3d(2px, -1px, 0);
-}
-
-.batteries-orbit:hover .orbit-ring--middle,
-.batteries-orbit--active .orbit-ring--middle {
-  transform: rotate(-2deg) translate3d(-1px, 1px, 0);
-}
-
-.batteries-orbit:hover .orbit-ring--inner,
-.batteries-orbit--active .orbit-ring--inner {
-  transform: rotate(1.25deg);
-}
-
-.batteries-orbit:hover .orbit-label-layer--primary,
-.batteries-orbit--active .orbit-label-layer--primary {
-  transform: rotate(1.3deg) translate3d(2px, -2px, 0);
-}
-
-.batteries-orbit:hover .orbit-label-layer--secondary,
-.batteries-orbit--active .orbit-label-layer--secondary {
-  transform: rotate(-2.4deg) translate3d(-3px, 2px, 0);
-}
-
-.batteries-orbit:hover .orbit-label-layer--tertiary,
-.batteries-orbit--active .orbit-label-layer--tertiary {
-  transform: rotate(3.6deg) translate3d(4px, -3px, 0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .orbit-ring,
-  .orbit-label-layer {
-    transition: none;
-  }
-
-  .batteries-orbit:hover .orbit-ring,
-  .batteries-orbit--active .orbit-ring,
-  .batteries-orbit:hover .orbit-label-layer,
-  .batteries-orbit--active .orbit-label-layer {
-    transform: none;
-  }
 }
 
 .hero-gradient-text {
