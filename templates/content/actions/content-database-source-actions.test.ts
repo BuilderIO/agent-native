@@ -291,6 +291,20 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts tiered Builder write mode requests", () => {
+    expect(
+      setWriteMode.schema.parse({
+        documentId: "database-page",
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+  });
+
   it("marks successful Builder reads as live source metadata", () => {
     expect(
       JSON.parse(

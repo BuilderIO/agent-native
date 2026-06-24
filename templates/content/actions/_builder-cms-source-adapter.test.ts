@@ -65,12 +65,15 @@ describe("Builder CMS source adapter", () => {
     );
   });
 
-  it("records Builder metadata with natural key and autosave push mode", () => {
+  it("records Builder metadata with natural key and read-only write mode", () => {
     expect(builderCmsSourceMetadata("blog_article")).toMatchObject({
       primaryKey: "id",
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
-      pushMode: "autosave",
+      pushMode: "none",
+      writeMode: "read_only",
+      allowPublicationTransitions: false,
+      allowedWriteModes: [],
       label: "builder.cms.blog_article",
     });
   });

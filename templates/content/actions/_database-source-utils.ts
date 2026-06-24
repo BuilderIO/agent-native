@@ -84,6 +84,8 @@ type SourceMetadataRecord = {
   pushMode?: ContentDatabaseSourcePushMode;
   pushModeLabel?: string | null;
   pushModeDescription?: string | null;
+  writeMode?: ContentDatabaseSource["metadata"]["writeMode"];
+  allowPublicationTransitions?: boolean;
   notes?: string | null;
   readMode?: string | null;
   liveReadConfigured?: boolean;
@@ -669,6 +671,16 @@ async function loadSourceSnapshot(
       }),
   );
   const metadata = parseObject<SourceMetadataRecord>(source.metadataJson) ?? {};
+  const normalizedWriteMode =
+    metadata.writeMode === "read_only" ||
+    metadata.writeMode === "stage_only" ||
+    metadata.writeMode === "publish_updates"
+      ? metadata.writeMode
+      : undefined;
+  const capabilities = normalizeCapabilities(source.capabilitiesJson);
+  if (normalizedWriteMode) {
+    capabilities.liveWritesEnabled = normalizedWriteMode !== "read_only";
+  }
 
   // A local-table source shows the target database's *live* title, so renaming
   // the underlying table is reflected here instead of the name frozen at attach.
@@ -692,7 +704,7 @@ async function loadSourceSnapshot(
     lastRefreshedAt: source.lastRefreshedAt,
     lastSourceUpdatedAt: source.lastSourceUpdatedAt,
     lastError: source.lastError,
-    capabilities: normalizeCapabilities(source.capabilitiesJson),
+    capabilities,
     metadata: {
       primaryKey: metadata.primaryKey ?? "id",
       titleField: metadata.titleField ?? "title",
@@ -700,6 +712,9 @@ async function loadSourceSnapshot(
       pushMode: metadata.pushMode ?? "none",
       pushModeLabel: metadata.pushModeLabel ?? null,
       pushModeDescription: metadata.pushModeDescription ?? null,
+      writeMode: normalizedWriteMode,
+      allowPublicationTransitions:
+        metadata.allowPublicationTransitions === true,
       notes: metadata.notes ?? null,
       readMode: metadata.readMode ?? null,
       liveReadConfigured: metadata.liveReadConfigured === true,

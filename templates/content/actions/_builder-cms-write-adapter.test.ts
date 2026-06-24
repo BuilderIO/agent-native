@@ -13,6 +13,7 @@ import {
 function source(
   liveWritesEnabled = false,
   sourceTable = "blog_article",
+  metadata: Partial<ContentDatabaseSource["metadata"]> = {},
 ): ContentDatabaseSource {
   return {
     id: "source-1",
@@ -43,6 +44,7 @@ function source(
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
       pushMode: "autosave",
+      ...metadata,
     },
     fields: [],
     rows: [
@@ -193,6 +195,65 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("published");
   });
 
+  it("derives autosave effect from stage-only write mode", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "stage_only",
+        pushMode: "autosave",
+        allowedWriteModes: ["autosave"],
+      }),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "publish",
+      },
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      pushMode: "autosave",
+      payload: {
+        effect: "autosave",
+        request: {
+          query: {
+            autoSaveOnly: "true",
+            triggerWebhooks: "false",
+          },
+        },
+      },
+    });
+  });
+
+  it("derives update-in-place effect from publish-updates write mode", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+      }),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      pushMode: "publish",
+      payload: {
+        effect: "update_in_place",
+        request: {
+          method: "PATCH",
+          query: {
+            triggerWebhooks: "true",
+          },
+        },
+        safety: {
+          blockers: [],
+        },
+      },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("published");
+  });
+
   it("prepares update-in-place for existing live-write edits without a transition", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
@@ -270,14 +331,48 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("prepares explicit publish transitions", () => {
+  it("blocks publication transitions when the source has not enabled them", () => {
     const plan = buildBuilderCmsExecutionPlan({
-      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublicationTransitions: false,
+      }),
       changeSet: {
         ...approvedChangeSet(),
-        pushMode: "draft",
+        pushMode: "publish",
       },
-      pushModeConfirmation: "draft",
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      payload: {
+        effect: "publish",
+        safety: {
+          blockers: [
+            "Publication transitions are not enabled for this source.",
+          ],
+        },
+      },
+    });
+  });
+
+  it("prepares explicit publish transitions when the source allows them", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublicationTransitions: true,
+      }),
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "publish",
+      },
+      pushModeConfirmation: "publish",
       publicationTransition: "publish",
     });
 
@@ -307,12 +402,17 @@ describe("Builder CMS write adapter plan", () => {
 
   it("blocks unpublish transitions without explicit confirmation", () => {
     const plan = buildBuilderCmsExecutionPlan({
-      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublicationTransitions: true,
+      }),
       changeSet: {
         ...approvedChangeSet(),
-        pushMode: "draft",
+        pushMode: "publish",
       },
-      pushModeConfirmation: "draft",
+      pushModeConfirmation: "publish",
       publicationTransition: "unpublish",
     });
 
@@ -342,12 +442,17 @@ describe("Builder CMS write adapter plan", () => {
 
   it("prepares confirmed unpublish transitions", () => {
     const plan = buildBuilderCmsExecutionPlan({
-      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublicationTransitions: true,
+      }),
       changeSet: {
         ...approvedChangeSet(),
-        pushMode: "draft",
+        pushMode: "publish",
       },
-      pushModeConfirmation: "draft",
+      pushModeConfirmation: "publish",
       publicationTransition: "unpublish",
       confirmUnpublish: true,
     });
@@ -472,12 +577,17 @@ describe("Builder CMS write adapter plan", () => {
   it("blocks publication transitions for Builder models outside the safe test collection", () => {
     expect(
       buildBuilderCmsExecutionPlan({
-        source: source(true, "blog_article"),
+        source: source(true, "blog_article", {
+          writeMode: "publish_updates",
+          pushMode: "publish",
+          allowedWriteModes: ["autosave", "publish"],
+          allowPublicationTransitions: true,
+        }),
         changeSet: {
           ...approvedChangeSet(),
-          pushMode: "draft",
+          pushMode: "publish",
         },
-        pushModeConfirmation: "draft",
+        pushModeConfirmation: "publish",
         publicationTransition: "publish",
       }),
     ).toMatchObject({

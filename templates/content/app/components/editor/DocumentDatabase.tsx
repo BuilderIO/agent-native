@@ -155,6 +155,7 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSourceWriteMode,
   type SourceJoinSuggestion,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
@@ -184,6 +185,11 @@ import {
   isComputedPropertyType,
   isEmptyPropertyValue,
 } from "@shared/properties";
+
+type BuilderSourceWriteSettingsInput = {
+  writeMode: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
+};
 
 interface DocumentDatabaseProps {
   document: Document;
@@ -1472,25 +1478,26 @@ function DatabaseTable({
           setBuilderReviewCheckedAt(null);
           setBuilderReviewOpen(true);
         }}
-        onSetBuilderLiveWrites={(enabled) =>
+        onSetBuilderLiveWrites={(settings) =>
           setSourceWriteMode.mutate(
             {
               documentId: document.id,
-              liveWritesEnabled: enabled,
-              allowedWriteModes: enabled ? ["autosave"] : [],
+              writeMode: settings.writeMode,
+              allowPublicationTransitions:
+                settings.writeMode === "publish_updates" &&
+                settings.allowPublicationTransitions === true,
             },
             {
               onSuccess: () => {
-                toast.success(
-                  enabled
-                    ? "Builder live writes enabled"
-                    : "Builder live writes disabled",
-                  {
-                    description: enabled
-                      ? "Only autosave writes to the Agent Native test collection can run."
-                      : "Push will return to local validation only.",
-                  },
-                );
+                const enabled = settings.writeMode !== "read_only";
+                toast.success("Builder write mode updated", {
+                  description:
+                    settings.writeMode === "publish_updates"
+                      ? "Approved updates can write through to Builder while preserving publication state."
+                      : enabled
+                        ? "Approved updates will stage Builder autosave revisions."
+                        : "Builder writes are disabled for this source.",
+                });
               },
               onError: (error) => {
                 toast.error("Builder write mode was not changed", {
@@ -3423,7 +3430,7 @@ function DatabaseSettingsPanelSheet({
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
@@ -3675,20 +3682,63 @@ export function builderSourceLiveWriteControlState(
   const isBuilderSource = source?.sourceType === "builder-cms";
   const safeTarget =
     isBuilderSource && source?.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
-  const enabled = source?.capabilities.liveWritesEnabled === true;
+  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
+  const writeMode =
+    source?.metadata.writeMode ??
+    (source?.capabilities.liveWritesEnabled === true
+      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
+        ? "publish_updates"
+        : "stage_only"
+      : "read_only");
+  const enabled = writeMode !== "read_only";
   return {
     safeTarget,
     enabled,
+    writeMode,
+    allowPublicationTransitions:
+      writeMode === "publish_updates" &&
+      source?.metadata.allowPublicationTransitions === true,
     showAction: safeTarget,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
+      ? writeMode === "publish_updates"
+        ? "Approved updates can write through to Builder while preserving publication state."
+        : "Enabled for autosave writes to the Agent Native test collection."
       : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
+        ? "Off by default. Choose a write tier only when this source should send guarded Builder writes."
         : isBuilderSource
           ? "Unavailable here; live writes are locked to the Agent Native test collection."
           : "Live writes are not available for this source.",
   };
+}
+
+const BUILDER_WRITE_MODE_OPTIONS: Array<{
+  mode: ContentDatabaseSourceWriteMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    mode: "read_only",
+    label: "Read-only",
+    description: "No Builder writes.",
+  },
+  {
+    mode: "stage_only",
+    label: "Stage only",
+    description: "Autosave revisions only.",
+  },
+  {
+    mode: "publish_updates",
+    label: "Publish updates",
+    description: "Update live content in place.",
+  },
+];
+
+function builderWriteModeSummary(mode: ContentDatabaseSourceWriteMode) {
+  return (
+    BUILDER_WRITE_MODE_OPTIONS.find((option) => option.mode === mode)
+      ?.description ?? "No Builder writes."
+  );
 }
 
 export function buildClientBuilderReviewPayload(
@@ -3836,7 +3886,7 @@ function DatabaseSettingsSourcePanel({
   onRefreshSource: () => void;
   onDisconnectSource: () => void;
   onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
 }) {
   const outboundChangeSets =
@@ -4092,9 +4142,8 @@ function DatabaseSettingsSourcePanel({
 
   // Attached model → the minimal read-only leaf panel.
   const liveWriteControl = builderSourceLiveWriteControlState(source);
-  const builderLiveWritesEnabled =
-    liveWriteControl.safeTarget && liveWriteControl.enabled;
   const builderLiveWritesDisabled = !canEdit || sourceActionPending;
+  const builderWriteMode = liveWriteControl.writeMode;
 
   return (
     <div className="grid min-w-0 gap-4">
@@ -4151,40 +4200,85 @@ function DatabaseSettingsSourcePanel({
             )}
           </div>
           {isBuilderSource && liveWriteControl.safeTarget ? (
-            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>Enable live writes (autosave)</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={builderLiveWritesEnabled}
-                aria-label={
-                  builderLiveWritesEnabled
-                    ? "Disable Builder live writes"
-                    : "Enable Builder live writes"
-                }
-                title={liveWriteControl.description}
-                disabled={builderLiveWritesDisabled}
-                className="inline-flex h-6 shrink-0 items-center rounded-full border border-border px-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
-                onClick={() =>
-                  onSetBuilderLiveWrites(!builderLiveWritesEnabled)
-                }
+            <div className="grid min-w-0 gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-foreground">
+                  Builder write mode
+                </span>
+                <span>{builderWriteModeSummary(builderWriteMode)}</span>
+              </div>
+              <div
+                className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
+                aria-label="Builder write mode"
               >
-                <span
-                  className={cn(
-                    "relative h-3.5 w-6 rounded-full transition-colors",
-                    builderLiveWritesEnabled
-                      ? "bg-[#2383e2]"
-                      : "bg-muted-foreground/25",
-                  )}
+                {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
+                  const selected = builderWriteMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      aria-pressed={selected}
+                      title={option.description}
+                      disabled={builderLiveWritesDisabled}
+                      className={cn(
+                        "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+                        selected
+                          ? "bg-[#2383e2] text-white shadow-sm"
+                          : "text-muted-foreground hover:bg-background hover:text-foreground",
+                      )}
+                      onClick={() =>
+                        onSetBuilderLiveWrites({
+                          writeMode: option.mode,
+                          allowPublicationTransitions:
+                            option.mode === "publish_updates"
+                              ? liveWriteControl.allowPublicationTransitions
+                              : false,
+                        })
+                      }
+                    >
+                      <span className="block truncate">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {builderWriteMode === "publish_updates" ? (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={liveWriteControl.allowPublicationTransitions}
+                  disabled={builderLiveWritesDisabled}
+                  className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+                  onClick={() =>
+                    onSetBuilderLiveWrites({
+                      writeMode: "publish_updates",
+                      allowPublicationTransitions:
+                        !liveWriteControl.allowPublicationTransitions,
+                    })
+                  }
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 size-2.5 rounded-full bg-background shadow-sm transition-transform",
-                      builderLiveWritesEnabled && "translate-x-2.5",
+                      "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
+                      liveWriteControl.allowPublicationTransitions
+                        ? "border-[#2383e2] bg-[#2383e2] text-white"
+                        : "border-muted-foreground/40 bg-background text-transparent",
                     )}
-                  />
-                </span>
-              </button>
+                  >
+                    {liveWriteControl.allowPublicationTransitions ? (
+                      <IconCheck className="size-3" />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-foreground">
+                      Allow publish/unpublish per item
+                    </span>
+                    <span className="block break-words">
+                      Requires explicit item intent; unpublish still needs
+                      confirmation.
+                    </span>
+                  </span>
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

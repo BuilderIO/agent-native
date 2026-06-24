@@ -4,9 +4,11 @@ import type {
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecutionState,
   ContentDatabaseSourcePushMode,
+  ContentDatabaseSourceWriteMode,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
+import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
 
 export type BuilderCmsWriteEffect =
   | "autosave"
@@ -76,14 +78,27 @@ export function builderCmsExecutionIdempotencyKey(args: {
 
 function builderEffectForWrite(args: {
   pushMode: ContentDatabaseSourcePushMode;
+  writeMode?: ContentDatabaseSourceWriteMode | null;
   entryId: string | null;
   publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
 }): BuilderCmsWriteEffect {
   if (!args.entryId) return "create_draft";
   if (args.publicationTransition === "publish") return "publish";
   if (args.publicationTransition === "unpublish") return "unpublish";
+  if (args.writeMode === "stage_only") return "autosave";
+  if (args.writeMode === "publish_updates") return "update_in_place";
   if (args.pushMode === "autosave") return "autosave";
   return "update_in_place";
+}
+
+function normalizeSourceWriteMode(
+  value: unknown,
+): ContentDatabaseSourceWriteMode | null {
+  return value === "read_only" ||
+    value === "stage_only" ||
+    value === "publish_updates"
+    ? value
+    : null;
 }
 
 function nestedBuilderPatch(
@@ -226,9 +241,15 @@ function builderSafetyChecks(args: {
     if (args.publicationTransition !== "publish") {
       blockers.push("Publish requires an explicit publication transition.");
     }
+    if (args.source.metadata.allowPublicationTransitions !== true) {
+      blockers.push("Publication transitions are not enabled for this source.");
+    }
   }
   if (args.effect === "unpublish") {
     checks.push("Unpublish transition sets Builder published state to draft.");
+    if (args.source.metadata.allowPublicationTransitions !== true) {
+      blockers.push("Publication transitions are not enabled for this source.");
+    }
     if (args.confirmUnpublish !== true) {
       blockers.push("Unpublish requires explicit confirmation.");
     }
@@ -281,14 +302,25 @@ export function buildBuilderCmsExecutionPlan(args: {
     );
   }
 
-  const pushMode =
-    args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave";
+  const sourceWriteMode = normalizeSourceWriteMode(
+    args.source.metadata.writeMode,
+  );
+  const pushMode = sourceWriteMode
+    ? builderCmsPushModeForTier(sourceWriteMode)
+    : (args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave");
+  const effectivePushMode = pushMode === "none" ? "autosave" : pushMode;
   if (pushMode === "none") {
-    throw new Error(
-      "Builder execution requires Autosave, Draft, or Publish push mode.",
-    );
+    if (args.source.capabilities.liveWritesEnabled === true) {
+      throw new Error(
+        "Builder execution requires Autosave, Draft, or Publish push mode.",
+      );
+    }
   }
-  if (args.pushModeConfirmation && args.pushModeConfirmation !== pushMode) {
+  if (
+    pushMode !== "none" &&
+    args.pushModeConfirmation &&
+    args.pushModeConfirmation !== pushMode
+  ) {
     throw new Error(
       `Push mode confirmation did not match approved change set: ${pushMode}.`,
     );
@@ -312,7 +344,8 @@ export function buildBuilderCmsExecutionPlan(args: {
     ? null
     : (target?.sourceQualifiedId ?? null);
   const effect = builderEffectForWrite({
-    pushMode,
+    pushMode: effectivePushMode,
+    writeMode: sourceWriteMode,
     entryId: targetEntryId,
     publicationTransition: args.publicationTransition,
   });
@@ -334,7 +367,7 @@ export function buildBuilderCmsExecutionPlan(args: {
   const safety = builderSafetyChecks({
     source: args.source,
     changeSet: args.changeSet,
-    pushMode,
+    pushMode: effectivePushMode,
     effect,
     publicationTransition: args.publicationTransition,
     confirmUnpublish: args.confirmUnpublish,
@@ -354,14 +387,15 @@ export function buildBuilderCmsExecutionPlan(args: {
   const idempotencyKey = builderCmsExecutionIdempotencyKey({
     sourceId: args.source.id,
     changeSetId: args.changeSet.id,
-    pushMode,
+    pushMode: effectivePushMode,
   });
+  const summaryMode = pushMode === "none" ? "read-only" : pushMode;
   const summary =
     state === "ready"
-      ? `Prepared Builder ${pushMode} execution. Ready to send to Builder.`
+      ? `Prepared Builder ${summaryMode} execution. Ready to send to Builder.`
       : state === "blocked"
-        ? `Prepared Builder ${pushMode} execution, but it is blocked: ${safety.blockers.join(" ")}`
-        : `Prepared Builder ${pushMode} execution, but live writes are disabled.`;
+        ? `Prepared Builder ${summaryMode} execution, but it is blocked: ${safety.blockers.join(" ")}`
+        : `Prepared Builder ${summaryMode} execution, but live writes are disabled.`;
   const lastError =
     state === "ready"
       ? null
@@ -371,7 +405,7 @@ export function buildBuilderCmsExecutionPlan(args: {
 
   return {
     adapter: "builder-cms",
-    pushMode,
+    pushMode: effectivePushMode,
     state,
     idempotencyKey,
     summary,
@@ -388,7 +422,7 @@ export function buildBuilderCmsExecutionPlan(args: {
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
       },
-      pushMode,
+      pushMode: effectivePushMode,
       request,
       operations,
       safety: {

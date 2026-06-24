@@ -438,6 +438,7 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
         ...source.metadata,
         pushMode: opts.pushMode,
         allowedWriteModes: opts.allowedWriteModes,
+        allowPublicationTransitions: Boolean(opts.publicationTransition),
       };
       source.rows[0]!.lastSourceUpdatedAt = opts.baselineLastUpdated;
 

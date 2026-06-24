@@ -586,7 +586,12 @@ describe("execute Builder source execution", () => {
 
   it("publishes draft entries after live transition preflight", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
-    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,
@@ -616,7 +621,12 @@ describe("execute Builder source execution", () => {
 
   it("blocks publish transitions when the entry is already published", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
-    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,
@@ -658,7 +668,12 @@ describe("execute Builder source execution", () => {
 
   it("unpublishes published entries when explicitly confirmed", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
-    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,

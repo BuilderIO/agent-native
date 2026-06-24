@@ -164,11 +164,13 @@ export function builderCmsSourceMetadata(sourceTable: string) {
     primaryKey: "id",
     titleField: "data.title",
     naturalKeyField: "/blog/[slug]",
-    pushMode: "autosave" as const,
-    pushModeLabel: "Save revision / autosave",
+    pushMode: "none" as const,
+    pushModeLabel: "No writes",
     pushModeDescription:
-      "Local-only Builder revision staging. No Builder API write runs in this slice.",
-    allowedWriteModes: ["autosave"],
+      "Read-only Builder source. Choose a write tier before any Builder API write can run.",
+    writeMode: "read_only" as const,
+    allowPublicationTransitions: false,
+    allowedWriteModes: [],
     allowDraftWrites: false,
     allowPublishWrites: false,
     notes:

@@ -6,6 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   type ContentDatabaseResponse,
   type ContentDatabaseSourcePushMode,
+  type ContentDatabaseSourceWriteMode,
   type SetContentDatabaseSourceWriteModeRequest,
 } from "../shared/api.js";
 import {
@@ -15,7 +16,12 @@ import {
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
-const writeModeSchema = z.enum(["autosave", "draft", "publish"]);
+const legacyWriteModeSchema = z.enum(["autosave", "draft", "publish"]);
+const sourceWriteModeSchema = z.enum([
+  "read_only",
+  "stage_only",
+  "publish_updates",
+]);
 
 function executableWriteModes(
   modes: readonly ContentDatabaseSourcePushMode[] | undefined,
@@ -28,17 +34,27 @@ function executableWriteModes(
 
 export default defineAction({
   description:
-    "Enable or disable live Builder CMS writes for one source. Live writes stay off by default and can only be enabled for the safe Builder test collection with explicit allowed write modes.",
+    "Set the tiered Builder CMS write mode for one source. Writes stay off by default and can only be enabled for the safe Builder test collection.",
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
     liveWritesEnabled: z
       .boolean()
-      .describe("Whether this source may execute guarded live Builder writes"),
-    allowedWriteModes: z
-      .array(writeModeSchema)
       .optional()
-      .describe("Explicit Builder write modes allowed for this source"),
+      .describe("Whether this source may execute guarded live Builder writes"),
+    writeMode: sourceWriteModeSchema
+      .optional()
+      .describe("Tiered Builder write mode for this source"),
+    allowPublicationTransitions: z
+      .boolean()
+      .optional()
+      .describe(
+        "Allow explicit per-item publish/unpublish transitions in publish updates mode",
+      ),
+    allowedWriteModes: z
+      .array(legacyWriteModeSchema)
+      .optional()
+      .describe("Legacy Builder write modes allowed for this source"),
     allowDraftWrites: z
       .boolean()
       .optional()
@@ -81,6 +97,8 @@ export default defineAction({
       capabilitiesJson: source.capabilitiesJson,
       metadataJson: source.metadataJson,
       liveWritesEnabled: args.liveWritesEnabled,
+      writeMode: args.writeMode as ContentDatabaseSourceWriteMode | undefined,
+      allowPublicationTransitions: args.allowPublicationTransitions,
       allowedWriteModes: executableWriteModes(args.allowedWriteModes),
       allowDraftWrites: args.allowDraftWrites,
       allowPublishWrites: args.allowPublishWrites,

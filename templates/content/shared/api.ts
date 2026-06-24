@@ -345,6 +345,10 @@ export type ContentDatabaseSourcePushMode =
   | "autosave"
   | "draft"
   | "publish";
+export type ContentDatabaseSourceWriteMode =
+  | "read_only"
+  | "stage_only"
+  | "publish_updates";
 export type BuilderCmsPublicationTransitionIntent = "publish" | "unpublish";
 export const BUILDER_CMS_SAFE_WRITE_MODEL = "agent-native-blog-article-test";
 export type ContentDatabaseSourceChangeDirection = "outbound";
@@ -540,6 +544,8 @@ export interface ContentDatabaseSource {
     pushMode?: ContentDatabaseSourcePushMode;
     pushModeLabel?: string | null;
     pushModeDescription?: string | null;
+    writeMode?: ContentDatabaseSourceWriteMode;
+    allowPublicationTransitions?: boolean;
     notes?: string | null;
     readMode?: "fixture" | "builder-api" | string | null;
     liveReadConfigured?: boolean;
@@ -764,7 +770,9 @@ export interface ExecuteBuilderSourceExecutionRequest {
 export interface SetContentDatabaseSourceWriteModeRequest {
   databaseId?: string;
   documentId?: string;
-  liveWritesEnabled: boolean;
+  liveWritesEnabled?: boolean;
+  writeMode?: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
   allowedWriteModes?: Exclude<ContentDatabaseSourcePushMode, "none">[];
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
