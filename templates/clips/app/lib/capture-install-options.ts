@@ -3,15 +3,46 @@ function isFalsy(value: unknown): boolean {
   return ["0", "false", "no", "off"].includes(value.trim().toLowerCase());
 }
 
+function normalizeHostname(hostname: string | undefined): string {
+  return (hostname ?? "").trim().toLowerCase();
+}
+
+export function supportsPublishedClipsChromeExtensionHost(
+  hostname: string | undefined,
+): boolean {
+  const normalized = normalizeHostname(hostname);
+  return (
+    normalized === "clips.agent-native.com" ||
+    normalized === "localhost" ||
+    normalized === "127.0.0.1"
+  );
+}
+
+export function resolveClipsChromeExtensionEnabled({
+  enabledSetting,
+  hostname,
+}: {
+  enabledSetting?: string;
+  hostname?: string;
+}): boolean {
+  const normalizedSetting = enabledSetting?.trim();
+  if (normalizedSetting) return !isFalsy(normalizedSetting);
+  return supportsPublishedClipsChromeExtensionHost(hostname);
+}
+
+function getCurrentHostname(): string | undefined {
+  return typeof window === "undefined" ? undefined : window.location.hostname;
+}
+
 const chromeExtensionUrl =
   import.meta.env.VITE_CLIPS_CHROME_EXTENSION_URL?.trim() ??
   "https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn";
 
-// The Chrome extension is published to the Web Store, so the recorder picker
-// shows it by default. Set VITE_CLIPS_CHROME_EXTENSION_ENABLED=0 (or false/no/
-// off) to hide it again — e.g. a deployment that only ships the desktop app.
-export const clipsChromeExtensionEnabled = !isFalsy(
-  import.meta.env.VITE_CLIPS_CHROME_EXTENSION_ENABLED,
-);
+// The published extension manifest only trusts first-party Clips/local origins.
+// Custom deployments can opt in after publishing a matching extension/listing.
+export const clipsChromeExtensionEnabled = resolveClipsChromeExtensionEnabled({
+  enabledSetting: import.meta.env.VITE_CLIPS_CHROME_EXTENSION_ENABLED,
+  hostname: getCurrentHostname(),
+});
 
 export const clipsChromeExtensionUrl = chromeExtensionUrl || null;

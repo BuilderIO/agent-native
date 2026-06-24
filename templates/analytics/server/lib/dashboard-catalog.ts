@@ -920,7 +920,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
     description:
-      "Template signups, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention, and active users over time.",
+      "Template signups, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
     category: "Product",
     defaultDashboardId: "agent-native-templates-first-party",
     dataSources: ["first-party"],
@@ -937,7 +937,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 30,
+    panelCount: 33,
     version: CATALOG_VERSION,
     recommended: true,
     buildConfig: () => seedConfig("agent-native-templates-first-party"),

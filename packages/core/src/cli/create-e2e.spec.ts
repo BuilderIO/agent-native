@@ -47,13 +47,48 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(origCwd);
-  fs.rmSync(tmpDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100,
-  });
+  removeTmpDir(tmpDir);
 });
+
+function removeTmpDir(dir: string): void {
+  const maxAttempts = 10;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      fs.rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableRmError(error) || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      sleepSync(100 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
+function isRetryableRmError(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  return (
+    code === "ENOTEMPTY" ||
+    code === "EBUSY" ||
+    code === "EPERM" ||
+    code === "EMFILE" ||
+    code === "ENFILE"
+  );
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 function readPkg(dir: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));

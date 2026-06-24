@@ -721,11 +721,12 @@ export function Layout({
     activePath: localPathname,
     enabled: !isChatRoute,
   });
-  useAgentChatHomeHandoffLinks({
+  const chatHandoffLinkOptions = {
     storageKey: "dispatch",
-    isChatPath: (pathname) =>
+    isChatPath: (pathname: string) =>
       pathname === "/chat" || pathname.startsWith("/chat/"),
-  });
+  };
+  useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;

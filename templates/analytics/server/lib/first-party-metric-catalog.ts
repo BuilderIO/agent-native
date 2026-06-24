@@ -94,6 +94,11 @@ const DASHBOARD_TIME_RANGE_FILTER =
   "('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))";
 const DASHBOARD_EMAIL_FILTER =
   "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))";
+const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
+const SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY timestamp) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT substr(timestamp, 1, 10) AS date, ${SIGNUP_TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
+const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${SIGNUP_TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= to_char(CURRENT_DATE - INTERVAL '1 day', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key, ${SIGNUP_TEMPLATE_EXPR} AS template, substr(timestamp, 1, 10) AS event_date, user_id FROM analytics_events WHERE COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, '')) IS NOT NULL AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))) SELECT c.cohort_date AS date, c.template, COALESCE(COUNT(DISTINCT c.user_key) FILTER (WHERE b.event_date = to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD'))::float / NULLIF(COUNT(DISTINCT c.user_key), 0), 0) AS rate FROM cohorts c LEFT JOIN base b ON b.user_key = c.user_key AND b.template = c.template GROUP BY c.cohort_date, c.template ORDER BY c.cohort_date, c.template`;
+const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${SIGNUP_TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${SIGNUP_TEMPLATE_EXPR} ORDER BY count DESC`;
 
 /**
  * Catalog entries. Order here is the default panel order when a caller passes
@@ -103,19 +108,16 @@ const ENTRIES: FirstPartyMetric[] = [
   // --- Signups -------------------------------------------------------------
   {
     key: "total-signups",
-    title: "Signups",
+    title: "Total Signups",
     chartType: "metric",
     source: "first-party",
     width: 1,
     windowed: false,
-    buildSql: fixed(
-      "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup'",
-    ),
+    buildSql: fixed(TOTAL_SIGNUPS_SQL),
     config: {
-      yKey: "count",
+      yKey: "signups",
       yFormatter: "number",
-      description:
-        "Better Auth user creation events from all Agent Native templates",
+      description: "Total signup events in the selected time range.",
     },
   },
   {
@@ -125,9 +127,7 @@ const ENTRIES: FirstPartyMetric[] = [
     source: "first-party",
     width: 2,
     windowed: false,
-    buildSql: fixed(
-      `SELECT substr(timestamp, 1, 10) AS date, ${SIGNUP_TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY substr(timestamp, 1, 10), ${SIGNUP_TEMPLATE_EXPR} ORDER BY date, template`,
-    ),
+    buildSql: fixed(SIGNUPS_OVER_TIME_SQL),
     config: {
       xKey: "date",
       yKey: "count",
@@ -143,25 +143,18 @@ const ENTRIES: FirstPartyMetric[] = [
   },
   {
     key: "signups-by-template",
-    title: "Signups by Template Over Time",
-    chartType: "area",
+    title: "Signups by Template",
+    chartType: "bar",
     source: "first-party",
     width: 2,
     windowed: false,
-    buildSql: fixed(
-      `SELECT substr(timestamp, 1, 10) AS date, ${SIGNUP_TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY substr(timestamp, 1, 10), ${SIGNUP_TEMPLATE_EXPR} ORDER BY date, template`,
-    ),
+    buildSql: fixed(SIGNUPS_BY_TEMPLATE_SQL),
     config: {
-      xKey: "date",
+      xKey: "template",
       yKey: "count",
       yFormatter: "number",
-      pivot: {
-        xKey: "date",
-        seriesKey: "template",
-        valueKey: "count",
-      },
-      stacked: true,
-      description: "Daily signup events stacked by inferred template/app.",
+      color: "var(--brand-purple)",
+      description: "Signup events grouped by inferred template/app.",
     },
   },
 
@@ -386,7 +379,7 @@ const ENTRIES: FirstPartyMetric[] = [
     // Browser telemetry emits explicit `pageview` events with URL context, so
     // keep pageview panels scoped to that event instead of all tracked events.
     buildSql: fixed(
-      "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'pageview' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY date, template",
+      `SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'pageview' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY date, template`,
     ),
     config: {
       xKey: "date",
@@ -487,6 +480,48 @@ const ENTRIES: FirstPartyMetric[] = [
       colors: ["#10b981", "#8b5cf6"],
       description:
         "First-seen daily cohorts in the selected range. Cohorts must be at least seven days old so both lines are mature.",
+    },
+  },
+  {
+    key: "one-day-retention-by-template",
+    title: "1d Retention by Template",
+    chartType: "line",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(ONE_DAY_RETENTION_BY_TEMPLATE_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "rate",
+      },
+      description:
+        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template the next day.",
+    },
+  },
+  {
+    key: "seven-day-retention-by-template",
+    title: "7d Retention by Template",
+    chartType: "line",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: {
+        xKey: "date",
+        seriesKey: "template",
+        valueKey: "rate",
+      },
+      description:
+        "Per-template first-seen cohorts in the selected range. A user is retained when they return to the same template seven days later.",
     },
   },
   {

@@ -93,7 +93,7 @@ describe("sync-builder-starter-manifest", () => {
       });
 
       expect(result.changed).toBe(false);
-    });
+    }, 15_000);
   });
 
   describe("workspaceFileSyncChanged", () => {

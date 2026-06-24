@@ -55,6 +55,36 @@ function withAppBasePath(path: string): string {
   return `${basePath}${cleanPath}`;
 }
 
+const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
+const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
+
+export interface SignupLegalNoticeOptions {
+  termsUrl: string;
+  privacyUrl: string;
+  termsLabel?: string;
+  privacyLabel?: string;
+  prefix?: string;
+  connector?: string;
+  suffix?: string;
+}
+
+function normalizeRequestHostname(host: string | undefined): string {
+  const firstHost = host?.split(",")[0]?.trim().toLowerCase() ?? "";
+  if (!firstHost) return "";
+  if (firstHost.startsWith("[")) {
+    const close = firstHost.indexOf("]");
+    return close > 0 ? firstHost.slice(1, close) : firstHost;
+  }
+  return firstHost.replace(/:\d+$/, "");
+}
+
+function isAgentNativeHostedHost(host: string | undefined): boolean {
+  const hostname = normalizeRequestHostname(host);
+  return (
+    hostname === "agent-native.com" || hostname.endsWith(".agent-native.com")
+  );
+}
+
 export interface OnboardingHtmlOptions {
   /**
    * Hide email/password forms and show ONLY the Google sign-in button.
@@ -93,6 +123,12 @@ export interface OnboardingHtmlOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
+   * deployments get the Agent Native links automatically; self-hosted and
+   * custom-domain apps must opt in with their own URLs.
+   */
+  signupLegalNotice?: SignupLegalNoticeOptions | false;
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
@@ -139,6 +175,21 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
+    opts.signupLegalNotice === undefined &&
+    isAgentNativeHostedHost(opts.requestHost)
+      ? {
+          termsUrl: AGENT_NATIVE_TERMS_URL,
+          privacyUrl: AGENT_NATIVE_PRIVACY_URL,
+        }
+      : undefined;
+  const signupLegalNotice =
+    opts.signupLegalNotice === false
+      ? undefined
+      : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
+  const signupLegalNoteHtml = signupLegalNotice
+    ? `      <p class="legal-note">${esc(signupLegalNotice.prefix ?? "By signing up, you accept our")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer">${esc(signupLegalNotice.termsLabel ?? "Terms")}</a> ${esc(signupLegalNotice.connector ?? "and")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer">${esc(signupLegalNotice.privacyLabel ?? "Privacy Policy")}</a>${esc(signupLegalNotice.suffix ?? ".")}</p>`
+    : "";
   const googleSignInNotice = opts.googleSignInNotice;
   const googleNoticeBodyParts = googleSignInNotice
     ? (Array.isArray(googleSignInNotice.body)
@@ -1073,7 +1124,7 @@ ${
     <label for="s-pass2">Confirm password</label>
     <input id="s-pass2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
       <button type="submit">Create account</button>
-      <p class="legal-note">By signing up, you accept our <a href="https://www.agent-native.com/terms" target="_blank" rel="noreferrer">Terms</a> and <a href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</p>
+${signupLegalNoteHtml}
       <p class="msg" id="s-msg"></p>
     </form>
 
