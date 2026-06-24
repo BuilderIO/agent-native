@@ -14,10 +14,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentNativeI18nProvider,
   AgentSidebar,
-  LOCALE_STORAGE_KEY,
   configureTracking,
-  normalizeLocalizationPreference,
-  useLocale,
+  getLocaleInitScript,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -38,6 +36,7 @@ import { defaultSocialImageMeta } from "./seo";
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -131,38 +130,18 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   const routeLocale = docsPath
     ? (docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE)
     : undefined;
-  const initialLocale = routeLocale ?? DEFAULT_DOCS_LOCALE;
 
   return (
     <AgentNativeI18nProvider
       key={routeLocale ?? "site"}
       catalog={docsI18nCatalog}
-      initialLocale={initialLocale}
-      initialPreference={initialLocale}
+      initialLocale={routeLocale}
+      initialPreference={routeLocale}
       persistPreference={false}
     >
-      <SiteStoredPreferenceSync enabled={!docsPath} />
       {children}
     </AgentNativeI18nProvider>
   );
-}
-
-function SiteStoredPreferenceSync({ enabled }: { enabled: boolean }) {
-  const { preference, setPreference } = useLocale();
-
-  useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-      if (!stored) return;
-      const next = normalizeLocalizationPreference(stored).locale;
-      if (next !== preference) void setPreference(next);
-    } catch {
-      // Storage-denied browsers keep the server-rendered default.
-    }
-  }, [enabled, preference, setPreference]);
-
-  return null;
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
@@ -308,6 +287,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const locale =
     docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const localeInitScript =
+    typeof document !== "undefined"
+      ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
+          ?.innerHTML ?? getLocaleInitScript())
+      : getLocaleInitScript({
+          locale,
+          preference: isDocsPath(location.pathname) ? locale : undefined,
+        });
 
   return (
     <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
@@ -315,6 +302,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
         <script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"

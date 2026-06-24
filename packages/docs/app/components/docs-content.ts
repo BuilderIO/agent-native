@@ -178,9 +178,9 @@ export function getAllDocs(locale: unknown = DEFAULT_DOCS_LOCALE): DocEntry[] {
   if (docsLocale === DEFAULT_DOCS_LOCALE) return Array.from(docs.values());
 
   const overrides = localizedDocs.get(docsLocale);
-  if (!overrides) return [];
+  if (!overrides) return Array.from(docs.values());
 
-  return Array.from(overrides.values());
+  return Array.from(docs.values()).map((doc) => overrides.get(doc.slug) ?? doc);
 }
 
 export async function loadAllDocs(
@@ -210,7 +210,12 @@ function buildSearchIndexFromDocs(
   const docsLocale = normalizeDocsLocale(locale);
 
   for (const doc of docsList) {
-    const path = docsPathForSlug(doc.slug, docsLocale);
+    const pathLocale =
+      docsLocale !== DEFAULT_DOCS_LOCALE &&
+      !hasLocalizedDoc(docsLocale, doc.slug)
+        ? DEFAULT_DOCS_LOCALE
+        : docsLocale;
+    const path = docsPathForSlug(doc.slug, pathLocale);
     const lines = doc.body.split("\n");
     const sections: { id: string; label: string; startLine: number }[] = [];
 

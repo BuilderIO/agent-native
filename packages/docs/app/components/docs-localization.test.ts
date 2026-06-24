@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { loader as localizedDocsIndexLoader } from "../routes/docs.$locale._index";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
-import { hasLocalizedDoc, loadDoc } from "./docs-content";
+import {
+  buildSearchIndexAsync,
+  hasLocalizedDoc,
+  loadDoc,
+} from "./docs-content";
 import { getDocsNavItems } from "./docsNavItems";
 
 function loaderArgs(params: Record<string, string>) {
@@ -68,5 +72,20 @@ describe("localized docs fallback", () => {
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
       "/docs/fr-FR/internationalization",
     );
+  });
+
+  it("keeps untranslated docs searchable at English canonical paths", async () => {
+    const index = await buildSearchIndexAsync("fr-FR");
+
+    expect(
+      index.some(
+        (entry) =>
+          entry.path === "/docs" &&
+          entry.page.toLowerCase().includes("getting started"),
+      ),
+    ).toBe(true);
+    expect(
+      index.some((entry) => entry.path === "/docs/fr-FR/internationalization"),
+    ).toBe(true);
   });
 });
