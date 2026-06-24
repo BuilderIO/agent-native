@@ -543,7 +543,7 @@ export function LanguagePicker({
           className={
             variant === "icon"
               ? "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
           }
           aria-label={resolvedLabel}
           title={selected?.label ?? resolvedLabel}
@@ -581,7 +581,7 @@ export function LanguagePicker({
                   value={option.value}
                   className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                 >
-                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
+                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
                       <IconCheck className="h-3.5 w-3.5" />
                     </SelectPrimitive.ItemIndicator>

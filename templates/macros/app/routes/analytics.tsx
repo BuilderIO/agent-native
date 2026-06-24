@@ -49,7 +49,7 @@ export default function AnalyticsPage() {
   useSetHeaderActions(
     <Select value={timeRange} onValueChange={setTimeRange}>
       <SelectTrigger className="w-[130px] sm:w-[140px] bg-card/40 border-border/30 h-8 text-xs shrink-0">
-        <IconCalendar className="w-3.5 h-3.5 mr-1.5 sm:mr-2 opacity-50" />
+        <IconCalendar className="w-3.5 h-3.5 me-1.5 sm:me-2 opacity-50" />
         <SelectValue placeholder="Select range" />
       </SelectTrigger>
       <SelectContent className="bg-zinc-900 border-white/10">

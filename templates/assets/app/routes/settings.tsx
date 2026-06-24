@@ -358,7 +358,7 @@ function SettingsRow({
           </p>
         </div>
       </div>
-      {action ? <div className="shrink-0 sm:ml-4">{action}</div> : null}
+      {action ? <div className="shrink-0 sm:ms-4">{action}</div> : null}
     </div>
   );
 }

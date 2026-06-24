@@ -118,10 +118,10 @@ export function Layout({ children }: LayoutProps) {
             )}
             <div
               className={cn(
-                "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+                "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
                 mobileSidebarOpen
                   ? "translate-x-0"
-                  : "-translate-x-full md:translate-x-0",
+                  : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
               )}
             >
               <Sidebar />
@@ -132,7 +132,7 @@ export function Layout({ children }: LayoutProps) {
                 <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
                   <button
                     onClick={openMobileSidebar}
-                    className="-ml-1 mr-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
+                    className="-ms-1 me-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
                     aria-label={t("navigation.openNavigation")}
                   >
                     <IconMenu2 className="h-5 w-5 text-foreground" />

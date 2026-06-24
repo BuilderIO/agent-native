@@ -179,7 +179,7 @@ function CommandShortcut({ children, className }: CommandShortcutProps) {
   return (
     <span
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground",
+        "ms-auto text-xs tracking-widest text-muted-foreground",
         className,
       )}
     >
@@ -514,7 +514,7 @@ export function CommandMenu({
             >
               {/* Search input */}
               <div className="flex items-center border-b px-3">
-                <IconSearch className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
                 <input
                   ref={inputRef}
                   value={search}
@@ -554,7 +554,7 @@ export function CommandMenu({
                         <span>{changelogLabel}</span>
                         {changelogUnseen && (
                           <span
-                            className="ml-auto h-2 w-2 rounded-full bg-primary"
+                            className="ms-auto h-2 w-2 rounded-full bg-primary"
                             aria-label="New updates available"
                           />
                         )}
@@ -600,7 +600,7 @@ export function CommandMenu({
                           )}
                         </span>
                         {search.trim() && (
-                          <span className="ml-auto text-xs text-muted-foreground">
+                          <span className="ms-auto text-xs text-muted-foreground">
                             ↵
                           </span>
                         )}

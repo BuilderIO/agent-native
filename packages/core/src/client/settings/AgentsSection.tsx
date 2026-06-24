@@ -62,7 +62,7 @@ function AgentEditPopover({
   return (
     <div
       ref={popoverRef}
-      className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+      className="absolute end-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
     >
       <div className="flex flex-col gap-1.5">
         <input
@@ -163,7 +163,7 @@ function AgentAddPopover({
   return (
     <div
       ref={popoverRef}
-      className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+      className="absolute end-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
     >
       <div className="flex flex-col gap-1.5">
         <input
@@ -393,7 +393,7 @@ export function AgentsSection() {
                 <span className="text-[11px] font-medium text-foreground truncate shrink-0">
                   {agent.name}
                 </span>
-                <span className="flex-1 text-[10px] text-muted-foreground/60 truncate text-right">
+                <span className="flex-1 text-[10px] text-muted-foreground/60 truncate text-end">
                   {agent.url}
                 </span>
                 <Tooltip>

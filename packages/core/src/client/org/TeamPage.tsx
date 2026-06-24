@@ -866,7 +866,7 @@ function BulkInviteForm({
             <ul className="space-y-0.5 text-[11px] text-red-500">
               {resultBanner.failed.map((f) => (
                 <li key={f.email}>
-                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 mr-1" />
+                  <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 me-1" />
                   {f.email}: {f.error}
                 </li>
               ))}
@@ -1176,7 +1176,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
           </p>
           {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-red-500 list-disc pl-5 space-y-0.5">
+            <ul className="text-[11px] text-red-500 list-disc ps-5 space-y-0.5">
               {syncResult.results
                 .filter((r) => !r.ok)
                 .map((r) => (

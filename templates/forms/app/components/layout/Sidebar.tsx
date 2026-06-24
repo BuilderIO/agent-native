@@ -172,7 +172,7 @@ export function Sidebar() {
   const sidebarContent = (
     <div
       className={cn(
-        "flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-muted/30",
+        "flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-muted/30",
         isMobile && "w-full",
       )}
     >
@@ -346,7 +346,7 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-2 left-2 z-40 h-10 w-10 md:hidden"
+          className="fixed top-2 start-2 z-40 h-10 w-10 md:hidden"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >
@@ -358,7 +358,7 @@ export function Sidebar() {
               className="fixed inset-0 z-40 bg-black/40"
               onClick={() => setMobileOpen(false)}
             />
-            <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]">
+            <div className="fixed inset-y-0 start-0 z-50 w-72 max-w-[85vw]">
               {sidebarContent}
             </div>
           </>

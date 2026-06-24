@@ -642,7 +642,7 @@
 .plan-code-chrome-float {
   position: absolute;
   top: 0.5rem;
-  right: 0.5rem;
+  inset-inline-end: 0.5rem;
   z-index: 2;
 }
 
@@ -917,7 +917,7 @@
   background: transparent;
   color: hsl(var(--foreground));
   font-size: 0.8rem;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 

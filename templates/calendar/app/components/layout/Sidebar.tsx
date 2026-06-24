@@ -141,7 +141,7 @@ function MonthYearPicker({
           className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Previous year"
         >
-          <IconChevronLeft className="h-3.5 w-3.5" />
+          <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
         <span className="text-sm font-semibold">{year}</span>
         <button
@@ -150,7 +150,7 @@ function MonthYearPicker({
           className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Next year"
         >
-          <IconChevronRight className="h-3.5 w-3.5" />
+          <IconChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
       </div>
       <div className="grid grid-cols-3 gap-1">
@@ -225,7 +225,7 @@ function MiniCalendar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="-ml-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-foreground hover:bg-accent"
+              className="-ms-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-foreground hover:bg-accent"
             >
               {format(viewMonth, "MMMM yyyy")}
               <IconChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -653,7 +653,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         data-open={open ? "true" : "false"}
         className={cn(
-          "calendar-app-sidebar fixed left-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-r border-border bg-card transition-transform duration-200 lg:static",
+          "calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-e border-border bg-card transition-transform duration-200 lg:static",
         )}
       >
         {/* Logo */}
@@ -774,9 +774,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                         {peopleGroupOpen ? (
                           <IconChevronDown className="h-3 w-3" />
                         ) : (
-                          <IconChevronRight className="h-3 w-3" />
+                          <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
                         )}
-                        <span className="min-w-0 flex-1 text-left">People</span>
+                        <span className="min-w-0 flex-1 text-start">
+                          People
+                        </span>
                         <span className="text-[10px]">
                           {overlayPeople.length}
                         </span>
@@ -871,9 +873,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                         {feedsGroupOpen ? (
                           <IconChevronDown className="h-3 w-3" />
                         ) : (
-                          <IconChevronRight className="h-3 w-3" />
+                          <IconChevronRight className="h-3 w-3 rtl:-scale-x-100" />
                         )}
-                        <span className="min-w-0 flex-1 text-left">Feeds</span>
+                        <span className="min-w-0 flex-1 text-start">Feeds</span>
                         <span className="text-[10px]">
                           {externalCalendars.length}
                         </span>
@@ -986,7 +988,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <TooltipContent side="top">
                 <p>
                   Keyboard shortcuts{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  <kbd className="ms-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                     ?
                   </kbd>
                 </p>

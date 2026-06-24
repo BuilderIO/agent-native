@@ -207,7 +207,7 @@ export function SearchBar({
                   e.preventDefault();
                   handleClear();
                 }}
-                className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <IconX className="h-3.5 w-3.5" />
               </button>
@@ -222,7 +222,7 @@ export function SearchBar({
         <div
           data-search-dropdown
           ref={listRef}
-          className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
+          className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
           {matchedContacts.map((contact, i) => (
             <button
@@ -236,7 +236,7 @@ export function SearchBar({
               }}
               onMouseEnter={() => setSelectedIndex(i)}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-2 text-left text-[13px]",
+                "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
                 i === selectedIndex && "bg-accent",
               )}
             >

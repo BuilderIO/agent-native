@@ -135,7 +135,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Desktop sidebar */}
           <aside
             className={cn(
-              "hidden shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+              "hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
               desktopSidebarCollapsed ? "w-14" : "w-56",
             )}
           >
@@ -331,10 +331,10 @@ function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-10 left-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
         sidebarCollapsed
-          ? "md:left-[calc(3.5rem+1rem)]"
-          : "md:left-[calc(14rem+1rem)]",
+          ? "md:start-[calc(3.5rem+1rem)]"
+          : "md:start-[calc(14rem+1rem)]",
       )}
     >
       <IconLoader2 className="h-3.5 w-3.5 animate-spin" />

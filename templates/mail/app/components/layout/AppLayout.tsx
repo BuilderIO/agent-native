@@ -1222,7 +1222,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
           {/* Account avatars — overlapping stack like Figma */}
           {googleStatus.isLoading && (
-            <div className="flex items-center ml-1">
+            <div className="flex items-center ms-1">
               <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
             </div>
           )}
@@ -1234,7 +1234,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
-                    <button className="flex items-center hover:opacity-90 transition-opacity ml-1">
+                    <button className="flex items-center hover:opacity-90 transition-opacity ms-1">
                       <div
                         className="flex items-center"
                         style={{
@@ -1325,10 +1325,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
             <div
               className={cn(
-                "flex w-64 flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-r border-border/30 shadow-2xl",
+                "flex w-64 flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-e border-border/30 shadow-2xl",
                 sidebarPinned && !isMobile
-                  ? "absolute left-0 top-12 bottom-0 z-10"
-                  : "fixed left-0 top-0 bottom-0 z-40",
+                  ? "absolute start-0 top-12 bottom-0 z-10"
+                  : "fixed start-0 top-0 bottom-0 z-40",
               )}
             >
               <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/20 px-4">
@@ -1395,7 +1395,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               });
                             }}
                             className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
+                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-all",
                               isActive ? "opacity-100" : "opacity-30",
                             )}
                           >
@@ -1562,7 +1562,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            sidebarPinned && !isMobile && "pl-64",
+            sidebarPinned && !isMobile && "ps-64",
           )}
         >
           <InvitationBanner />
@@ -1789,7 +1789,7 @@ function StandardLayout({ children }: AppLayoutProps) {
             className="fixed inset-0 z-30 bg-black/20"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="fixed left-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl">
+          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-background/70 backdrop-blur-2xl border-e border-border/30 shadow-2xl">
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="space-y-0.5">
                 {[
@@ -1895,7 +1895,7 @@ function CheckboxRow({
   return (
     <button
       onClick={onToggle}
-      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
+      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-start hover:bg-accent/50 transition-colors"
     >
       <span
         className={cn(
@@ -2114,7 +2114,7 @@ function TabSettingsPopover({
                             setEditingId(label.id);
                             setEditValue(alias || "");
                           }}
-                          className="shrink-0 mr-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
+                          className="shrink-0 me-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
                         >
                           Rename
                         </button>

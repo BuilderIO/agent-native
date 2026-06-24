@@ -519,7 +519,7 @@ function IntegrationKeyEntry({
           onClick={onBack}
           className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
         >
-          <IconChevronLeft className="h-3.5 w-3.5" />
+          <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
         </button>
         <div className="h-6 w-6 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
           {def.logo}
@@ -563,7 +563,7 @@ function IntegrationKeyEntry({
         <p className="text-[11px] text-muted-foreground/70 mb-1.5">
           To get your API key:
         </p>
-        <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal pl-3 mb-1.5">
+        <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal ps-3 mb-1.5">
           {def.helpSteps.map((step, i) => (
             <li key={i}>{step}</li>
           ))}
@@ -606,7 +606,7 @@ function IntegrationNotice({
             onClick={() => setReconnecting(false)}
             className="text-muted-foreground/50 hover:text-muted-foreground"
           >
-            <IconChevronLeft className="h-3.5 w-3.5" />
+            <IconChevronLeft className="h-3.5 w-3.5 rtl:-scale-x-100" />
           </button>
           <div className="h-5 w-5 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
             {def.logo}
@@ -666,7 +666,7 @@ function IntegrationNotice({
       {authErr ? (
         <button
           onClick={() => setReconnecting(true)}
-          className="text-[11px] text-amber-400/80 hover:text-amber-300 mt-1 text-left"
+          className="text-[11px] text-amber-400/80 hover:text-amber-300 mt-1 text-start"
         >
           {def.name} API key is invalid or expired —{" "}
           <span className="underline">reconnect</span>
@@ -868,7 +868,7 @@ function ApolloSection({ email }: { email: string }) {
               <p key={i} className="text-[11px] text-muted-foreground/60">
                 {p.raw_number}
                 {p.type && (
-                  <span className="text-muted-foreground/40 ml-1">
+                  <span className="text-muted-foreground/40 ms-1">
                     ({p.type})
                   </span>
                 )}
