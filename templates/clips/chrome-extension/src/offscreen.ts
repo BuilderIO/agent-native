@@ -617,6 +617,10 @@ async function begin(message: BeginMessage): Promise<{
       return;
     }
     const index = recording.chunkIndex++;
+    // Record the failure and stop, but do NOT re-throw: re-throwing leaves a
+    // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
+    // look in a Chrome Web Store review). finalizeStop reads recording.upload-
+    // Failure and surfaces it through the normal error path instead.
     const upload = uploadChunk(recording, event.data, index).catch((err) => {
       recording.uploadFailure =
         err instanceof Error ? err : new Error(String(err));
@@ -624,7 +628,6 @@ async function begin(message: BeginMessage): Promise<{
         error: recording.uploadFailure.message,
       });
       if (recorder.state !== "inactive") recorder.stop();
-      throw recording.uploadFailure;
     });
     recording.uploadPromises.push(upload);
   });
