@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client";
 import { useLocation, useNavigate } from "react-router";
 import {
+  DEFAULT_DOCS_LOCALE,
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   browserDocsLocale,
@@ -13,6 +14,7 @@ import {
   docsSlugFromPathname,
   type DocsLocale,
 } from "./docs-locale";
+import { hasLocalizedDoc } from "./docs-content";
 
 function localeOptionLabel(locale: DocsLocale) {
   const metadata = DOCS_LOCALE_METADATA[locale];
@@ -32,10 +34,10 @@ export default function DocsLanguagePicker() {
       nextPreference === "system" ? browserDocsLocale() : nextPreference;
     const slug = docsSlugFromPathname(location.pathname);
     if (!slug) return;
-    const path = docsPathForSlug(
-      slug,
-      nextPreference === "system" ? nextLocale : nextPreference,
-    );
+    const targetLocale = hasLocalizedDoc(nextLocale, slug)
+      ? nextLocale
+      : DEFAULT_DOCS_LOCALE;
+    const path = docsPathForSlug(slug, targetLocale);
     navigate(`${path}${location.search}${location.hash}`);
   }
 

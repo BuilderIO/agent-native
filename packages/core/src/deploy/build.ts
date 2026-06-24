@@ -1485,10 +1485,12 @@ export function findInstalledResvgPackages(
  * Reads the same env flag the runtime gate uses
  * (`AGENT_CHAT_DURABLE_BACKGROUND`).
  *
- * DEFAULT-ON, matching the runtime gate (`isFlagEnabled` in
- * durable-background.ts): unset/empty/unknown means enabled; an app opts OUT
- * only with an explicit falsy value (`false`/`0`/`no`/`off`). This is what
- * actually emits the 15-min `-background` function so the `_process-run`
+ * DEFAULT-OFF (opt-in), matching the runtime gate (`isFlagEnabled` in
+ * durable-background.ts): unset/empty/unknown means DISABLED; an app opts IN
+ * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
+ * fleet-wide default-on caused real-user incidents (2026-06-24) before the
+ * async worker path was proven, so durable is opt-in until verified live. This
+ * gate is what emits the 15-min `-background` function so the `_process-run`
  * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
  * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
  * if the deploy emitted no `-background` function but the runtime still routed
@@ -1499,9 +1501,9 @@ export function findInstalledResvgPackages(
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return true;
+  if (raw == null) return false;
   const v = raw.trim().toLowerCase();
-  return !(v === "0" || v === "false" || v === "no" || v === "off");
+  return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
 /**
