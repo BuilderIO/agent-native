@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { getDbExec, intType, widenIntColumnsToBigInt } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,

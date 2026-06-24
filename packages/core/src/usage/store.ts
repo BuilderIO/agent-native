@@ -7,12 +7,8 @@
  *
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  widenIntColumnsToBigInt,
-} from "../db/client.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of

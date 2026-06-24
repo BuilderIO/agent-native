@@ -3,12 +3,8 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  widenIntColumnsToBigInt,
-} from "../db/client.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import type { AgentChatEvent } from "./types.js";
 
