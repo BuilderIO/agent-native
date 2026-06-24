@@ -323,7 +323,7 @@ function CompactChangelogAside() {
   const canExpand = latestBody.length > 260 || entries.length > 1;
 
   return (
-    <aside className="lg:sticky lg:top-6 lg:self-start">
+    <aside className="2xl:sticky 2xl:top-6 2xl:self-start">
       <div className="relative">
         <div
           className={cn(
@@ -581,7 +581,7 @@ export default function SettingsIndexRoute() {
         </h1>
       </PageHeader>
       <div className="mx-auto w-full max-w-6xl p-6">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="min-w-0 space-y-6">
             <p className="text-sm text-muted-foreground">
               Preferences and connected services for this Clips workspace.
