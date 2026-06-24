@@ -1132,7 +1132,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     // process.env — that would trip the no-env-mutation guard) so the worker
     // reliably takes the ~13-min soft-timeout (the deployed Lambda name is not
     // guaranteed to end in -background).
-    expect(entry).toContain("globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true");
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
+    );
   });
 
   it("skips emit (no -background artifact) when Nitro output is missing", () => {
