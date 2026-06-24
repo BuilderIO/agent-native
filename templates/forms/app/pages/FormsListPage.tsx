@@ -411,7 +411,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="icon"
-            className="ml-auto h-8 w-8"
+            className="ms-auto h-8 w-8"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >
@@ -546,7 +546,7 @@ export function FormsListPage() {
                                 navigate(`/forms/${form.id}/responses`);
                               }}
                             >
-                              <IconChartBar className="h-4 w-4 mr-2" />
+                              <IconChartBar className="h-4 w-4 me-2" />
                               {t("forms.viewResponses")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
@@ -555,7 +555,7 @@ export function FormsListPage() {
                                 handleRestore(form.id);
                               }}
                             >
-                              <IconArchiveOff className="h-4 w-4 mr-2" />
+                              <IconArchiveOff className="h-4 w-4 me-2" />
                               {t("forms.restore")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
@@ -565,7 +565,7 @@ export function FormsListPage() {
                                 setPurgeId(form.id);
                               }}
                             >
-                              <IconTrash className="h-4 w-4 mr-2" />
+                              <IconTrash className="h-4 w-4 me-2" />
                               {t("forms.deleteForever")}
                             </DropdownMenuItem>
                           </>
@@ -594,7 +594,7 @@ export function FormsListPage() {
                                     navigate(`/forms/${form.id}`);
                                   }}
                                 >
-                                  <IconExternalLink className="h-4 w-4 mr-2" />
+                                  <IconExternalLink className="h-4 w-4 me-2" />
                                   {t("common.open")}
                                 </DropdownMenuItem>
                               );
@@ -607,7 +607,7 @@ export function FormsListPage() {
                                     navigate(`/forms/${form.id}/responses`);
                                   }}
                                 >
-                                  <IconChartBar className="h-4 w-4 mr-2" />
+                                  <IconChartBar className="h-4 w-4 me-2" />
                                   {t("forms.viewResponses")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
@@ -616,7 +616,7 @@ export function FormsListPage() {
                                     handleTogglePublish(form);
                                   }}
                                 >
-                                  <IconExternalLink className="h-4 w-4 mr-2" />
+                                  <IconExternalLink className="h-4 w-4 me-2" />
                                   {form.status === "published"
                                     ? t("forms.unpublish")
                                     : t("forms.publish")}
@@ -627,7 +627,7 @@ export function FormsListPage() {
                                     handleDuplicate(form);
                                   }}
                                 >
-                                  <IconCopy className="h-4 w-4 mr-2" />
+                                  <IconCopy className="h-4 w-4 me-2" />
                                   {t("forms.duplicate")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
@@ -637,7 +637,7 @@ export function FormsListPage() {
                                     handleDelete(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 mr-2" />
+                                  <IconTrash className="h-4 w-4 me-2" />
                                   {t("common.delete")}
                                 </DropdownMenuItem>
                               </>

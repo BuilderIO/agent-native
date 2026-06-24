@@ -112,7 +112,7 @@ export function CommandPalette({
         </CommandMenu.Item>
         {onReply && (
           <CommandMenu.Item onSelect={onReply} keywords={["reply", "respond"]}>
-            <IconCornerUpLeft className="h-4 w-4" />
+            <IconCornerUpLeft className="h-4 w-4 rtl:-scale-x-100" />
             {t("commandPalette.reply")}
             <CommandMenu.Shortcut>R</CommandMenu.Shortcut>
           </CommandMenu.Item>

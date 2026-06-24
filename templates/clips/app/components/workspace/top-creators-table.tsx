@@ -39,9 +39,9 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
         <TableHeader>
           <TableRow>
             <TableHead>Creator</TableHead>
-            <TableHead className="text-right w-24">Recordings</TableHead>
-            <TableHead className="text-right w-20">Views</TableHead>
-            <TableHead className="text-right w-28">Engagement</TableHead>
+            <TableHead className="text-end w-24">Recordings</TableHead>
+            <TableHead className="text-end w-20">Views</TableHead>
+            <TableHead className="text-end w-28">Engagement</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -57,13 +57,13 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
                   <span className="truncate">{row.email}</span>
                 </div>
               </TableCell>
-              <TableCell className="text-right tabular-nums">
+              <TableCell className="text-end tabular-nums">
                 {row.recordings.toLocaleString()}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
+              <TableCell className="text-end tabular-nums">
                 {row.views.toLocaleString()}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
+              <TableCell className="text-end tabular-nums">
                 {row.engagement.toLocaleString()}
               </TableCell>
             </TableRow>

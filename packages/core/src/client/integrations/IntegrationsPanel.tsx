@@ -243,7 +243,7 @@ function IntegrationDetail({
         onClick={onBack}
         className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
       >
-        <IconChevronLeft size={12} />
+        <IconChevronLeft size={12} className="rtl:-scale-x-100" />
         {t("integrations.back")}
       </button>
 
@@ -450,7 +450,7 @@ function AddIntegrationPicker({
         <button
           key={platform.id}
           onClick={() => onSelect(platform)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
         >
           <platform.icon size={14} className="shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
@@ -505,7 +505,7 @@ export function IntegrationsPanel() {
           onClick={() => setShowPicker(false)}
           className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
         >
-          <IconChevronLeft size={12} />
+          <IconChevronLeft size={12} className="rtl:-scale-x-100" />
           {t("integrations.back")}
         </button>
         <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
@@ -581,7 +581,7 @@ export function IntegrationsPanel() {
               <button
                 key={platform.id}
                 onClick={() => setSelectedPlatform(platform)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
               >
                 <platform.icon
                   size={14}

@@ -19,7 +19,7 @@ export function MobileNav() {
     <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
       <button
         onClick={() => setOpen(true)}
-        className="mr-3 p-2.5 -ml-1 rounded-md hover:bg-sidebar-accent/50"
+        className="me-3 p-2.5 -ms-1 rounded-md hover:bg-sidebar-accent/50"
         aria-label={t("navigation.openNavigation")}
       >
         <IconMenu className="h-5 w-5 text-foreground" />

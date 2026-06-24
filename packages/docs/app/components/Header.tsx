@@ -215,7 +215,7 @@ export default function Header() {
               className="header-link"
             >
               GitHub
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
@@ -226,25 +226,26 @@ export default function Header() {
               className="header-link"
             >
               Discord
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
           </div>
 
-          <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
               variant="outlined"
               className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               align="end"
               side="bottom"
             />
-            <DocsLanguagePicker />
             <SearchTrigger
               onClick={openModal}
               label={t("header.searchAria")}
               placeholder={t("header.searchPlaceholder")}
             />
+            <DocsLanguagePicker />
+            <ThemeToggle />
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -255,8 +256,6 @@ export default function Header() {
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
-            <DocsLanguagePicker />
-            <ThemeToggle />
 
             {/* Mobile hamburger */}
             <button
@@ -310,7 +309,7 @@ export default function Header() {
               className="header-link"
             >
               GitHub
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
@@ -321,7 +320,7 @@ export default function Header() {
               className="header-link"
             >
               Discord
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>

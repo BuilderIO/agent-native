@@ -127,7 +127,7 @@ export default function DocsSidebar() {
     <aside className="hidden w-[228px] shrink-0 lg:block">
       <nav
         ref={navRef}
-        className="docs-sidebar-nav sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pr-4"
+        className="docs-sidebar-nav sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pe-4"
       >
         {navSections.map((section, index) => {
           const isAlwaysOpen = index === ALWAYS_OPEN_SECTION_INDEX;
@@ -154,7 +154,7 @@ export default function DocsSidebar() {
                   <IconChevronRight
                     size={16}
                     stroke={1.75}
-                    className={`docs-sidebar-chevron${isOpen ? " is-open" : ""}`}
+                    className={`docs-sidebar-chevron rtl:-scale-x-100${isOpen ? " is-open" : ""}`}
                     aria-hidden="true"
                   />
                 </button>
@@ -197,7 +197,7 @@ export default function DocsSidebar() {
                             <IconChevronRight
                               size={16}
                               stroke={1.75}
-                              className={`docs-sidebar-chevron${groupOpen ? " is-open" : ""}`}
+                              className={`docs-sidebar-chevron rtl:-scale-x-100${groupOpen ? " is-open" : ""}`}
                               aria-hidden="true"
                             />
                           </button>

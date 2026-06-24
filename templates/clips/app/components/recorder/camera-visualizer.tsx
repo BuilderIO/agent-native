@@ -292,7 +292,7 @@ export function CameraVisualizer({
   return (
     <div className={cn("space-y-2", disabled && "opacity-70", className)}>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 pl-2 pr-0.5">
+        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 ps-2 pe-0.5">
           <span className="text-[11px] text-muted-foreground">Bubble</span>
           {live || starting ? (
             <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
@@ -324,7 +324,7 @@ export function CameraVisualizer({
           size="sm"
           disabled={disabled || starting}
           onClick={live ? stopTest : startTest}
-          className="ml-auto h-7 shrink-0 px-2.5 text-xs"
+          className="ms-auto h-7 shrink-0 px-2.5 text-xs"
         >
           {live ? "Stop" : starting ? "Opening..." : "Test"}
         </Button>
