@@ -165,116 +165,128 @@ const orbitPrimaryCapabilities = [
   {
     label: "Actions",
     detail: "source of truth",
-    className: "left-1/2 top-[6%] -translate-x-1/2",
+    className: "left-1/2 top-[12%] -translate-x-1/2 text-center",
   },
   {
     label: "SQL state",
     detail: "shared context",
-    className: "right-[8%] top-[18%]",
+    className: "right-[9%] top-[27%] text-right",
   },
   {
     label: "MCP + A2A",
     detail: "protocols included",
-    className: "right-[3%] top-1/2 -translate-y-1/2",
+    className: "right-[2%] top-1/2 -translate-y-1/2 text-right",
   },
   {
     label: "Jobs",
     detail: "scheduled work",
-    className: "bottom-[18%] right-[9%]",
+    className: "bottom-[18%] right-[9%] text-right",
   },
   {
     label: "Templates",
     detail: "production-refined",
-    className: "bottom-[6%] left-1/2 -translate-x-1/2",
+    className: "bottom-[11%] left-1/2 -translate-x-1/2 text-center",
   },
   {
     label: "Auth",
     detail: "orgs and sharing",
-    className: "bottom-[18%] left-[8%]",
+    className: "bottom-[17%] left-[10%]",
   },
   {
     label: "i18n",
     detail: "global-ready UI",
-    className: "left-[3%] top-1/2 -translate-y-1/2",
+    className: "left-[4%] top-1/2 -translate-y-1/2",
   },
   {
     label: "Observability",
     detail: "audit and tracking",
-    className: "left-[8%] top-[18%]",
+    className: "left-[9%] top-[27%]",
   },
 ];
 
 const orbitSecondaryCapabilities = [
   {
-    label: "Sharing",
-    className: "left-[32%] top-[19%]",
+    label: "Security",
+    className: "left-[28%] top-[33%]",
   },
   {
-    label: "Audit log",
-    className: "right-[30%] top-[24%]",
+    label: "Sharing & privacy",
+    className: "left-[24%] top-[42%]",
   },
   {
-    label: "Tracking",
-    className: "right-[19%] top-[37%]",
+    label: "Audit logs",
+    className: "right-[31%] top-[33%]",
+  },
+  {
+    label: "Real-time collab",
+    className: "right-[19%] top-[42%]",
+  },
+  {
+    label: "Governance",
+    className: "right-[18%] top-[62%]",
   },
   {
     label: "Provider APIs",
-    className: "right-[24%] bottom-[32%]",
+    className: "right-[22%] bottom-[29%]",
+  },
+  {
+    label: "Automations",
+    className: "right-[34%] bottom-[17%]",
   },
   {
     label: "Approvals",
-    className: "left-[31%] bottom-[24%]",
+    className: "left-[29%] bottom-[20%]",
   },
   {
     label: "Extensions",
-    className: "left-[16%] bottom-[38%]",
+    className: "left-[18%] bottom-[31%]",
   },
   {
-    label: "Skills",
-    className: "left-[22%] top-[34%]",
+    label: "MCP Auth",
+    className: "left-[15%] top-[62%]",
   },
   {
-    label: "OAuth",
-    className: "right-[18%] bottom-[47%]",
+    label: "SSO",
+    className: "right-[11%] bottom-[39%]",
   },
   {
-    label: "Memory",
-    className: "left-[43%] bottom-[18%]",
+    label: "Evals",
+    className: "left-[40%] bottom-[28%]",
   },
   {
-    label: "Webhooks",
-    className: "right-[35%] bottom-[18%]",
-  },
-  {
-    label: "Voice",
-    className: "left-[37%] top-[31%]",
-  },
-  {
-    label: "Realtime sync",
-    className: "right-[34%] top-[35%]",
+    label: "Workspaces",
+    className: "left-[47%] top-[35%] -translate-x-1/2 text-center",
   },
 ];
 
 const orbitTertiaryCapabilities = [
   {
     label: "recurring jobs",
-    className: "left-[16%] top-[9%]",
+    className: "left-[18%] top-[13%]",
   },
   {
-    label: "evals",
-    className: "left-[42%] top-[18%]",
+    label: "tracking",
+    className: "left-[43%] top-[26%]",
   },
   {
-    label: "workspace",
+    label: "monorepos",
     className: "right-[17%] top-[8%]",
   },
   {
     label: "MCP apps",
-    className: "right-[-8px] top-[27%]",
+    className: "right-[-10px] top-[33%]",
   },
   {
     label: "external agents",
-    className: "right-[-34px] top-[43%]",
+    className: "right-[-44px] top-[46%]",
+  },
+  {
+    label: "AG-UI",
+    className: "right-[4%] top-[60%]",
+  },
+  {
+    label: "ACP",
+    className: "right-[19%] top-[57%]",
   },
   {
     label: "CLI",
@@ -286,7 +298,7 @@ const orbitTertiaryCapabilities = [
   },
   {
     label: "native chat UI",
-    className: "left-[36%] bottom-[-10px]",
+    className: "left-[44%] bottom-[-10px]",
   },
   {
     label: "file uploads",
@@ -294,7 +306,7 @@ const orbitTertiaryCapabilities = [
   },
   {
     label: "sandbox adapters",
-    className: "left-[-32px] bottom-[27%]",
+    className: "left-[-36px] bottom-[28%]",
   },
   {
     label: "durable resume",
@@ -302,7 +314,7 @@ const orbitTertiaryCapabilities = [
   },
   {
     label: "context awareness",
-    className: "left-[-42px] top-[16%]",
+    className: "left-[-54px] top-[25%]",
   },
   {
     label: "notifications",
@@ -321,20 +333,44 @@ const orbitTertiaryCapabilities = [
     className: "right-[-44px] bottom-[26%]",
   },
   {
+    label: "OAuth",
+    className: "right-[8%] bottom-[32%]",
+  },
+  {
+    label: "webhooks",
+    className: "right-[42%] bottom-[7%]",
+  },
+  {
+    label: "memory",
+    className: "left-[31%] bottom-[8%]",
+  },
+  {
+    label: "skills",
+    className: "left-[20%] top-[31%]",
+  },
+  {
+    label: "voice input",
+    className: "left-[43%] top-[38%]",
+  },
+  {
+    label: "realtime sync",
+    className: "right-[39%] top-[25%]",
+  },
+  {
     label: "local file mode",
     className: "left-[21%] bottom-[4%]",
   },
   {
     label: "DB adapters",
-    className: "left-[9%] top-[66%]",
+    className: "left-[13%] top-[72%]",
   },
   {
     label: "self-editing code",
-    className: "right-[12%] top-[66%]",
+    className: "right-[17%] top-[72%]",
   },
   {
     label: "agent web surfaces",
-    className: "right-[20%] top-[82%]",
+    className: "right-[28%] top-[82%]",
   },
 ];
 
@@ -518,8 +554,9 @@ function BatteriesIncludedOrbit() {
               practices they need to build real app software.
             </p>
             <p className="mb-7 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Actions, SQL state, auth, i18n, protocols, jobs, templates, audit,
-              and observability all ship as UI-ready and agent-ready defaults,
+              Actions, SQL state, auth, i18n, protocols, jobs, templates,
+              real-time collaboration, security, audit logs, evals, sharing, and
+              observability all ship as UI-ready and agent-ready defaults,
               refined through production template apps and feedback.
             </p>
             <div className="flex flex-wrap gap-2">
@@ -536,7 +573,7 @@ function BatteriesIncludedOrbit() {
 
           <div
             ref={orbitRef}
-            className={`batteries-orbit relative mx-auto aspect-square w-full max-w-[560px] overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-8 ${
+            className={`batteries-orbit relative mx-auto aspect-square w-full max-w-[560px] overflow-hidden rounded-2xl border p-5 sm:p-8 ${
               orbitActive ? "batteries-orbit--active" : ""
             }`}
           >
@@ -545,14 +582,14 @@ function BatteriesIncludedOrbit() {
             <div className="orbit-ring orbit-ring--middle absolute inset-16 rounded-full border border-[var(--docs-border)] opacity-70" />
             <div className="orbit-ring orbit-ring--inner absolute inset-24 rounded-full border border-[var(--docs-border)] opacity-50" />
 
-            <div className="absolute left-1/2 top-1/2 z-10 w-[46%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--docs-accent)] bg-[var(--bg)] p-4 text-center sm:p-5">
+            <div className="orbit-center-card absolute left-1/2 top-1/2 z-40 w-[46%] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--docs-accent)] bg-[var(--bg)] p-4 text-center sm:p-5">
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--docs-accent)]">
                 Shared substrate
               </p>
               <h3 className="m-0 text-xl font-semibold leading-tight">
                 One app surface
               </h3>
-              <p className="m-0 mt-2 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              <p className="orbit-center-copy m-0 mt-2 text-sm leading-relaxed">
                 UI, agent, protocols, jobs, and audit call the same operations.
               </p>
             </div>
@@ -561,7 +598,7 @@ function BatteriesIncludedOrbit() {
               {orbitTertiaryCapabilities.map((capability) => (
                 <span
                   key={capability.label}
-                  className={`absolute max-w-[118px] truncate rounded-full border border-[var(--docs-border)] bg-[var(--bg)]/35 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--fg-secondary)] opacity-45 backdrop-blur-sm ${capability.className}`}
+                  className={`orbit-word orbit-word--tertiary absolute max-w-[140px] truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--fg-secondary)] opacity-35 ${capability.className}`}
                 >
                   {capability.label}
                 </span>
@@ -572,7 +609,7 @@ function BatteriesIncludedOrbit() {
               {orbitSecondaryCapabilities.map((capability) => (
                 <span
                   key={capability.label}
-                  className={`absolute rounded-full border border-[var(--docs-border)] bg-[var(--bg)]/70 px-2.5 py-1 text-[11px] font-semibold text-[var(--fg-secondary)] shadow-sm backdrop-blur-sm ${capability.className}`}
+                  className={`orbit-word orbit-word--secondary absolute max-w-[168px] truncate text-sm font-semibold text-[var(--fg-secondary)] opacity-75 ${capability.className}`}
                 >
                   {capability.label}
                 </span>
@@ -583,19 +620,88 @@ function BatteriesIncludedOrbit() {
               {orbitPrimaryCapabilities.map((capability) => (
                 <div
                   key={capability.label}
-                  className={`absolute max-w-[112px] rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-2 py-1.5 sm:max-w-[132px] sm:px-3 sm:py-2 ${capability.className}`}
+                  className={`orbit-word orbit-word--primary absolute max-w-[132px] ${capability.className}`}
                 >
-                  <div className="truncate text-sm font-semibold text-[var(--fg)]">
+                  <div className="truncate text-lg font-semibold leading-tight text-[var(--fg)]">
                     {capability.label}
-                  </div>
-                  <div className="hidden truncate text-xs text-[var(--fg-secondary)] sm:block">
-                    {capability.detail}
                   </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function TrySkillSection() {
+  return (
+    <section className="border-t border-[var(--docs-border)] px-6 py-16">
+      <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
+        <div className="min-w-0">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Try it with a skill
+          </h2>
+          <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi,
+            OpenCode, or VS Code with one command.
+          </p>
+
+          <CodeBlock code={skillInstallCode} lang="bash" />
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-[var(--docs-border)] p-5">
+              <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
+                /visual-plan
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Reviewable plans with diagrams, wireframes, file maps, and
+                comments before code changes.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--docs-border)] p-5">
+              <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
+                /visual-recap
+              </h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                A visual summary of a PR or diff so reviewers see the shape
+                before the raw lines.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <Link
+              data-an-prefetch="render"
+              to="/docs/skills-guide"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click cta", {
+                  label: "skills_guide",
+                  location: "skills_section",
+                })
+              }
+            >
+              Browse the Skills Guide
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
+        <AgentNativeDemoVideo className="aspect-square w-full" />
       </div>
     </section>
   );
@@ -871,75 +977,6 @@ export default function Home() {
 
         <BatteriesIncludedOrbit />
 
-        {/* Try it with a skill */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-16">
-          <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
-            <div className="min-w-0">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Try it with a skill
-              </h2>
-              <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                Add visual planning and PR recaps to Claude Code, Codex, Cursor,
-                Pi, OpenCode, or VS Code with one command.
-              </p>
-
-              <CodeBlock code={skillInstallCode} lang="bash" />
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-[var(--docs-border)] p-5">
-                  <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
-                    /visual-plan
-                  </h3>
-                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    Reviewable plans with diagrams, wireframes, file maps, and
-                    comments before code changes.
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[var(--docs-border)] p-5">
-                  <h3 className="mb-2 font-mono text-sm font-semibold text-[var(--docs-accent)]">
-                    /visual-recap
-                  </h3>
-                  <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    A visual summary of a PR or diff so reviewers see the shape
-                    before the raw lines.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <Link
-                  data-an-prefetch="render"
-                  to="/docs/skills-guide"
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                  onClick={() =>
-                    trackEvent("click cta", {
-                      label: "skills_guide",
-                      location: "skills_section",
-                    })
-                  }
-                >
-                  Browse the Skills Guide
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                    <polyline points="12 5 19 12 12 19" />
-                  </svg>
-                </Link>
-              </div>
-            </div>
-
-            <AgentNativeDemoVideo className="aspect-square w-full" />
-          </div>
-        </section>
-
         {/* Bidirectional Awareness */}
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
           <div className="mb-12 text-center">
@@ -956,6 +993,8 @@ export default function Home() {
             <BidirectionalTabs />
           </div>
         </section>
+
+        <TrySkillSection />
 
         <div className="mx-auto max-w-[1200px] px-6">
           {/* The best of both worlds */}

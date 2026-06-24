@@ -778,7 +778,10 @@ html.dark .shiki span {
 
 .batteries-orbit {
   isolation: isolate;
-  box-shadow: inset 0 0 80px color-mix(in srgb, var(--fg) 4%, transparent);
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f5f5f5;
+  box-shadow: inset 0 0 90px rgba(255, 255, 255, 0.035);
 }
 
 .batteries-orbit::after {
@@ -790,12 +793,12 @@ html.dark .shiki span {
   background:
     radial-gradient(
       circle at 50% 50%,
-      color-mix(in srgb, var(--docs-accent) 10%, transparent),
+      rgba(82, 168, 255, 0.1),
       transparent 34%
     ),
     radial-gradient(
       circle at 20% 78%,
-      color-mix(in srgb, var(--fg) 7%, transparent),
+      rgba(255, 255, 255, 0.05),
       transparent 28%
     );
 }
@@ -844,6 +847,47 @@ html.dark .shiki span {
   transform-origin: center;
   transition: transform 1100ms cubic-bezier(0.2, 0.75, 0.2, 1);
   will-change: transform;
+}
+
+.orbit-ring {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.orbit-center-card {
+  background: #000;
+  color: #fff;
+  box-shadow:
+    0 18px 70px rgba(0, 0, 0, 0.96),
+    0 0 70px rgba(82, 168, 255, 0.12);
+}
+
+.orbit-center-copy {
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.orbit-word {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.62);
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow:
+    0 1px 18px rgba(0, 0, 0, 0.88),
+    0 0 1px #000;
+}
+
+.orbit-word--primary {
+  color: rgba(255, 255, 255, 0.96);
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.78));
+}
+
+.orbit-word--secondary {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.orbit-word--tertiary {
+  color: rgba(255, 255, 255, 0.28);
 }
 
 .batteries-orbit:hover .orbit-ring--outer,
