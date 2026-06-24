@@ -285,7 +285,36 @@ export type ProcessRunPreparation =
       status: number;
       /** Error payload. */
       error: string;
+      /**
+       * The run id parsed from the body, when present. Carried even on failure
+       * so the route can RECORD the auth/validation failure ONTO the run
+       * (diag_stage) before returning the error status — otherwise a 401/503 in
+       * the unreadable Netlify background function would leave the run to time
+       * out with no clue why. Null when no run id could be parsed.
+       */
+      runId: string | null;
     };
+
+/**
+ * Parse the run id from a `_process-run` request body without authenticating.
+ * Mirrors the precedence in `prepareProcessRunRequest` (marker.runId, then
+ * top-level taskId). Returns null when neither is a usable string. Used so the
+ * route can attach a diagnostic to the run even on an auth/validation failure.
+ */
+export function extractProcessRunId(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const marker = record[AGENT_CHAT_BACKGROUND_RUN_FIELD] as
+    | { runId?: unknown }
+    | undefined;
+  if (marker && typeof marker.runId === "string" && marker.runId) {
+    return marker.runId;
+  }
+  if (typeof record.taskId === "string" && record.taskId) {
+    return record.taskId;
+  }
+  return null;
+}
 
 /**
  * Pure, transport-agnostic core of the `_process-run` route: validate the body,
@@ -308,7 +337,12 @@ export function prepareProcessRunRequest(
   authHeader: string | undefined,
 ): ProcessRunPreparation {
   if (!body || typeof body !== "object") {
-    return { ok: false, status: 400, error: "Invalid request body" };
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid request body",
+      runId: null,
+    };
   }
   const record = body as Record<string, unknown>;
   const marker = record[AGENT_CHAT_BACKGROUND_RUN_FIELD] as
@@ -321,7 +355,7 @@ export function prepareProcessRunRequest(
         ? (record.taskId as string)
         : "";
   if (!runId) {
-    return { ok: false, status: 400, error: "runId required" };
+    return { ok: false, status: 400, error: "runId required", runId: null };
   }
 
   if (hasConfiguredA2ASecret()) {
@@ -331,6 +365,7 @@ export function prepareProcessRunRequest(
         ok: false,
         status: 401,
         error: "Invalid or expired processor token",
+        runId,
       };
     }
   } else if (isA2AProductionRuntime()) {
@@ -339,6 +374,7 @@ export function prepareProcessRunRequest(
       status: 503,
       error:
         "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
+      runId,
     };
   }
 

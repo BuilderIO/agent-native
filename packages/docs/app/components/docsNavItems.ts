@@ -1,4 +1,5 @@
 import enUS from "../i18n/en-US";
+import { hasLocalizedDoc } from "./docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -355,10 +356,14 @@ function toNavItem(
   t: Translate,
 ): NavItem {
   const slug = config.slug;
+  const pathLocale =
+    slug && locale !== DEFAULT_DOCS_LOCALE && !hasLocalizedDoc(locale, slug)
+      ? DEFAULT_DOCS_LOCALE
+      : locale;
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    to: slug ? docsPathForSlug(slug, pathLocale) : undefined,
     children: config.children?.map((child) => toNavItem(child, locale, t)),
   };
 }

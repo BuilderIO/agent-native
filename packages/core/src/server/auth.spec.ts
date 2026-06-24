@@ -859,6 +859,37 @@ describe("server/auth", () => {
       }
     });
 
+    it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
+      // Both the agent-teams sub-agent processor AND the durable-background
+      // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no
+      // session cookie). Without this bypass the blanket 401-for-/_agent-native/*
+      // gate blocks the worker before it can HMAC-verify + claim the run — which
+      // is exactly the silent background-worker death this guards against.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const app = createMockApp();
+      await autoMountAuth(app);
+      logSpy.mockRestore();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/_agent-native/agent-teams/_process-run",
+        "/_agent-native/agent-chat/_process-run",
+      ]) {
+        const event = createMockEvent({ path });
+        event.req.method = "POST";
+        event.node.req.method = "POST";
+        await expect(guard(event)).resolves.toBeUndefined();
+      }
+    });
+
     it("lets the MCP protocol endpoint bypass auth with or without trailing slash", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

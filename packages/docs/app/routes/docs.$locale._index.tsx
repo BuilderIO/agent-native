@@ -1,4 +1,5 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
+import { hasLocalizedDoc } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -16,5 +17,11 @@ export function loader({ params }: LoaderFunctionArgs) {
       302,
     );
   }
-  throw redirect(docsPathForSlug("getting-started", locale), 302);
+  throw redirect(
+    docsPathForSlug(
+      "getting-started",
+      hasLocalizedDoc(locale, "getting-started") ? locale : DEFAULT_DOCS_LOCALE,
+    ),
+    302,
+  );
 }

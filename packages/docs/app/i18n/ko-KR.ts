@@ -56,6 +56,139 @@ const koKR = {
     genericTitle: "문제가 발생했습니다",
     genericBody: "예상치 못한 오류가 발생했습니다.",
   },
+  home: {
+    hero: {
+      badge: "오픈소스 framework",
+      titleLine1: "Agentic Applications",
+      titleAccent: "직접 소유하는",
+      body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
+      primaryCta: "Chat 으로 시작",
+      secondaryCta: "문서 보기",
+    },
+    code: {
+      quickStartComment: "Chat-first app 으로 시작",
+      skillInstallComment:
+        "이미 쓰는 coding agent 에 Agent-Native 계획 기능 추가",
+      frameworkComment:
+        "하나의 action 이 agent, UI, HTTP, MCP, A2A, CLI 를 구동합니다.",
+      frameworkDescription: "로컬 app-agent loop 에서 hello 를 보냅니다.",
+    },
+    framework: {
+      title: "agent-native apps 를 위한 framework",
+      body1:
+        "Agent-Native 는 agents 를 실제 소프트웨어로 만들기 위한 오픈소스 framework 입니다. Chat 또는 headless agents 에서 시작하고, 같은 actions 를 중심으로 UI, jobs, 협업을 추가하세요.",
+      body2:
+        "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
+      cta: "framework 가이드 읽기",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "작업을 한 번만 정의하세요. agent, UI, API, MCP, A2A 에서 사용할 수 있습니다.",
+        },
+        sharedState: {
+          title: "공유 상태",
+          description:
+            "SQL-backed app state 가 사람, agents, sessions 를 동기화된 상태로 유지합니다.",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "app-agent loop, tools, skills, memory, jobs, observability 가 함께 제공됩니다.",
+        },
+        backendAgnostic: {
+          title: "백엔드 독립적",
+          description:
+            "Drizzle 이 지원하는 어떤 SQL 데이터베이스와 Nitro 호환 호스트든 연결할 수 있습니다.",
+        },
+      },
+    },
+    templates: {
+      title: "완전한 기능의 app 을 fork 하고 맞춤화",
+      eyebrow: "100% 무료 오픈소스",
+      body: "action 에 화면이 필요할 때는 맞춤화할 수 있는 검증된 app 에서 시작하세요. Chat 은 최소 app scaffold 이고, 도메인 템플릿은 제품 workflows, 예제 데이터, agent-ready actions 를 더합니다.",
+      cta: "모든 템플릿 보기",
+    },
+    skills: {
+      title: "skill 로 사용해 보기",
+      body: "명령 하나로 Claude Code, Codex, Cursor, Pi, OpenCode, VS Code 에 시각적 계획과 PR recaps 를 추가하세요.",
+      planBody:
+        "코드 변경 전에 다이어그램, 와이어프레임, 파일 맵, 댓글이 포함된 검토 가능한 plans 를 만듭니다.",
+      recapBody:
+        "reviewers 가 원시 줄을 보기 전에 전체 형태를 볼 수 있도록 PR 또는 diff 를 시각적으로 요약합니다.",
+      cta: "Skills Guide 살펴보기",
+    },
+    connected: {
+      title: "agents 와 UI 가 완전히 연결됨",
+      body: "agent 와 UI 는 같은 시스템의 동등한 구성원입니다. 모든 action 은 양방향으로 작동합니다. 클릭하거나 요청하세요.",
+      tabs: {
+        agentSees: {
+          title: "agent 는 모든 것을 봅니다",
+          description:
+            "애플리케이션의 모든 UI, 모든 데이터, 모든 상태를 읽고 업데이트할 수 있습니다.",
+        },
+        uiTalks: {
+          title: "UI 가 agent 와 대화합니다",
+          description:
+            "버튼, 폼, workflows 는 구조화된 콘텐츠를 agent 로 보내며, skills, rules, instructions 를 포함한 모든 안내 흐름이 agent 를 거치게 합니다.",
+        },
+        agentUpdates: {
+          title: "agent 가 자기 코드를 업데이트합니다",
+          description:
+            "app 자체를 수정해 features 와 기능을 바꿀 수 있습니다. 당신의 tools 는 시간이 지날수록 더 좋아집니다.",
+        },
+        everything: {
+          title: "모든 것이 양방향으로 작동합니다",
+          description:
+            "UI 에서 사용할 수 있는 모든 action 은 agent 도 사용할 수 있습니다. 클릭해서 하거나 agent 에게 요청할 수 있습니다.",
+        },
+      },
+    },
+    comparison: {
+      title: "두 세계의 장점",
+      body: "SaaS 도구는 경직되어 있고 AI 는 뒤늦게 덧붙는 경우가 많습니다. Raw AI Agents 는 강력하지만 UI 가 없습니다. agent-native apps 는 둘을 결합합니다.",
+      columns: {
+        saas: "SaaS 도구",
+        agents: "Raw AI Agents",
+        internal: "내부 도구",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "맞춤화",
+        ownership: "소유권",
+      },
+      cells: {
+        polishedButRigid: "세련됐지만 경직됨",
+        none: "없음",
+        mixedQuality: "품질이 들쭉날쭉",
+        fullUi: "전체 UI, fork 후 바로 사용",
+        boltedOn: "덧붙임",
+        powerful: "강력함",
+        shallowlyConnected: "얕게 연결됨",
+        agentFirst: "Agent-first, 통합됨",
+        cant: "불가",
+        instructionsAndSkills: "instructions 및 skills",
+        fullHighMaintenance: "완전하지만 유지보수 부담 큼",
+        agentModifies: "Agent 가 app 을 수정",
+        rented: "임대됨",
+        somewhatYours: "일부는 내 것",
+        youOwnCode: "코드를 직접 소유",
+      },
+    },
+    quickStart: {
+      title: "Chat 으로 시작",
+      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 Chat app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+    },
+    finalCta: {
+      title: "직접 소유하는 소프트웨어, agentic era 를 위해 구축",
+      body: "Chat 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
+      primaryCta: "Action 으로 시작",
+      secondaryCta: "문서 읽기",
+      githubCta: "GitHub 에서 보기",
+    },
+  },
   nav: {
     overview: "개요",
     coreArchitecture: "핵심 아키텍처",

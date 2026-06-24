@@ -76,7 +76,7 @@ function CommandLoadingGroup({
           forceMount
           value={`${heading} loading ${index + 1}`}
         >
-          <Skeleton className="mr-2 h-4 w-4 shrink-0 rounded-sm" />
+          <Skeleton className="me-2 h-4 w-4 shrink-0 rounded-sm" />
           <Skeleton
             className={`h-4 rounded ${
               loadingRowWidths[index % loadingRowWidths.length]
@@ -303,10 +303,10 @@ export function CommandPalette() {
                     "dashboard",
                   )}
                 >
-                  <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <IconLayoutDashboard className="me-2 h-4 w-4 text-muted-foreground" />
                   <span className="truncate">{d.name}</span>
                   {d.hiddenAt ? (
-                    <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="ms-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       Hidden
                     </span>
                   ) : null}
@@ -331,10 +331,10 @@ export function CommandPalette() {
                     "dashboard",
                   )}
                 >
-                  <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <IconLayoutDashboard className="me-2 h-4 w-4 text-muted-foreground" />
                   <span className="truncate">{d.name}</span>
                   {d.hiddenAt ? (
-                    <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="ms-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       Hidden
                     </span>
                   ) : null}
@@ -362,7 +362,7 @@ export function CommandPalette() {
                     "tool",
                   )}
                 >
-                  <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
                   {extension.name}
                 </CommandItem>
               ))}
@@ -376,7 +376,7 @@ export function CommandPalette() {
                 onSelect={() => go(`/dashboards/${d.id}`)}
                 keywords={commandPaletteKeywords(d.name, "dashboard")}
               >
-                <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconFlask className="me-2 h-4 w-4 text-muted-foreground" />
                 {d.name}
               </CommandItem>
             ))}
@@ -389,7 +389,7 @@ export function CommandPalette() {
                 onSelect={() => go(t.href)}
                 keywords={commandPaletteKeywords(t.name, "tool")}
               >
-                <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
                 {t.name}
               </CommandItem>
             ))}
@@ -405,9 +405,9 @@ export function CommandPalette() {
               keywords={["theme", "dark", "light", "mode"]}
             >
               {isDark ? (
-                <IconSun className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconSun className="me-2 h-4 w-4 text-muted-foreground" />
               ) : (
-                <IconMoon className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconMoon className="me-2 h-4 w-4 text-muted-foreground" />
               )}
               Toggle {isDark ? "light" : "dark"} mode
             </CommandItem>
@@ -427,7 +427,7 @@ export function CommandPalette() {
                 "changes",
               )}
             >
-              <IconHistory className="mr-2 h-4 w-4 text-muted-foreground" />
+              <IconHistory className="me-2 h-4 w-4 text-muted-foreground" />
               What's new
             </CommandItem>
           </CommandGroup>
@@ -448,7 +448,7 @@ export function CommandPalette() {
                     "chart",
                   )}
                 >
-                  <IconChartBar className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <IconChartBar className="me-2 h-4 w-4 text-muted-foreground" />
                   {c.name}
                 </CommandItem>
               ))}

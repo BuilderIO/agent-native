@@ -56,6 +56,139 @@ const frFR = {
     genericTitle: "Une erreur s'est produite",
     genericBody: "Une erreur inattendue est survenue.",
   },
+  home: {
+    hero: {
+      badge: "Framework open source",
+      titleLine1: "Applications agentic",
+      titleAccent: "qui vous appartiennent",
+      body: "Commencez avec une Chat-first app et l'app-agent loop. Ajoutez actions, écrans, jobs et workflows à mesure que votre agent grandit.",
+      primaryCta: "Commencer avec Chat",
+      secondaryCta: "Voir la documentation",
+    },
+    code: {
+      quickStartComment: "Commencez avec une Chat-first app",
+      skillInstallComment:
+        "Ajoutez la planification Agent-Native à un coding agent que vous utilisez déjà",
+      frameworkComment:
+        "Un action alimente l'agent, l'UI, HTTP, MCP, A2A et CLI.",
+      frameworkDescription: "Dites bonjour depuis l'app-agent loop local.",
+    },
+    framework: {
+      title: "Le framework pour apps agent-native",
+      body1:
+        "Agent-Native est un framework open source pour construire des agents comme de vrais logiciels : commencez avec Chat ou des agents headless, puis ajoutez UI, jobs et collaboration autour des mêmes actions.",
+      body2:
+        "Apportez votre propre base de données, fournisseur d'hébergement, stack de modèles et code d'app.",
+      cta: "Lire le guide du framework",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "Définissez le travail une fois. Utilisez-le depuis agent, UI, API, MCP et A2A.",
+        },
+        sharedState: {
+          title: "État partagé",
+          description:
+            "L'état d'app adossé à SQL garde humains, agents et sessions synchronisés.",
+        },
+        agentRuntime: {
+          title: "Runtime d'agent",
+          description:
+            "L'app-agent loop, les tools, skills, memory, jobs et l'observabilité sont livrés ensemble.",
+        },
+        backendAgnostic: {
+          title: "Indépendant du backend",
+          description:
+            "Branchez n'importe quelle base de données SQL prise en charge par Drizzle et n'importe quel hôte compatible Nitro.",
+        },
+      },
+    },
+    templates: {
+      title: "Forkez et personnalisez une app complète",
+      eyebrow: "100 % gratuit et open source",
+      body: "Quand un action a besoin d'écrans, partez d'une app validée que vous pouvez personnaliser. Chat est le scaffold d'app minimal ; les modèles de domaine ajoutent des workflows produit, des données d'exemple et des actions prêtes pour agent.",
+      cta: "Voir tous les modèles",
+    },
+    skills: {
+      title: "Essayez avec un skill",
+      body: "Ajoutez la planification visuelle et les PR recaps à Claude Code, Codex, Cursor, Pi, OpenCode ou VS Code avec une seule commande.",
+      planBody:
+        "Des plans révisables avec diagrammes, wireframes, cartes de fichiers et commentaires avant les changements de code.",
+      recapBody:
+        "Un résumé visuel d'une PR ou d'un diff pour que les reviewers voient la forme avant les lignes brutes.",
+      cta: "Parcourir le guide Skills",
+    },
+    connected: {
+      title: "Agents et UI, entièrement connectés",
+      body: "L'agent et l'UI sont des citoyens égaux du même système. Chaque action fonctionne dans les deux sens : cliquez dessus ou demandez-la.",
+      tabs: {
+        agentSees: {
+          title: "L'agent voit tout",
+          description:
+            "Il peut lire et mettre à jour toute UI, toute donnée et tout état dans l'application.",
+        },
+        uiTalks: {
+          title: "L'UI parle à l'agent",
+          description:
+            "Boutons, formulaires et workflows poussent du contenu structuré vers l'agent, ce qui donne des flux guidés qui passent tous par l'agent, y compris skills, rules et instructions.",
+        },
+        agentUpdates: {
+          title: "L'agent met à jour son propre code",
+          description:
+            "Il peut modifier l'app elle-même pour changer les features et la fonctionnalité. Vos tools s'améliorent avec le temps.",
+        },
+        everything: {
+          title: "Tout fonctionne dans les deux sens",
+          description:
+            "Chaque action disponible dans l'UI est aussi disponible pour l'agent. Vous pouvez cliquer pour faire quelque chose ou demander à l'agent de le faire.",
+        },
+      },
+    },
+    comparison: {
+      title: "Le meilleur des deux mondes",
+      body: "Les outils SaaS sont rigides et ajoutent l'AI après coup. Les AI agents bruts sont puissants, mais n'ont pas d'UI. Les apps agent-native combinent les deux.",
+      columns: {
+        saas: "Outils SaaS",
+        agents: "AI Agents bruts",
+        internal: "Outils internes",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Personnalisation",
+        ownership: "Propriété",
+      },
+      cells: {
+        polishedButRigid: "Soignés mais rigides",
+        none: "Aucune",
+        mixedQuality: "Qualité variable",
+        fullUi: "UI complète, fork et go",
+        boltedOn: "Greffée dessus",
+        powerful: "Puissante",
+        shallowlyConnected: "Connexion superficielle",
+        agentFirst: "Agent-first, intégrée",
+        cant: "Impossible",
+        instructionsAndSkills: "Instructions et skills",
+        fullHighMaintenance: "Complète, mais lourde à maintenir",
+        agentModifies: "L'Agent modifie l'app",
+        rented: "Louée",
+        somewhatYours: "Partiellement à vous",
+        youOwnCode: "Le code vous appartient",
+      },
+    },
+    quickStart: {
+      title: "Commencer avec Chat",
+      body: "Une commande crée une Chat app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+    },
+    finalCta: {
+      title: "Un logiciel qui vous appartient, conçu pour l'ère agentic",
+      body: "Commencez avec Chat ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
+      primaryCta: "Commencer avec un Action",
+      secondaryCta: "Lire la documentation",
+      githubCta: "Voir sur GitHub",
+    },
+  },
   nav: {
     overview: "Vue d'ensemble",
     coreArchitecture: "Architecture centrale",

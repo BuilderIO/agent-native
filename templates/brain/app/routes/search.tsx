@@ -144,12 +144,12 @@ export default function SearchRoute() {
         <Card>
           <CardContent className="grid gap-3 p-4">
             <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => updateParam("q", event.target.value)}
                 placeholder="Search decisions, customer facts, source names, transcripts, or policy snippets..."
-                className="h-11 pl-9 text-base"
+                className="h-11 ps-9 text-base"
                 autoFocus
               />
             </div>
@@ -420,10 +420,10 @@ function SearchResultDetails({
               </Badge>
             ) : null}
           </div>
-          <SheetTitle className="text-left text-xl leading-7">
+          <SheetTitle className="text-start text-xl leading-7">
             {result.title}
           </SheetTitle>
-          <SheetDescription className="text-left leading-6">
+          <SheetDescription className="text-start leading-6">
             {body}
           </SheetDescription>
         </SheetHeader>

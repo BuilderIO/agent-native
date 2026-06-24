@@ -11,8 +11,6 @@ import {
   browserDocsLocale,
   docsPathForSlug,
   docsSlugFromPathname,
-  isDocsPath,
-  localizedDocsPath,
   type DocsLocale,
 } from "./docs-locale";
 
@@ -27,17 +25,17 @@ export default function DocsLanguagePicker() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  if (!isDocsPath(location.pathname)) return null;
-
   async function handleChange(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
     await setPreference(nextPreference);
     const nextLocale =
       nextPreference === "system" ? browserDocsLocale() : nextPreference;
     const slug = docsSlugFromPathname(location.pathname);
-    const path = slug
-      ? docsPathForSlug(slug, nextLocale)
-      : localizedDocsPath(location.pathname, nextLocale);
+    if (!slug) return;
+    const path = docsPathForSlug(
+      slug,
+      nextPreference === "system" ? nextLocale : nextPreference,
+    );
     navigate(`${path}${location.search}${location.hash}`);
   }
 

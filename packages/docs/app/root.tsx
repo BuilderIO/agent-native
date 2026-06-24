@@ -14,7 +14,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentNativeI18nProvider,
   AgentSidebar,
+  LOCALE_STORAGE_KEY,
   configureTracking,
+  normalizeLocalizationPreference,
+  useLocale,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -22,6 +25,7 @@ import Footer from "./components/Footer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsLocaleFromPathname,
+  isDocsPath,
   localeDirection,
 } from "./components/docs-locale";
 import {
@@ -123,20 +127,42 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
 
 function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const routeLocale =
-    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const docsPath = isDocsPath(location.pathname);
+  const routeLocale = docsPath
+    ? (docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE)
+    : undefined;
+  const initialLocale = routeLocale ?? DEFAULT_DOCS_LOCALE;
 
   return (
     <AgentNativeI18nProvider
-      key={routeLocale}
+      key={routeLocale ?? "site"}
       catalog={docsI18nCatalog}
-      initialLocale={routeLocale}
-      initialPreference={routeLocale}
+      initialLocale={initialLocale}
+      initialPreference={initialLocale}
       persistPreference={false}
     >
+      <SiteStoredPreferenceSync enabled={!docsPath} />
       {children}
     </AgentNativeI18nProvider>
   );
+}
+
+function SiteStoredPreferenceSync({ enabled }: { enabled: boolean }) {
+  const { preference, setPreference } = useLocale();
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      if (!stored) return;
+      const next = normalizeLocalizationPreference(stored).locale;
+      if (next !== preference) void setPreference(next);
+    } catch {
+      // Storage-denied browsers keep the server-rendered default.
+    }
+  }, [enabled, preference, setPreference]);
+
+  return null;
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";

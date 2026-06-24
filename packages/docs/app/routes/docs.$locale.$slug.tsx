@@ -42,6 +42,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
   const doc = await loadDoc(slug, locale);
   if (!doc) {
+    if (getDoc(slug, DEFAULT_DOCS_LOCALE)) {
+      throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 302);
+    }
     throw new Response("Not Found", { status: 404 });
   }
   return doc;

@@ -145,7 +145,7 @@ export async function loadDoc(
 
   const key = localizedDocKey(docsLocale, slug);
   const loader = localizedMdLoaders[key];
-  if (!loader) return docs.get(slug);
+  if (!loader) return undefined;
 
   const existingPromise = localizedDocPromises.get(key);
   if (existingPromise) return existingPromise;
@@ -156,7 +156,10 @@ export async function loadDoc(
       cacheLocalizedDoc(docsLocale, entry);
       return entry;
     })
-    .catch(() => docs.get(slug));
+    .catch((error) => {
+      localizedDocPromises.delete(key);
+      throw error;
+    });
   localizedDocPromises.set(key, promise);
   return promise;
 }
@@ -175,9 +178,9 @@ export function getAllDocs(locale: unknown = DEFAULT_DOCS_LOCALE): DocEntry[] {
   if (docsLocale === DEFAULT_DOCS_LOCALE) return Array.from(docs.values());
 
   const overrides = localizedDocs.get(docsLocale);
-  if (!overrides) return Array.from(docs.values());
+  if (!overrides) return [];
 
-  return Array.from(docs.values()).map((doc) => overrides.get(doc.slug) ?? doc);
+  return Array.from(overrides.values());
 }
 
 export async function loadAllDocs(
