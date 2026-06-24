@@ -87,6 +87,24 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
   );
 }
 
+/**
+ * Count-only variant for surfaces like the sidebar badge that need a total but
+ * not the rows. Hits `list-recordings` with `countOnly`, so it skips the row
+ * payload server-side and doesn't share (or pay for) the full-list query or its
+ * title polling.
+ */
+export function useRecordingsCount(
+  args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
+) {
+  return useActionQuery<number>(
+    "list-recordings",
+    { ...args, countOnly: true } as any,
+    {
+      select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+    },
+  );
+}
+
 export interface SearchHit {
   id: string;
   title: string;

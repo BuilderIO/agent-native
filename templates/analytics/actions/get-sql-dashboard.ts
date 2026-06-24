@@ -24,10 +24,6 @@ function seededResponse(
   };
 }
 
-function isEmptyConfig(config: Record<string, unknown>): boolean {
-  return !Array.isArray(config.panels) || config.panels.length === 0;
-}
-
 export default defineAction({
   description:
     "Get a SQL analytics dashboard by ID, including its full panel config, visibility, and access metadata.",
@@ -78,10 +74,6 @@ export default defineAction({
       });
     }
     const config = dash.config as Record<string, unknown>;
-    if (isEmptyConfig(config)) {
-      const seed = loadDashboardSeed(args.id);
-      if (seed) return seededResponse(args.id, seed);
-    }
     return {
       id: args.id,
       ...config,

@@ -43,8 +43,8 @@ const LazyPlanMarkdownEditor = lazy(() =>
 /**
  * Marker prefix embedded in salvaged "unknown-block" callout bodies by the
  * server-side per-block salvage path in parsePlanContent. The renderer detects
- * this prefix and shows a "Unsupported block" placeholder card rather than a
- * generic callout.
+ * this prefix and shows an invalid-block warning card rather than a generic
+ * callout.
  *
  * Format: `__unknown_block__:<originalType>\n<errorSummary>`
  */
@@ -87,7 +87,7 @@ class BlockErrorBoundary extends Component<
   }
 }
 
-/** Muted "Unsupported block" card for unknown/salvaged/errored blocks. */
+/** Muted warning card for unknown/salvaged/errored blocks. */
 function UnknownBlockPlaceholder({
   blockId,
   originalType,
@@ -103,24 +103,41 @@ function UnknownBlockPlaceholder({
       data-block-id={blockId}
       data-unknown-block-type={originalType}
     >
-      <div className="flex items-start gap-2 rounded-lg border border-plan-line bg-plan-block/40 px-3 py-2.5 text-plan-muted">
+      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3.5 py-3 text-plan-muted">
         <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
-        <span className="min-w-0 text-sm">
-          <span className="font-medium text-plan-text">
-            Unsupported block: {originalType}
-          </span>
-          <details className="mt-1">
-            <summary className="cursor-pointer text-xs opacity-60 hover:opacity-80">
-              Show details
-            </summary>
-            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-xs opacity-70">
-              {errorSummary}
-            </pre>
-          </details>
-        </span>
+        <div className="min-w-0 text-sm">
+          <div className="font-medium text-plan-text">
+            Invalid {originalType} block
+          </div>
+          <p className="mt-1 leading-5">
+            This generated block did not match the Plan schema, so it was left
+            out while the rest of the recap stayed visible.
+          </p>
+          {errorSummary && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs opacity-70 hover:opacity-90">
+                Validation details
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-plan-line bg-plan-bg/60 p-2 font-mono text-xs opacity-80">
+                {errorSummary}
+              </pre>
+            </details>
+          )}
+        </div>
       </div>
     </section>
   );
+}
+
+function parseUnknownBlockMarker(block: PlanBlock) {
+  if (block.type !== "callout") return null;
+  if (!block.data.body.startsWith(UNKNOWN_BLOCK_MARKER)) return null;
+  const rest = block.data.body.slice(UNKNOWN_BLOCK_MARKER.length);
+  const newline = rest.indexOf("\n");
+  return {
+    originalType: newline >= 0 ? rest.slice(0, newline) : rest,
+    errorSummary: newline >= 0 ? rest.slice(newline + 1) : "",
+  };
 }
 
 type PlanBlockViewProps = {
@@ -163,6 +180,17 @@ function PlanBlockViewInner({
   planId,
   collabUser,
 }: PlanBlockViewProps) {
+  const unknownBlock = parseUnknownBlockMarker(block);
+  if (unknownBlock) {
+    return (
+      <UnknownBlockPlaceholder
+        blockId={block.id}
+        originalType={unknownBlock.originalType}
+        errorSummary={unknownBlock.errorSummary}
+      />
+    );
+  }
+
   // Registry-first dispatch. If the block type is registered, render through the
   // block registry (`BlockView` → spec `Read`, or in edit mode the spec `Edit`
   // or the schema-driven auto-editor). Unregistered types fall through to the
@@ -230,22 +258,6 @@ function PlanBlockViewInner({
     );
   }
   if (block.type === "callout") {
-    // Detect the server-side per-block salvage marker. The marker starts with a
-    // zero-width-space followed by `__unknown_block__:<type>` to avoid collision
-    // with real callout content (real callouts never start with a ZWSP).
-    if (block.data.body.startsWith(UNKNOWN_BLOCK_MARKER)) {
-      const rest = block.data.body.slice(UNKNOWN_BLOCK_MARKER.length);
-      const newline = rest.indexOf("\n");
-      const originalType = newline >= 0 ? rest.slice(0, newline) : rest;
-      const errorSummary = newline >= 0 ? rest.slice(newline + 1) : "";
-      return (
-        <UnknownBlockPlaceholder
-          blockId={block.id}
-          originalType={originalType}
-          errorSummary={errorSummary}
-        />
-      );
-    }
     return (
       <section className="plan-block plan-callout" data-block-id={block.id}>
         {block.title && <div className="plan-block-label">{block.title}</div>}

@@ -59,6 +59,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
+const { buildPanel } = await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
   "total-signups",
@@ -173,6 +174,17 @@ describe("compose-dashboard", () => {
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;
     expect(referred.sql).toContain("interval '30 days'");
+  });
+
+  it("uses the canonical template fallback for active-user panels", () => {
+    for (const metric of ["dau-over-time", "wau-over-time"]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("properties::jsonb ->> 'templateId'");
+      expect(panel.sql).toContain(
+        "properties::jsonb ->> 'agentNativeTemplate'",
+      );
+      expect(panel.sql).toContain("properties::jsonb ->> 'agentNativeApp'");
+    }
   });
 
   it("adds shared filters when appending filtered panels to an existing dashboard", async () => {

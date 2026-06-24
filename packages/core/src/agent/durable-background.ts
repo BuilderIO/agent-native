@@ -52,6 +52,94 @@ export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
 /**
+ * Name of the standalone Netlify background function the build emits (see
+ * `emitSingleTemplateNetlifyBackgroundFunction` in deploy/build.ts). Shared so
+ * the emit and the dispatch-path helper below can never drift on the name.
+ *
+ * MUST end in `-background` — both because that is the conventional Netlify
+ * async-function suffix and because `isInBackgroundFunctionRuntime()` reads the
+ * `AWS_LAMBDA_FUNCTION_NAME` `-background` suffix as a secondary runtime signal.
+ */
+export const AGENT_BACKGROUND_FUNCTION_NAME = "server-agent-background";
+
+/**
+ * Default function URL of the background function on Netlify. Every Netlify
+ * function is reachable at `/.netlify/functions/<name>` BY DEFAULT; that default
+ * url is removed ONLY if the function declares a custom `config.path`. The
+ * emitted background function declares NO custom `config.path` (it sets
+ * `background: true` and nothing else routing-related), so it KEEPS this default
+ * url — and the Nitro `server` function already excludes `/.netlify/*` from its
+ * `/*` catch-all, so this namespace is never shadowed. The foreground therefore
+ * dispatches HERE on hosted Netlify (see `resolveAgentChatProcessRunDispatchPath`).
+ */
+export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_BACKGROUND_FUNCTION_NAME}`;
+
+/**
+ * The per-app workspace background function URL path. Workspace deploy emits one
+ * background function per app named `<app>-agent-background`, reachable at its
+ * DEFAULT url `/.netlify/functions/<app>-agent-background` (no custom
+ * `config.path`). The foreground resolves the current workspace app id from
+ * `AGENT_NATIVE_WORKSPACE_APP_ID` (set by the workspace function entry) so it can
+ * dispatch to the right per-app function url. Returns `null` when no workspace
+ * app id is configured (single-template deploy).
+ */
+function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+  if (typeof raw !== "string") return null;
+  // Mirror the workspace app-id normalization (resources/store.ts): take the
+  // first path segment and accept only the safe slug shape used for function
+  // names. Anything else falls back to the single-template name.
+  const candidate = raw.trim().replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(candidate)) return null;
+  return `/.netlify/functions/${candidate}-agent-background`;
+}
+
+/**
+ * Resolve the path the foreground POST should self-dispatch the chat background
+ * worker to.
+ *
+ * GROUNDED IN THE REAL NETLIFY BUILD OUTPUT + THE NETLIFY DOCS DEFAULT-URL RULE:
+ * the background function is emitted INTO the scanned dir
+ * (`.netlify/functions-internal/server-agent-background`, or per-app
+ * `<app>-agent-background` for workspaces) with `export const config = {
+ * background: true, ... }` and NO custom `config.path`. Because it has no custom
+ * path, Netlify keeps its DEFAULT function url `/.netlify/functions/<name>`, and
+ * `background: true` makes any invocation of that url ASYNC (immediate 202,
+ * 15-min budget). The Nitro `server` function already excludes `/.netlify/*`
+ * from its `/*` catch-all, so the default-url namespace is NEVER shadowed by the
+ * synchronous function.
+ *
+ * Therefore on hosted Netlify the foreground dispatches to the function's DEFAULT
+ * url (`/.netlify/functions/<name>`); the function entry then rewrites the
+ * incoming pathname to `AGENT_CHAT_PROCESS_RUN_PATH` (base-path-prefixed for
+ * workspaces) before delegating to the Nitro router, so the `_process-run`
+ * plugin runs with the async 15-min budget. Everywhere else (local dev, `netlify
+ * dev`, non-Netlify hosts where no second function exists) there is no second
+ * function, so the foreground dispatches to the framework route
+ * `AGENT_CHAT_PROCESS_RUN_PATH` and the same in-process catch-all handles it
+ * inline. The HMAC token (signed over the runId) is unchanged either way.
+ *
+ * NOTE: this is the DOC-CORRECT approach. An earlier attempt gave the function a
+ * custom `config.path` + a catch-all `excludedPath` patch; the custom path was
+ * NOT honored as a route in prod (probe → 404). Using the default function url
+ * (no custom path) is what Netlify documents and is simpler — there is nothing
+ * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
+ */
+export function resolveAgentChatProcessRunDispatchPath(): string {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return (
+      resolveWorkspaceBackgroundFunctionUrlPath() ??
+      AGENT_BACKGROUND_FUNCTION_URL_PATH
+    );
+  }
+  return AGENT_CHAT_PROCESS_RUN_PATH;
+}
+
+/**
  * Env flag for durable background runs. DEFAULT-ON: unset means enabled; an app
  * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`).
  */
@@ -94,6 +182,54 @@ export function isHostedRuntimeForDurableBackground(): boolean {
     process.env.FLY_APP_NAME ||
     process.env.K_SERVICE,
   );
+}
+
+/**
+ * True when THIS process is actually executing inside a Netlify *background*
+ * function (the long, 15-min-budget async function whose deployed name ends in
+ * `-background`). Netlify runs functions on AWS Lambda and sets
+ * `AWS_LAMBDA_FUNCTION_NAME` to the function's name, so a `-background` suffix is
+ * the runtime proof that the ~60s synchronous wall does NOT apply here.
+ *
+ * This is the SAFETY GUARD for the soft-timeout regime. The `_process-run`
+ * self-dispatch worker (`isBackgroundWorker`) is NOT enough on its own: if the
+ * `-background` function was never emitted (deploy gate off, or Netlify routed
+ * the path to the synchronous function), the self-POST lands on the regular
+ * ~60s `server` function. A worker there MUST use the 40s soft-timeout and
+ * checkpoint before the 60s wall — using the ~13min budget would overshoot the
+ * hard wall and get killed at 60s, then re-dispatch/resume in a wasteful loop.
+ * So the 13-min budget is taken ONLY when this returns true.
+ *
+ * The PRIMARY signal is a `globalThis` marker the emitted background function's
+ * entry sets at cold start — the deployed Lambda name is not guaranteed to end
+ * in `-background` on Netlify, so the entry marks its own runtime. A `globalThis`
+ * flag (not `process.env`) keeps the no-env-mutation guard satisfied and carries
+ * no cross-request state (set once per isolate). The `AWS_LAMBDA_FUNCTION_NAME`
+ * suffix and the explicit `AGENT_CHAT_FORCE_BACKGROUND_RUNTIME` env (truthy) are
+ * additional signals — the latter an operator escape hatch. Off by default.
+ */
+export function isInBackgroundFunctionRuntime(): boolean {
+  // Set by the emitted `-background` function entry at cold start (the primary,
+  // most reliable signal — see the emit in deploy/build.ts).
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (
+    typeof lambdaName === "string" &&
+    lambdaName.toLowerCase().endsWith("-background")
+  ) {
+    return true;
+  }
+  const forced = process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME;
+  if (forced != null) {
+    const v = forced.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  }
+  return false;
 }
 
 function isFlagEnabled(): boolean {

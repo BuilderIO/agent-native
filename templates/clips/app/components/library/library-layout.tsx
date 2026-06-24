@@ -47,6 +47,7 @@ import {
   useSpaces,
   useOrganizations,
   useCreateFolder,
+  useRecordingsCount,
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
@@ -126,6 +127,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
+  // Clip count for the "Library" nav item — count-only, no row payload or
+  // title polling across the app shell.
+  const { data: libraryCount } = useRecordingsCount({ view: "library" });
+
   const libFolderList: FolderNode[] = useMemo(
     () =>
       (libFolders?.folders ?? [])
@@ -178,12 +183,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     match: (path: string) => boolean;
+    count?: number;
   }[] = [
     {
       to: "/library",
       label: t("navigation.library"),
       icon: IconInbox,
       match: (p) => p.startsWith("/library"),
+      count: libraryCount,
     },
     {
       to: "/spaces",
@@ -378,7 +385,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   </div>
 
                   <nav className="mt-3 space-y-0.5 px-2">
-                    {navItems.map(({ to, label, icon: Icon, match }) => {
+                    {navItems.map(({ to, label, icon: Icon, match, count }) => {
                       const active = match(location.pathname);
                       return (
                         <NavLink
@@ -392,7 +399,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                           )}
                         >
                           <Icon className="h-4 w-4" />
-                          {label}
+                          <span className="flex-1 truncate">{label}</span>
+                          {count !== undefined && count > 0 && (
+                            <span
+                              className={cn(
+                                "shrink-0 tabular-nums text-[11px]",
+                                active
+                                  ? "text-primary/80"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </NavLink>
                       );
                     })}

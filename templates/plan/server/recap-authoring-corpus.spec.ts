@@ -185,6 +185,61 @@ describe("recap golden degradation corpus", () => {
 
     expect(() => normalizePlanContent(input)).toThrow();
   });
+
+  it("tabs with nested diff annotations using line instead of lines salvages with an actionable warning", () => {
+    const malformedTabs = {
+      id: "key-evidence-tabs",
+      type: "tabs",
+      data: {
+        tabs: [
+          {
+            id: "settings-tab",
+            label: "Settings UX",
+            blocks: [
+              {
+                id: "settings-diff",
+                type: "diff",
+                data: {
+                  filename:
+                    "templates/clips/app/routes/_app.settings._index.tsx",
+                  before: "const title = 'Settings';\n",
+                  after: "const title = t('settings.title');\n",
+                  annotations: [
+                    {
+                      line: 1,
+                      label: "Translator hook",
+                      note: "This should use the plural `lines` field.",
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const input = {
+      version: 2,
+      title: "Recap line-vs-lines",
+      blocks: [LEADING_RICH_TEXT, malformedTabs],
+    } as unknown as PlanContent;
+
+    const salvaged = normalizePlanContent(input, {
+      salvageInvalidBlocks: true,
+    });
+    expect(salvaged).not.toBeNull();
+    const placeholder = salvaged?.blocks[1];
+    expect(placeholder?.type).toBe("callout");
+    expect(isUnknownPlaceholder(placeholder!)).toBe(true);
+    if (placeholder?.type === "callout") {
+      expect(placeholder.data.body).toContain("tabs");
+      expect(placeholder.data.body).toContain("data.tabs.0.blocks.0");
+      expect(placeholder.data.body).toContain("annotations.0.lines");
+      expect(placeholder.data.body).toContain("use `lines`");
+    }
+
+    expect(() => normalizePlanContent(input)).toThrow();
+  });
 });
 
 /* -------------------------------------------------------------------------- */

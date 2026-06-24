@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
+  isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
+  resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 
@@ -18,6 +22,7 @@ import { signInternalToken } from "../integrations/internal-token.js";
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
   "A2A_SECRET",
   "NETLIFY",
   "NETLIFY_LOCAL",
@@ -28,6 +33,7 @@ const ENV_KEYS = [
   "RENDER",
   "FLY_APP_NAME",
   "K_SERVICE",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
 ] as const;
 
 let saved: NodeJS.ProcessEnv;
@@ -108,6 +114,114 @@ describe("isAgentChatDurableBackgroundEnabled (default-on gate)", () => {
     process.env.NETLIFY_LOCAL = "true";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
+});
+
+describe("isInBackgroundFunctionRuntime (real -background function guard)", () => {
+  it("is false with nothing set (a plain synchronous function)", () => {
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+  });
+
+  it("is false for a normal synchronous Netlify/Lambda function name", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "plan-server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+  });
+
+  it("is TRUE when the Lambda function name ends in -background (15-min budget)", () => {
+    // Matches the emitted names: "server-agent-background" (single template)
+    // and "<app>-agent-background" (workspace deploy).
+    for (const name of [
+      "server-agent-background",
+      "plan-agent-background",
+      "SERVER-AGENT-BACKGROUND",
+    ]) {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = name;
+      expect(isInBackgroundFunctionRuntime()).toBe(true);
+    }
+  });
+
+  it("honors an explicit AGENT_CHAT_FORCE_BACKGROUND_RUNTIME override", () => {
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    for (const v of ["1", "true", "yes", "on", " TRUE "]) {
+      process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
+      expect(isInBackgroundFunctionRuntime()).toBe(true);
+    }
+    for (const v of ["0", "false", "no", "off", ""]) {
+      process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
+      expect(isInBackgroundFunctionRuntime()).toBe(false);
+    }
+  });
+});
+
+describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted Netlify)", () => {
+  it("exposes the background function name + its default function url constant", () => {
+    expect(AGENT_BACKGROUND_FUNCTION_NAME).toBe("server-agent-background");
+    expect(AGENT_BACKGROUND_FUNCTION_URL_PATH).toBe(
+      "/.netlify/functions/server-agent-background",
+    );
+    // Name MUST end in -background (Netlify async convention + runtime guard).
+    expect(AGENT_BACKGROUND_FUNCTION_NAME.endsWith("-background")).toBe(true);
+  });
+
+  it("dispatches to the function's DEFAULT url on hosted Netlify (single template)", () => {
+    // DOC-CORRECT: the background function declares NO custom config.path, so it
+    // keeps its default url /.netlify/functions/<name>. The `server` /* catch-all
+    // already excludes /.netlify/*, so a POST to that default url matches ONLY the
+    // async function (202, 15-min) — it is never shadowed by the sync function.
+    process.env.NETLIFY = "true";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/server-agent-background",
+    );
+  });
+
+  it("dispatches to the PER-APP default url on hosted Netlify (workspace)", () => {
+    // Workspace deploy emits one background fn per app named <app>-agent-background
+    // reachable at its default url. The foreground reads the workspace app id from
+    // AGENT_NATIVE_WORKSPACE_APP_ID and resolves the matching function url.
+    process.env.NETLIFY = "true";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/plan-agent-background",
+    );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
+  });
+
+  it("falls back to the single-template default url for an unsafe workspace app id", () => {
+    process.env.NETLIFY = "true";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "../evil";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
+  });
+
+  it("returns the framework process-run path when NOT on Netlify", () => {
+    // Nothing set → not Netlify (e.g. local dev, Vercel, Cloudflare, self-host).
+    // No second function exists; the in-process catch-all handles the route.
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
+  });
+
+  it("returns the framework path under `netlify dev` (NETLIFY_LOCAL=true)", () => {
+    // `netlify dev` runs in-process; the same in-process catch-all handles it.
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
+  });
+
+  it("returns the framework path when NETLIFY is explicitly false", () => {
+    process.env.NETLIFY = "false";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
   });
 });
 

@@ -65,9 +65,10 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
+  isInBackgroundFunctionRuntime,
+  resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -3735,6 +3736,13 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // Whether this worker is REALLY executing inside a 15-min Netlify
+    // `-background` function (proven by the runtime function name), not merely a
+    // `_process-run` re-entry that may have landed on the ~60s synchronous
+    // function. Only a true value unlocks the ~13-min soft-timeout budget; a
+    // worker on the 60s function keeps the 40s clamp and checkpoints cleanly.
+    const runsInBackgroundFunction =
+      isBackgroundWorker && isInBackgroundFunctionRuntime();
     // How many server-driven background continuations have already chained into
     // this logical turn (0 on the first chunk). Used to bound the chain.
     const backgroundContinuationCount =
@@ -4386,7 +4394,17 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          path: AGENT_CHAT_PROCESS_RUN_PATH,
+          // On hosted Netlify this resolves to the background function's DEFAULT
+          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
+          // workspaces) — the function declares NO custom config.path, so it keeps
+          // its default url, and `background: true` makes that url async (202,
+          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
+          // so it never shadows it. Off-Netlify this resolves to the framework
+          // `_process-run` route and the same in-process catch-all handles it
+          // inline. `fireInternalDispatch` strips the app base path for
+          // /.netlify/* targets so the request reaches the host-root function url;
+          // the Authorization Bearer HMAC is preserved either way.
+          path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
             ...body,
@@ -4597,6 +4615,23 @@ export function createProductionAgentHandler(
               // user-stopped runs do NOT chain.
               if (
                 shouldChainBackgroundContinuation({
+                  // Self-chain server-side for EVERY durable worker, not only the
+                  // ones inside a `-background` function. Server-driven
+                  // continuation is the whole point of durable background: the run
+                  // must survive the client disconnecting (closed tab), so it
+                  // cannot depend on the browser re-POSTing `auto_continue`. A
+                  // worker on the regular ~60s function — a Netlify routing miss,
+                  // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+                  // never emits a `-background` function — checkpoints at the 40s
+                  // soft-timeout and self-dispatches the next 40s chunk; a worker
+                  // in a real `-background` function chains ~13-min chunks. Only
+                  // the per-chunk BUDGET differs by function type (gated by
+                  // `runsInBackgroundFunction` at the startRun call below); the
+                  // continuation itself must stay server-driven on both. (The
+                  // self-chain is only reachable when the initial dispatch already
+                  // succeeded — a dispatch fast-fail degrades to the inline
+                  // foreground fallback, which is not a worker and rides the
+                  // connected client's auto_continue instead.)
                   isBackgroundWorker,
                   run,
                   continuationCount: backgroundContinuationCount,
@@ -4611,7 +4646,13 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    path: AGENT_CHAT_PROCESS_RUN_PATH,
+                    // Continuation chunks use the same path resolution as the
+                    // initial dispatch: on hosted Netlify the background
+                    // function's DEFAULT url (no custom config.path; async via
+                    // background:true; never shadowed because /.netlify/* is
+                    // excluded from the /* catch-all) so each chunk keeps the
+                    // 15-min budget; off-Netlify the in-process framework route.
+                    path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -5055,10 +5096,18 @@ export function createProductionAgentHandler(
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
-        // Inside the Netlify background function there is no ~60s wall, so lift
-        // the soft-timeout clamp to ~13min for THIS run only. Foreground runs
-        // never set this, so their 40s clamp is unchanged.
-        backgroundFunction: isBackgroundWorker,
+        // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
+        // executing inside a real Netlify `-background` function (15-min budget,
+        // no ~60s wall). Being the `_process-run` worker (`isBackgroundWorker`)
+        // is NOT sufficient: if the `-background` function wasn't emitted, or
+        // Netlify routed the self-POST to the synchronous function, the worker
+        // landed on the regular ~60s `server` function — there it MUST keep the
+        // 40s clamp and checkpoint before the wall, or it overshoots the 60s
+        // hard kill and re-dispatches in a loop. `runsInBackgroundFunction`
+        // gates the 13-min budget on the proven runtime, not merely on "I'm the
+        // worker." Foreground runs never set this, so their 40s clamp is
+        // unchanged.
+        backgroundFunction: runsInBackgroundFunction,
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
