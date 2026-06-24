@@ -1,9 +1,12 @@
 import {
   ChangelogSettingsCard,
+  LanguagePicker,
   agentNativePath,
+  openAgentSettings,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
+  useT,
 } from "@agent-native/core/client";
 import changelog from "../../CHANGELOG.md?raw";
 import {
@@ -67,14 +70,15 @@ type ImageGenerationConfig = {
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
+  const t = useT();
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
 
   return (
     <PageShell
-      title="Settings"
-      description="Asset generation, storage, and brand kit access."
+      title={t("settings.title")}
+      description={t("settings.description")}
       className="max-w-4xl space-y-6"
     >
       <div className="max-w-2xl">
@@ -82,13 +86,40 @@ export default function SettingsPage() {
       </div>
 
       <div className="max-w-2xl">
-        <h2 className="text-lg font-semibold tracking-tight">Connections</h2>
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t("settings.connections")}
+        </h2>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          Keep Assets ready to generate, save, and share brand-safe media.
-          Builder is the simplest path; manual keys stay available when you need
-          them.
+          {t("settings.connectionsDescription")}
         </p>
       </div>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.languageTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.languageDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="max-w-xs space-y-1.5">
+          <Label>{t("settings.languageLabel")}</Label>
+          <LanguagePicker label={t("settings.languageLabel")} />
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.agentTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.agentDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => openAgentSettings()}>
+            {t("settings.openAgentSettings")}
+          </Button>
+        </CardContent>
+      </Card>
 
       <section id="asset-generation-setup" className="scroll-mt-4">
         <AssetsSetupCard libraryCount={data?.count ?? 0} />

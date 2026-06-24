@@ -78,6 +78,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "context-report",
     specifier: "@agent-native/core/agent/context-xray/actions/context-report",
   },
+  {
+    name: "get-localization-preference",
+    specifier:
+      "@agent-native/core/localization/actions/get-localization-preference",
+  },
+  {
+    name: "set-localization-preference",
+    specifier:
+      "@agent-native/core/localization/actions/set-localization-preference",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {

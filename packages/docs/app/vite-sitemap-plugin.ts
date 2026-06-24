@@ -7,6 +7,10 @@ import {
   buildSitemapXml as buildAgentWebSitemapXml,
   type AgentWebPage,
 } from "../../core/src/agent-web/index";
+import {
+  DEFAULT_LOCALE,
+  isLocaleCode,
+} from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 
 export const SITE_URL = "https://www.agent-native.com";
@@ -82,6 +86,33 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         lastmod: gitLastmod(filePath),
       } satisfies AgentWebPage;
     });
+
+  const localizedDocsRoot = path.join(docsDir, "locales");
+  const localizedDocsPages = fs.existsSync(localizedDocsRoot)
+    ? fs
+        .readdirSync(localizedDocsRoot)
+        .filter((locale) => isLocaleCode(locale) && locale !== DEFAULT_LOCALE)
+        .flatMap((locale) => {
+          const localeDir = path.join(localizedDocsRoot, locale);
+          return fs
+            .readdirSync(localeDir)
+            .filter((name) => name.endsWith(".md"))
+            .map((name) => {
+              const slug = name.replace(/\.md$/, "");
+              const filePath = path.join(localeDir, name);
+              const raw = fs.readFileSync(filePath, "utf8");
+              const { data, body } = parseFrontmatter(raw);
+              return {
+                path: `/docs/${locale}/${slug}`,
+                title: data.title || titleFromSlug(slug),
+                description: data.description,
+                markdown: body.trim() + "\n",
+                markdownPath: `/docs/${locale}/${slug}.md`,
+                lastmod: gitLastmod(filePath),
+              } satisfies AgentWebPage;
+            });
+        })
+    : [];
 
   const templateSource = fs.readFileSync(templateCardPath, "utf8");
   const templatePages = parseTemplatePages(templateSource).map((template) => ({
@@ -162,6 +193,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/skills.tsx")),
     },
     ...docsPages,
+    ...localizedDocsPages,
     ...templatePages,
   ]);
 }

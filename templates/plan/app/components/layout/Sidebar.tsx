@@ -17,6 +17,7 @@ import {
   IconMessageCircle,
   IconPin,
   IconPlus,
+  IconSettings,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ import {
   useChatThreads,
   useSendToAgentChat,
   useSession,
+  useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -80,8 +82,9 @@ function buildBrandingCustomizationMessage(request: string) {
 }
 
 const navItems = [
-  { icon: IconMessageCircle, label: "Ask", href: "/" },
-  { icon: IconClipboardCheck, label: "Plan", href: "/plans" },
+  { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
+  { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -153,6 +156,7 @@ function persistedActiveThreadId() {
 
 function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
+  const t = useT();
   const {
     threads,
     activeThreadId,
@@ -275,7 +279,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
     <div className="mt-2 border-l border-sidebar-border/70 pl-3">
       <div className="mb-1 flex h-7 items-center gap-2 pr-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          Chats
+          {t("sidebar.chats")}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -283,12 +287,12 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
               type="button"
               onClick={handleNewChat}
               className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label="New Plan chat"
+              aria-label={t("sidebar.newPlanChat")}
             >
               <IconPlus className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>New chat</TooltipContent>
+          <TooltipContent>{t("sidebar.newChat")}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -361,7 +365,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
                           onSelect={() => startRenameThread(thread)}
                         >
                           <IconEdit className="size-4" />
-                          Rename chat
+                          {t("sidebar.renameChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() =>
@@ -369,14 +373,16 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
                           }
                         >
                           <IconPin className="size-4" />
-                          {thread.pinnedAt ? "Unpin chat" : "Pin chat"}
+                          {thread.pinnedAt
+                            ? t("sidebar.unpinChat")
+                            : t("sidebar.pinChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onSelect={() => void handleArchiveThread(thread.id)}
                         >
                           <IconArchive className="size-4" />
-                          Archive chat
+                          {t("sidebar.archiveChat")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -406,6 +412,7 @@ function signInWithReturnPath(returnPath: string) {
 function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const { session, isLoading: sessionLoading } = useSession();
   const plansQuery = usePlans({
     enabled: Boolean(session),
@@ -444,7 +451,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
     <div className="mt-2 border-l border-sidebar-border/70 pl-3">
       <div className="mb-1 flex h-7 items-center gap-2 pr-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          Plan
+          {t("sidebar.planSection")}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -453,13 +460,15 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
               onClick={requestCreatePlan}
               disabled={sessionLoading}
               className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              aria-label={session ? "New plan" : "Sign in to create a plan"}
+              aria-label={
+                session ? t("sidebar.newPlan") : t("sidebar.signInCreatePlan")
+              }
             >
               <IconPlus className="size-3.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            {session ? "New plan" : "Sign in to create"}
+            {session ? t("sidebar.newPlan") : t("sidebar.signInToCreate")}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -476,7 +485,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
           onClick={signInForPlanCreate}
           className="rounded-md px-2 py-1.5 text-left text-xs leading-5 text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground"
         >
-          Sign in to create and keep plans.
+          {t("sidebar.signInKeepPlans")}
         </button>
       ) : plansQuery.isLoading ? (
         <div className="grid gap-1">
@@ -486,7 +495,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
         </div>
       ) : plans.length === 0 ? (
         <p className="px-2 py-1.5 text-xs leading-5 text-sidebar-foreground/55">
-          No plans yet.
+          {t("sidebar.noPlans")}
         </p>
       ) : (
         <div className="grid gap-0.5">
@@ -514,7 +523,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
                     variant="outline"
                     className="h-4 shrink-0 rounded px-1 text-[9px]"
                   >
-                    Recap
+                    {t("sidebar.recapBadge")}
                   </Badge>
                 )}
                 {plan.openCommentCount > 0 ? (
@@ -538,7 +547,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
               onClick={(event) => openPlanPath(event, "/plans")}
               className="rounded-md px-2 py-1.5 text-left text-xs leading-5 text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground"
             >
-              View all plans…
+              {t("sidebar.viewAllPlans")}
             </Link>
           )}
         </div>
@@ -551,6 +560,7 @@ function BrandingCustomizePopover() {
   const [open, setOpen] = useState(false);
   const { isCodeMode } = useCodeMode();
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
+  const t = useT();
 
   function handleSubmit(text: string) {
     const trimmed = text.trim();
@@ -567,9 +577,7 @@ function BrandingCustomizePopover() {
     setOpen(false);
     if (tabId) {
       toast.success(
-        isCodeMode
-          ? "Sent branding request to the local code agent"
-          : "Sent branding request to the code agent",
+        isCodeMode ? t("sidebar.brandingSentLocal") : t("sidebar.brandingSent"),
       );
     }
   }
@@ -581,8 +589,8 @@ function BrandingCustomizePopover() {
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Customize Plan branding"
-            title="Customize branding"
+            aria-label={t("sidebar.customizePlanBranding")}
+            title={t("sidebar.customizeBranding")}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/55 opacity-0 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/brand:opacity-100 group-focus-within/brand:opacity-100 data-[state=open]:opacity-100"
           >
             <IconEdit className="size-3.5" />
@@ -596,10 +604,10 @@ function BrandingCustomizePopover() {
         >
           <div className="mb-2 px-1">
             <h3 className="text-sm font-semibold text-foreground">
-              Customize branding
+              {t("sidebar.customizeBranding")}
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Describe the brand changes to make across Plan.
+              {t("sidebar.customizeBrandingDescription")}
             </p>
           </div>
           <PromptComposer
@@ -607,7 +615,7 @@ function BrandingCustomizePopover() {
             disabled={isGenerating}
             attachmentsEnabled={false}
             showModelSelector={false}
-            placeholder="Use our logo, change the app name, update colors..."
+            placeholder={t("sidebar.customizeBrandingPlaceholder")}
             draftScope="plans:customize-branding"
             onSubmit={handleSubmit}
           />
@@ -624,6 +632,7 @@ export function Sidebar({
 }: SidebarProps) {
   const location = useLocation();
   const { session, isLoading: sessionLoading } = useSession();
+  const t = useT();
   const returnPath = `${location.pathname}${location.search}${location.hash}`;
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
@@ -637,13 +646,17 @@ export function Sidebar({
           variant="ghost"
           className="size-8 shrink-0 text-muted-foreground"
           onClick={() => onCollapsedChange?.(!collapsed)}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
         >
           <ToggleIcon className="size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
       </TooltipContent>
     </Tooltip>
   ) : null;
@@ -716,9 +729,9 @@ export function Sidebar({
             >
               <Icon className="h-4 w-4 shrink-0" />
               {collapsed ? (
-                <span className="sr-only">{item.label}</span>
+                <span className="sr-only">{t(item.labelKey)}</span>
               ) : (
-                item.label
+                t(item.labelKey)
               )}
             </Link>
           );
@@ -762,7 +775,7 @@ export function Sidebar({
               className="h-8 px-3 text-xs"
               onClick={() => signInWithReturnPath(returnPath)}
             >
-              Sign in
+              {t("sidebar.signIn")}
             </Button>
             {collapseButton}
           </div>

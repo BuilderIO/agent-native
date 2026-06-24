@@ -6,6 +6,7 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  useT,
 } from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isAskRoute = location.pathname === "/";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -41,9 +43,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </div>
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <SheetContent side="left" className="w-[min(18rem,88vw)] p-0">
-          <SheetTitle className="sr-only">Brain navigation</SheetTitle>
+          <SheetTitle className="sr-only">
+            {t("navigation.brainNavigation")}
+          </SheetTitle>
           <SheetDescription className="sr-only">
-            Navigate between Brain work surfaces.
+            {t("navigation.brainNavigationDescription")}
           </SheetDescription>
           <Sidebar />
         </SheetContent>
@@ -59,11 +63,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           variant="ghost"
           size="icon"
           onClick={() => setMobileSidebarOpen(true)}
-          aria-label="Open navigation"
+          aria-label={t("navigation.openNavigation")}
         >
           <IconMenu2 className="size-4" />
         </Button>
-        <span className="text-sm font-semibold">Brain</span>
+        <span className="text-sm font-semibold">{t("navigation.brand")}</span>
       </div>
       <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {children}
@@ -95,11 +99,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         browserTabId={TAB_ID}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openAskAgentFullscreen}
-        emptyStateText="Ask Brain about the company."
+        emptyStateText={t("chat.emptyState")}
         suggestions={[
-          "What do we tell enterprise prospects about security?",
-          "Find stale onboarding facts that need review.",
-          "Which sources have sync problems?",
+          t("chat.suggestionSecurity"),
+          t("chat.suggestionStaleFacts"),
+          t("chat.suggestionSyncProblems"),
         ]}
       >
         {contentFrame}
