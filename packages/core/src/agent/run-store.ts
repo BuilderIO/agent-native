@@ -388,22 +388,29 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
  * the claim; a terminal `status` means the run already resolved. Returns null if
  * the row is missing.
  */
-export async function readBackgroundRunClaim(
-  runId: string,
-): Promise<{ dispatchMode: string | null; status: string | null } | null> {
+export async function readBackgroundRunClaim(runId: string): Promise<{
+  dispatchMode: string | null;
+  status: string | null;
+  diagStage: string | null;
+} | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT dispatch_mode, status FROM agent_runs WHERE id = ? LIMIT 1`,
+    sql: `SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ? LIMIT 1`,
     args: [runId],
   });
   const row = rows?.[0] as
-    | { dispatch_mode?: string | null; status?: string | null }
+    | {
+        dispatch_mode?: string | null;
+        status?: string | null;
+        diag_stage?: string | null;
+      }
     | undefined;
   if (!row) return null;
   return {
     dispatchMode: row.dispatch_mode ?? null,
     status: row.status ?? null,
+    diagStage: row.diag_stage ?? null,
   };
 }
 
