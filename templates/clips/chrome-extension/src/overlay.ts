@@ -336,8 +336,6 @@ function initToolbar(): void {
 function initSaving(): void {
   const card = document.createElement("div");
   card.className = "saving-card";
-  const spinner = document.createElement("div");
-  spinner.className = "saving-spinner";
   const caption = document.createElement("div");
   caption.className = "saving-caption";
   caption.textContent = "Saving clip…";
@@ -346,7 +344,8 @@ function initSaving(): void {
   const fill = document.createElement("div");
   fill.className = "saving-bar-fill";
   bar.appendChild(fill);
-  card.append(spinner, caption, bar);
+  // One progress indicator only — the indeterminate bar (no circular spinner).
+  card.append(caption, bar);
   root.appendChild(card);
 }
 
