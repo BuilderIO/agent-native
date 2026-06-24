@@ -139,7 +139,7 @@ export default function DeckCard({
       </Link>
 
       {/* Menu Button - always visible on touch devices */}
-      <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
+      <div className="absolute top-2 end-2 sm:opacity-0 sm:group-hover:opacity-100">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -170,7 +170,7 @@ export default function DeckCard({
                 startRename();
               }}
             >
-              <IconPencil className="w-3.5 h-3.5 mr-2" />
+              <IconPencil className="w-3.5 h-3.5 me-2" />
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -182,7 +182,7 @@ export default function DeckCard({
               }}
               disabled={isDuplicating}
             >
-              <IconCopy className="w-3.5 h-3.5 mr-2" />
+              <IconCopy className="w-3.5 h-3.5 me-2" />
               {isDuplicating ? "Duplicating..." : "Duplicate"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -194,7 +194,7 @@ export default function DeckCard({
               }}
               className="text-red-400 focus:text-red-400"
             >
-              <IconTrash className="w-3.5 h-3.5 mr-2" />
+              <IconTrash className="w-3.5 h-3.5 me-2" />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>

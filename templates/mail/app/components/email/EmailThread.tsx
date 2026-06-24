@@ -1119,7 +1119,7 @@ export function EmailThread({
                 onClick={goBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1166,7 +1166,7 @@ export function EmailThread({
                 )}
                 <button
                   onClick={() => goToSibling(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                 >
                   <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
@@ -1181,7 +1181,7 @@ export function EmailThread({
                     <TooltipTrigger asChild>
                       <button
                         onClick={onToggleMaximize}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                         aria-label={isMaximized ? "Minimize" : "Maximize"}
                         aria-pressed={isMaximized}
                       >
@@ -1498,7 +1498,7 @@ function ThreadLoadingState({
                 onClick={onBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1639,7 +1639,7 @@ const CollapsedMessageRow = forwardRef<
       <span className="text-[13px] text-muted-foreground truncate flex-1">
         {email.snippet}
       </span>
-      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ml-2">
+      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ms-2">
         {formatEmailDate(email.date)}
       </span>
     </div>
@@ -1795,7 +1795,7 @@ const ExpandedMessageCard = forwardRef<
                 e.stopPropagation();
                 setShowDetails(true);
               }}
-              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-left"
+              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-start"
             >
               to {recipients}
             </button>
@@ -1812,7 +1812,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Reply</TooltipContent>
@@ -1826,7 +1826,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Reply All</TooltipContent>
@@ -1840,7 +1840,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Forward</TooltipContent>
@@ -3409,7 +3409,7 @@ function ThreadSearchBar({
           <TooltipTrigger asChild>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
             >
               <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>

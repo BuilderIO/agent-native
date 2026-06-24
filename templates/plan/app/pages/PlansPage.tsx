@@ -7271,12 +7271,12 @@ function LocalPlanLoadError({
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={onRetry}>
-            <IconRefresh className="mr-2 size-4" />
+            <IconRefresh className="me-2 size-4" />
             Retry
           </Button>
           <Button asChild type="button" variant="ghost">
             <Link to="/plans">
-              <IconArrowLeft className="mr-2 size-4" />
+              <IconArrowLeft className="me-2 size-4 rtl:-scale-x-100" />
               Plans
             </Link>
           </Button>
@@ -7443,7 +7443,7 @@ function PlanLoadError({
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
-      <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-left shadow-sm">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-start shadow-sm">
         <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
           {!showAccessHelp && !planMissing && (
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">

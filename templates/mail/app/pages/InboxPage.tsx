@@ -125,7 +125,7 @@ function ThreadListSidebar({
   useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
-    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-e border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
@@ -151,7 +151,7 @@ function ThreadListSidebar({
                 navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
-                "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
+                "w-full text-start px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
                 isMultiSelected
                   ? "bg-primary/20 ring-1 ring-inset ring-primary/40"
                   : isActive
@@ -682,7 +682,7 @@ export function InboxPage() {
 
       {/* Right contact panel — hidden during initial load or when maximized */}
       {!emailListLoading && !(hasThread && isMaximized) && (
-        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
           <ContactPanel
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}

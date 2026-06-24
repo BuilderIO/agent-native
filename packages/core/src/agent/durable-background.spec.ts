@@ -65,51 +65,60 @@ describe("durable-background constants", () => {
   });
 });
 
-describe("isAgentChatDurableBackgroundEnabled (default-on gate)", () => {
+describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => {
   it("is OFF with nothing configured (not hosted, no secret — gates compose)", () => {
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("is ON BY DEFAULT (flag unset) when hosted + secret are present", () => {
+  it("is OFF BY DEFAULT (flag unset) even when hosted + secret are present", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("is OFF only when explicitly opted out via a falsy flag", () => {
+  it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["0", "false", "no", "off", "FALSE", " Off "]) {
-      process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
-      expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
-    }
-  });
-
-  it("is ON for truthy, unrecognized, or empty flag values (default-on)", () => {
-    makeHosted();
-    process.env.A2A_SECRET = "shhh";
-    for (const val of ["1", "true", "yes", "on", " TRUE ", "", "maybe"]) {
+    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
       expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
     }
   });
 
-  it("stays OFF when default-on but NOT hosted (local dev keeps inline path)", () => {
-    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of [
+      "0",
+      "false",
+      "no",
+      "off",
+      "FALSE",
+      " Off ",
+      "",
+      "maybe",
+    ]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
+      expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+    }
+  });
+
+  it("stays OFF when opted in but NOT hosted (local dev keeps inline path)", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.A2A_SECRET = "shhh";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("stays OFF when default-on + hosted but A2A_SECRET is missing", () => {
-    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  it("stays OFF when opted in + hosted but A2A_SECRET is missing", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     makeHosted();
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("treats NETLIFY_LOCAL=true as NOT hosted (netlify dev), even default-on", () => {
-    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  it("treats NETLIFY_LOCAL=true as NOT hosted (netlify dev), even when opted in", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     process.env.A2A_SECRET = "shhh";
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";

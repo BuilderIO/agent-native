@@ -85,7 +85,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div
             className={cn(
-              "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+              "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
               sidebarOpen
                 ? "translate-x-0"
                 : "-translate-x-full md:translate-x-0",

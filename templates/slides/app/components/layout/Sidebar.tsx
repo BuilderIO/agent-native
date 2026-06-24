@@ -51,7 +51,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-r border-border bg-sidebar py-2 text-sidebar-foreground">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground">
         {onToggleCollapsed && (
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
@@ -60,7 +60,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 aria-label={t("sidebar.expandSidebar")}
                 className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -98,7 +98,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-2">
           <img
@@ -125,7 +125,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 aria-label={t("sidebar.collapseSidebar")}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("sidebar.collapseSidebar")}</TooltipContent>

@@ -302,7 +302,7 @@ export function ComponentLibraryView({
                 Press <strong>Play</strong> to see the cursor demonstrate hover
                 and click interactions:
               </p>
-              <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
+              <ul className="text-xs text-muted-foreground space-y-1 ms-4 list-disc">
                 <li>
                   <strong>0.0s - 1.3s</strong>: Cursor approaches
                 </li>

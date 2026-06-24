@@ -237,30 +237,34 @@ function isFlagEnabled(): boolean {
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
   //
-  // DEFAULT-ON: durable background runs are the desired behavior for every
-  // hosted app. So an unset/empty/unknown flag means ON; an app opts OUT only
-  // with an explicit falsy value. This still composes with the hosted +
-  // A2A_SECRET gates below, so non-hosted / unconfigured apps stay synchronous.
-  // Safety net: a failed dispatch degrades to a synchronous inline run (see
-  // production-agent.ts), so default-on cannot break chat even if the
-  // self-dispatch can't be delivered on a given app.
+  // DEFAULT-OFF (opt-in): durable background runs are still being hardened. A
+  // premature fleet-wide default-on caused real-user incidents (Assets/Analytics
+  // hit "Failed to dispatch" + stalls, 2026-06-24) because the async background
+  // worker path is not yet proven end-to-end and the deploy-time env opt-out is
+  // not reliably baked into a given deploy. So an unset/empty/unknown flag means
+  // OFF; an app opts IN only with an explicit truthy value
+  // (AGENT_CHAT_DURABLE_BACKGROUND=true). This still composes with the hosted +
+  // A2A_SECRET gates below. Flip back to default-on only after the 15-min
+  // background-function worker is verified live in production (see the
+  // project_durable_bg_prod_verified memory).
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return true;
+  if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
-  return !(
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
   );
 }
 
 /**
- * The single gate. True when the flag is not explicitly disabled (default-on)
+ * The single gate. True when the flag is explicitly enabled (opt-in/default-off)
  * AND the runtime is hosted AND A2A_SECRET is configured. False otherwise — and
  * false means the current synchronous behavior is used, unchanged. So a local /
- * non-hosted / unconfigured app stays synchronous even with the flag defaulting
- * on; durable only engages where the runtime actually supports it.
+ * non-hosted / unconfigured app stays synchronous, and an app that has not opted
+ * in stays synchronous; durable only engages where it is explicitly enabled and
+ * the runtime actually supports it.
  */
 export function isAgentChatDurableBackgroundEnabled(): boolean {
   return (
