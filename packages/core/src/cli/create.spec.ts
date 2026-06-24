@@ -91,6 +91,9 @@ describe("createApp", { timeout: 30000 }, () => {
     await createApp("my-app", { template: "blank" });
     const gitignore = path.join(tmpDir, "my-app", ".gitignore");
     expect(fs.existsSync(gitignore)).toBe(true);
+    expect(fs.readFileSync(gitignore, "utf-8")).toContain(
+      "node-compile-cache/",
+    );
   });
 
   it("normalizes @agent-native/core for blank standalone apps", async () => {

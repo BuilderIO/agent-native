@@ -394,14 +394,16 @@ sign-in at setup — this is intended), so the first tool call in that client do
 not hit an OAuth wall:
 
 \`\`\`bash
-npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-plans
 \`\`\`
 
 After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\`,
-\`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
-\`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
-the connector without authenticating, then run
+commands. If you only need one command, use \`skills add visual-plan\` or
+\`skills add visual-recap\` instead. The other planning modes
+(\`create-ui-plan\`, \`create-prototype-plan\`, \`create-plan-design\`,
+\`create-visual-questions\`) are MCP tools reachable from \`/visual-plan\`, not
+separate slash commands. Pass \`--no-connect\` to register the connector without
+authenticating, then run
 \`npx @agent-native/core@latest connect https://plan.agent-native.com --client all\`
 whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
 loading are per client config/session.
@@ -410,7 +412,7 @@ loading are per client config/session.
 install with \`--mode local-files\`:
 
 \`\`\`bash
-npx @agent-native/core@latest skills add visual-plan --mode local-files
+npx @agent-native/core@latest skills add visual-plans --mode local-files
 \`\`\`
 
 This mode does not register the Plan MCP connector. Before authoring structured
@@ -1648,14 +1650,16 @@ sign-in at setup — this is intended), so the first tool call in that client do
 not hit an OAuth wall:
 
 \`\`\`bash
-npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-plans
 \`\`\`
 
 After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. The other planning modes (\`create-ui-plan\`, \`create-prototype-plan\`,
-\`create-plan-design\`, \`create-visual-questions\`) are MCP tools reachable from
-\`/visual-plan\`, not separate slash commands. Pass \`--no-connect\` to register
-the connector without authenticating, then run
+commands. If you only need one command, use \`skills add visual-plan\` or
+\`skills add visual-recap\` instead. The other planning modes
+(\`create-ui-plan\`, \`create-prototype-plan\`, \`create-plan-design\`,
+\`create-visual-questions\`) are MCP tools reachable from \`/visual-plan\`, not
+separate slash commands. Pass \`--no-connect\` to register the connector without
+authenticating, then run
 \`npx @agent-native/core@latest connect https://plan.agent-native.com --client all\`
 whenever you are ready, or choose a narrower \`--client\`. Auth and MCP tool
 loading are per client config/session.
