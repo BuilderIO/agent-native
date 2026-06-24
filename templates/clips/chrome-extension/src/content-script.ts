@@ -208,6 +208,13 @@
         bottom: "24px",
         width: `${size}px`,
         height: `${size}px`,
+        // Clip the IFRAME itself to a circle so the iframe's opaque canvas (which
+        // a declared color-scheme always paints, dark or white) can never show as
+        // a square box around the bubble. Shadow lives here too so it isn't
+        // clipped by the overflow.
+        borderRadius: "50%",
+        overflow: "hidden",
+        boxShadow: "0 6px 18px rgba(9, 9, 11, 0.4)",
         zIndex: "3",
       });
     } else if (part === "toolbar") {

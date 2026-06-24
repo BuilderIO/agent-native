@@ -45,7 +45,6 @@ body {
   overflow: hidden;
   background: #18181b;
   border: 3px solid rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 18px rgba(9, 9, 11, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
