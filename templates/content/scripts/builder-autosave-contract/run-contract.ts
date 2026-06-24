@@ -1,13 +1,10 @@
 /**
  * Builder autoSaveOnly contract-test harness.
  *
- * Purpose: produce raw API evidence (not docs) for the question that gates
- * live Builder writes — does `PUT/PATCH ...?autoSaveOnly=true` stage a revision
- * WITHOUT changing the live published artifact?
- *
- * Mirrors the reference pattern in
- * /Users/alicemoore/Developer/fusion-content-workspace-notion-contract-tests
- * (controlled real-API calls, captured raw request/response, a runnable script).
+ * Purpose: produce raw API evidence for the question that gates enabling live
+ * Builder writes — does `PUT/PATCH ...?autoSaveOnly=true` stage a revision
+ * WITHOUT changing the live published artifact? Controlled real-API calls,
+ * captured raw request/response, a single runnable script.
  *
  * USAGE
  *   # Plan only (no network), safe to run anywhere:
@@ -322,10 +319,10 @@ async function runLive(
 
   // Q2: whether the write-API autosave stages a *recoverable* History revision
   // is NOT observable through Builder's read APIs. `meta.hasAutosaves` is a real
-  // delivery field (production blog-article entries return it `true` for
-  // autosaves made in the Builder *editor*), but the write-API
-  // `?autoSaveOnly=true` PATCH does not observably flip it. Verified empirically
-  // (2026-06-24 live run) across: draft AND published entries, minimal AND
+  // delivery field (it can return `true` for autosaves made in the Builder
+  // *editor*), but the write-API `?autoSaveOnly=true` PATCH does not observably
+  // flip it. Verified empirically against the live API across: draft AND
+  // published entries, minimal AND
   // content-bearing (`data.blocks`) entries, 1s/8s/20s re-read windows, and with
   // and without `cachebust` — `meta` comes back empty `{}` or absent every time.
   // Also unavailable via `fields=meta`/`includeMeta`, the write-side GET (returns

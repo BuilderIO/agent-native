@@ -8,7 +8,7 @@
  *
  * USAGE
  *   node --env-file=<env-with-BUILDER_API_KEY> --experimental-strip-types \
- *     scripts/builder-autosave-contract/probe-readonly.ts --model blog-article
+ *     scripts/builder-autosave-contract/probe-readonly.ts --model page
  *
  * Requires only BUILDER_API_KEY (public delivery key). No write key is read.
  */
@@ -31,7 +31,7 @@ function valueOf(argv: string[], flag: string, fallback: string): string {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  const model = valueOf(argv, "--model", "blog-article");
+  const model = valueOf(argv, "--model", "page");
   const config = resolveConfig();
   // Hard guarantee: never even hold the private key in this probe.
   const client = new BuilderContractClient({

@@ -1,8 +1,7 @@
 /**
  * Minimal, dependency-free Builder.io API client for the autosave contract
  * test harness. Mirrors the real write path in
- * `templates/content/actions/_builder-cms-write-client.ts` and the reference
- * Fusion repo (`server/routes/builder.ts`):
+ * `templates/content/actions/_builder-cms-write-client.ts`:
  *
  *   - Write API:   https://builder.io/api/v1/write/{model}[/{id}]
  *                  Authorization: Bearer {privateKey}
