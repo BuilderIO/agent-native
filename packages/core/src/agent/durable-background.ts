@@ -63,45 +63,79 @@ export const AGENT_CHAT_PROCESS_RUN_PATH =
 export const AGENT_BACKGROUND_FUNCTION_NAME = "server-agent-background";
 
 /**
- * Default function URL of the background function on Netlify, kept for
- * diagnostics/tests. Every Netlify function is ALSO reachable at
- * `/.netlify/functions/<name>` unless a custom `config.path` removes the default
- * url. The emitted background function declares `config.path =
- * AGENT_CHAT_PROCESS_RUN_PATH`, which means Netlify routes the process-run path
- * to it directly AND (per Netlify docs) removes this default url — so the
- * foreground does NOT dispatch here; it dispatches to the framework route (see
- * `resolveAgentChatProcessRunDispatchPath`). This constant is retained only so
- * the name/url shape stays asserted and discoverable.
+ * Default function URL of the background function on Netlify. Every Netlify
+ * function is reachable at `/.netlify/functions/<name>` BY DEFAULT; that default
+ * url is removed ONLY if the function declares a custom `config.path`. The
+ * emitted background function declares NO custom `config.path` (it sets
+ * `background: true` and nothing else routing-related), so it KEEPS this default
+ * url — and the Nitro `server` function already excludes `/.netlify/*` from its
+ * `/*` catch-all, so this namespace is never shadowed. The foreground therefore
+ * dispatches HERE on hosted Netlify (see `resolveAgentChatProcessRunDispatchPath`).
  */
 export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_BACKGROUND_FUNCTION_NAME}`;
+
+/**
+ * The per-app workspace background function URL path. Workspace deploy emits one
+ * background function per app named `<app>-agent-background`, reachable at its
+ * DEFAULT url `/.netlify/functions/<app>-agent-background` (no custom
+ * `config.path`). The foreground resolves the current workspace app id from
+ * `AGENT_NATIVE_WORKSPACE_APP_ID` (set by the workspace function entry) so it can
+ * dispatch to the right per-app function url. Returns `null` when no workspace
+ * app id is configured (single-template deploy).
+ */
+function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+  if (typeof raw !== "string") return null;
+  // Mirror the workspace app-id normalization (resources/store.ts): take the
+  // first path segment and accept only the safe slug shape used for function
+  // names. Anything else falls back to the single-template name.
+  const candidate = raw.trim().replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(candidate)) return null;
+  return `/.netlify/functions/${candidate}-agent-background`;
+}
 
 /**
  * Resolve the path the foreground POST should self-dispatch the chat background
  * worker to.
  *
- * GROUNDED IN THE REAL NETLIFY BUILD OUTPUT: the background function is emitted
- * INTO the scanned dir (`.netlify/functions-internal/server-agent-background`)
- * with `export const config = { background: true, path:
- * AGENT_CHAT_PROCESS_RUN_PATH }`. Netlify evaluates serverless functions BEFORE
- * redirects (request-chain step 10 vs 11), and the build excludes this exact path
- * from the `server` `/*` catch-all — so a POST to `AGENT_CHAT_PROCESS_RUN_PATH`
- * matches ONLY the async background function (immediate 202, 15-min budget),
- * never the synchronous `server` catch-all.
+ * GROUNDED IN THE REAL NETLIFY BUILD OUTPUT + THE NETLIFY DOCS DEFAULT-URL RULE:
+ * the background function is emitted INTO the scanned dir
+ * (`.netlify/functions-internal/server-agent-background`, or per-app
+ * `<app>-agent-background` for workspaces) with `export const config = {
+ * background: true, ... }` and NO custom `config.path`. Because it has no custom
+ * path, Netlify keeps its DEFAULT function url `/.netlify/functions/<name>`, and
+ * `background: true` makes any invocation of that url ASYNC (immediate 202,
+ * 15-min budget). The Nitro `server` function already excludes `/.netlify/*`
+ * from its `/*` catch-all, so the default-url namespace is NEVER shadowed by the
+ * synchronous function.
  *
- * So the dispatch path is the SAME framework route on every host. On hosted
- * Netlify it lands on the async function (because of the exclude + the
- * background function's `config.path`); everywhere else (local dev, `netlify
- * dev`, non-Netlify hosts where no second function exists) the same in-process
- * catch-all handles it inline. The HMAC token (signed over the runId) is
- * unchanged.
+ * Therefore on hosted Netlify the foreground dispatches to the function's DEFAULT
+ * url (`/.netlify/functions/<name>`); the function entry then rewrites the
+ * incoming pathname to `AGENT_CHAT_PROCESS_RUN_PATH` (base-path-prefixed for
+ * workspaces) before delegating to the Nitro router, so the `_process-run`
+ * plugin runs with the async 15-min budget. Everywhere else (local dev, `netlify
+ * dev`, non-Netlify hosts where no second function exists) there is no second
+ * function, so the foreground dispatches to the framework route
+ * `AGENT_CHAT_PROCESS_RUN_PATH` and the same in-process catch-all handles it
+ * inline. The HMAC token (signed over the runId) is unchanged either way.
  *
- * NOTE: this is a deliberate change from the earlier "dispatch to the direct
- * `/.netlify/functions/<name>` url" attempt, which only worked if the function
- * was reachable at its default url. With a custom `config.path` the default url
- * is removed, and there is no shadowing to bypass anyway, so dispatching to the
- * framework route is both correct and simpler.
+ * NOTE: this is the DOC-CORRECT approach. An earlier attempt gave the function a
+ * custom `config.path` + a catch-all `excludedPath` patch; the custom path was
+ * NOT honored as a route in prod (probe → 404). Using the default function url
+ * (no custom path) is what Netlify documents and is simpler — there is nothing
+ * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
  */
 export function resolveAgentChatProcessRunDispatchPath(): string {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return (
+      resolveWorkspaceBackgroundFunctionUrlPath() ??
+      AGENT_BACKGROUND_FUNCTION_URL_PATH
+    );
+  }
   return AGENT_CHAT_PROCESS_RUN_PATH;
 }
 

@@ -1127,7 +1127,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("emits an async background function INTO the scanned functions-internal dir with config.path", () => {
+  it("emits an async background function INTO the scanned functions-internal dir at its DEFAULT url (no custom path)", () => {
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
@@ -1156,15 +1156,17 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain('await import("./main.mjs")');
     // background: true makes Netlify invoke it ASYNC (202) with the 15-min budget.
     expect(entry).toContain("background: true");
-    // CRITICAL: the function CLAIMS the process-run path via config.path so
-    // Netlify routes that exact path here (functions are matched before
-    // redirects). The build separately excludes the path from the server /*
-    // catch-all so the match is unambiguous.
-    expect(entry).toContain("path: PROCESS_RUN_PATH");
+    // DOC-CORRECT FIX: NO custom config.path. The function keeps its default url
+    // /.netlify/functions/server-agent-background; a custom path would REMOVE that
+    // default url (and the prod probe of the custom framework-route path 404'd).
+    expect(entry).not.toContain("path: PROCESS_RUN_PATH");
+    // No `path:` config KEY (assert at line start; the word "path" still appears
+    // in comments and in `url.pathname`).
+    expect(entry).not.toMatch(/^\s*path:/m);
     expect(entry).toContain('includedFiles: ["**"]');
-    // The entry NORMALIZES the incoming request path to the framework process-run
-    // route before delegating to Nitro, so the _process-run plugin runs even if
-    // ever reached via a default function url.
+    // The entry REWRITES the incoming request path to the framework process-run
+    // route before delegating to Nitro (it is reached at the default function url,
+    // so the Nitro router needs the framework path).
     expect(entry).toContain(
       `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
     );
@@ -1182,39 +1184,34 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
-  it("excludes the process-run path from the server /* catch-all so only the async fn matches", () => {
+  it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
-    // The Nitro `server` function's in-code `/*` config.path must now EXCLUDE the
-    // process-run path. Netlify does not define a winner when two serverless
-    // functions both match a path, so making `server` not match it is what
-    // guarantees the async background function is the only match (the root cause
-    // of attempts 1 & 2 running synchronously was BOTH functions matching).
+    // The Nitro `server` function's `server.mjs` must be left BYTE-FOR-BYTE
+    // unchanged. We no longer patch its catch-all: the background function lives
+    // at its default url /.netlify/functions/<name>, and the server catch-all
+    // already excludes /.netlify/* — so there is nothing to shadow and no patch.
     const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
-    expect(serverEntry).toContain(AGENT_CHAT_PROCESS_RUN_PATH);
-    const excludedMatch = serverEntry.match(/excludedPath:\s*\[([^\]]*)\]/);
-    expect(excludedMatch).not.toBeNull();
-    expect(excludedMatch?.[1]).toContain(
-      JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH),
-    );
-    // The pre-existing exclude (/.netlify/*) must be preserved, not clobbered.
-    expect(excludedMatch?.[1]).toContain("/.netlify/*");
-    // The /* catch-all itself is unchanged for every other path.
+    expect(serverEntry).toBe(SERVER_ENTRY);
+    // The process-run framework route must NOT appear in the server entry's
+    // excludedPath (the old patch added it; the doc-correct fix does not).
+    expect(serverEntry).not.toContain(AGENT_CHAT_PROCESS_RUN_PATH);
+    // The /* catch-all and the pre-existing /.netlify/* exclude are intact.
     expect(serverEntry).toContain('path: "/*"');
+    expect(serverEntry).toContain('excludedPath: ["/.netlify/*"]');
   });
 
-  it("is idempotent: re-emitting does not duplicate the excludedPath entry", () => {
+  it("is idempotent: re-emitting leaves the server entry unchanged", () => {
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
+    // Re-emit must not accumulate any catch-all changes (there are none to make).
     const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
-    const occurrences =
-      serverEntry.split(AGENT_CHAT_PROCESS_RUN_PATH).length - 1;
-    expect(occurrences).toBe(1);
+    expect(serverEntry).toBe(SERVER_ENTRY);
   });
 
   it("skips emit (no -background artifact) when Nitro output is missing", () => {
