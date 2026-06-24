@@ -4105,61 +4105,12 @@ function DatabaseSettingsSourcePanel({
               {source.sourceName}
             </span>
             {isBuilderSource ? (
-              <div className="flex shrink-0 items-center gap-1.5">
-                {builderLiveWritesEnabled ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                    <IconPencil className="size-3" />
-                    Live writes on
-                  </span>
-                ) : (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    <IconLock className="size-3" />
-                    Read-only
-                  </span>
-                )}
-                {liveWriteControl.safeTarget ? (
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={builderLiveWritesEnabled}
-                    aria-label={
-                      builderLiveWritesEnabled
-                        ? "Disable Builder live writes"
-                        : "Enable Builder live writes"
-                    }
-                    title={liveWriteControl.description}
-                    disabled={builderLiveWritesDisabled}
-                    className={cn(
-                      "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent",
-                      builderLiveWritesEnabled
-                        ? "text-foreground"
-                        : "text-muted-foreground",
-                    )}
-                    onClick={() =>
-                      onSetBuilderLiveWrites(!builderLiveWritesEnabled)
-                    }
-                  >
-                    <span
-                      className={cn(
-                        "relative h-3.5 w-6 rounded-full transition-colors",
-                        builderLiveWritesEnabled
-                          ? "bg-[#2383e2]"
-                          : "bg-muted-foreground/25",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute left-0.5 top-0.5 size-2.5 rounded-full bg-background shadow-sm transition-transform",
-                          builderLiveWritesEnabled && "translate-x-2.5",
-                        )}
-                      />
-                    </span>
-                    {builderLiveWritesEnabled
-                      ? "Builder writes"
-                      : "Enable writes"}
-                  </button>
-                ) : null}
-              </div>
+              !liveWriteControl.safeTarget ? (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  <IconLock className="size-3" />
+                  Read-only
+                </span>
+              ) : null
             ) : (
               <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
                 {source.syncState}
@@ -4199,6 +4150,43 @@ function DatabaseSettingsSourcePanel({
               `Local snapshot · ${source.freshness}`
             )}
           </div>
+          {isBuilderSource && liveWriteControl.safeTarget ? (
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>Enable live writes (autosave)</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={builderLiveWritesEnabled}
+                aria-label={
+                  builderLiveWritesEnabled
+                    ? "Disable Builder live writes"
+                    : "Enable Builder live writes"
+                }
+                title={liveWriteControl.description}
+                disabled={builderLiveWritesDisabled}
+                className="inline-flex h-6 shrink-0 items-center rounded-full border border-border px-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+                onClick={() =>
+                  onSetBuilderLiveWrites(!builderLiveWritesEnabled)
+                }
+              >
+                <span
+                  className={cn(
+                    "relative h-3.5 w-6 rounded-full transition-colors",
+                    builderLiveWritesEnabled
+                      ? "bg-[#2383e2]"
+                      : "bg-muted-foreground/25",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute left-0.5 top-0.5 size-2.5 rounded-full bg-background shadow-sm transition-transform",
+                      builderLiveWritesEnabled && "translate-x-2.5",
+                    )}
+                  />
+                </span>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {reviewableBuilderChangeSets.length > 0 ||
