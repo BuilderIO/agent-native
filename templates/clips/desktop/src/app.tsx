@@ -2331,12 +2331,6 @@ export function App() {
           onClick={() => openInBrowser("/")}
         />
         <BottomButton
-          icon="meetings"
-          label="Meetings"
-          active={showMeetings}
-          onClick={toggleMeetings}
-        />
-        <BottomButton
           icon="settings"
           label="Settings"
           onClick={() => setShowSettings(true)}
@@ -2350,6 +2344,12 @@ export function App() {
             setShowMeetings(false);
             setShowRecent((v) => !v);
           }}
+        />
+        <BottomButton
+          icon="meetings"
+          label="Meetings"
+          active={showMeetings}
+          onClick={toggleMeetings}
         />
       </div>
 
@@ -2424,6 +2424,7 @@ export function App() {
                         joinUrl: m.joinUrl ?? null,
                         reason: "user",
                       }).catch(() => {});
+                      hidePopover();
                     }
                   }}
                 >
