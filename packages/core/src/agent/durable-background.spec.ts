@@ -154,8 +154,8 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
   });
 });
 
-describe("resolveAgentChatProcessRunDispatchPath (direct-url on Netlify)", () => {
-  it("exposes the standalone background function name + direct url path", () => {
+describe("resolveAgentChatProcessRunDispatchPath (framework route everywhere)", () => {
+  it("exposes the background function name + its default function url constant", () => {
     expect(AGENT_BACKGROUND_FUNCTION_NAME).toBe("server-agent-background");
     expect(AGENT_BACKGROUND_FUNCTION_URL_PATH).toBe(
       "/.netlify/functions/server-agent-background",
@@ -164,9 +164,21 @@ describe("resolveAgentChatProcessRunDispatchPath (direct-url on Netlify)", () =>
     expect(AGENT_BACKGROUND_FUNCTION_NAME.endsWith("-background")).toBe(true);
   });
 
-  it("returns the DIRECT function url on hosted Netlify (bypasses the catch-all)", () => {
+  it("dispatches to the framework process-run route on hosted Netlify", () => {
+    // The background function declares `config.path = AGENT_CHAT_PROCESS_RUN_PATH`
+    // and the build excludes that path from the `server` /* catch-all, so a POST
+    // to the framework route matches ONLY the async function (202, 15-min).
     process.env.NETLIFY = "true";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
+  });
+
+  it("does NOT dispatch to the direct .netlify/functions url", () => {
+    // A custom config.path REMOVES the default function url; dispatching there
+    // would 404. We always dispatch to the framework route.
+    process.env.NETLIFY = "true";
+    expect(resolveAgentChatProcessRunDispatchPath()).not.toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
     );
   });
@@ -179,8 +191,7 @@ describe("resolveAgentChatProcessRunDispatchPath (direct-url on Netlify)", () =>
   });
 
   it("returns the framework path under `netlify dev` (NETLIFY_LOCAL=true)", () => {
-    // `netlify dev` runs in-process; there is no separate async function to
-    // reach, so dispatch stays the framework route (handled by the catch-all).
+    // `netlify dev` runs in-process; the same in-process catch-all handles it.
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
