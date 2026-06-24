@@ -14,6 +14,7 @@ import {
   FeedbackButton,
   navigateWithAgentChatViewTransition,
   useChatThreads,
+  useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
@@ -80,6 +81,7 @@ function persistedActiveThreadId() {
 
 function BrainChatsSection() {
   const navigate = useNavigate();
+  const t = useT();
   const {
     threads,
     activeThreadId,
@@ -156,7 +158,7 @@ function BrainChatsSection() {
       threadId === activeThreadId || threadId === persistedActiveThreadId();
     const archived = await archiveThread(threadId);
     if (!archived) {
-      toast.error("Could not archive chat.");
+      toast.error(t("chat.archiveFailed"));
       return;
     }
     if (wasActive) {
@@ -186,7 +188,7 @@ function BrainChatsSection() {
     setRenameDraft("");
     if (title) {
       const renamed = await renameThread(threadId, title);
-      if (!renamed) toast.error("Could not rename chat.");
+      if (!renamed) toast.error(t("chat.renameFailed"));
     }
     committingRenameRef.current = false;
   }
@@ -200,7 +202,7 @@ function BrainChatsSection() {
     <div className="mt-2 border-l border-sidebar-border/70 pl-3">
       <div className="mb-1 flex h-7 items-center gap-2 pr-1">
         <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          Chats
+          {t("chat.chats")}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -208,12 +210,12 @@ function BrainChatsSection() {
               type="button"
               onClick={handleNewChat}
               className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label="New Brain chat"
+              aria-label={t("chat.newBrainChat")}
             >
               <IconPlus className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>New chat</TooltipContent>
+          <TooltipContent>{t("chat.newChat")}</TooltipContent>
         </Tooltip>
       </div>
       <div className="grid gap-0.5">
@@ -247,7 +249,9 @@ function BrainChatsSection() {
                       }
                     }}
                     maxLength={160}
-                    aria-label={`Rename ${threadTitle(thread)}`}
+                    aria-label={t("chat.renameThread", {
+                      title: threadTitle(thread),
+                    })}
                     className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
                   />
                 </form>
@@ -270,7 +274,9 @@ function BrainChatsSection() {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`Chat options for ${threadTitle(thread)}`}
+                          aria-label={t("chat.optionsFor", {
+                            title: threadTitle(thread),
+                          })}
                           className="absolute right-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
                         >
                           <IconDots className="size-4" />
@@ -285,7 +291,7 @@ function BrainChatsSection() {
                           onSelect={() => startRenameThread(thread)}
                         >
                           <IconEdit className="size-4" />
-                          Rename chat
+                          {t("chat.renameChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() =>
@@ -293,14 +299,16 @@ function BrainChatsSection() {
                           }
                         >
                           <IconPin className="size-4" />
-                          {thread.pinnedAt ? "Unpin chat" : "Pin chat"}
+                          {thread.pinnedAt
+                            ? t("chat.unpinChat")
+                            : t("chat.pinChat")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
                           onSelect={() => void handleArchiveThread(thread.id)}
                         >
                           <IconArchive className="size-4" />
-                          Archive chat
+                          {t("chat.archiveChat")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -318,6 +326,7 @@ function BrainChatsSection() {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const isAskRoute = location.pathname === "/";
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
@@ -348,7 +357,7 @@ export function Sidebar() {
           />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-              Brain
+              {t("navigation.brand")}
             </p>
           </div>
         </Link>
@@ -379,7 +388,9 @@ export function Sidebar() {
                   className={navClass}
                 >
                   <Icon className="size-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">
+                    {t(`navigation.${item.view}`)}
+                  </span>
                 </NavLink>
                 {item.view === "ask" && isAskRoute ? (
                   <BrainChatsSection />

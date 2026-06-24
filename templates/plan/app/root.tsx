@@ -15,10 +15,12 @@ import {
   CommandMenu,
   appPath,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -33,6 +35,7 @@ import "@/lib/register-chat-renderers";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -44,11 +47,35 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en-US" dir="ltr" data-locale="en-US" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -56,8 +83,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#71717A" />
@@ -96,6 +129,7 @@ function AppContent() {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
@@ -113,22 +147,24 @@ function AppContent() {
         changelog={changelog}
         changelogKey="plan"
       >
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => go("/")}>Ask Plan</CommandMenu.Item>
+        <CommandMenu.Group heading={t("root.commandActions")}>
+          <CommandMenu.Item onSelect={() => go("/")}>
+            {t("root.askPlan")}
+          </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/plans")}>
-            Open plans
+            {t("root.openPlans")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/recaps")}>
-            Open recaps
+            {t("root.openRecaps")}
           </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
             {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-            Toggle {isDark ? "light" : "dark"} mode
+            {t("root.toggleTheme")}
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
@@ -148,6 +184,7 @@ export default function Root() {
     <AppProviders
       queryClient={queryClient}
       toaster={<Toaster richColors position="bottom-left" />}
+      i18n={{ catalog: i18nCatalog }}
     >
       <DbSyncSetup />
       <AppContent />

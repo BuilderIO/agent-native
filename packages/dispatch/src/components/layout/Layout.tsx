@@ -42,6 +42,7 @@ import {
   IconFingerprint,
   IconHistory,
   IconPuzzle,
+  IconSettings,
   IconShieldCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
@@ -201,6 +202,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/thread-debug",
     label: "Thread Debug",
     icon: IconMessages,
+    section: "operations",
+  },
+  {
+    id: "settings",
+    to: "/settings",
+    label: "Settings",
+    icon: IconSettings,
     section: "operations",
   },
   {

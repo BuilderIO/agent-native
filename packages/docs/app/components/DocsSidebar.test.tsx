@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import DocsSidebar from "./DocsSidebar";
+import { docsI18nCatalog } from "../i18n";
 
 function renderSidebar(path: string) {
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[path]}>
-      <DocsSidebar />
+      <AgentNativeI18nProvider
+        catalog={docsI18nCatalog}
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <DocsSidebar />
+      </AgentNativeI18nProvider>
     </MemoryRouter>,
   );
 }

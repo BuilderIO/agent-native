@@ -96,6 +96,7 @@ import {
   navigateWithAgentChatViewTransition,
   useActionMutation,
   useChangeVersions,
+  useT,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -143,8 +144,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  { icon: IconUsers, label: "Team", href: "/team" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 function getStoredBoolean(key: string, fallback: boolean): boolean {
@@ -1143,6 +1144,7 @@ function persistThemePreference(theme: "light" | "dark") {
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   const { resolvedTheme, setTheme } = useTheme();
@@ -2191,7 +2193,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}

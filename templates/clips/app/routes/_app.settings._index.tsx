@@ -16,11 +16,14 @@ import {
   useSession,
   agentNativePath,
   appApiPath,
+  LanguagePicker,
   parseChangelog,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
   ChangelogSettingsCard,
+  openAgentSettings,
+  useT,
 } from "@agent-native/core/client";
 import changelog from "../../CHANGELOG.md?raw";
 import { toast } from "sonner";
@@ -383,6 +386,7 @@ function CompactChangelogAside() {
 
 export default function SettingsIndexRoute() {
   const { session } = useSession();
+  const t = useT();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -393,7 +397,7 @@ export default function SettingsIndexRoute() {
     trackingFlow: "clips_setup",
     onConnected: async () => {
       await Promise.all([storageStatus.refetch(), builderStatus.refetch()]);
-      toast.success("Builder.io connected");
+      toast.success(t("settings.builderConnectedToast"));
     },
   });
   const slackStatus = useActionQuery<SlackInstallationsResponse>(
@@ -482,9 +486,11 @@ export default function SettingsIndexRoute() {
         displayName: displayName.trim() || undefined,
         transcriptCleanupEnabled,
       });
-      toast.success("Settings saved");
+      toast.success(t("settings.saved"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      toast.error(
+        err instanceof Error ? err.message : t("settings.saveFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -501,7 +507,7 @@ export default function SettingsIndexRoute() {
             !(s3Values[field.key] ?? "").trim(),
         );
     if (missing.length > 0) {
-      toast.error("Endpoint, bucket, access key, and secret are required.");
+      toast.error(t("settings.storageRequired"));
       return;
     }
 
@@ -513,9 +519,11 @@ export default function SettingsIndexRoute() {
         S3_SECRET_ACCESS_KEY: "",
       }));
       await storageStatus.refetch();
-      toast.success("Storage settings saved");
+      toast.success(t("settings.storageSaved"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      toast.error(
+        err instanceof Error ? err.message : t("settings.saveFailed"),
+      );
     } finally {
       setSavingStorage(false);
     }
@@ -524,7 +532,7 @@ export default function SettingsIndexRoute() {
   async function handleSaveApiKey(key: string) {
     const value = (apiKeyValues[key] ?? "").trim();
     if (!value) {
-      toast.error("Paste a provider key first.");
+      toast.error(t("settings.pasteProviderKey"));
       return;
     }
 
@@ -540,9 +548,11 @@ export default function SettingsIndexRoute() {
       setApiKeyStatus((current) => ({ ...current, [key]: true }));
       window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
       await refreshApiKeyStatus();
-      toast.success("API key saved");
+      toast.success(t("settings.apiKeySaved"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save key");
+      toast.error(
+        err instanceof Error ? err.message : t("settings.apiKeyFailed"),
+      );
     } finally {
       setSavingApiKey(null);
     }
@@ -556,9 +566,9 @@ export default function SettingsIndexRoute() {
       const refreshed = await slackStatus.refetch();
       const afterCount = refreshed.data?.installations?.length ?? beforeCount;
       if (afterCount > beforeCount) {
-        toast.success("Slack connected");
+        toast.success(t("settings.slackConnectedToast"));
       } else {
-        toast.message("Slack connection checked");
+        toast.message(t("settings.slackCheckedToast"));
       }
     } catch (err) {
       toast.error(
@@ -577,7 +587,7 @@ export default function SettingsIndexRoute() {
       await requestDisconnectSlack(target.id);
       setDisconnectSlackTarget(null);
       await slackStatus.refetch();
-      toast.success("Slack disconnected");
+      toast.success(t("settings.slackDisconnectedToast"));
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to disconnect Slack",
@@ -616,25 +626,55 @@ export default function SettingsIndexRoute() {
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Settings
+          {t("settings.title")}
         </h1>
       </PageHeader>
       <div className="mx-auto w-full max-w-6xl p-6">
         <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="min-w-0 space-y-6">
             <p className="text-sm text-muted-foreground">
-              Preferences and connected services for this Clips workspace.
+              {t("settings.intro")}
             </p>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.languageTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.languageDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="max-w-xs space-y-1.5">
+                <Label>{t("settings.languageLabel")}</Label>
+                <LanguagePicker label={t("settings.languageLabel")} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.agentTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.agentDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" onClick={() => openAgentSettings()}>
+                  {t("settings.openAgentSettings")}
+                </Button>
+              </CardContent>
+            </Card>
 
             <Card id="video-storage" className="scroll-mt-16">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <IconCloud className="size-4 text-primary" />
-                  Video storage
+                  {t("settings.videoStorage")}
                 </CardTitle>
                 <CardDescription>
-                  Builder.io is the primary storage path for Clips uploads. S3
-                  is available when you need to bring your own bucket.
+                  {t("settings.videoStorageDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -654,22 +694,24 @@ export default function SettingsIndexRoute() {
                         <IconKey className="h-4 w-4 text-muted-foreground" />
                       )}
                       {builderStatusLoading
-                        ? "Checking Builder.io"
+                        ? t("settings.checkingBuilder")
                         : builderConnected
-                          ? "Builder.io connected"
-                          : "Connect Builder.io"}
+                          ? t("settings.builderConnected")
+                          : t("settings.connectBuilder")}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {builderConnected
                         ? builderOrgName
-                          ? `Using Builder.io for ${builderOrgName}.`
-                          : "New clips use the connected Builder.io provider."
-                        : "Includes object storage, uploads, and managed transcription for new clips."}
+                          ? t("settings.builderConnectedFor", {
+                              orgName: builderOrgName,
+                            })
+                          : t("settings.builderConnectedGeneric")
+                        : t("settings.builderIncludes")}
                     </p>
                   </div>
                   {builderConnected ? (
                     <Badge variant="secondary" className="shrink-0">
-                      Connected
+                      {t("common.connected")}
                     </Badge>
                   ) : (
                     <Button
@@ -692,7 +734,7 @@ export default function SettingsIndexRoute() {
                       ) : (
                         <IconExternalLink className="h-4 w-4" />
                       )}
-                      Connect Builder.io
+                      {t("settings.connectBuilder")}
                     </Button>
                   )}
                 </div>
@@ -706,22 +748,24 @@ export default function SettingsIndexRoute() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                           <IconServer className="h-4 w-4 text-muted-foreground" />
-                          S3-compatible storage
+                          {t("settings.s3Title")}
                           <Badge variant="outline" className="text-[10px]">
-                            Secondary
+                            {t("settings.secondary")}
                           </Badge>
                           {s3Configured ? (
                             <Badge variant="secondary" className="text-[10px]">
-                              Active
+                              {t("settings.active")}
                             </Badge>
                           ) : null}
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {builderConnected
-                            ? "Use this only if this workspace should upload to your own bucket instead of Builder.io."
+                            ? t("settings.s3BuilderConnectedDescription")
                             : storageConfigured && activeProviderName
-                              ? `Currently using ${activeProviderName}.`
-                              : "Use your own bucket if you do not want Builder.io storage."}
+                              ? t("settings.s3CurrentProvider", {
+                                  providerName: activeProviderName,
+                                })
+                              : t("settings.s3OwnBucketDescription")}
                         </p>
                       </div>
                       {builderConnected ? (
@@ -732,7 +776,9 @@ export default function SettingsIndexRoute() {
                             size="sm"
                             className="shrink-0"
                           >
-                            {s3Collapsed ? "Configure S3" : "Hide S3"}
+                            {s3Collapsed
+                              ? t("settings.configureS3")
+                              : t("settings.hideS3")}
                             <IconChevronDown
                               className={cn(
                                 "h-4 w-4 transition-transform",
@@ -780,7 +826,7 @@ export default function SettingsIndexRoute() {
                             {savingStorage && (
                               <IconLoader2 className="h-4 w-4 animate-spin" />
                             )}
-                            Save storage
+                            {t("settings.saveStorage")}
                           </Button>
                         </div>
                       </div>
@@ -794,12 +840,10 @@ export default function SettingsIndexRoute() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <IconBrandSlack className="size-4 text-primary" />
-                  Agent-Native Clips for Slack
+                  {t("settings.slackTitle")}
                 </CardTitle>
                 <CardDescription>
-                  Share a public clip, paste the link in Slack, and it plays
-                  inline — no extra steps for viewers. Connect each workspace
-                  once.
+                  {t("settings.slackDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -808,17 +852,17 @@ export default function SettingsIndexRoute() {
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
                       {slackStatus.isLoading
-                        ? "Checking Slack"
+                        ? t("settings.checkingSlack")
                         : slackConnected
-                          ? `${slackInstallations.length} workspace${
-                              slackInstallations.length === 1 ? "" : "s"
-                            } connected`
+                          ? t("settings.slackConnected", {
+                              count: slackInstallations.length,
+                            })
                           : slackOauthConfigured
-                            ? "Not connected"
-                            : "OAuth credentials needed"}
+                            ? t("common.notConnected")
+                            : t("settings.slackOauthNeeded")}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Public Clips links can render as playable Slack previews.
+                      {t("settings.slackPreviewDescription")}
                     </p>
                   </div>
                   <Button
@@ -838,21 +882,19 @@ export default function SettingsIndexRoute() {
                     ) : (
                       <IconExternalLink className="h-4 w-4" />
                     )}
-                    Connect Slack
+                    {t("settings.connectSlack")}
                   </Button>
                 </div>
 
                 {!slackOauthConfigured ? (
                   <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                    Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET for this
-                    deployment before connecting workspaces.
+                    {t("settings.slackClientMissing")}
                   </div>
                 ) : null}
 
                 {!slackSigningConfigured ? (
                   <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                    Set SLACK_SIGNING_SECRET so Slack event callbacks can be
-                    verified.
+                    {t("settings.slackSigningMissing")}
                   </div>
                 ) : null}
 
@@ -872,7 +914,11 @@ export default function SettingsIndexRoute() {
                             {installation.enterpriseName ? (
                               <span>{installation.enterpriseName}</span>
                             ) : null}
-                            <span>Connected by {installation.ownerEmail}</span>
+                            <span>
+                              {t("settings.connectedBy", {
+                                email: installation.ownerEmail,
+                              })}
+                            </span>
                           </div>
                         </div>
                         <Button
@@ -880,9 +926,9 @@ export default function SettingsIndexRoute() {
                           variant="ghost"
                           size="icon"
                           className="shrink-0"
-                          aria-label={`Disconnect ${
-                            installation.teamName || installation.teamId
-                          }`}
+                          aria-label={t("settings.disconnectSlackLabel", {
+                            team: installation.teamName || installation.teamId,
+                          })}
                           onClick={() => setDisconnectSlackTarget(installation)}
                         >
                           <IconTrash className="h-4 w-4" />
@@ -898,11 +944,10 @@ export default function SettingsIndexRoute() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <IconBrain className="size-4 text-primary" />
-                  AI setup
+                  {t("settings.apiSetup")}
                 </CardTitle>
                 <CardDescription>
-                  Builder.io is the default path for managed AI credits.
-                  Provider keys are optional and can be added here.
+                  {t("settings.apiSetupDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -922,20 +967,20 @@ export default function SettingsIndexRoute() {
                         <IconKey className="h-4 w-4 text-muted-foreground" />
                       )}
                       {builderStatusLoading
-                        ? "Checking Builder.io"
+                        ? t("settings.checkingBuilder")
                         : builderConnected
-                          ? "Builder.io connected"
-                          : "Builder.io is the easiest setup"}
+                          ? t("settings.builderConnected")
+                          : t("settings.builderEasySetup")}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {builderConnected
-                        ? "Included AI credits and managed transcription are available for Clips."
-                        : "Connect Builder first for included AI credits, object storage, uploads, and managed transcription."}
+                        ? t("settings.builderAiAvailable")
+                        : t("settings.builderAiDescription")}
                     </p>
                   </div>
                   {builderConnected ? (
                     <Badge variant="secondary" className="shrink-0">
-                      Connected
+                      {t("common.connected")}
                     </Badge>
                   ) : (
                     <Button
@@ -958,7 +1003,7 @@ export default function SettingsIndexRoute() {
                       ) : (
                         <IconExternalLink className="h-4 w-4" />
                       )}
-                      Connect Builder.io
+                      {t("settings.connectBuilder")}
                     </Button>
                   )}
                 </div>
@@ -976,19 +1021,20 @@ export default function SettingsIndexRoute() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 text-sm font-medium">
                             <IconKey className="h-4 w-4 text-muted-foreground" />
-                            Bring your own provider key
+                            {t("settings.providerKeyTitle")}
                             {configuredApiKeyCount > 0 ? (
                               <Badge
                                 variant="secondary"
                                 className="text-[10px]"
                               >
-                                {configuredApiKeyCount} set
+                                {t("settings.providerKeysSet", {
+                                  count: configuredApiKeyCount,
+                                })}
                               </Badge>
                             ) : null}
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Add Anthropic, OpenAI, Gemini, Groq, or OpenRouter
-                            keys for provider-billed usage.
+                            {t("settings.providerKeyDescription")}
                           </p>
                         </div>
                         <IconChevronDown
@@ -1003,7 +1049,7 @@ export default function SettingsIndexRoute() {
                       <div className="space-y-3 border-t border-border px-3 py-4">
                         {apiKeyStatusLoading ? (
                           <div className="text-xs text-muted-foreground">
-                            Checking provider keys…
+                            {t("settings.checkingProviderKeys")}
                           </div>
                         ) : null}
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -1019,7 +1065,7 @@ export default function SettingsIndexRoute() {
                                   {configured ? (
                                     <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
                                       <IconCheck className="h-3 w-3" />
-                                      Set
+                                      {t("settings.keySet")}
                                     </span>
                                   ) : null}
                                 </div>
@@ -1041,7 +1087,7 @@ export default function SettingsIndexRoute() {
                                     }}
                                     placeholder={
                                       configured
-                                        ? "Replace key…"
+                                        ? t("settings.replaceKey")
                                         : field.placeholder
                                     }
                                     autoComplete="off"
@@ -1061,7 +1107,7 @@ export default function SettingsIndexRoute() {
                                     {savingThisKey ? (
                                       <IconLoader2 className="h-4 w-4 animate-spin" />
                                     ) : (
-                                      "Save"
+                                      t("common.save")
                                     )}
                                   </Button>
                                 </div>
@@ -1080,21 +1126,23 @@ export default function SettingsIndexRoute() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <IconUser className="size-4 text-primary" />
-                  Profile
+                  {t("settings.profile")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{t("settings.email")}</Label>
                   <Input id="email" value={email} readOnly disabled />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="display-name">Display name</Label>
+                  <Label htmlFor="display-name">
+                    {t("settings.displayName")}
+                  </Label>
                   <Input
                     id="display-name"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Your name"
+                    placeholder={t("settings.displayNamePlaceholder")}
                     disabled={loading}
                   />
                 </div>
@@ -1103,11 +1151,15 @@ export default function SettingsIndexRoute() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Playback</CardTitle>
+                <CardTitle className="text-base">
+                  {t("settings.playback")}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="speed">Default playback speed</Label>
+                  <Label htmlFor="speed">
+                    {t("settings.defaultPlaybackSpeed")}
+                  </Label>
                   <Select
                     value={defaultSpeed}
                     onValueChange={setDefaultSpeed}
@@ -1125,7 +1177,7 @@ export default function SettingsIndexRoute() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Applied automatically when you open a recording.
+                    {t("settings.playbackDescription")}
                   </p>
                 </div>
               </CardContent>
@@ -1133,7 +1185,9 @@ export default function SettingsIndexRoute() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Transcript</CardTitle>
+                <CardTitle className="text-base">
+                  {t("settings.transcript")}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between gap-4">
@@ -1142,11 +1196,10 @@ export default function SettingsIndexRoute() {
                       htmlFor="transcript-cleanup"
                       className="cursor-pointer"
                     >
-                      Background cleanup
+                      {t("settings.transcriptCleanup")}
                     </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Show the native transcript immediately, then clean it up
-                      in the background when available.
+                      {t("settings.transcriptCleanupDescription")}
                     </p>
                   </div>
                   <Switch
@@ -1161,17 +1214,18 @@ export default function SettingsIndexRoute() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Notifications</CardTitle>
+                <CardTitle className="text-base">
+                  {t("settings.notifications")}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
                     <Label htmlFor="email-notif" className="cursor-pointer">
-                      Email notifications
+                      {t("settings.emailNotifications")}
                     </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Get an email when someone comments, reacts, or shares a
-                      recording with you.
+                      {t("settings.emailNotificationsDescription")}
                     </p>
                   </div>
                   <Switch
@@ -1190,7 +1244,7 @@ export default function SettingsIndexRoute() {
                 disabled={loading || saving}
                 className="bg-primary hover:bg-primary/90"
               >
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? t("common.saving") : t("common.saveChanges")}
               </Button>
             </div>
           </div>
@@ -1205,18 +1259,21 @@ export default function SettingsIndexRoute() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect Slack?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("settings.disconnectSlackTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Clips will delete the stored bot token for{" "}
-              {disconnectSlackTarget?.teamName ||
-                disconnectSlackTarget?.teamId ||
-                "this workspace"}{" "}
-              and stop sending playable Slack previews.
+              {t("settings.disconnectSlackDescription", {
+                team:
+                  disconnectSlackTarget?.teamName ||
+                  disconnectSlackTarget?.teamId ||
+                  t("settings.thisWorkspace"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={disconnectingSlack}>
-              Cancel
+              {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
@@ -1225,7 +1282,9 @@ export default function SettingsIndexRoute() {
               }}
               disabled={disconnectingSlack}
             >
-              {disconnectingSlack ? "Disconnecting..." : "Disconnect"}
+              {disconnectingSlack
+                ? t("common.disconnecting")
+                : t("common.disconnect")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

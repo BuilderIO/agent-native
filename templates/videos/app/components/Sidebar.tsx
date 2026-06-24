@@ -31,7 +31,11 @@ import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
 import { useFolders } from "@/hooks/use-folders";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { DevDatabaseLink, FeedbackButton } from "@agent-native/core/client";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  useT,
+} from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   Tooltip,
@@ -75,6 +79,7 @@ export function Sidebar({
   } = useTimeline();
 
   const { currentFrame, fps, onSeek } = usePlayback();
+  const t = useT();
 
   const {
     folders,
@@ -228,7 +233,7 @@ export function Sidebar({
   const navItems = [
     {
       icon: IconVideo,
-      label: "Animations",
+      labelKey: "navigation.animations",
       href: "/",
       active:
         !location.pathname.startsWith("/components") &&
@@ -237,19 +242,19 @@ export function Sidebar({
     },
     {
       icon: IconComponents,
-      label: "Components",
+      labelKey: "navigation.components",
       href: "/components",
       active: location.pathname.startsWith("/components"),
     },
     {
       icon: IconPalette,
-      label: "Design Systems",
+      labelKey: "navigation.designSystems",
       href: "/design-systems",
       active: location.pathname.startsWith("/design-systems"),
     },
     {
       icon: IconUsers,
-      label: "Team",
+      labelKey: "navigation.team",
       href: "/team",
       active: location.pathname === "/team",
     },
@@ -268,7 +273,9 @@ export function Sidebar({
       <div className="w-64 lg:w-72 h-full flex flex-col">
         {/* App name */}
         <div className="flex h-10 items-center px-3 border-b border-border shrink-0">
-          <span className="text-xs font-semibold tracking-tight">Videos</span>
+          <span className="text-xs font-semibold tracking-tight">
+            {t("navigation.brand")}
+          </span>
         </div>
 
         {/* Navigation */}
@@ -287,7 +294,7 @@ export function Sidebar({
                 )}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}
@@ -303,13 +310,13 @@ export function Sidebar({
               value="compositions"
               className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
-              Compositions
+              {t("studio.compositions")}
             </TabsTrigger>
             <TabsTrigger
               value="properties"
               className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
-              Properties
+              {t("studio.properties")}
               {selectedTrackId && (
                 <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
               )}

@@ -15,6 +15,7 @@ import {
   AgentSidebar,
   isEmbedAuthActive,
   getBrowserTabId,
+  useT,
 } from "@agent-native/core/client";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ const EDITOR_PREFIXES = ["/design/", "/extensions"];
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+  const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
 
@@ -98,11 +100,11 @@ export function Layout({ children }: LayoutProps) {
       <MobileSidebarContext.Provider value={openMobileSidebar}>
         <AgentSidebar
           position="right"
-          emptyStateText="Describe a design to create"
+          emptyStateText={t("chat.emptyState")}
           suggestions={[
-            "Design a landing page for my startup",
-            "Make this match our brand",
-            "Add a mobile version of this",
+            t("chat.suggestionLandingPage"),
+            t("chat.suggestionBrandMatch"),
+            t("chat.suggestionMobile"),
           ]}
           scope={designScope}
           browserTabId={getBrowserTabId()}
@@ -131,12 +133,12 @@ export function Layout({ children }: LayoutProps) {
                   <button
                     onClick={openMobileSidebar}
                     className="-ml-1 mr-3 cursor-pointer rounded-md p-2.5 hover:bg-sidebar-accent/50"
-                    aria-label="Open navigation"
+                    aria-label={t("navigation.openNavigation")}
                   >
                     <IconMenu2 className="h-5 w-5 text-foreground" />
                   </button>
                   <span className="text-base font-bold tracking-tight">
-                    Design
+                    {t("navigation.brand")}
                   </span>
                 </div>
               )}
