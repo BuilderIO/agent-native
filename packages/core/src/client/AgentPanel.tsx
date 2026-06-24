@@ -75,7 +75,10 @@ const MultiTabAssistantChatLazy = lazy(() =>
     default: m.MultiTabAssistantChat,
   })),
 );
-import type { MultiTabAssistantChatHeaderProps } from "./MultiTabAssistantChat.js";
+import type {
+  MultiTabAssistantChatHeaderProps,
+  MultiTabAssistantChatProps,
+} from "./MultiTabAssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import { useDevMode } from "./use-dev-mode.js";
@@ -518,6 +521,8 @@ export interface AgentPanelProps extends Omit<
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
+  /** Keep chat thread selection in URL state. */
+  threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
   /** Show the chat thread tab row when the panel header is hidden. Default: true. */
@@ -636,6 +641,7 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   browserTabId,
+  threadUrlSync,
   chatNotice,
   showTabBar = true,
   codeAccess,
@@ -1589,6 +1595,7 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               browserTabId={browserTabId}
+              threadUrlSync={threadUrlSync}
             />
           </Suspense>
         )}
@@ -2240,6 +2247,8 @@ export interface AgentSidebarProps {
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
+  /** Keep chat thread selection in URL state. */
+  threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
 }
 
 /**
@@ -2262,6 +2271,7 @@ export function AgentSidebar({
   onFullscreenRequest,
   scope,
   browserTabId,
+  threadUrlSync,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() =>
@@ -2730,6 +2740,7 @@ export function AgentSidebar({
           storageKey={storageKey}
           scope={scope}
           browserTabId={browserTabId}
+          threadUrlSync={threadUrlSync}
         />
       </div>
       {showResizeHandle && isLeft && (

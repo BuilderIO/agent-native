@@ -50,6 +50,10 @@ const threadMocks = vi.hoisted(() => ({
   isNewThread: vi.fn(() => false),
 }));
 
+const chatThreadHookMocks = vi.hoisted(() => ({
+  useChatThreads: vi.fn(),
+}));
+
 vi.mock("./frame.js", () => ({
   isTrustedFrameMessage: () => true,
   getFramePostMessageTargetOrigin: () => null,
@@ -106,8 +110,10 @@ vi.mock("./components/ui/popover.js", () => ({
 }));
 
 vi.mock("./use-chat-threads.js", () => ({
-  useChatThreads: () => threadMocks,
+  useChatThreads: chatThreadHookMocks.useChatThreads,
 }));
+
+chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 
 vi.mock("./AssistantChat.js", async () => {
   const React = await import("react");
@@ -151,6 +157,8 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  chatThreadHookMocks.useChatThreads.mockReset();
+  chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 }
 
 function dispatchSubmitChat(data: Record<string, unknown>) {
@@ -467,6 +475,164 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.textContent).toContain("Using this form");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
+  });
+
+  it("syncs selected and new chat states to the URL when enabled", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Second thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    threadMocks.createThread.mockImplementationOnce(async () => "thread-new");
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      headerProps?.setActiveTabId("thread-2");
+    });
+    expect(window.location.search).toBe("?thread=thread-2");
+
+    await act(async () => {
+      await headerProps?.addTab();
+      await Promise.resolve();
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("reacts when client-side navigation clears the thread query param", async () => {
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" threadUrlSync />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+
+    act(() => {
+      window.history.pushState(null, "", "/");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: null }),
+    );
+  });
+
+  it("accepts a route-owned thread id for path-based chat routes", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    const navigate = vi.fn();
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Second thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    window.history.replaceState(null, "", "/chat/thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: "thread-1",
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/",
+            navigate,
+          }}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+
+    act(() => {
+      headerProps?.setActiveTabId("thread-2");
+    });
+
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-2", {
+      replace: false,
+    });
+
+    window.history.pushState(null, "", "/");
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/",
+            navigate,
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: null }),
+    );
   });
 });
 

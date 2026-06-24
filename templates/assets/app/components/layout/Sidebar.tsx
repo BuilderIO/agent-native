@@ -100,8 +100,24 @@ function persistedActiveThreadId() {
   }
 }
 
+function threadIdFromPath(pathname: string) {
+  const match = pathname.match(/^\/chat\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+function chatThreadPath(threadId: string) {
+  return `/chat/${encodeURIComponent(threadId)}`;
+}
+
 function AssetsChatsSection() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     threads,
     activeThreadId,
@@ -159,7 +175,10 @@ function AssetsChatsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      options?.isNew ? "/" : chatThreadPath(threadId),
+    );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -261,7 +280,10 @@ function AssetsChatsSection() {
       </div>
       <div className="grid gap-0.5">
         {visibleThreads.map((thread) => {
-          const isActive = thread.id === activeThreadId;
+          const isActive =
+            thread.id ===
+            (threadIdFromPath(location.pathname) ??
+              (location.pathname === "/" ? null : activeThreadId));
           const isRenaming = thread.id === renamingThreadId;
           return (
             <div
@@ -367,7 +389,8 @@ function AssetsChatsSection() {
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isCreateRoute = location.pathname === "/";
+  const isCreateRoute =
+    location.pathname === "/" || location.pathname.startsWith("/chat/");
   const { data: auditAdmin } = useActionQuery("is-audit-admin", {}, {
     refetchInterval: 30_000,
   } as any) as { data: { allowed?: boolean } | undefined };
@@ -453,7 +476,7 @@ export function Sidebar() {
             const Icon = item.icon;
             const isActive =
               item.href === "/"
-                ? location.pathname === "/"
+                ? isCreateRoute
                 : item.href === "/brand-kits"
                   ? location.pathname === "/brand-kits" ||
                     location.pathname.startsWith("/brand-kits/") ||
