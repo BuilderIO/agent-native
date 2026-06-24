@@ -20,3 +20,9 @@ the 60s Netlify wall.
   graceful inline fallback running in the foreground ~60s function — keeps the
   ~40s soft-timeout and checkpoints before the hard wall instead of overshooting
   and re-dispatching in a loop.
+- Server-driven continuation stays on for every durable worker so a run survives
+  the client disconnecting (closed tab): a worker on the regular ~60s function (a
+  Netlify routing miss, or a non-Netlify host with no `-background` function)
+  self-chains 40s chunks, while a worker in a real `-background` function chains
+  ~13-min chunks. Only the per-chunk budget differs by function type; the
+  continuation is always server-driven.

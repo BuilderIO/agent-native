@@ -4605,15 +4605,24 @@ export function createProductionAgentHandler(
               // user-stopped runs do NOT chain.
               if (
                 shouldChainBackgroundContinuation({
-                  // Only self-chain background→background when we are genuinely
-                  // inside a `-background` function. A worker that landed on the
-                  // ~60s synchronous function checkpoints at the 40s soft-timeout
-                  // and emits a client-visible auto_continue; the client (which
-                  // is streaming the same events via the cross-isolate SQL poll)
-                  // re-POSTs the continuation. Self-chaining there would just
-                  // re-fire onto the 60s function again — harmless but pointless;
-                  // let the client-driven continuation own it instead.
-                  isBackgroundWorker: runsInBackgroundFunction,
+                  // Self-chain server-side for EVERY durable worker, not only the
+                  // ones inside a `-background` function. Server-driven
+                  // continuation is the whole point of durable background: the run
+                  // must survive the client disconnecting (closed tab), so it
+                  // cannot depend on the browser re-POSTing `auto_continue`. A
+                  // worker on the regular ~60s function — a Netlify routing miss,
+                  // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+                  // never emits a `-background` function — checkpoints at the 40s
+                  // soft-timeout and self-dispatches the next 40s chunk; a worker
+                  // in a real `-background` function chains ~13-min chunks. Only
+                  // the per-chunk BUDGET differs by function type (gated by
+                  // `runsInBackgroundFunction` at the startRun call below); the
+                  // continuation itself must stay server-driven on both. (The
+                  // self-chain is only reachable when the initial dispatch already
+                  // succeeded — a dispatch fast-fail degrades to the inline
+                  // foreground fallback, which is not a worker and rides the
+                  // connected client's auto_continue instead.)
+                  isBackgroundWorker,
                   run,
                   continuationCount: backgroundContinuationCount,
                 })
