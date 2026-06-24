@@ -294,7 +294,7 @@ export function NewWorkspaceAppFlow({
         } else {
           setStatusMessage(
             result?.message ||
-              "Builder app creation is coming soon here. Open this workspace in Builder to create an app from this prompt.",
+              "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
         }
       }

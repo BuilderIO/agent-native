@@ -15,6 +15,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
+  IconSettings,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
@@ -211,6 +212,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: "Trash",
       icon: IconTrash,
       match: (p) => p.startsWith("/trash"),
+    },
+    {
+      to: "/settings",
+      label: "Settings",
+      icon: IconSettings,
+      match: (p) => p.startsWith("/settings"),
     },
   ];
 

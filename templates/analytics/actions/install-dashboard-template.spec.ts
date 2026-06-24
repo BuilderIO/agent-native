@@ -162,6 +162,89 @@ describe("install-dashboard-template mergePanels", () => {
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 
+  it("merges template filters when appending panels to an existing dashboard", async () => {
+    const regionFilter = { id: "region", label: "Region", type: "text" };
+    const timeRangeFilter = {
+      id: "timeRange",
+      label: "Time range",
+      type: "select",
+      default: "90d",
+    };
+    const emailFilter = {
+      id: "emailFilter",
+      label: "Email",
+      type: "select",
+      default: "all",
+    };
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      title: "My Dashboard",
+      config: {
+        name: "My Dashboard",
+        filters: [regionFilter],
+        panels: [panel("p1")],
+      },
+    });
+    mocks.cloneDashboardConfig.mockReturnValue({
+      name: "Skills CLI Funnel",
+      filters: [timeRangeFilter, emailFilter],
+      panels: [panel("p2")],
+    });
+
+    const result: any = await installDashboardTemplate.run({
+      templateId: "skills-cli-funnel",
+      dashboardId: "my-dashboard",
+      mergePanels: true,
+    });
+
+    expect(result.addedPanelIds).toEqual(["p2"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    const savedConfig = mocks.upsertDashboard.mock.calls[0][2] as {
+      filters: unknown[];
+    };
+    expect(savedConfig.filters).toEqual([
+      regionFilter,
+      timeRangeFilter,
+      emailFilter,
+    ]);
+  });
+
+  it("saves when mergePanels only needs to heal missing template filters", async () => {
+    const timeRangeFilter = {
+      id: "timeRange",
+      label: "Time range",
+      type: "select",
+      default: "90d",
+    };
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      title: "My Dashboard",
+      config: {
+        name: "My Dashboard",
+        panels: [panel("p1")],
+      },
+    });
+    mocks.cloneDashboardConfig.mockReturnValue({
+      name: "Skills CLI Funnel",
+      filters: [timeRangeFilter],
+      panels: [panel("p1")],
+    });
+
+    const result: any = await installDashboardTemplate.run({
+      templateId: "skills-cli-funnel",
+      dashboardId: "my-dashboard",
+      mergePanels: true,
+    });
+
+    expect(result.addedPanelIds).toEqual([]);
+    expect(result.skippedExistingIds).toEqual(["p1"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    const savedConfig = mocks.upsertDashboard.mock.calls[0][2] as {
+      filters: unknown[];
+    };
+    expect(savedConfig.filters).toEqual([timeRangeFilter]);
+  });
+
   it("requires dashboardId when mergePanels is true", async () => {
     await expect(
       installDashboardTemplate.run({

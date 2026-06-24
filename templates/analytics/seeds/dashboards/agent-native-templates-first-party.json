@@ -8,12 +8,30 @@
       "label": "Time range",
       "default": "90d",
       "options": [
-        { "value": "7d", "label": "Last 7 days" },
-        { "value": "30d", "label": "Last 30 days" },
-        { "value": "90d", "label": "Last 90 days" },
-        { "value": "180d", "label": "Last 180 days" },
-        { "value": "365d", "label": "Last 365 days" },
-        { "value": "all", "label": "All time" }
+        {
+          "value": "7d",
+          "label": "Last 7 days"
+        },
+        {
+          "value": "30d",
+          "label": "Last 30 days"
+        },
+        {
+          "value": "90d",
+          "label": "Last 90 days"
+        },
+        {
+          "value": "180d",
+          "label": "Last 180 days"
+        },
+        {
+          "value": "365d",
+          "label": "Last 365 days"
+        },
+        {
+          "value": "all",
+          "label": "All time"
+        }
       ]
     },
     {
@@ -22,9 +40,18 @@
       "label": "Email filter",
       "default": "all",
       "options": [
-        { "value": "all", "label": "All users" },
-        { "value": "exclude_builder", "label": "Exclude @builder.io" },
-        { "value": "only_builder", "label": "Only @builder.io" }
+        {
+          "value": "all",
+          "label": "All users"
+        },
+        {
+          "value": "exclude_builder",
+          "label": "Exclude @builder.io"
+        },
+        {
+          "value": "only_builder",
+          "label": "Only @builder.io"
+        }
       ]
     }
   ],
@@ -83,7 +110,7 @@
       "chartType": "metric",
       "source": "first-party",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template'",
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))",
       "config": {
         "yKey": "count",
         "yFormatter": "number",
@@ -96,7 +123,7 @@
       "chartType": "metric",
       "source": "first-party",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo'",
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))",
       "config": {
         "yKey": "count",
         "yFormatter": "number",
@@ -109,7 +136,7 @@
       "chartType": "metric",
       "source": "first-party",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command'",
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))",
       "config": {
         "yKey": "count",
         "yFormatter": "number",
@@ -122,7 +149,7 @@
       "chartType": "area",
       "source": "first-party",
       "width": 2,
-      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
       "config": {
         "xKey": "date",
         "yKey": "count",
@@ -141,7 +168,7 @@
       "chartType": "area",
       "source": "first-party",
       "width": 2,
-      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
       "config": {
         "xKey": "date",
         "yKey": "count",
@@ -160,7 +187,7 @@
       "chartType": "area",
       "source": "first-party",
       "width": 2,
-      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY substr(timestamp, 1, 10), COALESCE(NULLIF(template, ''), 'unknown') ORDER BY date, template",
       "config": {
         "xKey": "date",
         "yKey": "count",
@@ -240,17 +267,37 @@
       "chartType": "table",
       "source": "first-party",
       "width": 2,
-      "sql": "WITH pageviews AS (SELECT COALESCE(CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') END, NULLIF(url, ''), NULLIF(path, ''), 'unknown') AS url, CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN NULLIF(url, '') LIKE 'http%' THEN url ELSE COALESCE(NULLIF(url, ''), NULLIF(path, ''), '') END AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM analytics_events WHERE event_name = 'pageview' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY 1, 2) SELECT url, views, users, last_seen, href FROM pageviews ORDER BY views DESC LIMIT 25",
+      "sql": "WITH pageviews AS (SELECT COALESCE(CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') END, NULLIF(url, ''), NULLIF(path, ''), 'unknown') AS url, CASE WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN lower(COALESCE(NULLIF(url, ''), '')) LIKE 'http://%' OR lower(COALESCE(NULLIF(url, ''), '')) LIKE 'https://%' THEN url WHEN NULLIF(path, '') IS NOT NULL AND substr(path, 1, 1) = '/' AND substr(path, 1, 2) != '//' THEN path ELSE '' END AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM analytics_events WHERE event_name = 'pageview' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) GROUP BY 1, 2) SELECT url, views, users, last_seen, href FROM pageviews ORDER BY views DESC LIMIT 25",
       "config": {
         "description": "Most-viewed URLs in the selected time range. Links open in a new tab.",
         "sortable": true,
         "limit": 25,
         "columns": [
-          { "key": "url", "label": "URL", "format": "link", "linkKey": "href" },
-          { "key": "views", "label": "Views", "format": "number" },
-          { "key": "users", "label": "Users", "format": "number" },
-          { "key": "last_seen", "label": "Last seen", "format": "date" },
-          { "key": "href", "hidden": true }
+          {
+            "key": "url",
+            "label": "URL",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "views",
+            "label": "Views",
+            "format": "number"
+          },
+          {
+            "key": "users",
+            "label": "Users",
+            "format": "number"
+          },
+          {
+            "key": "last_seen",
+            "label": "Last seen",
+            "format": "date"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          }
         ]
       }
     },
@@ -260,7 +307,7 @@
       "chartType": "table",
       "source": "first-party",
       "width": 2,
-      "sql": "WITH clip_events AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'recording_id', ''), NULLIF(path, ''), NULLIF(url, ''), 'unknown') AS clip_key, CASE WHEN NULLIF(url, '') LIKE 'http%' THEN url WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN NULLIF(path, '') LIKE '/%' THEN 'https://clips.agent-native.com' || path ELSE COALESCE(NULLIF(url, ''), '') END AS href, user_id, anonymous_id, timestamp FROM analytics_events WHERE event_name = 'share_view' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND COALESCE(NULLIF(properties::jsonb ->> 'surface', ''), 'clip') = 'clip'), clip_views AS (SELECT clip_key, COALESCE(MAX(NULLIF(href, '')), clip_key) AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM clip_events GROUP BY clip_key) SELECT CASE WHEN href LIKE 'http%' THEN href ELSE clip_key END AS clip, views, users, last_seen, href FROM clip_views ORDER BY views DESC LIMIT 25",
+      "sql": "WITH clip_events AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'recording_id', ''), NULLIF(path, ''), NULLIF(url, ''), 'unknown') AS clip_key, CASE WHEN lower(COALESCE(NULLIF(url, ''), '')) LIKE 'http://%' OR lower(COALESCE(NULLIF(url, ''), '')) LIKE 'https://%' THEN url WHEN NULLIF(hostname, '') IS NOT NULL THEN 'https://' || hostname || COALESCE(NULLIF(path, ''), '/') WHEN NULLIF(path, '') LIKE '/%' THEN 'https://clips.agent-native.com' || path ELSE '' END AS href, user_id, anonymous_id, timestamp FROM analytics_events WHERE event_name = 'share_view' AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND substr(timestamp, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND COALESCE(NULLIF(properties::jsonb ->> 'surface', ''), 'clip') = 'clip'), clip_views AS (SELECT clip_key, COALESCE(MAX(NULLIF(href, '')), clip_key) AS href, COUNT(*) AS views, COUNT(DISTINCT COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))) AS users, MAX(substr(timestamp, 1, 10)) AS last_seen FROM clip_events GROUP BY clip_key) SELECT CASE WHEN lower(COALESCE(href, '')) LIKE 'http://%' OR lower(COALESCE(href, '')) LIKE 'https://%' THEN href ELSE clip_key END AS clip, views, users, last_seen, href FROM clip_views ORDER BY views DESC LIMIT 25",
       "config": {
         "description": "Most-viewed shared Clips pages in the selected time range.",
         "sortable": true,
@@ -272,10 +319,25 @@
             "format": "link",
             "linkKey": "href"
           },
-          { "key": "views", "label": "Views", "format": "number" },
-          { "key": "users", "label": "Users", "format": "number" },
-          { "key": "last_seen", "label": "Last seen", "format": "date" },
-          { "key": "href", "hidden": true }
+          {
+            "key": "views",
+            "label": "Views",
+            "format": "number"
+          },
+          {
+            "key": "users",
+            "label": "Users",
+            "format": "number"
+          },
+          {
+            "key": "last_seen",
+            "label": "Last seen",
+            "format": "date"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          }
         ]
       }
     },
@@ -487,8 +549,15 @@
       "config": {
         "description": "Users (by id) driving the most referred signups over the last 90 days.",
         "columns": [
-          { "key": "referrer_user", "label": "Referrer (user id)" },
-          { "key": "signups", "label": "Signups", "format": "number" }
+          {
+            "key": "referrer_user",
+            "label": "Referrer (user id)"
+          },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          }
         ]
       }
     },

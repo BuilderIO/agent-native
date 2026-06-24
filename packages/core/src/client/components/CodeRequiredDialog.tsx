@@ -12,6 +12,8 @@ import { trackEvent } from "../analytics.js";
 import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
+const CODE_CHANGE_FALLBACK_DETAIL =
+  "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
 
 export interface CodeRequiredDialogProps {
   open: boolean;
@@ -219,15 +221,10 @@ export function CodeRequiredDialog({
                 <IconExternalLink size={24} />
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>
-                  Builder Cloud Agents coming soon
-                </span>
-                <span style={s.optionDesc}>
-                  You don't have access yet. Use the desktop app or your local
-                  clone for this code change.
-                </span>
+                <span style={s.optionTitle}>This requires a code change</span>
+                <span style={s.optionDesc}>{CODE_CHANGE_FALLBACK_DETAIL}</span>
               </div>
-              <span style={s.badge}>Coming soon</span>
+              <span style={s.badge}>Code change</span>
             </div>
           ) : (
             <a

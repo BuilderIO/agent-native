@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatMetricValue, sortTooltipPayloadItems } from "./SqlChart";
+import {
+  formatMetricValue,
+  safeDashboardLinkHref,
+  sortTooltipPayloadItems,
+} from "./SqlChart";
 
 // Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
 // numbers). The metric renderer used to only format `typeof raw === "number"`,
@@ -60,5 +64,27 @@ describe("sortTooltipPayloadItems", () => {
       "content",
       "forms",
     ]);
+  });
+});
+
+describe("safeDashboardLinkHref", () => {
+  it("keeps http, https, and root-relative links", () => {
+    expect(safeDashboardLinkHref("https://example.com/path")).toBe(
+      "https://example.com/path",
+    );
+    expect(safeDashboardLinkHref("http://example.com/path")).toBe(
+      "http://example.com/path",
+    );
+    expect(safeDashboardLinkHref("/dashboards/example")).toBe(
+      "/dashboards/example",
+    );
+  });
+
+  it("blocks unsafe or incomplete link targets", () => {
+    expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
+    expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
+    expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
+    expect(safeDashboardLinkHref("example.com/path")).toBeNull();
+    expect(safeDashboardLinkHref("")).toBeNull();
   });
 });

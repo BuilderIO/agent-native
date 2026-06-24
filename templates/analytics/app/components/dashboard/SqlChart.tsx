@@ -812,6 +812,24 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   return String(value);
 }
 
+export function safeDashboardLinkHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const href = value.trim();
+  if (!href) return null;
+  if (href.startsWith("//")) return null;
+
+  try {
+    const parsed = href.startsWith("/")
+      ? new URL(href, "https://agent-native.local")
+      : new URL(href);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function renderDeltaCell(value: unknown): ReactNode {
   if (value == null || typeof value !== "number" || Number.isNaN(value)) {
     return <span className="text-muted-foreground">-</span>;
@@ -983,19 +1001,24 @@ function TableRenderer({
                     const href = col.linkKey
                       ? String(row[col.linkKey] ?? "")
                       : String(raw ?? "");
+                    const safeHref = safeDashboardLinkHref(href);
                     return (
                       <td
                         key={col.key}
                         className="py-1.5 px-2 whitespace-nowrap"
                       >
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {formatted}
-                        </a>
+                        {safeHref ? (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {formatted}
+                          </a>
+                        ) : (
+                          formatted
+                        )}
                       </td>
                     );
                   }
