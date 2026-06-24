@@ -22,7 +22,8 @@ a host permission and does not trigger the review.
 
 Declared permissions: `activeTab`, `debugger`, `offscreen`, `scripting`,
 `storage`. Host permissions: only the configured Clips app + `forms.agent-native.com`
-+ `localhost`/`127.0.0.1`.
+
+- `localhost`/`127.0.0.1`.
 
 ## What this costs
 
@@ -32,7 +33,7 @@ Declared permissions: `activeTab`, `debugger`, `offscreen`, `scripting`,
 - **Recording itself is unaffected.** Capture runs in the offscreen document via
   `getDisplayMedia`, independent of any tab's content script — full-screen,
   window, and other-tab content are all still captured normally. Only the on-page
-  *overlay UI* is scoped to the launch tab.
+  _overlay UI_ is scoped to the launch tab.
 
 ## Re-enabling cross-tab follow
 
