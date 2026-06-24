@@ -905,7 +905,34 @@ async function armRecording(args: {
   });
   console.log("[clips-bg] arm: acquired stream", acq);
 
-  // 2) Create the recording row now that we know the user picked a source.
+  // 2) Show the countdown overlay IMMEDIATELY — before the network round-trip —
+  //    so the 3-2-1 runs full-length and the dim/blur clears exactly when the
+  //    recorder starts. The on-page bubble shows during countdown AND recording
+  //    (the face is captured in the display; we do not composite).
+  const cameraInvolved = mode === "camera" || settings.includeCamera;
+  overlayPhase = "countdown";
+  overlayBaseElapsedMs = 0;
+  overlayBaseEpochMs = nowMs();
+  overlayShowsBubble = cameraInvolved;
+  recordingShowsBubble = cameraInvolved;
+  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
+  setRecordingFlag(true);
+  // Clicking the icon now stops & saves immediately instead of opening the popup.
+  setActionPopup("");
+  await mountOverlayOnTab(tab.id as number);
+  broadcastOverlayState();
+
+  const abortArming = async (): Promise<void> => {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId,
+    }).catch(() => undefined);
+    resetOverlay();
+    await broadcastUnmount();
+    await chrome.action.setBadgeText({ text: "" });
+  };
+
+  // 3) Create the recording row (happens during the countdown).
   type CreatedRecording = {
     id?: string;
     uploadChunkUrl?: string;
@@ -918,23 +945,17 @@ async function armRecording(args: {
       titleSource: tab.title ? "context" : "default",
       sourceAppName: "Chrome",
       sourceWindowTitle: tab.title ?? null,
-      hasCamera: settings.captureSurface === "camera" || settings.includeCamera,
+      hasCamera: cameraInvolved,
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
       visibility: "public",
     });
   } catch (err) {
-    await sendOffscreenMessage({
-      type: "CLIPS_OFFSCREEN_CANCEL",
-      sessionId,
-    }).catch(() => undefined);
+    await abortArming();
     throw err;
   }
   if (!created.id || !created.uploadChunkUrl) {
-    await sendOffscreenMessage({
-      type: "CLIPS_OFFSCREEN_CANCEL",
-      sessionId,
-    }).catch(() => undefined);
+    await abortArming();
     throw new Error("Clips did not create a recording target.");
   }
 
@@ -961,34 +982,20 @@ async function armRecording(args: {
     error: null,
   };
 
-  // 3) Enter the countdown phase and show the overlay on the launch tab. The
-  //    camera bubble shows whenever a camera is involved: as the picture-in-
-  //    picture for screen+camera, or as a live self-preview for camera-only.
-  overlayPhase = "countdown";
-  overlayBaseElapsedMs = 0;
-  overlayBaseEpochMs = nowMs();
-  overlayShowsBubble = mode === "camera" || settings.includeCamera;
-  recordingShowsBubble = mode === "camera";
-  countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
-  setRecordingFlag(true);
-  // Clicking the icon now stops & saves immediately instead of opening the popup.
-  setActionPopup("");
-
-  // Hand the recorder its targets plus the pre-roll delay. The offscreen document
-  // (a reliable context, unlike the suspendable worker) owns the countdown timer
-  // and reports "recording" back when the recorder actually starts — that status
-  // flip (markRecordingStarted) advances our phase, so recording begins even on
-  // pages where no overlay can be injected (chrome://, the New Tab page, etc.).
+  // 4) Start the recorder when the (already-running) countdown ends. The
+  //    offscreen owns the pre-roll timer (a reliable context, unlike the
+  //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
+  const startDelayMs = Math.max(0, countdownEndsAtMs - nowMs());
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
       sessionId,
       recordingId: created.id,
       uploadUrl,
-      hasCamera: mode === "camera" || settings.includeCamera,
-      startDelayMs: COUNTDOWN_SECONDS * 1000,
+      hasCamera: cameraInvolved,
+      startDelayMs,
       authToken,
     });
   } catch (err) {
@@ -1003,7 +1010,6 @@ async function armRecording(args: {
     await attachSession(session);
   }
 
-  await mountOverlayOnTab(tab.id as number);
   broadcastOverlayState();
   await chrome.action.setBadgeBackgroundColor({ color: "#e11d48" });
   await chrome.action.setBadgeText({ text: "REC" });

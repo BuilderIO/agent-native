@@ -83,6 +83,8 @@
         bottom: "24px",
         width: "148px",
         height: "148px",
+        // Above the countdown so the face stays sharp over the dim/blur.
+        zIndex: "3",
       });
     } else if (part === "toolbar") {
       // Left-edge vertical pill (desktop layout). Height grows on hover via the
@@ -92,6 +94,7 @@
         top: "calc(50% - 77px)",
         width: "68px",
         height: "154px",
+        zIndex: "2",
       });
     } else if (part === "saving") {
       Object.assign(frame.style, {
@@ -99,12 +102,15 @@
         bottom: "24px",
         width: "264px",
         height: "96px",
+        zIndex: "2",
       });
     } else {
+      // countdown — full-screen dim/blur, below the bubble.
       Object.assign(frame.style, {
         inset: "0",
         width: "100%",
         height: "100%",
+        zIndex: "1",
       });
     }
   }
