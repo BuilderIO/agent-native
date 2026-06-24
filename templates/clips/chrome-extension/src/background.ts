@@ -1026,10 +1026,11 @@ async function armRecording(args: {
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
   // The on-page countdown drives the actual start (it sends COUNTDOWN_DONE at
-  // "Go"). This offscreen timer is only a FALLBACK for pages where no overlay
-  // can be injected — generous so the even on-page countdown wins everywhere it
-  // can run.
-  const startDelayMs = COUNTDOWN_SECONDS * 1000 + 1000;
+  // "Go"). This offscreen timer is only a FALLBACK. When a camera is involved the
+  // countdown waits for the camera feed before it even shows "3" (the content
+  // script holds it, with its own 12s cap), so the fallback must be generous
+  // enough not to start the recorder mid-connect; otherwise a short pre-roll.
+  const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
