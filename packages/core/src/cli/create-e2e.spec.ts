@@ -888,9 +888,9 @@ describe("workspace scaffold defaults", () => {
   }, 60000);
 
   it("does not copy local Claude settings files from framework-dev templates", () => {
-    expect(_shouldSkipScaffoldEntry("settings.json", ".claude/settings.json")).toBe(
-      true,
-    );
+    expect(
+      _shouldSkipScaffoldEntry("settings.json", ".claude/settings.json"),
+    ).toBe(true);
     expect(
       _shouldSkipScaffoldEntry(
         "settings.local.json",

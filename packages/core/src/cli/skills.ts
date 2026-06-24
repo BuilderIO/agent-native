@@ -3920,6 +3920,18 @@ function ensureWorkspaceRootSkillsLink(
   }
 }
 
+function refreshCopiedClaudeSkills(projectRoot: string): void {
+  const agentsSkillsDir = path.join(projectRoot, ".agents", "skills");
+  const claudeSkillsDir = path.join(projectRoot, ".claude", "skills");
+  if (!fs.existsSync(agentsSkillsDir) || !fs.existsSync(claudeSkillsDir)) {
+    return;
+  }
+  try {
+    if (fs.lstatSync(claudeSkillsDir).isSymbolicLink()) return;
+    copyScaffoldGuidanceSkills(agentsSkillsDir, claudeSkillsDir);
+  } catch {}
+}
+
 function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
   const seen = new Set<string>();
   for (const state of states) {
@@ -3932,7 +3944,9 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
         state.sharedPackageDir,
       );
       setupAgentSymlinks(state.workspaceRoot);
+      refreshCopiedClaudeSkills(state.workspaceRoot);
       setupAgentSymlinks(state.sharedPackageDir);
+      refreshCopiedClaudeSkills(state.sharedPackageDir);
       const appsDir = path.join(state.workspaceRoot, "apps");
       if (fs.existsSync(appsDir)) {
         for (const entry of fs.readdirSync(appsDir, { withFileTypes: true })) {
@@ -3940,6 +3954,7 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
             setupAgentSymlinks(appDir);
+            refreshCopiedClaudeSkills(appDir);
           }
         }
       }
@@ -3950,6 +3965,7 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
     if (seen.has(key)) continue;
     seen.add(key);
     setupAgentSymlinks(state.projectRoot);
+    refreshCopiedClaudeSkills(state.projectRoot);
   }
 }
 

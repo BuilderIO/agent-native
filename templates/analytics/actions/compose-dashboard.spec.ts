@@ -70,6 +70,8 @@ const LARGE_METRICS = [
   "total-template-clicks",
   "cli-copies-over-time",
   "pageviews-over-time",
+  "top-visited-urls",
+  "top-visited-clips",
   "referred-signups-30d",
   "viral-signup-share-30d",
   "viral-coefficient-90d",
@@ -102,7 +104,7 @@ beforeEach(() => {
 });
 
 describe("compose-dashboard", () => {
-  it("builds a large dashboard (16 metrics) in one call with correct SQL", async () => {
+  it("builds a large dashboard (18 metrics) in one call with correct SQL", async () => {
     const result: any = await composeDashboard.run(
       {
         dashboardId: "big-compose",
@@ -122,7 +124,7 @@ describe("compose-dashboard", () => {
 
     const saved = store.get("big-compose")!;
     const panels = saved.config.panels as Array<Record<string, unknown>>;
-    expect(panels).toHaveLength(16);
+    expect(panels).toHaveLength(18);
 
     // Each panel has the canonical first-party shape.
     for (const panel of panels) {
