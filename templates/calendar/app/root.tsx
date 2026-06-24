@@ -4,7 +4,9 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLoaderData,
   useLocation,
+  useRouteLoaderData,
 } from "react-router";
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,13 +21,17 @@ import {
   createAgentNativeQueryClient,
   getLocaleInitScript,
   getThemeInitScript,
+  type LocaleCode,
+  type LocaleMessages,
+  type LocalizationPreference,
   useCommandMenuShortcut,
   useDbSync,
   useT,
 } from "@agent-native/core/client";
+import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import changelog from "../CHANGELOG.md?raw";
-import type { LinksFunction } from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import stylesheet from "./global.css?url";
 import { i18nCatalog } from "./i18n";
 configureTracking({
@@ -39,12 +45,55 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+interface RootLoaderData {
+  locale: LocaleCode;
+  preference: LocalizationPreference;
+  dir: "ltr" | "rtl";
+  messages: LocaleMessages;
+}
+
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<RootLoaderData> {
+  const resolved = resolveLocaleFromRequest({ request });
+  const messages =
+    ((await i18nCatalog.loadMessages?.(resolved.locale)) as
+      | LocaleMessages
+      | null
+      | undefined) ?? i18nCatalog.messages;
+  return {
+    locale: resolved.locale,
+    preference: resolved.preference,
+    dir: resolved.dir,
+    messages,
+  };
+}
+
 const THEME_INIT_SCRIPT = getThemeInitScript();
-const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+const DEFAULT_LOADER_DATA: RootLoaderData = {
+  locale: "en-US",
+  preference: { locale: "system" },
+  dir: "ltr",
+  messages: i18nCatalog.messages,
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData =
+    useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
+  const localeInitScript = getLocaleInitScript({
+    locale: loaderData.locale,
+    preference: loaderData.preference,
+    messages: loaderData.messages,
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang={loaderData.locale}
+      dir={loaderData.dir}
+      data-locale={loaderData.locale}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -58,7 +107,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           data-agent-native-locale-init
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -186,14 +235,22 @@ export default function Root() {
     }),
   );
   const location = useLocation();
+  const loaderData = useLoaderData<typeof loader>();
+  const isPublicPath = isPublicBookingPath(location.pathname);
 
   return (
     <AppProviders
       queryClient={queryClient}
-      isPublicPath={isPublicBookingPath(location.pathname)}
+      isPublicPath={isPublicPath}
       clientOnlyFallback={<DefaultSpinner />}
       toaster={<Toaster richColors position="bottom-center" />}
-      i18n={{ catalog: i18nCatalog }}
+      i18n={{
+        catalog: i18nCatalog,
+        initialLocale: loaderData.locale,
+        initialPreference: loaderData.preference,
+        initialMessages: loaderData.messages,
+        persistPreference: !isPublicPath,
+      }}
     >
       <AppContent />
     </AppProviders>

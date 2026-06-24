@@ -2,18 +2,32 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
 import { createPortal } from "react-dom";
 import { useLocale, useT } from "@agent-native/core/client";
-import { buildSearchIndex, type SearchEntry } from "./docs-content";
+import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
 
 // Lazily built on first open — not at module scope — so the index and the full
 // docs corpus are not included in the initial page bundle.
 const cachedIndexes = new Map<string, SearchEntry[]>();
-function getSearchIndex(locale: string): SearchEntry[] {
+const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
+function getCachedSearchIndex(locale: string): SearchEntry[] | null {
   const cached = cachedIndexes.get(locale);
-  if (cached) return cached;
-  const index = buildSearchIndex(locale);
-  cachedIndexes.set(locale, index);
-  return index;
+  return cached ?? null;
+}
+
+function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
+  const cached = cachedIndexes.get(locale);
+  if (cached) return Promise.resolve(cached);
+
+  const pending = pendingIndexes.get(locale);
+  if (pending) return pending;
+
+  const promise = buildSearchIndexAsync(locale).then((index) => {
+    cachedIndexes.set(locale, index);
+    pendingIndexes.delete(locale);
+    return index;
+  });
+  pendingIndexes.set(locale, promise);
+  return promise;
 }
 
 function highlightMatch(text: string, query: string) {
@@ -37,9 +51,8 @@ function highlightMatch(text: string, query: string) {
   );
 }
 
-function search(query: string, locale: string): SearchEntry[] {
+function search(query: string, index: SearchEntry[]): SearchEntry[] {
   if (!query.trim()) return [];
-  const index = getSearchIndex(locale);
   const q = query.toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
 
@@ -99,13 +112,31 @@ export function SearchModal({
 }) {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [index, setIndex] = useState<SearchEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const navigate = useNavigate();
   const { locale } = useLocale();
   const t = useT();
-  const results = search(query, locale);
+  const results = search(query, index);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const cached = getCachedSearchIndex(locale);
+    if (cached) {
+      setIndex(cached);
+      return;
+    }
+    setIndex([]);
+    void loadSearchIndex(locale).then((loaded) => {
+      if (!cancelled) setIndex(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [locale, open]);
 
   // Focus management: save focus before open, restore on close
   useEffect(() => {

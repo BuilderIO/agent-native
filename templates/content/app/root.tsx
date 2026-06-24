@@ -5,7 +5,9 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  useLoaderData,
   useLocation,
+  useRouteLoaderData,
   useRouteError,
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -23,13 +25,17 @@ import {
   createAgentNativeQueryClient,
   getLocaleInitScript,
   getThemeInitScript,
+  type LocaleCode,
+  type LocaleMessages,
+  type LocalizationPreference,
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import changelog from "../CHANGELOG.md?raw";
-import type { LinksFunction } from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
 import { i18nCatalog } from "./i18n";
@@ -44,9 +50,39 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+interface RootLoaderData {
+  locale: LocaleCode;
+  preference: LocalizationPreference;
+  dir: "ltr" | "rtl";
+  messages: LocaleMessages;
+}
+
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<RootLoaderData> {
+  const resolved = resolveLocaleFromRequest({ request });
+  const messages =
+    ((await i18nCatalog.loadMessages?.(resolved.locale)) as
+      | LocaleMessages
+      | null
+      | undefined) ?? i18nCatalog.messages;
+  return {
+    locale: resolved.locale,
+    preference: resolved.preference,
+    dir: resolved.dir,
+    messages,
+  };
+}
+
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
-const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+const DEFAULT_LOADER_DATA: RootLoaderData = {
+  locale: "en-US",
+  preference: { locale: "system" },
+  dir: "ltr",
+  messages: i18nCatalog.messages,
+};
 
 const themeOptions = [
   { value: "system", label: "System", icon: IconDeviceDesktop },
@@ -94,8 +130,21 @@ function nextTheme(theme: ThemeOption): ThemeOption {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData =
+    useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
+  const localeInitScript = getLocaleInitScript({
+    locale: loaderData.locale,
+    preference: loaderData.preference,
+    messages: loaderData.messages,
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang={loaderData.locale}
+      dir={loaderData.dir}
+      data-locale={loaderData.locale}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -109,7 +158,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           data-agent-native-locale-init
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
@@ -249,6 +298,7 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
+  const loaderData = useLoaderData<typeof loader>();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
@@ -269,7 +319,13 @@ export default function Root() {
         isPublicPath
         disableThemeTransitions={false}
         toaster={contentToaster}
-        i18n={{ catalog: i18nCatalog }}
+        i18n={{
+          catalog: i18nCatalog,
+          initialLocale: loaderData.locale,
+          initialPreference: loaderData.preference,
+          initialMessages: loaderData.messages,
+          persistPreference: false,
+        }}
       >
         <Toaster />
         <PublicAgentShell>
@@ -284,7 +340,12 @@ export default function Root() {
       queryClient={queryClient}
       disableThemeTransitions={false}
       toaster={contentToaster}
-      i18n={{ catalog: i18nCatalog }}
+      i18n={{
+        catalog: i18nCatalog,
+        initialLocale: loaderData.locale,
+        initialPreference: loaderData.preference,
+        initialMessages: loaderData.messages,
+      }}
     >
       <AppSetup />
       <Toaster />

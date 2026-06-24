@@ -255,6 +255,7 @@ export function AgentNativeI18nProvider({
   const namespace = catalog?.namespace ?? "translation";
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
+  const loadMessages = catalog?.loadMessages;
   const hydration = readHydrationPayload();
   const initialState = useMemo(
     () => resolveInitialState({ initialLocale, initialPreference }),
@@ -323,7 +324,7 @@ export function AgentNativeI18nProvider({
               : initialLocale === locale && initialMessages
                 ? initialMessages
                 : null;
-          const loaded = preloaded ?? (await catalog?.loadMessages?.(locale));
+          const loaded = preloaded ?? (await loadMessages?.(locale));
           const messages = normalizeLoadedMessages(loaded);
           if (messages) {
             i18n.addResourceBundle(locale, namespace, messages, true, true);
@@ -342,12 +343,12 @@ export function AgentNativeI18nProvider({
       cancelled = true;
     };
   }, [
-    catalog,
     hydration.locale,
     hydration.messages,
     i18n,
     initialLocale,
     initialMessages,
+    loadMessages,
     locale,
     namespace,
     sourceLocale,

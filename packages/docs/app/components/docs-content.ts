@@ -180,14 +180,33 @@ export function getAllDocs(locale: unknown = DEFAULT_DOCS_LOCALE): DocEntry[] {
   return Array.from(docs.values()).map((doc) => overrides.get(doc.slug) ?? doc);
 }
 
-/** Build a search index from all markdown content */
-export function buildSearchIndex(
+export async function loadAllDocs(
   locale: unknown = DEFAULT_DOCS_LOCALE,
-): SearchEntry[] {
+): Promise<DocEntry[]> {
+  const docsLocale = normalizeDocsLocale(locale);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) return Array.from(docs.values());
+
+  const prefix = `../../../core/docs/content/locales/${docsLocale}/`;
+  await Promise.all(
+    Object.keys(localizedMdLoaders)
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => {
+        const slug = key.split("/").pop()!.replace(/\.md$/, "");
+        return loadDoc(slug, docsLocale);
+      }),
+  );
+  return getAllDocs(docsLocale);
+}
+
+/** Build a search index from all markdown content */
+function buildSearchIndexFromDocs(
+  docsList: DocEntry[],
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+) {
   const entries: SearchEntry[] = [];
   const docsLocale = normalizeDocsLocale(locale);
 
-  for (const doc of getAllDocs(docsLocale)) {
+  for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
     const lines = doc.body.split("\n");
     const sections: { id: string; label: string; startLine: number }[] = [];
@@ -262,4 +281,16 @@ export function buildSearchIndex(
   }
 
   return entries;
+}
+
+export function buildSearchIndex(
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): SearchEntry[] {
+  return buildSearchIndexFromDocs(getAllDocs(locale), locale);
+}
+
+export async function buildSearchIndexAsync(
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): Promise<SearchEntry[]> {
+  return buildSearchIndexFromDocs(await loadAllDocs(locale), locale);
 }
