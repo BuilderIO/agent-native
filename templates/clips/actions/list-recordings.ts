@@ -144,18 +144,16 @@ export default defineAction({
       );
     }
 
-    // True total for the same filters, ignoring limit/offset, so callers
-    // aren't stuck with the page-capped row count.
-    const totalRows = await db
-      .select({ count: sql<number>`COUNT(1)` })
-      .from(schema.recordings)
-      .where(and(...whereClauses));
-    const total = Number(totalRows[0]?.count ?? 0);
-
-    // Count-only callers (e.g. the sidebar badge) skip the row select, joins,
-    // and tag/view subqueries entirely.
+    // Count-only callers (e.g. the sidebar badge) need just the total for the
+    // same filters, ignoring limit/offset. Run the COUNT and short-circuit
+    // before the row select, joins, and tag/view subqueries. Keeping it inside
+    // this branch means the normal list path doesn't pay for an extra query.
     if (args.countOnly) {
-      return { recordings: [], total };
+      const totalRows = await db
+        .select({ count: sql<number>`COUNT(1)` })
+        .from(schema.recordings)
+        .where(and(...whereClauses));
+      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
     }
 
     // Sort
@@ -300,6 +298,6 @@ export default defineAction({
       };
     });
 
-    return { recordings, total };
+    return { recordings };
   },
 });
