@@ -307,4 +307,15 @@ describe("action discovery", () => {
     // Other core actions still get merged in.
     expect(registry["unshare-resource"]).toBeDefined();
   });
+
+  it("merges localization preference actions", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["get-localization-preference"]).toBeDefined();
+    expect(registry["get-localization-preference"].http).toEqual({
+      method: "GET",
+    });
+    expect(registry["set-localization-preference"]).toBeDefined();
+  });
 });

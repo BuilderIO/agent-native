@@ -16,8 +16,10 @@ import {
   DevOverlay,
   appPath,
   createAgentNativeQueryClient,
+  getLocaleInitScript,
   getThemeInitScript,
   useCommandMenuShortcut,
+  useT,
 } from "@agent-native/core/client";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -35,6 +37,7 @@ import {
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -48,6 +51,7 @@ export const links: LinksFunction = () => [
 ];
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -61,6 +65,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
@@ -106,6 +115,7 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -113,7 +123,7 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
 }
@@ -150,6 +160,7 @@ const CLIPS_COMMAND_DOCS = [
 
 function ClipsExtensionAuthBridge() {
   const location = useLocation();
+  const t = useT();
   const [showAuthSuccess, setShowAuthSuccess] = useState(false);
 
   useEffect(() => {
@@ -213,14 +224,14 @@ function ClipsExtensionAuthBridge() {
           <IconCheck className="h-9 w-9" strokeWidth={2.5} />
         </div>
         <DialogHeader className="items-center text-center sm:text-center">
-          <DialogTitle>Signed in</DialogTitle>
+          <DialogTitle>{t("root.extensionSignedInTitle")}</DialogTitle>
           <DialogDescription className="max-w-xs">
-            Open the Clips extension again to start recording.
+            {t("root.extensionSignedInDescription")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="sm:justify-center">
           <Button type="button" onClick={() => setShowAuthSuccess(false)}>
-            Got it
+            {t("root.gotIt")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -246,6 +257,7 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(
@@ -265,11 +277,13 @@ function AppContent() {
           changelog={changelog}
           changelogKey="clips"
         >
-          <CommandMenu.Group heading="Actions">
-            <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+          <CommandMenu.Group heading={t("root.commandActions")}>
+            <CommandMenu.Item onSelect={() => {}}>
+              {t("root.commandSearch")}
+            </CommandMenu.Item>
           </CommandMenu.Group>
           <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
-          <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Group heading={t("root.commandAppearance")}>
             <ThemeToggleItem />
           </CommandMenu.Group>
         </CommandMenu>
@@ -294,6 +308,10 @@ export default function Root() {
     <AppProviders
       queryClient={queryClient}
       isPublicPath={isStandalonePublicPath(location.pathname)}
+      i18n={{
+        catalog: i18nCatalog,
+        persistPreference: !isStandalonePublicPath(location.pathname),
+      }}
     >
       <AppContent />
     </AppProviders>

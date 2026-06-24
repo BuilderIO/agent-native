@@ -31,8 +31,17 @@ describe("generateActionRegistryForProject", () => {
         "utf-8",
       );
       expect(registry).toContain('"real-action": a_real_action');
+      expect(registry).toContain('"get-localization-preference"');
+      expect(registry).toContain('"set-localization-preference"');
       expect(registry).not.toContain("real-action.spec");
       expect(registry).not.toContain("other.test");
+
+      const types = fs.readFileSync(
+        path.join(root, ".generated", "action-types.d.ts"),
+        "utf-8",
+      );
+      expect(types).toContain('"get-localization-preference"');
+      expect(types).toContain('"set-localization-preference"');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

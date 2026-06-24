@@ -171,6 +171,33 @@ export {
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
 export {
+  AgentNativeI18nProvider,
+  LanguagePicker,
+  getLocaleInitScript,
+  localeDirection,
+  normalizeLocaleCode,
+  normalizeLocalePreference,
+  normalizeLocalizationPreference,
+  resolveLocaleFromCandidates,
+  resolveLocaleFromPreference,
+  useFormatters,
+  useLocale,
+  useT,
+  DEFAULT_LOCALE,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_METADATA,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
+  type AgentNativeI18nCatalog,
+  type AgentNativeI18nProviderProps,
+  type LocaleCode,
+  type LocaleHydrationPayload,
+  type LocaleMessages,
+  type LocaleMetadata,
+  type LocalePreference,
+  type LocalizationPreference,
+} from "./i18n.js";
+export {
   // Shared editor core (Phase 1): the ONE configurable surface both the plan
   // and content editors build on.
   SharedRichEditor,

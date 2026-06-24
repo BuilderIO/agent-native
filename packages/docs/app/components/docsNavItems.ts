@@ -26,6 +26,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Human Approval", to: "/docs/human-approval" as const },
       { label: "Public Agent Web", to: "/docs/agent-web-surfaces" as const },
       { label: "Database", to: "/docs/database" as const },
+      {
+        label: "Internationalization",
+        to: "/docs/internationalization" as const,
+      },
       { label: "Local File Mode", to: "/docs/local-file-mode" as const },
       { label: "File Uploads", to: "/docs/file-uploads" as const },
       { label: "Deployment", to: "/docs/deployment" as const },
