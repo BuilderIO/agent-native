@@ -1124,6 +1124,17 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     // Routes ONLY the chat process-run POST to the async function.
     expect(entry).toContain(JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH]));
     expect(entry).toContain('includedFiles: ["**"]');
+    // background: true is what actually makes Netlify invoke it ASYNC (202) with
+    // the 15-min budget. Without it a custom-`path` function is served
+    // synchronously (~60s) even with a -background filename — the real bug.
+    expect(entry).toContain("background: true");
+    // The entry marks the durable background runtime via a globalThis flag (NOT
+    // process.env — that would trip the no-env-mutation guard) so the worker
+    // reliably takes the ~13-min soft-timeout (the deployed Lambda name is not
+    // guaranteed to end in -background).
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
+    );
   });
 
   it("skips emit (no -background artifact) when Nitro output is missing", () => {

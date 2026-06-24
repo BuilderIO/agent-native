@@ -112,11 +112,23 @@ export function isHostedRuntimeForDurableBackground(): boolean {
  * hard wall and get killed at 60s, then re-dispatch/resume in a wasteful loop.
  * So the 13-min budget is taken ONLY when this returns true.
  *
- * Falls back to the explicit `AGENT_CHAT_FORCE_BACKGROUND_RUNTIME` env (truthy)
- * for hosts that don't expose a `-background`-suffixed function name but where
- * the operator has confirmed a long async budget. Off by default.
+ * The PRIMARY signal is a `globalThis` marker the emitted background function's
+ * entry sets at cold start — the deployed Lambda name is not guaranteed to end
+ * in `-background` on Netlify, so the entry marks its own runtime. A `globalThis`
+ * flag (not `process.env`) keeps the no-env-mutation guard satisfied and carries
+ * no cross-request state (set once per isolate). The `AWS_LAMBDA_FUNCTION_NAME`
+ * suffix and the explicit `AGENT_CHAT_FORCE_BACKGROUND_RUNTIME` env (truthy) are
+ * additional signals — the latter an operator escape hatch. Off by default.
  */
 export function isInBackgroundFunctionRuntime(): boolean {
+  // Set by the emitted `-background` function entry at cold start (the primary,
+  // most reliable signal — see the emit in deploy/build.ts).
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
   const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (
     typeof lambdaName === "string" &&

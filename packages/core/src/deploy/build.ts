@@ -1512,15 +1512,20 @@ export function isDurableBackgroundDeployEnabled(): boolean {
  * that directory to a sibling `<...>-background` function and write an entry
  * with a `config.path` of the process-run route.
  *
- * ⚠️ REAL-DEPLOY VERIFICATION REQUIRED. Whether Netlify routes
- * `/_agent-native/agent-chat/_process-run` to this `-background` function (and
- * invokes it asynchronously with the 15-min budget) vs the synchronous Nitro
- * function cannot be verified in this environment — Nitro owns the primary
- * function's routing manifest, and the precedence between the two functions for
- * that path is a Netlify runtime behavior. If routing resolves to the
- * synchronous function, the run still completes via the existing 40s
- * soft-timeout path (no durable win, no regression). See
- * docs/design/durable-agent-runs.md (Open risks #1).
+ * The function declares `background: true` so Netlify invokes it ASYNC (HTTP
+ * 202 ack) with the 15-min budget, and a `config.path` of the process-run route
+ * so the `_process-run` self-dispatch lands on it. The earlier version set the
+ * path but omitted `background: true` and relied on the legacy `-background`
+ * filename — which the `config` object overrides — so Netlify served it
+ * SYNCHRONOUSLY (~60s) and the durable worker never got the 15-min budget
+ * (confirmed live: a POST to the process-run path returned a synchronous 401
+ * from the handler instead of a 202 async ack).
+ *
+ * ⚠️ One Netlify runtime behavior still resolves only on a real deploy: the
+ * routing precedence between this function's `config.path` and Nitro's catch-all
+ * for that exact path. If the catch-all wins, the run still completes via the
+ * 40s soft-timeout path on the sync function (no durable win, no regression).
+ * See docs/design/durable-agent-runs.md (Open risks #1).
  */
 export function emitSingleTemplateNetlifyBackgroundFunction(
   projectCwd: string,
@@ -1543,7 +1548,16 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   // Drop the original Nitro entry so our background entry is the entrypoint.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const entry = `let cachedHandler;
+  const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
+// bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
+// in this function. The deployed Lambda name is NOT guaranteed to end in
+// "-background" (Netlify may mangle/prefix it), so we cannot depend on
+// AWS_LAMBDA_FUNCTION_NAME alone. A globalThis flag (NOT process.env) avoids the
+// no-env-mutation guard and carries no cross-request state — it is a static,
+// set-once isolate marker read back by isInBackgroundFunctionRuntime().
+globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+
+let cachedHandler;
 
 export default async function handler(...args) {
   cachedHandler ??= (await import("./main.mjs")).default;
@@ -1553,6 +1567,15 @@ export default async function handler(...args) {
 export const config = {
   name: "agent background handler",
   generator: "agent-native build",
+  // background: true is what actually makes Netlify invoke this ASYNCHRONOUSLY
+  // (immediate HTTP 202 ack) with the 15-minute budget. Without it, a function
+  // that declares a custom \`path\` is served SYNCHRONOUSLY (~60s) even when its
+  // file name ends in "-background" — the \`config\` object overrides the legacy
+  // filename convention. That omission is why the durable worker was capped at
+  // ~60s in prod (verified live: POST to the process-run path returned a
+  // synchronous 401 from the handler, not a 202 async ack). See Netlify docs:
+  // build/functions/background-functions + build/functions/configuration.
+  background: true,
   path: ${JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH])},
   nodeBundler: "none",
   includedFiles: ["**"],
