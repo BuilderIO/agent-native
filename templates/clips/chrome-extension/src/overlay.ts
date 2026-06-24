@@ -210,38 +210,36 @@ function initCountdown(): void {
   wrap.append(controls, hint);
   root.appendChild(wrap);
 
-  // Even, locally-driven sequence: each step shows for exactly one second. The
-  // old remaining-time math made the first number short (the iframe loads partway
-  // into the worker's countdown), which felt uneven. At "Go" we tell the worker
-  // to start the recorder; the worker's own timer is just a fallback for pages
-  // where no overlay can be injected.
+  // Each number is shown via a CHAINED setTimeout — the next step is scheduled
+  // one second after the current one actually renders, not on a fixed interval.
+  // This is deliberate: when the camera is slow to connect (e.g. an iPhone
+  // Continuity Camera) it can hog the main thread and stall a tick. A setInterval
+  // would then fire all the missed ticks back-to-back ("3"… then "2 1 Go" in a
+  // burst); chaining means a stall only delays the next number, it never bursts.
+  // At "Go" we tell the worker to start the recorder; the worker's own timer is
+  // just a fallback for pages where no overlay can be injected.
   const STEP_MS = 1000;
   const steps = ["3", "2", "1", "Go"];
-  let stepIndex = 0;
   let doneSent = false;
 
-  const showStep = (): void => {
-    const text = steps[stepIndex];
+  const showStep = (index: number): void => {
+    const text = steps[index];
     number.textContent = text;
     number.classList.toggle("countdown-go", text === "Go");
     number.style.animation = "none";
     void number.offsetWidth;
     number.style.animation = "";
-    if (text === "Go" && !doneSent) {
-      doneSent = true;
-      send("CLIPS_OVERLAY_COUNTDOWN_DONE");
-    }
-  };
-
-  showStep(); // "3" immediately
-  const interval = window.setInterval(() => {
-    stepIndex += 1;
-    if (stepIndex >= steps.length) {
-      window.clearInterval(interval);
+    if (text === "Go") {
+      if (!doneSent) {
+        doneSent = true;
+        send("CLIPS_OVERLAY_COUNTDOWN_DONE");
+      }
       return;
     }
-    showStep();
-  }, STEP_MS);
+    window.setTimeout(() => showStep(index + 1), STEP_MS);
+  };
+
+  showStep(0); // "3" immediately, then chain "2" → "1" → "Go"
 }
 
 /* --------------------------------------------------------------- toolbar --- */
