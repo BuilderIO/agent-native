@@ -13,6 +13,7 @@ let runStatusRows: Array<{ status: string }> = [];
 let claimStateRows: Array<{
   dispatch_mode: string | null;
   status: string | null;
+  diag_stage?: string | null;
 }> = [];
 let insertEventBehavior: () => void = () => {};
 
@@ -41,8 +42,12 @@ const mockDb = {
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
     }
-    // readBackgroundRunClaim: SELECT dispatch_mode, status FROM agent_runs WHERE id = ?
-    if (/SELECT dispatch_mode, status FROM agent_runs WHERE id/i.test(rawSql)) {
+    // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id = ?
+    if (
+      /SELECT dispatch_mode, status, diag_stage FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
       return { rows: claimStateRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
@@ -104,11 +109,18 @@ describe("run store", () => {
     vi.clearAllMocks();
   });
 
-  it("readBackgroundRunClaim parses dispatch_mode + status, or null when missing", async () => {
-    claimStateRows = [{ dispatch_mode: "background", status: "running" }];
+  it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage, or null when missing", async () => {
+    claimStateRows = [
+      {
+        dispatch_mode: "background",
+        status: "running",
+        diag_stage: '{"stage":"route_entered"}',
+      },
+    ];
     expect(await readBackgroundRunClaim("run-bg")).toEqual({
       dispatchMode: "background",
       status: "running",
+      diagStage: '{"stage":"route_entered"}',
     });
 
     claimStateRows = [
@@ -117,6 +129,7 @@ describe("run store", () => {
     expect(await readBackgroundRunClaim("run-claimed")).toEqual({
       dispatchMode: "background-processing",
       status: "running",
+      diagStage: null,
     });
 
     claimStateRows = [];

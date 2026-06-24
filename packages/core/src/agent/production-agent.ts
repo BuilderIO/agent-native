@@ -4569,18 +4569,24 @@ export function createProductionAgentHandler(
       // again, but its duplicate-PK collision is swallowed, so an existing
       // `background-processing` row is reused — no double row.
       if (backgroundOutcome.reason === "worker-never-claimed") {
-        // The async 202 landed but no worker claimed within grace — the generated
-        // wrapper never reached the route. Record it so the failure is visible on
-        // the run even though the user still gets a working (inline) turn.
+        // The async 202 landed but no worker claimed within grace. PRESERVE the
+        // bg-fn's last-recorded diag_stage (route_entered / auth_failed / ... or
+        // "none" if it never reached the route) in the recovery detail BEFORE we
+        // overwrite diag_stage — otherwise foreground_inline_recovery clobbers
+        // the only clue to WHY the worker died (its own logs are unreadable).
+        const priorClaim = await readBackgroundRunClaim(runId).catch(
+          () => null,
+        );
+        const priorDiag = priorClaim?.diagStage ?? "none";
         console.error(
           "[agent-chat] background worker did not claim the 202-dispatched run " +
-            "within grace; recovering inline:",
+            `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
           runId,
         );
         await recordRunDiagnostic(
           runId,
           RUN_DIAG_STAGE.foregroundInlineRecovery,
-          "202 dispatched but no worker claimed within the foreground grace window",
+          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
         ).catch(() => {});
       }
       // Fall through to the inline `startRun` path below.
