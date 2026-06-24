@@ -161,12 +161,17 @@ async function initBubble(): Promise<void> {
     ring.appendChild(video);
     await video.play().catch(() => undefined);
     console.log("[clips-overlay] camera bubble live");
+    // Tell the host the feed is live so it can start the countdown — the "3"
+    // shouldn't appear until the camera is actually showing.
+    postBubble("camera-ready");
   } catch (err) {
     console.warn("[clips-overlay] camera getUserMedia failed:", err);
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
     ring.appendChild(empty);
+    // Still release the countdown — a blocked/failed camera must not hang it.
+    postBubble("camera-ready");
   }
 }
 
