@@ -46,6 +46,7 @@ export const PLAN_CONNECTOR_CATALOG: string[] = [
   "export-visual-plan",
   "import-visual-plan-source",
   "patch-visual-plan-source",
+  "validate-local-plan-source",
   // Plan publish & convert
   "publish-visual-plan",
   "convert-visual-plan-to-prototype",

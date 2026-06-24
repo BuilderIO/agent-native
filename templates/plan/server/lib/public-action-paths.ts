@@ -7,6 +7,7 @@ export const PUBLIC_PLAN_ACTION_PATHS = [
   "/_agent-native/actions/get-plan-feedback",
   "/_agent-native/actions/get-plan-access-status",
   "/_agent-native/actions/get-plan-blocks",
+  "/_agent-native/actions/validate-local-plan-source",
   "/_agent-native/actions/read-visual-plan-source",
   "/_agent-native/actions/get-plan-version",
   "/_agent-native/actions/list-plan-versions",
