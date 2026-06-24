@@ -59,6 +59,26 @@ export function generateStandaloneChatManifest(repoRoot?: string): {
   }
 }
 
+function mergePackageJsonRecords(
+  canonical: Record<string, string> | undefined,
+  starter: Record<string, string> | undefined,
+  starterPinnedKeys: string[] = [],
+): Record<string, string> {
+  const merged = { ...(canonical ?? {}) };
+  for (const [key, value] of Object.entries(starter ?? {})) {
+    if (!(key in merged)) {
+      merged[key] = value;
+    }
+  }
+  for (const key of starterPinnedKeys) {
+    const pinned = starter?.[key];
+    if (pinned) {
+      merged[key] = pinned;
+    }
+  }
+  return merged;
+}
+
 export function mergeStarterManifest(
   starterPackageJson: PackageJson,
   canonicalPackageJson: PackageJson,
@@ -75,19 +95,23 @@ export function mergeStarterManifest(
   if (starterPackageJson.private !== undefined) {
     merged.private = starterPackageJson.private;
   }
+  if (typeof starterPackageJson.packageManager === "string") {
+    merged.packageManager = starterPackageJson.packageManager;
+  }
 
-  const starterDeps =
-    (starterPackageJson.dependencies as Record<string, string> | undefined) ??
-    {};
-  const canonicalDeps =
-    (canonicalPackageJson.dependencies as Record<string, string> | undefined) ??
-    {};
-  merged.dependencies = {
-    ...canonicalDeps,
-    ...(starterDeps["@agent-native/core"]
-      ? { "@agent-native/core": starterDeps["@agent-native/core"] }
-      : {}),
-  };
+  merged.dependencies = mergePackageJsonRecords(
+    canonicalPackageJson.dependencies as Record<string, string> | undefined,
+    starterPackageJson.dependencies as Record<string, string> | undefined,
+    ["@agent-native/core"],
+  );
+  merged.devDependencies = mergePackageJsonRecords(
+    canonicalPackageJson.devDependencies as Record<string, string> | undefined,
+    starterPackageJson.devDependencies as Record<string, string> | undefined,
+  );
+  merged.scripts = mergePackageJsonRecords(
+    canonicalPackageJson.scripts as Record<string, string> | undefined,
+    starterPackageJson.scripts as Record<string, string> | undefined,
+  );
 
   return merged;
 }
