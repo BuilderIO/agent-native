@@ -19,7 +19,7 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 
 设置 `publicMcp: true` 还会将选择加入的 actions 公开为公共 MCP 端点，允许外部代理直接调用它们（请参阅 [MCP Protocol](/docs/mcp-protocol)）。
 
-```an-diagram title="What a public route publishes" summary="A public route fans out into agent-friendly representations. Reading the route is separate from calling tools — tool access stays opt-in."
+```an-diagram title="公共路由发布什么" summary="一条公共路线呈扇形展开，形成对代理人友好的代表。读取路线与调用工具是分开的——工具访问保持选择加入。"
 {
   "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
@@ -83,7 +83,7 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 
 要通过公共代理协议公开操作，该操作必须选择加入：
 
-```an-annotated-code title="Opting one safe action onto the public surface"
+```an-annotated-code title="在公共表面上选择一项安全行动"
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",

@@ -7,7 +7,7 @@ description: "如何为代理原生应用或模板编写出色的代理指令：
 
 代理在代理本机应用程序中的行为仅与您给出的说明一样好。三个表面承载该指导：`AGENTS.md`（地图）、skills（深入研究）和操作/工具描述（代理如何选择正确的工具）。写下每一篇都是为了快速检索，而不是为了散文。
 
-```an-diagram title="Three authored surfaces + one runtime surface" summary="AGENTS.md and tool descriptions load every turn; skills load on demand; application_state is written live by your UI."
+```an-diagram title="三个创作表面 + 一个运行时表面" summary="AGENTS.md 和工具描述每回合都会加载；按需加载技能； application_state 由您的 UI 实时编写。"
 {
   "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">the map: purpose, core rules, state keys, action + skills index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Every turn</span><strong>Tool descriptions</strong><small class=\"diagram-muted\">drive tool selection — one precise sentence each</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">On demand</span><strong>Skills</strong><small class=\"diagram-muted\">deep how-to, loaded when the description fires</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">written by your UI: navigation, selection, focus</small></div></div>",
   "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"

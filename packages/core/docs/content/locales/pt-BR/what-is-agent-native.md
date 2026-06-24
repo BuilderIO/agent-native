@@ -50,7 +50,7 @@ Três coisas mudam quando você chega ao degrau 3:
 
 É a linha 3. É nativo do agente.
 
-```an-diagram title="The Ladder Principle" summary="Most teams stop at rung 1 or 2. Agent-native is rung 3 — a real app and a real agent over one shared action surface."
+```an-diagram title="O Princípio da Escada" summary="A maioria das equipes para na linha 1 ou 2. O agente nativo é a linha 3 – um aplicativo real e um agente real em uma superfície de ação compartilhada."
 {
   "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
@@ -89,9 +89,9 @@ Este é o princípio definidor.
 >
 > **Do agente** — linguagem natural, outros agentes via A2A, Slack, Telegram. O agente grava no banco de dados; o UI é atualizado automaticamente.
 
-```an-diagram title="One system, two ways in" summary="The agent and the UI write to the same actions and the same database. Whatever one does, the other sees."
+```an-diagram title="Um sistema, duas maneiras de entrar" summary="O agente e a UI gravam nas mesmas ações e no mesmo banco de dados. O que quer que um faça, o outro vê."
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL database</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">banco de dados SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -159,14 +159,14 @@ Isso é desenvolvido internamente por [A2A](/docs/a2a-protocol) e [MCP](/docs/mc
 
 Se você estiver criando ou estendendo um aplicativo nativo do agente, este é o padrão central: cada operação no aplicativo é uma **ação** — definida uma vez, disponível tanto para o agente quanto para o UI.
 
-```an-annotated-code title="One action, defined once"
+```an-annotated-code title="Uma ação, definida uma vez"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
     { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
-    { "lines": "6", "label": "Contrato tipado", "note": "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "6", "label": "Contrato tipado", "note": "Um zod `schema` valida a entrada de **todas** as superfícies — agente, UI, HTTP, MCP e A2A." },
     { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
   ]
 }

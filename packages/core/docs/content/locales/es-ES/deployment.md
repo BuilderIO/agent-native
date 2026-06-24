@@ -28,7 +28,7 @@ npx @agent-native/core@latest deploy
 
 Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<name>` y luego se empaqueta para el ajuste preestablecido Nitro de destino. Cloudflare Pages es el valor preestablecido predeterminado y utiliza un trabajador despachador generado en `dist/_worker.js`; Netlify usa una función por aplicación en `.netlify/functions-internal/<app>-server` más redireccionamientos generados; Vercel escribe un `.vercel/output` a nivel de espacio de trabajo utilizando Build Output API.
 
-```an-diagram title="One origin, many apps" summary="Each workspace app is built with its own base path and mounted under a path prefix on a single origin — so login and cross-app A2A are same-origin and free."
+```an-diagram title="Un origen, muchas aplicaciones" summary="Cada aplicación de espacio de trabajo se crea con su propia ruta base y se monta bajo un prefijo de ruta en un único origen, por lo que el inicio de sesión y la aplicación cruzada A2A son del mismo origen y gratuitos."
 {
   "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">zero-config cross-app A2A</span></div></div>",
   "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
@@ -70,20 +70,20 @@ Aún se admite la implementación independiente por aplicación, solo `cd apps/<
 
 Cuando ejecuta `npx @agent-native/core@latest build`, Nitro construye tanto el cliente SPA como el servidor API en `.output/`:
 
-```an-file-tree title="Build output"
+```an-file-tree title="Salida de compilación"
 {
   "entries": [
-    { "path": ".output/", "note": "self-contained — copy to any environment and run" },
-    { "path": ".output/public/", "note": "built SPA (static assets)" },
-    { "path": ".output/server/index.mjs", "note": "server entry point" },
-    { "path": ".output/server/chunks/", "note": "server code chunks" }
+    { "path": ".output/", "note": "Autónomo: cópialo a cualquier entorno y ejecútalo" },
+    { "path": ".output/public/", "note": "SPA compilada (assets estáticos)" },
+    { "path": ".output/server/index.mjs", "note": "Punto de entrada del servidor" },
+    { "path": ".output/server/chunks/", "note": "Fragmentos de código del servidor" }
   ]
 }
 ```
 
 El resultado es autónomo: copie `.output/` a cualquier entorno y ejecútelo.
 
-```an-diagram title="Build to deploy" summary="One source tree builds to a Nitro preset; the same self-contained output runs on Node, Vercel, Netlify, Cloudflare, AWS, or Deno. Every instance points at the same persistent DATABASE_URL."
+```an-diagram title="Construir para implementar" summary="Un árbol de origen se basa en un valor preestablecido Nitro; la misma salida autónoma se ejecuta en Node, Vercel, Netlify, Cloudflare, AWS o Deno. Cada instancia apunta al mismo DATABASE_URL persistente."
 {
   "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
   "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
@@ -95,12 +95,11 @@ El resultado es autónomo: copie `.output/` a cualquier entorno y ejecútelo.
 De forma predeterminada, Nitro se compila para Node.js. Para apuntar a una plataforma diferente, configure el ajuste preestablecido en su `vite.config.ts`:
 
 ```ts
-import { defineConfig } from "@agent-native/core/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  nitro: {
-    preset: "vercel",
-  },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -151,7 +150,7 @@ CMD ["node", ".output/server/index.mjs"]
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "vercel" },
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
 ```
 
@@ -182,7 +181,7 @@ El ajuste preestablecido Nitro `netlify` funciona bien y, en la práctica, nos h
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "netlify" },
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
 });
 ```
 
@@ -201,7 +200,7 @@ La compilación del espacio de trabajo escribe recursos estáticos en `dist/_wor
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "cloudflare_pages" },
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
 });
 ```
 
@@ -210,7 +209,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "aws_lambda" },
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
 });
 ```
 
@@ -219,7 +218,7 @@ export default defineConfig({
 ```ts
 // vite.config.ts
 export default defineConfig({
-  nitro: { preset: "deno_deploy" },
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
 });
 ```
 

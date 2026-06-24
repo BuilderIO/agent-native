@@ -17,9 +17,9 @@ Bei jeder agentennativen App arbeiten drei Dinge zusammen:
 >
 > **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten direkt mit SQL und integrierten Tools; MCP-Server sind optionale Add-Ons, nicht die Grundlage.
 
-```an-diagram title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data."
+```an-diagram title="Agent, Anwendung und Computer" summary="Drei Ebenen arbeiten über einen gemeinsamen SQL-Speicher zusammen. Der Agent und die Anwendung lesen und schreiben dieselben Daten."
 {
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL database · browser · code execution</small></div></div>",
+  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads + writes data, runs actions, modifies code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React UI</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL-Datenbank · browser · code execution</small></div></div>",
   "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
 }
 ```
@@ -31,12 +31,12 @@ Headless-Apps können mit `pnpm agent` dieselbe Produktions-App-Agent-Schleife a
 Jede agentennative App verfügt über die gleichen Agentenbausteine, unabhängig davon, ob
 Die Produktoberfläche ist Headless, Chat-First oder eine vollständige UI:
 
-```an-file-tree title="Guidance and behavior"
+```an-file-tree title="Anleitung und Verhalten"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, core rules, state keys, action index, skills index" },
-    { "path": ".agents/skills/<name>/SKILL.md", "note": "reusable behavior: workflow steps, policies, examples, references, and do/don't lists" },
-    { "path": "actions/<name>.ts", "note": "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks" }
+    { "path": "AGENTS.md", "note": "Immer aktive Anweisungen: Zweck, Kernregeln, State-Keys, Action-Index, Skills-Index" },
+    { "path": ".agents/skills/<name>/SKILL.md", "note": "Wiederverwendbares Verhalten: Workflow-Schritte, Policies, Beispiele, Referenzen und Do/Don’t-Listen" },
+    { "path": "actions/<name>.ts", "note": "Ausführbare Fähigkeit: typisierte Operation für Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks" }
   ]
 }
 ```
@@ -211,7 +211,7 @@ Der Ablauf ist:
 4. `useActionQuery`-Hooks und quellversionierte `useQuery`-Hooks werden erneut abgerufen
 5. Komponenten rendern die neuen Daten, ohne dass die Seite neu geladen werden muss
 
-```an-diagram title="Live sync flow" summary="An agent write becomes a UI render with no manual refresh — SSE first, polling as the universal fallback."
+```an-diagram title="Live-Synchronisierungsfluss" summary="Ein Agent-Schreibvorgang wird zu einem UI-Rendering ohne manuelle Aktualisierung – zuerst SSE, Polling als universeller Fallback."
 {
   "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent action<br><small class=\"diagram-muted\">writes to DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Change event<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Query refetch<br><small class=\"diagram-muted\">render, no reload</small></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"

@@ -16,7 +16,7 @@ description: "평이한 영어로 분석 질문을 하고 차트와 대시보드
 
 코드, 쿼리 및 데이터를 소유하려는 팀을 위한 Amplitude, Mixpanel 및 Looker를 대체하는 오픈 소스입니다.
 
-```an-diagram title="Question to chart" summary="The agent consults the data dictionary, writes SQL, validates it against the warehouse, then renders a chart or saves a panel."
+```an-diagram title="차트에 대한 질문" summary="에이전트는 데이터 사전을 참조하고 SQL을 작성하고 웨어하우스에 대해 유효성을 확인한 다음 차트를 렌더링하거나 패널을 저장합니다."
 {
   "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Plain-English<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run validate</div><small class=\"diagram-muted\">BigQuery / source</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Chart, table, or<br>saved panel</div></div>",
   "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"

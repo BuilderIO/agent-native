@@ -19,7 +19,7 @@ Uma definição, sete consumidores. Este é o degrau 3 do [ladder](/docs/what-is
 Se você está decidindo se deseja expor uma operação sem cabeça, no chat, em um
 arquivo lateral incorporado ou como tela inteira do aplicativo, consulte [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+```an-diagram title="Uma definição, sete consumidores" summary="Um único defineAction() se espalha por todas as superfícies — agente, UI, HTTP, MCP, A2A e CLI — com um esquema validado e um corpo run()."
 {
   "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -79,14 +79,14 @@ em torno de actions, não é um pré-requisito obrigatório para a ação em si.
 
 ## Definir uma ação {#defining}
 
-```an-annotated-code title="Anatomy of an action"
+```an-annotated-code title="Anatomia de uma ação"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
     { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
-    { "lines": "6-9", "label": "Contrato tipado", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
+    { "lines": "6-9", "label": "Contrato tipado", "note": "Um schema valida a entrada de **todas** as superfícies e é convertido em JSON Schema para o modelo. Entradas inválidas nunca chegam a `run`." },
     { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
   ]
 }

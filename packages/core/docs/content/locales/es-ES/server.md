@@ -7,9 +7,9 @@ description: "Rutas del servidor Nitro, complementos, rutas montadas en el marco
 
 Las aplicaciones nativas del agente utilizan [Nitro](https://nitro.build) para rutas de servidor y complementos. La mayor parte del comportamiento del producto debería residir en [Actions](/docs/actions); las rutas personalizadas son para superficies de protocolo que actions no encajan: cargas, streaming, páginas públicas, devoluciones de llamada webhooks, OAuth y API específicos del proveedor.
 
-```an-diagram title="What runs on the server" summary="Actions are the default. Custom file routes and framework-mounted routes share the same Nitro app and the same SQL database."
+```an-diagram title="Qué se ejecuta en el servidor" summary="Las acciones son las predeterminadas. Las rutas de archivos personalizadas y las rutas montadas en el marco comparten la misma aplicación Nitro y la misma base de datos SQL."
 {
-  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Browser / UI</div><div class=\"diagram-node\">Agent loop</div><div class=\"diagram-node\">External clients<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro server</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">default surface</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL database<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Navegador / UI</div><div class=\"diagram-node\">bucle del agente</div><div class=\"diagram-node\">clientes externos<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>servidor Nitro</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">superficie predeterminada</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">startup: migrations, jobs</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>base de datos SQL<br><small class=\"diagram-muted\">Drizzle · the coordination point</small></div></div>",
   "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -103,15 +103,27 @@ en una acción para que UI y el agente compartan la misma capacidad.
 
 Actions montado por el marco se ejecuta automáticamente con el contexto de solicitud. Las rutas personalizadas no. Si una ruta personalizada lee o escribe recursos propios, carga la sesión y ajusta el trabajo:
 
-```an-annotated-code title="Scoping a custom route to the request user"
+```an-annotated-code title="Determinar el alcance de una ruta personalizada para el usuario de la solicitud"
 {
   "filename": "server/routes/api/projects.get.ts",
   "language": "ts",
-  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});",
+  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectCompartirs));\n    },\n  );\n});",
   "annotations": [
-    { "lines": "7-10", "label": "Custom routes have no auto-context", "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user." },
-    { "lines": "12-13", "label": "Establish request context", "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work." },
-    { "lines": "18-19", "label": "Scope ownable reads", "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here." }
+    {
+      "lines": "7-10",
+      "label": "Custom routes have no auto-context",
+      "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
+    },
+    {
+      "lines": "12-13",
+      "label": "Establish request context",
+      "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
+    },
+    {
+      "lines": "18-19",
+      "label": "Scope ownable reads",
+      "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+    }
   ]
 }
 ```
@@ -171,9 +183,9 @@ El agente nativo no depende de los observadores del sistema de archivos ni del e
 
 Esto funciona en implementaciones sin servidor y de múltiples instancias porque la base de datos es el punto de coordinación. Si escribe mutaciones personalizadas fuera de actions, utilice asistentes de marco o emita la invalidación de sincronización adecuada para abrir la actualización de UI.
 
-```an-diagram title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches."
+```an-diagram title="SQL-backed bucle de sincronización" summary="Sin observadores, sin estado pegajoso. Una escritura modifica una versión en SQL; cada cliente sondea la versión y la recupera."
 {
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL database</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / helper<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>base de datos SQL</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
   "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -201,7 +213,7 @@ El webhooks entrante debería verificarse, persistir y regresar rápidamente. El
 4. Devuelve 200 inmediatamente.
 5. Deje que la nueva ejecución del procesador ejecute el ciclo del agente y publique el resultado.
 
-```an-diagram title="Integration queue pattern" summary="The webhook handler returns in milliseconds; a separate signed execution runs the slow agent work."
+```an-diagram title="Patrón de cola de integración" summary="El controlador del webhook regresa en milisegundos; una ejecución firmada separada ejecuta el trabajo lento del agente."
 {
   "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>Inbound webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">insert work into SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">runs agent loop, posts result</small></div></div>",
   "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"

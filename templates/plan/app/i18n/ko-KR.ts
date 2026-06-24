@@ -73,21 +73,21 @@ const messages = {
     signIn: "로그인",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
+    suggestionShipped: "지난주에 무엇이 출시되었나요?",
+    suggestionUi: "새 체크아웃 UI는 어떻게 생겼나요?",
+    suggestionAuth: "인증 API는 언제 변경되었나요?",
+    suggestionApi: "결제 API 구조는 어떻게 되나요?",
+    emptyState: "Plan에 묻기",
     placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+      "출시된 내용, 변경된 내용 또는 현재 코드가 보여주는 내용을 질문하세요...",
+    heading: "Plan에 묻기",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "병합된 PR 요약을 검색하고 시각적 블록을 검사한 뒤 코드 답변을 다이어그램, 와이어프레임, API 사양, 데이터 모델로 게시합니다.",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "게스트로 탐색 중입니다. 로그인하면 계획을 만들고 댓글을 남기며 작업을 보관할 수 있습니다.",
+    signIn: "로그인",
   },
 };
 

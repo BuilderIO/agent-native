@@ -39,23 +39,23 @@ npx @agent-native/core@latest create my-platform
 
 每个模板都遵循相同的广泛布局：
 
-```an-file-tree title="Template project layout"
+```an-file-tree title="模板项目结构"
 {
   "title": "my-template/",
   "entries": [
-    { "path": "app/", "note": "React frontend" },
-    { "path": "app/root.tsx", "note": "HTML shell and providers" },
-    { "path": "app/routes/", "note": "React Router file routes" },
-    { "path": "app/components/", "note": "Template UI" },
-    { "path": "app/hooks/", "note": "UI state and data hooks" },
-    { "path": "actions/", "note": "defineAction operations — the single source of truth" },
-    { "path": "server/db/schema.ts", "note": "Drizzle schema" },
-    { "path": "server/plugins/db.ts", "note": "additive migrations" },
-    { "path": "server/plugins/", "note": "startup integrations" },
-    { "path": "server/routes/api/", "note": "custom routes only when actions are not enough" },
-    { "path": "shared/types.ts", "note": "shared client/server types" },
-    { "path": ".agents/skills/", "note": "<skill>/SKILL.md — agent guidance for complex workflows" },
-    { "path": "AGENTS.md", "note": "template-specific agent instructions" },
+    { "path": "app/", "note": "React 前端" },
+    { "path": "app/root.tsx", "note": "HTML shell 和 providers" },
+    { "path": "app/routes/", "note": "React Router 文件路由" },
+    { "path": "app/components/", "note": "模板 UI" },
+    { "path": "app/hooks/", "note": "UI 状态和数据 hooks" },
+    { "path": "actions/", "note": "defineAction 操作：唯一事实来源" },
+    { "path": "server/db/schema.ts", "note": "Drizzle 架构" },
+    { "path": "server/plugins/db.ts", "note": "增量 migrations" },
+    { "path": "server/plugins/", "note": "启动 integrations" },
+    { "path": "server/routes/api/", "note": "仅在 actions 不够时使用自定义路由" },
+    { "path": "shared/types.ts", "note": "共享的 client/server 类型" },
+    { "path": ".agents/skills/", "note": "<skill>/SKILL.md：复杂工作流的代理指南" },
+    { "path": "AGENTS.md", "note": "模板专用代理指令" },
     { "path": "package.json" },
     { "path": "react-router.config.ts" },
     { "path": "vite.config.ts" }
@@ -67,7 +67,7 @@ npx @agent-native/core@latest create my-platform
 
 每个模板的四个区域通过一个共享操作界面和一个 SQL 数据库连接在一起 - 代理和 UI 是执行相同操作的平等合作伙伴：
 
-```an-diagram title="How a template's four areas connect" summary="The UI and the agent both reach SQL through the same actions; application state and polling sync keep them aligned."
+```an-diagram title="模板的四个区域如何连接" summary="UI 和代理都通过相同的操作到达 SQL；应用程序状态和轮询同步使它们保持一致。"
 {
   "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI<br><small class=\"diagram-muted\">app/routes · components</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL via Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -149,7 +149,7 @@ Actions 是应用行为的单一事实来源。代理将它们作为工具调用
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
     { "lines": "8", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this action as a tool." },
-    { "lines": "9-11", "label": "类型化契约", "note": "One zod `schema` validates input from the agent, the UI, HTTP, MCP, and A2A." },
+    { "lines": "9-11", "label": "类型化契约", "note": "一个 zod `schema` 会验证来自代理、UI、HTTP、MCP 和 A2A 的输入。" },
     { "lines": "18-19", "label": "Scoped write", "note": "Stamp `ownerEmail` / `orgId` from `ctx` so the row is correctly scoped for sharing and access checks." }
   ]
 }

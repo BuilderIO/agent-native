@@ -20,7 +20,7 @@ Agent Teams 在核心运行管理器上运行：事件流并持续，中止通�
 
 子代理状态保留在 `application_state` SQL 表（在 `agent-task:<taskId>` 下）中，因此任务可以在无服务器冷启动中幸存并跨多个进程工作。
 
-```an-diagram title="Orchestrator and specialists" summary="The main chat delegates to sub-agents that run in their own threads and report back as inline chips."
+```an-diagram title="协调员和专家" summary="主聊天委托给在自己的线程中运行并作为内联芯片报告的子代理。"
 {
   "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Main chat</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Code review<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">BigQuery analysis<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">Email in voice<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
   "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
@@ -85,7 +85,7 @@ const task = await spawnTask({
 
 ## 任务生命周期 {#lifecycle}
 
-```an-diagram title="What spawnTask() does" summary="Each spawn creates a thread, persists state to SQL, and streams chip events through to completion."
+```an-diagram title="spawnTask() 的作用" summary="每个spawn都会创建一个线程，将状态保存到SQL，并将芯片事件流式传输直至完成。"
 {
   "html": "<div class=\"at-life\"><div class=\"diagram-box\"><code>spawnTask()</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">create thread</span><small class=\"diagram-muted\">new row in <code>chat_threads</code>, description as first message</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">persist state</span><small class=\"diagram-muted\"><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>, status=running</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">stream</span><small class=\"diagram-muted\"><code>agent_task_started</code> &rarr; chip appears; <code>agent_task_step</code> &rarr; chip updates live</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">complete</span><small class=\"diagram-muted\">status=completed, write summary + preview, emit <code>agent_task_done</code></small></div></div>",
   "css": ".at-life{display:flex;flex-direction:column;align-items:stretch;gap:6px;max-width:560px}.at-life .diagram-card{display:flex;flex-direction:column;gap:3px;padding:10px 14px}.at-life .diagram-box{align-self:flex-start}.at-life .diagram-arrow{font-size:18px;align-self:center}"
@@ -138,7 +138,7 @@ interface AgentTask {
 
 顶级聊天深度为`0`。它生成的子代理深度为 `1`；该子代理可能会再次生成（深度 `2`）；会创建深度 `3` 子代理的生成被 **拒绝**。默认上限为 **2**。
 
-```an-diagram title="Delegation depth guard (default cap 2)" summary="Each level may spawn one deeper until the cap; a spawn past it is refused server-side."
+```an-diagram title="委派深度保护（默认上限 2）" summary="每一层都可能产生更深的一层，直到达到上限；超过它的生成将被服务器端拒绝。"
 {
   "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Top-level chat</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Sub-agent</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Sub-agent's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
   "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"

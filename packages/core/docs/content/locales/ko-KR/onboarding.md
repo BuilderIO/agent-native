@@ -10,7 +10,7 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
 에이전트 채팅: AI 엔진을 연결하고 선택적으로 앱을 공유 위치로 지정
 인프라를 구축하고 필요할 때만 공급자를 추가하세요.
 
-```an-diagram title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done."
+```an-diagram title="설정 체크리스트" summary="AI 엔진 연결만 필요합니다. 패널은 완료를 추적하고 필요한 모든 작업이 완료되면 자동으로 숨겨집니다."
 {
   "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
   "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
@@ -114,7 +114,7 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
 
 ### 템플릿에서 단계 추가
 
-```an-annotated-code title="Registering a custom onboarding step"
+```an-annotated-code title="사용자 정의 온보딩 단계 등록"
 {
   "filename": "server/plugins/my-onboarding.ts",
   "language": "ts",

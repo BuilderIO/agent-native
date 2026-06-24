@@ -24,7 +24,7 @@ description: "代理如何知道用户正在查看的内容：导航状态、选
 5. **提示切换** -- 当点击应成为代理轮次时，UI 控件调用 `sendToAgentChat()`
 6. **`navigate`**——来自代理的一次性命令，告诉 UI 去哪里
 
-```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+```an-diagram title="代理如何看到您所看到的内容" summary="UI编写轻量级状态键；屏幕将它们转化为真实的记录；代理可以编写导航返回来移动 UI。"
 {
   "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
@@ -191,7 +191,7 @@ await setClientAppState(
 
 每个模板都应该有一个 `view-screen` 操作。它读取导航和选择状态，获取相关数据，并返回用户所看到内容的快照。这是特工的眼睛。
 
-```an-annotated-code title="view-screen — the agent's eyes"
+```an-annotated-code title="查看屏幕 — 特工的眼睛"
 {
   "filename": "actions/view-screen.ts",
   "language": "ts",
@@ -365,7 +365,7 @@ useDbSync({
 - 处理同步事件时，UI 会过滤掉与其自己的 `ignoreSource` 值匹配的事件 - 因此它不会重新获取刚刚写入的数据
 - 来自代理、其他选项卡和 actions 的事件仍然正常进行
 
-```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+```an-diagram title="源标记可阻止自重取抖动" summary="选项卡会忽略标有其自己的 TAB_ID 的同步事件，但仍会对代理和其他选项卡写入做出反应。"
 {
   "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"

@@ -70,19 +70,19 @@ const messages = {
     description: "Descreva o vídeo que você quer criar",
     placeholder: "Descreva o vídeo que você quer criar...",
     timedOut:
-      "The composition request timed out. Please try again from the sidebar.",
-    generating: "Generating...",
+      "A solicitacao de composicao expirou. Tente novamente pela barra lateral.",
+    generating: "Gerando...",
   },
   notFound: {
-    message: "This page doesn't exist yet. Continue prompting to build it out.",
-    backToStudio: "Back to Studio",
+    message: "Esta pagina ainda nao existe. Continue pedindo para cria-la.",
+    backToStudio: "Voltar ao Studio",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "Novo sistema de design",
+    setupBrand: "Configurar sua marca",
+    emptyTitle: "Configure a identidade da sua marca",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new composition will follow your visual identity.",
+      "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada nova composicao seguira sua identidade visual.",
   },
 };
 

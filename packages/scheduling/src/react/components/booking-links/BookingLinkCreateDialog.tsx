@@ -110,7 +110,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
             <Label htmlFor="blc-title">{t("title")}</Label>
             <Input
               id="blc-title"
-              placeholder="Quick chat"
+              placeholder={t("quickChatPlaceholder")}
               value={form.title}
               onChange={(e) => {
                 const title = e.currentTarget.value;
@@ -131,7 +131,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
               </span>
               <Input
                 id="blc-slug"
-                placeholder="quick-chat"
+                placeholder={t("quickChatSlugPlaceholder")}
                 className="rounded-l-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 value={form.slug}
                 onChange={(e) => {

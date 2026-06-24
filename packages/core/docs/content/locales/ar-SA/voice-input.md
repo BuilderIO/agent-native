@@ -19,7 +19,7 @@ description: "الإملاء الصوتي في مؤلف دردشة الوكيل 
 
 يتم تخزين اختيار الموفر في حالة التطبيق ضمن `voice-transcription-prefs` بحيث يمكن للمستخدم فرض `"auto"` (افتراضي - يختار أفضل موفر متاح)، `"builder-gemini"`، `"builder"`، `"gemini"`، `"groq"`، `"openai"`، أو `"browser"` في إعدادات الشريط الجانبي.
 
-```an-diagram title="Voice transcription provider fallback" summary="The composer records audio, then walks server providers in order, dropping to the browser Web Speech API only when no server provider is available."
+```an-diagram title="احتياطي مزود النسخ الصوتي" summary="يسجل الملحن الصوت، ثم يرشد موفري الخادم بالترتيب، وينتقل إلى Web Speech API في المتصفح فقط في حالة عدم توفر موفر خادم."
 {
   "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mic button<br><small class=\"diagram-muted\">records webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">default when Builder connected</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
   "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"

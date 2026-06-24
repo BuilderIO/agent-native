@@ -9,9 +9,9 @@ description: "عمليات التشغيل التلقائي المجدولة وا
 
 توسّع عمليات التشغيل الآلي [recurring jobs](/docs/recurring-jobs) من خلال **مشغلات الأحداث** و**شروط اللغة الطبيعية** و**HTTP** الصادرة عبر أداة `web-request`. إنهم يستخدمون نفس تنسيق الملف `jobs/<name>.md` والتخزين وسير العمل "إنشاء ثلاث طرق" كمهام متكررة - راجع [Recurring Jobs](/docs/recurring-jobs#job-file) للتعرف على التنسيق المشترك. تغطي هذه الصفحة فقط ما هو جديد في عمليات التشغيل الآلي المستندة إلى الأحداث.
 
-```an-diagram title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access."
+```an-diagram title="عندما يحدث X، افعل Y" summary="يتم إطلاق حدث على الحافلة، ويفتحها شرط اختياري للغة الطبيعية، ويقوم الوكيل بتشغيل جسم التشغيل الآلي مع إمكانية الوصول الكامل للأداة."
 {
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agent runs the body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
+  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">حدث</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">حالة</span><small class=\"diagram-muted\">يتحقق هايكو: &ldquo;ينتهي البريد الإلكتروني بـ @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">وكيل يدير الجسم</span><small class=\"diagram-muted\">الإجراءات &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
   "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
 }
 ```
@@ -39,16 +39,32 @@ description: "عمليات التشغيل التلقائي المجدولة وا
 
 المسار الثالث - كتابة ملف `jobs/<name>.md` يدويًا عبر `resourcePut` - يعمل تمامًا كما هو الحال مع [recurring jobs](/docs/recurring-jobs#creating). للحصول على أتمتة تعتمد على الحدث، يمكنك إضافة المادة الأمامية لمشغل الحدث أدناه إلى نفس الملف. تقوم المهمة التي يتم تشغيلها بواسطة حدث بتعيين `schedule: ""` وتوفر `triggerType: event` واسم `event` و`condition` اختياري:
 
-```an-annotated-code title="An event-triggered automation"
+```an-annotated-code title="أتمتة ناجمة عن الأحداث"
 {
   "filename": "jobs/slack-on-builder-booking.md",
   "language": "markdown",
   "code": "---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.",
   "annotations": [
-    { "lines": "2", "label": "No cron", "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty." },
-    { "lines": "4-5", "label": "The trigger", "note": "`triggerType: event` plus the `event` name subscribes this automation to the bus." },
-    { "lines": "6", "label": "Gate", "note": "An optional natural-language `condition`, evaluated by Haiku against the payload before dispatch." },
-    { "lines": "12", "label": "Server-side secret", "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context." }
+    {
+      "lines": "2",
+      "label": "لا كرون",
+      "note": "قم بتعيين مشغلات الأحداث `schedule` إلى `\"\"` - يظل حقل cron فارغًا."
+    },
+    {
+      "lines": "4-5",
+      "label": "الزناد",
+      "note": "`triggerType: event` بالإضافة إلى اسم `event` يشترك في هذه الأتمتة في الناقل."
+    },
+    {
+      "lines": "6",
+      "label": "بوابة",
+      "note": "لغة طبيعية اختيارية `condition`، يتم تقييمها بواسطة Haiku مقابل الحمولة قبل الإرسال."
+    },
+    {
+      "lines": "12",
+      "label": "سر من جانب الخادم",
+      "note": "يتم حل `${keys.SLACK_WEBHOOK}` من جانب الخادم - ولا تدخل القيمة الأولية مطلقًا في سياق الوكيل."
+    }
   ]
 }
 ```
@@ -208,9 +224,9 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## كيف يعمل الإرسال {#dispatch}
 
-```an-diagram title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition."
+```an-diagram title="مسار الإرسال" summary="من حدث مطرود إلى تشغيل وكيل مكتمل، مقيد بنطاق الملكية وحالة اللغة الطبيعية."
 {
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> with body as prompt, payload as context, 5-min timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
+  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">حدث إطلاق النار على الحافلة</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">مباراة</span><small class=\"diagram-muted\">تحميل الأتمتة التي تم تمكينها والمشتركة في اسم الحدث هذا</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">نِطَاق</span><small class=\"diagram-muted\">الاحتفاظ فقط بالأشياء المملوكة لمالك الحدث (أو المشتركة)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">حالة</span><small class=\"diagram-muted\">Haiku yes/no على الحمولة &mdash; خطأ شنيع &rarr; <code>تم تخطيه</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">يجري</span><small class=\"diagram-muted\"><code>runAgentLoop</code> مع النص كموجه، والحمولة كسياق، ومهلة مدتها 5 دقائق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">سِجِلّ</span><small class=\"diagram-muted\">يكتب <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
   "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
 }
 ```

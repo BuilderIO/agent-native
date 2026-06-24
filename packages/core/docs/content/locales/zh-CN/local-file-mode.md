@@ -46,7 +46,7 @@ UI 和特工 actions 在两种模式下都应保持相同的形状。内容
 编辑器仍然编辑文档；区别在于这些文档是否解析
 到 SQL 行或本地文件。
 
-```an-diagram title="Same actions, two sources of truth" summary="The UI and agent call identical actions in both modes. The action layer decides whether each call resolves to SQL rows or repo files."
+```an-diagram title="相同的行为，两个事实来源" summary="UI 和代理在两种模式下调用相同的操作。操作层决定每个调用是否解析为 SQL 行或存储库文件。"
 {
   "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">Content UI</div><div class=\"diagram-node\">Agent + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">Database mode</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">hosted · sharing · comments · history</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git review · coding-agent edits</small></div></div></div>",
   "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
@@ -57,21 +57,21 @@ UI 和特工 actions 在两种模式下都应保持相同的形状。内容
 
 内容工作区可以像这样小：
 
-```an-file-tree title="A Content workspace repo"
+```an-file-tree title="一个 Content workspace repo"
 {
   "entries": [
-    { "path": "agent-native.json", "note": "declares which folders are content roots and their kinds" },
-    { "path": "docs/", "note": "content root — shows in the sidebar as pages" },
+    { "path": "agent-native.json", "note": "声明哪些文件夹是内容根以及它们的类型" },
+    { "path": "docs/", "note": "内容根：在侧边栏中显示为页面" },
     { "path": "docs/getting-started.mdx" },
     { "path": "docs/guides/custom-components.mdx" },
-    { "path": "blog/", "note": "content root" },
+    { "path": "blog/", "note": "内容根" },
     { "path": "blog/launch-post.mdx" },
-    { "path": "resources/", "note": "content root" },
+    { "path": "resources/", "note": "内容根" },
     { "path": "resources/messaging/positioning.md" },
-    { "path": "components/", "note": "NOT a content root — preview component library MDX can import" },
+    { "path": "components/", "note": "不是内容根：MDX 可导入的 preview 组件库" },
     { "path": "components/FrameworkTabs.tsx" },
     { "path": "components/Callout.tsx" },
-    { "path": "extensions/", "note": "NOT a content root — local extension library (sandboxed widgets)" },
+    { "path": "extensions/", "note": "不是内容根：本地 extension 库（沙盒 widgets）" },
     { "path": "extensions/doc-status/extension.json" },
     { "path": "extensions/doc-status/index.html" }
   ]

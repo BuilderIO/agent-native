@@ -19,7 +19,7 @@ Actions는 앱이 수행하는 모든 작업에 대한 단일 정보 소스입�
 작업을 헤드리스로 노출할지 여부를 결정하는 경우 채팅,
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="One definition, seven consumers" summary="A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."
+```an-diagram title="하나의 정의, 7명의 소비자" summary="단일 defineAction()은 하나의 검증된 스키마와 하나의 run() 본문을 사용하여 에이전트, UI, HTTP, MCP, A2A 및 CLI 등 모든 표면으로 확장됩니다."
 {
   "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent tool<br><small class=\"diagram-muted\">JSON Schema in context</small></div><div class=\"diagram-node\">React hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperative client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP tool<br><small class=\"diagram-muted\">external hosts</small></div><div class=\"diagram-node\">A2A tool<br><small class=\"diagram-muted\">other agent-native apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
   "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
@@ -79,14 +79,14 @@ actions 정도이며 작업 자체에 필요한 전제 조건은 아닙니다.
 
 ## 액션 정의 {#defining}
 
-```an-annotated-code title="Anatomy of an action"
+```an-annotated-code title="행동의 해부학"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});",
   "annotations": [
     { "lines": "5", "label": "Tool surface", "note": "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too." },
-    { "lines": "6-9", "label": "타입 계약", "note": "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`." },
+    { "lines": "6-9", "label": "타입 계약", "note": "하나의 schema가 **모든** 표면의 입력을 검증하고 모델용 JSON Schema로 변환합니다. 유효하지 않은 입력은 `run`에 도달하지 않습니다." },
     { "lines": "10-13", "label": "One implementation", "note": "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this." }
   ]
 }

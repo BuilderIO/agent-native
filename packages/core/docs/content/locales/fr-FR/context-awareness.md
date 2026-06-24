@@ -24,7 +24,7 @@ Six modèles résolvent ce problème :
 5. **Transfert rapide** : les contrôles UI appellent `sendToAgentChat()` lorsqu'un clic doit devenir le tour de l'agent
 6. **`navigate`** -- une commande unique de l'agent qui indique au UI où aller
 
-```an-diagram title="How the agent sees what you see" summary="The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."
+```an-diagram title="Comment l'agent voit ce que vous voyez" summary="L'interface utilisateur écrit des clés d'état légères ; l'écran de visualisation les hydrate en enregistrements réels ; l'agent peut écrire, revenir en arrière pour déplacer l'interface utilisateur."
 {
   "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI writes</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">view, open ids</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">rows, blocks, shapes</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent acts<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agent moves the UI</small></div></div>",
   "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
@@ -191,7 +191,7 @@ Utilisez `pending-selection-context` pour des flux ponctuels « agir sur ce text
 
 Chaque modèle doit avoir une action `view-screen`. Il lit l'état de navigation et de sélection, récupère les données pertinentes et renvoie un instantané de ce que voit l'utilisateur. Ce sont les yeux de l'agent.
 
-```an-annotated-code title="view-screen — the agent's eyes"
+```an-annotated-code title="écran de visualisation : les yeux de l'agent"
 {
   "filename": "actions/view-screen.ts",
   "language": "ts",
@@ -365,7 +365,7 @@ Comment ça marche :
 - Lors du traitement des événements de synchronisation, le UI filtre les événements correspondant à sa propre valeur `ignoreSource` ; il ne récupère donc pas les données qu'il vient d'écrire
 - Les événements des agents, des autres onglets et de actions arrivent toujours normalement
 
-```an-diagram title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes."
+```an-diagram title="Le marquage de la source arrête la gigue de la récupération automatique" summary="Un onglet ignore les événements de synchronisation marqués de son propre TAB_ID, mais réagit toujours aux écritures de l'agent et des autres onglets."
 {
   "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">This tab writes<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server stores source<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">no refetch, no flicker</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI updates live</small></div></div>",
   "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"

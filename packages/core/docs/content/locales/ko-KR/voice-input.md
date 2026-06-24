@@ -19,7 +19,7 @@ description: "에이전트 채팅 작성기의 음성 받아쓰기 — Builder G
 
 제공자 선택은 `voice-transcription-prefs` 아래 애플리케이션 상태에 저장되므로 사용자는 사이드바 설정에서 `"auto"`(기본값 - 사용 가능한 최상의 제공자 선택), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"` 또는 `"browser"`를 강제로 설정할 수 있습니다.
 
-```an-diagram title="Voice transcription provider fallback" summary="The composer records audio, then walks server providers in order, dropping to the browser Web Speech API only when no server provider is available."
+```an-diagram title="음성 녹음 제공자 대체" summary="작곡가는 오디오를 녹음한 다음 서버 공급자를 순서대로 안내하고 서버 공급자를 사용할 수 없는 경우에만 브라우저 Web Speech API에 드롭합니다."
 {
   "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mic button<br><small class=\"diagram-muted\">records webm/opus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">default when Builder connected</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
   "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"

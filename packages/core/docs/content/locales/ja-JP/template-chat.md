@@ -35,7 +35,7 @@ description: "最小限のチャットファーストのエージェントネイ
 
 それがポイントです。 Chat は、汎用のふりをしたドメイン製品ではなく、独自のエージェント用の薄くて便利なデフォルト シェルです。
 
-```an-diagram title="What ships in the Chat shell" summary="A thin chat surface over the framework's standard runtime — actions, durable threads, live sync, and auth — with room to add your own UI."
+```an-diagram title="Chat シェルに同梱されるもの" summary="フレームワークの標準ランタイム (アクション、耐久性のあるスレッド、ライブ同期、認証) 上の薄いチャット サーフェス。独自の UI を追加する余地があります。"
 {
   "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Thread list<br><small class=\"diagram-muted\">create · reopen · pin · archive</small></div><div class=\"diagram-node\">Full-page chat<br><small class=\"diagram-muted\">framework chat surface on /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Core SQL tables<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Live sync &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · orgs · sessions</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -74,14 +74,14 @@ npx @agent-native/core@latest create my-agent --headless
   ここに提案、空の状態、コンポーザー、または周囲のレイアウトを入力します。
 - `AGENTS.md` は、組み込みエージェントにこのアプリ内での動作方法を指示します。
 
-```an-file-tree title="Chat template layout"
+```an-file-tree title="Chat テンプレートのレイアウト"
 {
   "entries": [
-    { "path": "actions/hello.ts", "note": "the one example action; replace or add actions beside it" },
-    { "path": "actions/view-screen.ts", "note": "standard context action the agent reads" },
-    { "path": "actions/navigate.ts", "note": "standard navigation action" },
-    { "path": "app/routes/_index.tsx", "note": "renders the full-page chat surface; edit suggestions, empty state, composer" },
-    { "path": "AGENTS.md", "note": "chat-first guidance the built-in agent reads" }
+    { "path": "actions/hello.ts", "note": "1 つの example action; 置き換えるか横に actions を追加" },
+    { "path": "actions/view-screen.ts", "note": "エージェントが読む標準 context action" },
+    { "path": "actions/navigate.ts", "note": "標準 navigation action" },
+    { "path": "app/routes/_index.tsx", "note": "フルページの chat 画面を描画; suggestions、empty state、composer を編集" },
+    { "path": "AGENTS.md", "note": "組み込みエージェントが読む chat-first のガイダンス" }
   ]
 }
 ```

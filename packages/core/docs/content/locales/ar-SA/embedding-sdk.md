@@ -11,7 +11,7 @@ description: "قم بتضمين ملف جانبي Agent-Native في تطبيق S
 السيارة الجانبية المضمنة، أو التطبيق الكامل، تبدأ بـ
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="The embedding membrane" summary="The host app supplies server-side auth and live page context; Agent-Native runs the durable sidecar and reaches the open tab through client actions and host commands."
+```an-diagram title="غشاء التضمين" summary="يوفر التطبيق المضيف مصادقة من جانب الخادم وسياق الصفحة المباشرة؛ يقوم Agent-Native بتشغيل السيارة الجانبية المتينة ويصل إلى علامة التبويب المفتوحة من خلال إجراءات العميل وأوامر المضيف."
 {
   "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>Host SaaS app</strong><small class=\"diagram-muted\">your UI, your auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; client actions</div><div class=\"diagram-pill\">&larr; host commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">durable chat · app state · extensions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework tables</small></div></div>",
   "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -373,7 +373,7 @@ const hostTools = createAgentNativeHostTools({
 
 بالنسبة لزميل العمل ذو النمط CLAW، يمكن لإطار iframe أيضًا تسجيل علامة تبويب المتصفح المباشرة الخاصة به مع الواجهة الخلفية الجانبية. يحصل الوكيل بعد ذلك على أدوات الواجهة الخلفية العادية التي تسجل الطلب، ويطالب به إطار iframe، وتنفذه الصفحة المضيفة، وترجع الواجهة الخلفية النتيجة إلى الوكيل.
 
-```an-diagram title="Server-mediated browser-session bridge" summary="A backend tool enqueues work; the registered tab claims it, runs it on the live page, and the result returns to the agent — so a backend/Slack/A2A agent can still touch the open tab."
+```an-diagram title="جسر جلسة المتصفح بوساطة الخادم" summary="أداة الواجهة الخلفية تحجز العمل؛ تطالب علامة التبويب المسجلة بها، وتقوم بتشغيلها على الصفحة المباشرة، وتعود النتيجة إلى الوكيل - لذلك لا يزال بإمكان وكيل backend/Slack/A2A لمس علامة التبويب المفتوحة."
 {
   "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>Backend agent<br><small class=\"diagram-muted\">chat · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Live tab claims it<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
   "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"

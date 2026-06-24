@@ -17,7 +17,7 @@ agent-native add provider stripe | claude
 agent-native add channel discord  | codex
 ```
 
-```an-diagram title="add prints a recipe; your coding agent applies it" summary="agent-native emits a Markdown blueprint to stdout (diagnostics to stderr); you pipe it into Claude Code or Codex, which edits your live repo with full context."
+```an-diagram title="add는 레시피를 인쇄합니다. 코딩 에이전트가 이를 적용합니다." summary="agent-native은 Markdown 청사진을 stdout으로 내보냅니다(stderr에 대한 진단). 전체 컨텍스트로 라이브 저장소를 편집하는 Claude Code 또는 Codex로 파이프합니다."
 {
   "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdown blueprint<br><small class=\"diagram-muted\">stdout · files to touch · rules · Verify</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>Coding agent<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
   "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

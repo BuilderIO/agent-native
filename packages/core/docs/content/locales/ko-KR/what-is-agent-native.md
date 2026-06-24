@@ -50,7 +50,7 @@ SaaS 제품에 기본적으로 부착된 "요약" 버튼인 "AI 기능"은 어�
 
 3번 단계입니다. 에이전트 기본입니다.
 
-```an-diagram title="The Ladder Principle" summary="Most teams stop at rung 1 or 2. Agent-native is rung 3 — a real app and a real agent over one shared action surface."
+```an-diagram title="사다리 원리" summary="대부분의 팀은 렁 1 또는 2에서 멈춥니다. 에이전트 네이티브는 렁 3입니다. 즉, 하나의 공유 작업 표면에 대한 실제 앱이자 실제 에이전트입니다."
 {
   "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Rung 3 · agent-native</span><strong>Agent + UI as equal partners</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Rung 2</span><strong>A chat with tools</strong><small class=\"diagram-muted\">The agent can act — but it is still just a chat window. No dashboards, lists, or shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Rung 1</span><strong>A single LLM call</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
   "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
@@ -89,9 +89,9 @@ SaaS 제품에 기본적으로 부착된 "요약" 버튼인 "AI 기능"은 어�
 >
 > **에이전트에서** — 자연어, A2A, Slack, Telegram을 통한 기타 에이전트. 에이전트는 데이터베이스에 씁니다. UI는 자동으로 업데이트됩니다.
 
-```an-diagram title="One system, two ways in" summary="The agent and the UI write to the same actions and the same database. Whatever one does, the other sees."
+```an-diagram title="하나의 시스템, 두 가지 방식" summary="에이전트와 UI는 동일한 작업과 동일한 데이터베이스에 기록합니다. 한 사람이 무엇을 하든 다른 사람이 본다."
 {
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL database</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clicks, forms, shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natural language · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL 데이터베이스</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI updates live</div></div>",
   "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -159,14 +159,14 @@ Claude 코드와 같은 도구가 강력하다고 느끼는 이유는 모델이 
 
 에이전트 기반 앱을 구축하거나 확장하는 경우 중심 패턴은 다음과 같습니다. 앱의 모든 작업은 한 번 정의되어 에이전트와 UI 모두에서 사용할 수 있는 **작업**입니다.
 
-```an-annotated-code title="One action, defined once"
+```an-annotated-code title="한 번 정의된 하나의 작업"
 {
   "filename": "actions/reply-to-email.ts",
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
   "annotations": [
     { "lines": "5", "label": "Tool surface", "note": "The `description` is what the agent reads to decide when to call this as a tool." },
-    { "lines": "6", "label": "타입 계약", "note": "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A." },
+    { "lines": "6", "label": "타입 계약", "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A 등 **모든** 표면의 입력을 검증합니다." },
     { "lines": "7-10", "label": "One implementation", "note": "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this." }
   ]
 }

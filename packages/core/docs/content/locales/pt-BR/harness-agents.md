@@ -23,7 +23,7 @@ abaixo de `runAgentLoop`. Um chicote não é um provedor `AgentEngine` — ele e
 próprio loop de ponta a ponta, então Agent-Native o conduz como uma sessão, não como uma única
 chamada de modelo.
 
-```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+```an-diagram title="Um arnês possui seu laço; Agent-Native conduz a sessão" summary="O AgentHarness substrato creates/resumes a sessão nativa, transmite seus eventos para a transcrição normal e persiste resumeState em SQL entre os turnos."
 {
   "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
   "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -213,7 +213,7 @@ para que um thread possa sobreviver entre turnos, processos e implantações. O 
 é **opaco** — Agent-Native armazena e devolve, mas nunca inspeciona ou
 interpreta.
 
-```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+```an-diagram title="Retome entre turnos, processos e implantações" summary="Cada turno separa um resumeState opaco em SQL; no próximo turno, ele retorna para createSession em vez de reproduzir o histórico do bate-papo."
 {
   "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"

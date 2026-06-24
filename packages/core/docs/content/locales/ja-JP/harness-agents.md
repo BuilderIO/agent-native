@@ -23,7 +23,7 @@ search: "ハーネス エージェント AgentHarness ai-sdk HarnessAgent Claude
 独自のループをエンドツーエンドで実行するため、Agent-Native はそれを単一ではなくセッションとして駆動します
 モデル呼び出し。
 
-```an-diagram title="A harness owns its loop; Agent-Native drives the session" summary="The AgentHarness substrate creates/resumes the native session, streams its events into the normal transcript, and persists resumeState in SQL between turns."
+```an-diagram title="ハーネスはそのループを所有します。 Agent-Native がセッションを駆動します" summary="AgentHarness 基板 creates/resumes はネイティブ セッションであり、そのイベントを通常のトランスクリプトにストリーミングし、ターン間で SQL のresumeState を保持します。"
 {
   "html": "<div class=\"diagram-harness\"><div class=\"diagram-box\" data-rough><strong>AgentHarness substrate</strong><small class=\"diagram-muted\">@agent-native/core/agent/harness</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Native harness loop</strong><small class=\"diagram-muted\">Claude Code · Codex · Pi — own tools, sandbox, compaction</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">events &rarr; transcript</div><div class=\"diagram-pill ok\">resumeState &rarr; SQL session</div></div></div>",
   "css": ".diagram-harness{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-harness .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-harness .diagram-arrow{font-size:22px;line-height:1}.diagram-harness .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
@@ -213,7 +213,7 @@ const run = startAgentHarnessRun({
 は **不透明** — Agent-Native は保管して返却しますが、検査や
 それを解釈します。
 
-```an-diagram title="Resume across turns, processes, and deploys" summary="Each turn detaches an opaque resumeState into SQL; the next turn feeds it back into createSession instead of replaying chat history."
+```an-diagram title="ターン、プロセス、デプロイをまたいで再開" summary="各ターンは、不透明なresumeStateをSQLに切り離します。次のターンでは、チャット履歴を再生する代わりに、それが createSession にフィードバックされます。"
 {
   "html": "<div class=\"diagram-resume\"><div class=\"diagram-node\" data-rough>Turn N<br><small class=\"diagram-muted\">streamTurn</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>detach &rarr; resumeState<br><small class=\"diagram-muted\">opaque · SQL harness session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>Turn N+1<br><small class=\"diagram-muted\">createSession.resumeState</small></div></div>",
   "css": ".diagram-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-resume .diagram-arrow{font-size:22px;line-height:1}"

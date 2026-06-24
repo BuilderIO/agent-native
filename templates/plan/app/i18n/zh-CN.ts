@@ -70,21 +70,21 @@ const messages = {
     signIn: "登录",
   },
   chat: {
-    suggestionShipped: "What shipped in the last week?",
-    suggestionUi: "What does the new checkout UI look like?",
-    suggestionAuth: "When did the auth API change?",
-    suggestionApi: "What is the shape of the billing API?",
-    emptyState: "Ask Plan",
+    suggestionShipped: "过去一周发布了什么？",
+    suggestionUi: "新的结账界面是什么样的？",
+    suggestionAuth: "身份验证 API 是什么时候变更的？",
+    suggestionApi: "计费 API 的结构是什么？",
+    emptyState: "询问 Plan",
     placeholder:
-      "Ask what shipped, what changed, or what the current code shows...",
-    heading: "Ask Plan",
+      "询问发布了什么、发生了什么变化，或当前代码显示了什么...",
+    heading: "询问 Plan",
     description:
-      "Search merged PR recaps, inspect visual blocks, and publish code answers as diagrams, wireframes, API specs, and data models.",
+      "搜索已合并 PR 回顾、检查可视化块，并将代码答案发布为图表、线框、API 规格和数据模型。",
   },
   guest: {
     banner:
-      "You're browsing as a guest. Sign in to create plans, leave comments, and keep your work.",
-    signIn: "Sign in",
+      "你正以访客身份浏览。登录即可创建计划、留下评论并保存你的工作。",
+    signIn: "登录",
   },
 };
 

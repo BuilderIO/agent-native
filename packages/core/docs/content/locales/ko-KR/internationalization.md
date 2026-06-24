@@ -115,6 +115,8 @@ SQL 설정 actions 대신 브라우저 언어. 영어 출처는
 번역되지 않았습니다. 로케일에 페이지에 대해 번역된 Markdown가 없으면 문서 사이트
 탐색 및 크롬을 현지화하는 동안 해당 페이지는 영어로 대체됩니다.
 
+Docs Markdown에는 구조화된 `an-*` 시각 블록이 포함될 수 있습니다. file-tree 제목과 `entries[].note`, callout 본문, tab labels, annotated-code labels/notes처럼 사용자에게 보이는 prose 필드는 의미가 있을 때 번역합니다. 파일명, paths, env vars, route strings, action names, language tags, code snippets, JSON keys, protocol names 같은 안정적인 식별자는 그대로 둡니다.
+
 ## Actions와 지속성
 
 모든 앱은 다음을 상속합니다:

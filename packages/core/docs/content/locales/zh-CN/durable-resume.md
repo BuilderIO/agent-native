@@ -13,7 +13,7 @@ description: "当托管代理运行被中断并恢复时，已完成的副作用
 
 持久的简历弥补了这一差距。恢复时，框架知道哪个副作用工具调用已经完成，并拒绝在两层重新运行它们。
 
-```an-diagram title="Two layers block duplicate side effects on resume" summary="The journal reads the durable ledger and classifies prior calls; layer 1 tells the model, layer 2 hard-blocks a re-dispatched write that matches a completed entry."
+```an-diagram title="两层可阻止简历上重复的副作用" summary="日志读取持久账本并对之前的调用进行分类；第 1 层告诉模型，第 2 层硬阻止与已完成条目匹配的重新分派写入。"
 {
   "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">Layer 2 · hard-block re-dispatched write</div></div></div>",
   "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"

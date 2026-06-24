@@ -10,7 +10,7 @@ description: "प्रथम-रन कॉन्फ़िगरेशन के
 एजेंट चैट के लिए: एक एआई इंजन कनेक्ट करें, वैकल्पिक रूप से ऐप को साझा पर इंगित करें
 बुनियादी ढांचे, और प्रदाताओं को केवल तभी जोड़ें जब आपको उनकी आवश्यकता हो।
 
-```an-diagram title="The setup checklist" summary="Only Connect an AI engine is required. The panel tracks completion and auto-hides once everything required is done."
+```an-diagram title="सेटअप चेकलिस्ट" summary="केवल AI इंजन कनेक्ट करना आवश्यक है। पैनल पूर्णता को ट्रैक करता है और सभी आवश्यक चीजें पूरी हो जाने पर स्वतः छिप जाता है।"
 {
   "html": "<div class=\"ob\"><div class=\"diagram-card\"><span class=\"diagram-pill warn\">required</span><strong>Connect an AI engine</strong><small class=\"diagram-muted\">Connect Builder (one click) or paste an LLM key</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Database</strong><small class=\"diagram-muted\">set <code>DATABASE_URL</code></small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Authentication</strong><small class=\"diagram-muted\">OAuth / access token</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">optional</span><strong>Email delivery</strong><small class=\"diagram-muted\">Resend / SendGrid</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">all required done &rarr; panel auto-hides</div></div>",
   "css": ".ob{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ob .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 14px}.ob .diagram-arrow{font-size:22px}"
@@ -114,7 +114,7 @@ description: "प्रथम-रन कॉन्फ़िगरेशन के
 
 ### टेम्पलेट से एक चरण जोड़ना
 
-```an-annotated-code title="Registering a custom onboarding step"
+```an-annotated-code title="एक कस्टम ऑनबोर्डिंग चरण पंजीकृत करना"
 {
   "filename": "server/plugins/my-onboarding.ts",
   "language": "ts",

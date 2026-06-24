@@ -19,7 +19,7 @@ OM 将长线程表示为三层，从最精炼到最近：
 | **观察**           | 密集、过时的条目将一段原始消息折叠成所发生事件的紧凑记录。                  |
 | **最近的原始消息** | 最后 N 个回合，**逐字**保存 — 从未折叠 — 因此代理始终可以看到最新的上下文。 |
 
-```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
+```an-diagram title="三层，提炼到最近" summary="较旧的前缀折叠成过时的观察结果和长弧反射；只有最近的轮次才保留原样。"
 {
   "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
   "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
@@ -35,7 +35,7 @@ OM 将长线程表示为三层，从最精炼到最近：
 1. **观察者** - 一旦线程的*unobserved*消息超过观察标记阈值，将它们折叠成单个密集观察条目。
 2. **Reflector** — 一旦持久观察日志本身超过反射令牌阈值，就会将观察结果压缩为更高级别的反射。
 
-```an-diagram title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency."
+```an-diagram title="干净利落的转弯后两次尽力传球" summary="每次传递都不会低于其阈值，因此每轮运行压缩器都很便宜。故障会被吞掉，并且不会增加延迟。"
 {
   "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
   "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"

@@ -19,12 +19,12 @@ Agent-Native 应用程序为 AI 代理和您的 UI 提供相同的 actions、数
 之后的一切（编写指令、添加 skills、定义 actions、运行
 代理）无论哪种方式都是相同的。
 
-```an-file-tree title="A basic Agent-Native agent"
+```an-file-tree title="一个基础 Agent-Native 代理"
 {
   "entries": [
-    { "path": "AGENTS.md", "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do" },
-    { "path": ".agents/skills/customer-research/SKILL.md", "note": "a reusable playbook the agent loads when the task matches" },
-    { "path": "actions/summarize-week.ts", "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run" }
+    { "path": "AGENTS.md", "note": "始终生效的指令：目的、规则、语气以及代理能力地图" },
+    { "path": ".agents/skills/customer-research/SKILL.md", "note": "任务匹配时代理会加载的可复用 playbook" },
+    { "path": "actions/summarize-week.ts", "note": "代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 都能运行的类型化代码" }
   ]
 }
 ```
@@ -121,7 +121,7 @@ pnpm dev
 现在可以通过聊天 UI、CLI、HTTP、MCP、A2A 访问该操作
 计划作业和 webhooks。定义一次，从任何地方调用。
 
-```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
+```an-diagram title="一个动作，每个表面" summary="单个 defineAction 文件扇出到每个消费者，无需额外接线。"
 {
   "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"

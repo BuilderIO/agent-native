@@ -51,15 +51,15 @@ const messages = {
     collapseSidebar: "साइडबार समेटें",
   },
   notFound: {
-    message: "This page doesn't exist yet.",
-    backToDecks: "Back to Decks",
+    message: "यह पेज अभी मौजूद नहीं है।",
+    backToDecks: "डेक पर वापस जाएं",
   },
   designSystems: {
-    new: "New Design System",
-    setupBrand: "Set up your brand",
-    emptyTitle: "Set up your brand identity",
+    new: "नया डिज़ाइन सिस्टम",
+    setupBrand: "अपना ब्रांड सेट करें",
+    emptyTitle: "अपना ब्रांड सेट करें identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "अपने brand colors, typography और logos के साथ design system बनाएं। हर नया deck आपकी visual identity का पालन करेगा।",
   },
 };
 

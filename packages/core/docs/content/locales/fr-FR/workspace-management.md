@@ -9,7 +9,7 @@ description: "Branching, CODEOWNERS, examen des relations publiques et comment D
 
 Ce guide couvre l'aspect opérationnel de l'exécution d'un espace de travail natif d'agent : comment créer des branches, qui examine quoi, comment configurer la propriété du code et comment le plan de contrôle Dispatch s'intègre dans votre modèle de gouvernance.
 
-```an-diagram title="Two governance planes" summary="Git governs code; Dispatch governs runtime. They are complementary — don't replicate one inside the other."
+```an-diagram title="Deux plans de gouvernance" summary="Git régit le code ; Dispatch régit l'exécution. Ils sont complémentaires : ne se reproduisent pas l’un dans l’autre."
 {
   "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git / GitHub</span><strong>Code governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">PR review</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
   "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
@@ -47,13 +47,13 @@ Tous ceux qui ont besoin d'apporter des modifications ne sont pas à l'aise avec
 
 La gouvernance du code est configurée par une poignée de fichiers à la racine du dépôt :
 
-```an-file-tree title="Governance config in the repo"
+```an-file-tree title="Configuration de gouvernance dans le repo"
 {
   "entries": [
-    { "path": ".github/CODEOWNERS", "note": "Auto-assigns reviewers per changed path" },
-    { "path": ".github/labeler.yml", "note": "Auto-labels PRs by app" },
-    { "path": "pnpm-workspace.yaml", "note": "Workspace-level — broad review" },
-    { "path": "package.json", "note": "Workspace-level — platform team owns" }
+    { "path": ".github/CODEOWNERS", "note": "Assigne automatiquement les reviewers selon le chemin modifié" },
+    { "path": ".github/labeler.yml", "note": "Ajoute automatiquement des labels aux PRs par app" },
+    { "path": "pnpm-workspace.yaml", "note": "Niveau workspace : revue large" },
+    { "path": "package.json", "note": "Niveau workspace : propriété de l'équipe plateforme" }
   ]
 }
 ```

@@ -21,7 +21,7 @@ Agent-native Apps verwenden **React Router v7** mit dateibasiertem Routing über
 
 Stellen Sie einem Segment `$` für einen dynamischen Parameter voran. Setzen Sie als Präfix `_`, um eine pfadlose Layoutroute zu erstellen (kein URL-Segment). Vorlagen verwenden `flatRoutes()` – die obige Punktnotationsdatei ist primär; Die verschachtelte Ordnerform `inbox/route.tsx` funktioniert auch.
 
-```an-diagram title="Pathless layout wraps the pages" summary="A _app.tsx layout (no URL segment) renders the shared shell once; matched pages render inside its <Outlet/>, so the agent sidebar never remounts on navigation."
+```an-diagram title="Das pfadlose Layout umschließt die Seiten" summary="Ein _app.tsx-Layout (kein URL-Segment) rendert die gemeinsam genutzte Shell einmal; übereinstimmende Seiten werden in ihrem <Outlet/> gerendert, sodass die Agent-Seitenleiste bei der Navigation nie wieder angezeigt wird."
 {
 "html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">pathless layout · persistent shell + agent sidebar</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
 "css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"

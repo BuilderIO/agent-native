@@ -36,7 +36,7 @@ Isso se baseia em três tecnologias testadas em batalha: **Yjs** (CRDT para fus�
 
 O sistema de colaboração possui cinco camadas interligadas.
 
-```an-diagram title="Five interlocking layers" summary="From the in-memory CRDT down to the transport that carries updates between peers — each layer has one job."
+```an-diagram title="Cinco camadas interligadas" summary="Desde o CRDT na memória até o transporte que transporta atualizações entre pares – cada camada tem um trabalho."
 {
   "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, no coordinator</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">agent edits propagate via the SQL bump</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Lead-client election</span><small class=\"diagram-muted\">exactly one tab applies the snapshot</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~tens of ms, degrades to 2s poll anywhere</small></div></div>",
   "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
@@ -100,7 +100,7 @@ ciclo.
 
 Erros de rede usam espera exponencial com jitter, limitado a aproximadamente 15 s.
 
-```an-diagram title="Two edit paths, one merge" summary="Human keystrokes flow Y.Doc → server → SSE. Agent edits go through SQL: the action bumps updatedAt, the lead client reconciles, then the change re-enters Yjs."
+```an-diagram title="Dois caminhos de edição, uma mesclagem" summary="Fluxo de teclas humanas Y.Doc → servidor → SSE. As edições do agente passam por SQL: a ação é atualizada em, o cliente principal se reconcilia e a alteração entra novamente em Yjs."
 {
   "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Human edit</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Agent edit</span><div class=\"diagram-node\">Action writes SQL<br><small class=\"diagram-muted\">bumps updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Lead client<br><small class=\"diagram-muted\">setContent into Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
   "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
@@ -121,8 +121,12 @@ Evita que Vite reagrupe o TipTap de maneiras incompatíveis durante o desenvolvi
 
 ```ts
 // vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
 export default defineConfig({
-  plugins: [reactRouter()],
+  plugins: [reactRouter(), agentNative()],
   optimizeDeps: {
     include: [
       "yjs",

@@ -19,7 +19,7 @@ El sitio de documentos es la implementación de referencia. Hoy se envía:
 
 La configuración de `publicMcp: true` también expone el actions habilitado como punto final público de MCP, lo que permite a los agentes externos llamarlos directamente (consulte [MCP Protocol](/docs/mcp-protocol)).
 
-```an-diagram title="What a public route publishes" summary="A public route fans out into agent-friendly representations. Reading the route is separate from calling tools — tool access stays opt-in."
+```an-diagram title="Lo que publica una vía pública" summary="Una ruta pública se abre hacia representaciones amigables para los agentes. Leer la ruta es independiente de llamar a las herramientas: el acceso a las herramientas sigue siendo opcional."
 {
   "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>Public route<br><small class=\"diagram-muted\">derived from route access settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">.md mirror</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">Tools stay private</span><small class=\"diagram-muted\">publicMcp + publicAgent.expose required</small></div></div>",
   "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
@@ -83,7 +83,7 @@ El acceso a la página pública y el acceso a las herramientas públicas están 
 
 Para exponer una acción a través de un protocolo de agente público, la acción debe optar por:
 
-```an-annotated-code title="Opting one safe action onto the public surface"
+```an-annotated-code title="Optar por una acción segura en la superficie pública"
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",

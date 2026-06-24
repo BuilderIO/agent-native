@@ -45,16 +45,16 @@ CLI には、すべてのファーストパーティ テンプレートの複数
 
 プライベート共有パッケージを含む pnpm モノリポジトリ、ワークスペース検出を接続するルート `package.json`、共有 `.env`、選択したアプリごとに 1 つのサブディレクトリを取得します。
 
-```an-file-tree title="A scaffolded workspace"
+```an-file-tree title="生成された workspace"
 {
   "entries": [
-    { "path": "package.json", "note": "declares agent-native.workspaceCore" },
+    { "path": "package.json", "note": "agent-native.workspaceCore を宣言" },
     { "path": "pnpm-workspace.yaml", "note": "packages: [\"packages/*\", \"apps/*\"]" },
-    { "path": ".env.example", "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..." },
+    { "path": ".env.example", "note": "共有の ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、..." },
     { "path": "packages/shared/", "note": "@my-company-platform/shared" },
-    { "path": "packages/shared/src/server/", "note": "plugin overrides only when needed" },
-    { "path": "packages/shared/src/client/", "note": "shared React code only when needed" },
-    { "path": "packages/shared/AGENTS.md", "note": "workspace-wide instructions" },
+    { "path": "packages/shared/src/server/", "note": "必要な場合のみ plugin overrides" },
+    { "path": "packages/shared/src/client/", "note": "必要な場合のみ共有 React コード" },
+    { "path": "packages/shared/AGENTS.md", "note": "workspace 全体の指示" },
     { "path": "apps/mail/" },
     { "path": "apps/calendar/" },
     { "path": "apps/forms/" }
@@ -115,7 +115,7 @@ pnpm dev
 
 マージはファイル名によって行われます。アプリが上流にも存在するローカル ファイルを提供する場合、ローカル ファイルが優先されます。そうでない場合は、ワークスペース共有バージョンが適用されます。共有でも提供されていない場合は、フレームワークのデフォルトが開始されます。これは、プラグイン skills、actions、および `AGENTS.md` に適用されます。
 
-```an-diagram title="Three layers, merged by file name" summary="Each app resolves plugins, skills, actions, and AGENTS.md from app-local first, then the shared package, then the framework default."
+```an-diagram title="3 つのレイヤー、ファイル名ごとに結合" summary="各アプリは、最初にアプリローカルからプラグイン、スキル、アクション、AGENTS.md を解決し、次に共有パッケージ、次にフレームワークのデフォルトを解決します。"
 {
   "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
   "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
@@ -225,7 +225,7 @@ npx @agent-native/core@latest deploy
 
 各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、選択した Nitro プリセットを通じて出力されます。 Cloudflare Pages がデフォルトのプリセットで、`dist/_worker.js` と `_routes.json` でディスパッチャー ワーカーを使用します。 Netlify は `npx @agent-native/core@latest deploy --preset netlify` でサポートされています。 `.netlify/functions-internal/<app>-server` の下でアプリ関数を発行し、静的アセットを強制されないままにするリダイレクトを生成するため、CDN が最初にファイルを提供します。 Vercel は `npx @agent-native/core@latest deploy --preset vercel` でサポートされています。 Vercel のビルド出力 API を使用して、ルート `.vercel/output` バンドルを書き込みます。
 
-```an-diagram title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free."
+```an-diagram title="統合デプロイ: アプリごとに 1 つのオリジン、1 つのパス" summary="すべてのアプリは単一のオリジンで出荷されるため、ログイン セッションとアプリ間の A2A は無料です。"
 {
   "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
   "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
