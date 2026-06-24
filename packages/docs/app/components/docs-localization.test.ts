@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveLayoutLocale } from "../root";
 import { loader as localizedDocsIndexLoader } from "../routes/docs.$locale._index";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import {
@@ -16,7 +17,34 @@ function loaderArgs(params: Record<string, string>) {
   } as never;
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("localized docs fallback", () => {
+  it("keeps non-doc document metadata on the active client locale", () => {
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "lang" ? "ar-SA" : null),
+      },
+    });
+
+    expect(resolveLayoutLocale("/templates")).toBe("ar-SA");
+  });
+
+  it("keeps docs routes canonical to the URL locale", () => {
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "lang" ? "ar-SA" : null),
+      },
+    });
+
+    expect(resolveLayoutLocale("/docs/fr-FR/internationalization")).toBe(
+      "fr-FR",
+    );
+    expect(resolveLayoutLocale("/docs")).toBe("en-US");
+  });
+
   it("redirects missing localized markdown to the English canonical route", async () => {
     expect(hasLocalizedDoc("fr-FR", "getting-started")).toBe(false);
 

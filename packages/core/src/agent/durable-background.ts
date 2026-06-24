@@ -18,16 +18,17 @@
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
  * path. The gate is true only when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is not explicitly disabled. It is
- *      DEFAULT-ON: unset/empty/unknown counts as enabled; set it to a falsy
- *      value (`false`/`0`/`no`/`off`) to opt a specific app back out.
+ *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled. It is
+ *      DEFAULT-OFF (opt-in): unset/empty/unknown counts as disabled; set it to a
+ *      truthy value (`true`/`1`/`yes`/`on`) to opt a specific app in.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
  *      the background dispatch; without it the dispatch can't be trusted).
  *
- * Default-on is safe because a *dispatch failure degrades to an inline run*: if
- * the self-dispatch self-POST can't be delivered (fast connection error or
+ * Opt-in keeps the blast radius small while the worker path is still being
+ * proven. And even when enabled, a *dispatch failure degrades to an inline run*:
+ * if the self-dispatch self-POST can't be delivered (fast connection error or
  * fast non-2xx), the foreground handler runs the turn synchronously instead of
  * erroring (see `production-agent.ts` — the inline fallback claims the run row
  * atomically so a delayed delivery can never double-execute). So an app where
@@ -140,8 +141,8 @@ export function resolveAgentChatProcessRunDispatchPath(): string {
 }
 
 /**
- * Env flag for durable background runs. DEFAULT-ON: unset means enabled; an app
- * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`).
+ * Env flag for durable background runs. DEFAULT-OFF (opt-in): unset means
+ * disabled; an app opts IN with an explicit truthy value (`true`/`1`/`yes`/`on`).
  */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";

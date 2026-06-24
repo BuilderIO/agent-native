@@ -26,9 +26,12 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import {
   DEFAULT_DOCS_LOCALE,
+  browserDocsLocale,
   docsLocaleFromPathname,
+  isDocsLocale,
   isDocsPath,
   localeDirection,
+  type DocsLocale,
 } from "./components/docs-locale";
 import {
   canonicalPathForPath,
@@ -109,6 +112,19 @@ function readClientLocalePreference() {
   } catch {
     return undefined;
   }
+}
+
+function readClientDocumentLocale(): DocsLocale | undefined {
+  if (typeof document === "undefined") return undefined;
+  const htmlLocale = document.documentElement.getAttribute("lang");
+  return isDocsLocale(htmlLocale) ? htmlLocale : undefined;
+}
+
+export function resolveLayoutLocale(pathname: string): DocsLocale {
+  if (isDocsPath(pathname)) {
+    return docsLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE;
+  }
+  return readClientDocumentLocale() ?? browserDocsLocale();
 }
 
 export const links = () => [
@@ -313,8 +329,7 @@ function ScrollManager() {
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const docsPath = isDocsPath(location.pathname);
-  const locale =
-    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const locale = resolveLayoutLocale(location.pathname);
   const localeInitScript =
     typeof document !== "undefined"
       ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
