@@ -15,15 +15,15 @@ No es necesario crear un agente nativo desde cero. El chat del agente, la pesta�
 
 ## Los componentes de un vistazo {#components}
 
-| Componente             | Qué es                                                                            | Úselo cuando                                                     |
-| --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Componente            | Qué es                                                                                                      | Úselo cuando                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `<AgentSidebar>`      | Ajusta el diseño de tu aplicación raíz y agrega un panel lateral alternable que contiene el agente completo | Quieres que el agente esté disponible junto con tu aplicación en todas las pantallas |
-| `<AgentToggleButton>` | Abre/cierra `<AgentSidebar>` (ponlo en tu encabezado)                                 | Emparejar con `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | El panel sin formato en sí: chat + CLI + pestañas del espacio de trabajo                                    | Quieres control total sobre el diseño o una página de agente dedicada    |
-| `<AgentChatSurface>`  | Un panel/superficie de chat de página precableado                                                   | Quieres chatear sin el envoltorio de la barra lateral                       |
-| `<AssistantChat>`     | Representador de chat de nivel inferior con enlaces de compositor/historial                                 | Necesitas Chrome personalizado en torno a la conversación estándar UI      |
-| `sendToAgentChat()`   | Enviar un mensaje al chat mediante programación                                           | Un botón que entrega el trabajo al agente en lugar de ejecutarlo en línea |
-| `useActionMutation()` | Envoltura de interfaz Typesafe alrededor de una acción                                            | El UI necesita ejecutar la misma operación que ejecutaría una herramienta de agente  |
+| `<AgentToggleButton>` | Abre/cierra `<AgentSidebar>` (ponlo en tu encabezado)                                                       | Emparejar con `<AgentSidebar>`                                                       |
+| `<AgentPanel>`        | El panel sin formato en sí: chat + CLI + pestañas del espacio de trabajo                                    | Quieres control total sobre el diseño o una página de agente dedicada                |
+| `<AgentChatSurface>`  | Un panel/superficie de chat de página precableado                                                           | Quieres chatear sin el envoltorio de la barra lateral                                |
+| `<AssistantChat>`     | Representador de chat de nivel inferior con enlaces de compositor/historial                                 | Necesitas Chrome personalizado en torno a la conversación estándar UI                |
+| `sendToAgentChat()`   | Enviar un mensaje al chat mediante programación                                                             | Un botón que entrega el trabajo al agente en lugar de ejecutarlo en línea            |
+| `useActionMutation()` | Envoltura de interfaz Typesafe alrededor de una acción                                                      | El UI necesita ejecutar la misma operación que ejecutaría una herramienta de agente  |
 
 Todos estos se exportan desde `@agent-native/core/client`.
 

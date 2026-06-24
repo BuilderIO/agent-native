@@ -230,14 +230,14 @@ useEffect(() => {
 
 所有协作路由均由协作插件自动挂载在 `/_agent-native/collab/` 下：
 
-| 路线                         | 目的                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | 获取完整的 Y.Doc 状态 (base64)          |
-| `POST /:docId/update`         | 应用客户端 Yjs 更新                  |
-| `POST /:docId/text`           | 应用全文替换（基于差异） |
-| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换   |
-| `POST /:docId/awareness`      | 同步光标/存在状态               |
-| `GET /:docId/users`           | 列出文档上的活跃用户          |
+| 路线                          | 目的                                       |
+| ----------------------------- | ------------------------------------------ |
+| `GET /:docId/state`           | 获取完整的 Y.Doc 状态 (base64)             |
+| `POST /:docId/update`         | 应用客户端 Yjs 更新                        |
+| `POST /:docId/text`           | 应用全文替换（基于差异）                   |
+| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换 |
+| `POST /:docId/awareness`      | 同步光标/存在状态                          |
+| `GET /:docId/users`           | 列出文档上的活跃用户                       |
 
 ## 代理编辑操作 {#edit-document}
 
@@ -284,41 +284,41 @@ import {
 
 ### 公共API {#presence-public-api}
 
-| API                                                 | 目的                                                                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API                                                 | 目的                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `useCollaborativeDoc(options)`                      | 创建稳定的 `Y.Doc` 和感知实例，处理状态向量同步、SSE 快速路径、轮询回退、活动用户和代理存在标志。 |
-| `usePresence(awareness, localClientId)`             | 派生远程参与者并发布任意本地感知字段，例如光标、选择、视口或工具模式。                          |
-| `<PresenceBar>`                                     | 渲染活跃的协作者和人工智能代理，并带有可选的头像点击跟随模式连接。                                                         |
-| `<LiveCursorOverlay>`                               | 根据标准化的 0-1 坐标在定位容器上渲染远程光标标签。                                                              |
-| `<RemoteSelectionRings>`                            | 在您的应用解析的选定 DOM 元素周围渲染彩色环和标签。                                                                    |
-| `useFollowUser(options)`                            | 当关注的参与者发布视口更改时调用回调。                                                                           |
-| `toNormalized()` / `fromNormalized()`               | 将指针坐标与标准化容器坐标相互转换。                                                                                  |
-| `dedupeCollabUsersByEmail()`                        | 构建自定义头像堆栈，无需一个用户在每个打开的选项卡中显示一次。                                                                                 |
-| `useCollaborativeMap()` / `useCollaborativeArray()` | 用于 Y.Map/Y.Array 结构化协作的客户端挂钩。视为较低级别，直到模板证明准确的产品模式。                       |
+| `usePresence(awareness, localClientId)`             | 派生远程参与者并发布任意本地感知字段，例如光标、选择、视口或工具模式。                            |
+| `<PresenceBar>`                                     | 渲染活跃的协作者和人工智能代理，并带有可选的头像点击跟随模式连接。                                |
+| `<LiveCursorOverlay>`                               | 根据标准化的 0-1 坐标在定位容器上渲染远程光标标签。                                               |
+| `<RemoteSelectionRings>`                            | 在您的应用解析的选定 DOM 元素周围渲染彩色环和标签。                                               |
+| `useFollowUser(options)`                            | 当关注的参与者发布视口更改时调用回调。                                                            |
+| `toNormalized()` / `fromNormalized()`               | 将指针坐标与标准化容器坐标相互转换。                                                              |
+| `dedupeCollabUsersByEmail()`                        | 构建自定义头像堆栈，无需一个用户在每个打开的选项卡中显示一次。                                    |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | 用于 Y.Map/Y.Array 结构化协作的客户端挂钩。视为较低级别，直到模板证明准确的产品模式。             |
 
 `UseCollaborativeDocOptions`:
 
-| 选项                | 描述                                                         |
-| --------------------- | ------------------------------------------------------------------- |
-| `docId`               | 文档 ID，或 `null` 以禁用挂钩。                         |
-| `pollInterval`        | SSE 不可用时的轮询间隔。默认值：`2000`。             |
-| `pollIntervalWithSse` | SSE 运行状况良好时轮询间隔较慢。默认值：`12000`。          |
-| `pauseWhenHidden`     | 隐藏时暂停远程更新/状态轮询。默认值：`true`。 |
-| `baseUrl`             | 协作端点前缀。默认值：`/_agent-native/collab`。           |
-| `requestSource`       | 稳定的选项卡/源 ID 用于忽略自产生的刷新噪音。  |
-| `user`                | 光标中显示 `{ name, email, color }` 并存在 UI。           |
+| 选项                  | 描述                                              |
+| --------------------- | ------------------------------------------------- |
+| `docId`               | 文档 ID，或 `null` 以禁用挂钩。                   |
+| `pollInterval`        | SSE 不可用时的轮询间隔。默认值：`2000`。          |
+| `pollIntervalWithSse` | SSE 运行状况良好时轮询间隔较慢。默认值：`12000`。 |
+| `pauseWhenHidden`     | 隐藏时暂停远程更新/状态轮询。默认值：`true`。     |
+| `baseUrl`             | 协作端点前缀。默认值：`/_agent-native/collab`。   |
+| `requestSource`       | 稳定的选项卡/源 ID 用于忽略自产生的刷新噪音。     |
+| `user`                | 光标中显示 `{ name, email, color }` 并存在 UI。   |
 
 `UseCollaborativeDocResult`:
 
-| 字段          | 描述                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `ydoc`         | 当前`docId`的稳定`Y.Doc`。                              |
+| 字段           | 描述                                            |
+| -------------- | ----------------------------------------------- |
+| `ydoc`         | 当前`docId`的稳定`Y.Doc`。                      |
 | `awareness`    | 光标、选择和跟随模式使用的 Yjs Awareness 实例。 |
-| `isLoading`    | 初始服务器状态仍在加载中。                               |
-| `isSynced`     | 挂钩已赶上服务器状态。                              |
-| `activeUsers`  | 来自意识的人类合作者。                                  |
-| `agentActive`  | 代理正在积极编辑。                             |
-| `agentPresent` | 代理有此文档的认知条目。                  |
+| `isLoading`    | 初始服务器状态仍在加载中。                      |
+| `isSynced`     | 挂钩已赶上服务器状态。                          |
+| `activeUsers`  | 来自意识的人类合作者。                          |
+| `agentActive`  | 代理正在积极编辑。                              |
+| `agentPresent` | 代理有此文档的认知条目。                        |
 
 ### 快速认知 {#fast-awareness}
 
@@ -476,30 +476,30 @@ try {
 所有路由均由协作自动挂载在`/_agent-native/collab/`下
 插件：
 
-| 路线                         | 目的                                                     |
-| ----------------------------- | ----------------------------------------------------------- |
+| 路线                          | 目的                                                      |
+| ----------------------------- | --------------------------------------------------------- |
 | `GET /:docId/state`           | 完整的 Y.Doc 状态 (base64)。接受 `?stateVector=` 进行差异 |
-| `POST /:docId/update`         | 应用客户端 Yjs 更新 (base64)。默认最大 2 MB       |
-| `POST /:docId/text`           | 应用全文替换（基于差异）                    |
-| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换                      |
-| `POST /:docId/json`           | 将完整的 JSON 差异应用于 Y.Map/Y.Array                       |
-| `GET /:docId/json`            | 读取当前JSON状态                                     |
-| `POST /:docId/patch`          | 应用手术 JSON 补丁操作（更新插入/删除/重新排序）       |
-| `POST /:docId/awareness`      | 同步光标/存在状态                                  |
-| `GET /:docId/users`           | 列出文档上的活跃用户                             |
+| `POST /:docId/update`         | 应用客户端 Yjs 更新 (base64)。默认最大 2 MB               |
+| `POST /:docId/text`           | 应用全文替换（基于差异）                                  |
+| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换                |
+| `POST /:docId/json`           | 将完整的 JSON 差异应用于 Y.Map/Y.Array                    |
+| `GET /:docId/json`            | 读取当前JSON状态                                          |
+| `POST /:docId/patch`          | 应用手术 JSON 补丁操作（更新插入/删除/重新排序）          |
+| `POST /:docId/awareness`      | 同步光标/存在状态                                         |
+| `GET /:docId/users`           | 列出文档上的活跃用户                                      |
 
 ## 传输和性能 {#transport}
 
-| 财产                     | 值                                                      |
-| ---------------------------- | ---------------------------------------------------------- |
-| 更新去抖              | ~80 ms（通过 `Y.mergeUpdates` 合并快速击键）   |
-| 轮询间隔（无 SSE）       | 2秒（可通过`pollInterval`配置）                      |
-| 轮询间隔（SSE 健康）  | ~12秒（可通过`pollIntervalWithSse`配置）             |
-| 状态向量获取频率 | 重新连接、环形缓冲区间隙或每 15 个轮询周期时    |
-| 出错时退避             | 带抖动的指数，上限约为 15 秒                         |
-| 最大有效负载（写入）         | 默认 2 MB，可通过 `maxPayloadBytes` 配置           |
-| 压缩阈值         | 存储的 blob > 4× 新编码触发墓碑紧凑 |
-| 每次写入数据库读取           | 1（仅在`persistMergedState`内部读取CAS版本）      |
+| 财产                 | 值                                           |
+| -------------------- | -------------------------------------------- |
+| 更新去抖             | ~80 ms（通过 `Y.mergeUpdates` 合并快速击键） |
+| 轮询间隔（无 SSE）   | 2秒（可通过`pollInterval`配置）              |
+| 轮询间隔（SSE 健康） | ~12秒（可通过`pollIntervalWithSse`配置）     |
+| 状态向量获取频率     | 重新连接、环形缓冲区间隙或每 15 个轮询周期时 |
+| 出错时退避           | 带抖动的指数，上限约为 15 秒                 |
+| 最大有效负载（写入） | 默认 2 MB，可通过 `maxPayloadBytes` 配置     |
+| 压缩阈值             | 存储的 blob > 4× 新编码触发墓碑紧凑          |
+| 每次写入数据库读取   | 1（仅在`persistMergedState`内部读取CAS版本） |
 
 ## 安全 {#security}
 
@@ -564,7 +564,7 @@ type PatchDeckOp =
   | { type: "reorder"; slideId: string; newIndex: number };
 ```
 
-两个用户编辑不同的幻灯片均成功； 
+两个用户编辑不同的幻灯片均成功；
 甲板层。
 
 **表单 (`patch-form-fields`)** — 使用更新插入/删除/重新排序进行字段级合并

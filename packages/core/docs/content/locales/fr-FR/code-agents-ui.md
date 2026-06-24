@@ -10,12 +10,12 @@ description: "Créez et personnalisez les surfaces de code Agent-Native avec le 
 
 ## Quel document de codage je veux ? {#which-doc}
 
-| Vous voulez…                                                               | Utiliser                                    |
-| -------------------------------------------------------------------------- | -------------------------------------- |
-| Afficher un **espace de travail de codage de style Claude-Code/Codex** UI**                   | **Agent-Native Code UI** (cette page)   |
+| Vous voulez…                                                                             | Utiliser                               |
+| ---------------------------------------------------------------------------------------- | -------------------------------------- |
+| Afficher un **espace de travail de codage de style Claude-Code/Codex** UI\*\*            | **Agent-Native Code UI** (cette page)  |
 | Exécuter Claude Code / Codex / Pi **en tant qu'agent**, avec leur propre boucle + outils | [Harness Agents](/docs/harness-agents) |
-| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                 | [Adapters](/docs/sandbox-adapters)     |
-| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                     | [Adapters](/docs/sandbox-adapters)     |
+| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                        | [Adapters](/docs/sandbox-adapters)     |
+| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                        | [Adapters](/docs/sandbox-adapters)     |
 
 Agent-Native Code est la surface de codage Agent-Native : un espace de travail local de style Claude Code/Codex pour les sessions de codage, les commandes slash, les migrations, les audits, les transcriptions, les contrôles d'exécution et les suivis. Une simple commande `npx @agent-native/core@latest` ouvre cet espace de travail ; `npx @agent-native/core@latest code` est la sous-commande explicite pour la même expérience.
 
@@ -172,10 +172,10 @@ commande, puis vous renvoie pour reprendre la session.
 
 Les modes d'exécution rendent la politique de modification explicite par session :
 
-| Mode          | Drapeau CLI | Comportement                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **Mode forfait** | `--plan` | Inspectez, planifiez et expliquez sans écrire de fichiers ni exécuter de mutations.                                   |
-| **Mode automatique** | `--auto` | Modifiez les fichiers, exécutez des vérifications et mettez en pause uniquement les opérations véritablement destructrices sur les fichiers, git, la publication ou les données. |
+| Mode                 | Drapeau CLI | Comportement                                                                                                                                                                     |
+| -------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mode forfait**     | `--plan`    | Inspectez, planifiez et expliquez sans écrire de fichiers ni exécuter de mutations.                                                                                              |
+| **Mode automatique** | `--auto`    | Modifiez les fichiers, exécutez des vérifications et mettez en pause uniquement les opérations véritablement destructrices sur les fichiers, git, la publication ou les données. |
 
 Le mode Auto est le mode par défaut pour les sessions de code Agent-Native locales. Utiliser le mode Plan pour
 évaluation, architecture, révision ou toute tâche pour laquelle vous souhaitez une proposition avant
@@ -229,19 +229,19 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 `CodeAgentsHost` est intentionnellement petit :
 
-| Méthode                                                | Objectif                                                |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| `listRuns(goalId?)`                                   | Répertorier les sessions pour l'objectif sélectionné                    |
-| `listCodePacks?()`                                    | Liste `.agents/commands` et `.agents/skills`           |
-| `createRun(request)`                                  | Démarrer une nouvelle exécution                                        |
-| `subscribeTranscript?(request, callback)`             | Pousser les mises à jour de la transcription vers la conversation partagée     |
-| `readTranscript(request)`                             | Événements de transcription d'interrogation comme solution de secours en matière de compatibilité     |
-| `appendFollowUp(request)`                             | Ajouter un suivi, soit en dirigeant le travail actif, soit en file d'attente |
-| `updateRun(request)`                                  | Mettre à jour le mode ou exécuter les métadonnées                            |
-| `retryRun?(request)`                                  | Réessayez l'exécution sélectionnée sur place                        |
-| `rerunRun?(request)`                                  | Démarrer une nouvelle exécution à partir d'une invite précédente                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | Reprendre, approuver, actualiser ou arrêter                      |
-| `openTerminal?(request)`                              | Hook de terminal natif facultatif                          |
+| Méthode                                               | Objectif                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `listRuns(goalId?)`                                   | Répertorier les sessions pour l'objectif sélectionné                                              |
+| `listCodePacks?()`                                    | Liste `.agents/commands` et `.agents/skills`                                                      |
+| `createRun(request)`                                  | Démarrer une nouvelle exécution                                                                   |
+| `subscribeTranscript?(request, callback)`             | Pousser les mises à jour de la transcription vers la conversation partagée                        |
+| `readTranscript(request)`                             | Événements de transcription d'interrogation comme solution de secours en matière de compatibilité |
+| `appendFollowUp(request)`                             | Ajouter un suivi, soit en dirigeant le travail actif, soit en file d'attente                      |
+| `updateRun(request)`                                  | Mettre à jour le mode ou exécuter les métadonnées                                                 |
+| `retryRun?(request)`                                  | Réessayez l'exécution sélectionnée sur place                                                      |
+| `rerunRun?(request)`                                  | Démarrer une nouvelle exécution à partir d'une invite précédente                                  |
+| `controlRun(goalId, runId, command, permissionMode?)` | Reprendre, approuver, actualiser ou arrêter                                                       |
+| `openTerminal?(request)`                              | Hook de terminal natif facultatif                                                                 |
 
 Les hôtes du navigateur devraient renvoyer une erreur `openTerminal` gracieuse au lieu d'essayer d'émuler le lancement du terminal natif.
 
@@ -395,19 +395,19 @@ Les points de terminaison canoniques du relais distant sont :
 }
 ```
 
-| Méthode     | Itinéraire                                                    | Appelant          | Objectif                                     |
-| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
+| Méthode    | Itinéraire                                               | Appelant          | Objectif                                                 |
+| ---------- | -------------------------------------------------------- | ----------------- | -------------------------------------------------------- |
 | `POST`     | `/_agent-native/integrations/remote/register`            | Session de bureau | Associez un hôte de bureau et renvoyez un jeton une fois |
-| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobile/session  | Liste des hôtes associés                           |
-| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobile/session  | Révoquer un hôte associé                        |
-| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobile/session  | Révoquer un hôte associé                        |
-| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Jeton de bureau   | Réclamation du travail                                  |
-| `POST`     | `/_agent-native/integrations/remote/result`              | Jeton de bureau   | Travail terminé ou échoué                       |
-| `POST`     | `/_agent-native/integrations/remote/run-events`          | Jeton de bureau   | Événements de transcription miroir                    |
-| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobile/session  | Liste des sessions                               |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobile/session  | Lire le résumé de la session                        |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobile/session  | Lire la transcription en miroir                    |
-| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobile/session  | Enregistrer l'Expo/jeton push mobile             |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobile/session    | Liste des hôtes associés                                 |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobile/session    | Révoquer un hôte associé                                 |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobile/session    | Révoquer un hôte associé                                 |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Jeton de bureau   | Réclamation du travail                                   |
+| `POST`     | `/_agent-native/integrations/remote/result`              | Jeton de bureau   | Travail terminé ou échoué                                |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | Jeton de bureau   | Événements de transcription miroir                       |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobile/session    | Liste des sessions                                       |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobile/session    | Lire le résumé de la session                             |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobile/session    | Lire la transcription en miroir                          |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobile/session    | Enregistrer l'Expo/jeton push mobile                     |
 
 Telegram utilise le même relais via Dispatch. Les commandes prises en charge sont :
 

@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### اصطلاحات تسمية المسار {#route-naming-conventions}
 
-| نمط اسم الملف  | طريقة HTTP | مثال للمسار                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` أو استقبال الكل |
+| نمط اسم الملف      | طريقة HTTP | مثال للمسار                    |
+| ------------------ | ---------- | ------------------------------ |
+| `index.get.ts`     | GET        | `/api/items`                   |
+| `index.post.ts`    | POST       | `/api/items`                   |
+| `[id].get.ts`      | GET        | `/api/items/:id`               |
+| `[id].patch.ts`    | PATCH      | `/api/items/:id`               |
+| `[id].delete.ts`   | DELETE     | `/api/items/:id`               |
+| `[...slug].get.ts` | GET        | `/api/items/*` أو استقبال الكل |
 
 ## تفضل Actions لعمليات التطبيق {#actions-first}
 
@@ -149,19 +149,19 @@ export default runMigrations(
 
 يقوم إطار العمل بتثبيت المسارات الخاصة به ضمن `/_agent-native/`. تعامل مع مساحة الاسم هذه على أنها محجوزة.
 
-| بادئة المسار                     | الغرض                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | نقاط نهاية الإجراء HTTP                                                           |
-| `/_agent-native/agent-chat`      | حلقة محادثة الوكيل                                                                 |
-| `/_agent-native/poll`            | مزامنة UI المدعومة من SQL                                                              |
-| `/_agent-native/resources/*`     | موارد مساحة العمل                                                             |
+| بادئة المسار                     | الغرض                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | نقاط نهاية الإجراء HTTP                                                               |
+| `/_agent-native/agent-chat`      | حلقة محادثة الوكيل                                                                    |
+| `/_agent-native/poll`            | مزامنة UI المدعومة من SQL                                                             |
+| `/_agent-native/resources/*`     | موارد مساحة العمل                                                                     |
 | `/_agent-native/extensions/*`    | امتدادات وقت التشغيل ووكيل الامتداد (الاسم المستعار القديم: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | عمليات تكامل المراسلة/الخطاف التلقائي على الويب                                                  |
-| `/_agent-native/a2a`             | من وكيل إلى وكيل JSON-RPC                                                         |
-| `/_agent-native/mcp`             | نقطة نهاية MCP                                                                    |
-| `/_agent-native/onboarding/*`    | قائمة التحقق من الإعداد                                                                 |
-| `/_agent-native/observability/*` | التتبعات والملاحظات والتقييمات والتجارب                                            |
-| `/_agent-native/file-upload`     | نقطة نهاية موفر تحميل الملفات                                                   |
+| `/_agent-native/integrations/*`  | عمليات تكامل المراسلة/الخطاف التلقائي على الويب                                       |
+| `/_agent-native/a2a`             | من وكيل إلى وكيل JSON-RPC                                                             |
+| `/_agent-native/mcp`             | نقطة نهاية MCP                                                                        |
+| `/_agent-native/onboarding/*`    | قائمة التحقق من الإعداد                                                               |
+| `/_agent-native/observability/*` | التتبعات والملاحظات والتقييمات والتجارب                                               |
+| `/_agent-native/file-upload`     | نقطة نهاية موفر تحميل الملفات                                                         |
 
 يجب أن تستخدم مسارات التطبيق المخصصة `/api/*`، أو مسارات التطبيق العامة، أو مسارات رد الاتصال الخاصة بالموفر والتي لا تتعارض مع `/_agent-native/`.
 

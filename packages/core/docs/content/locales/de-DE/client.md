@@ -68,7 +68,7 @@ fordert den enthaltenden Host auf, versteckten Kontext hinzuzufügen und den sic
 `context` bleibt für das Model sichtbar, ohne als Benutzer-Chat gepostet zu werden.
 `submit: false` behält das lokale Vorausfüll-/Überprüfungsverhalten bei, da MCP-Apps dies nicht tun
 Definieren Sie eine Standard-Entwurfsvorausfüllung API. Intern ist dies der Pfad zum übermittelten Chat
- tauchte manchmal als `agentNative.submitChat` auf; App-Code sollte aufrufen
+tauchte manchmal als `agentNative.submitChat` auf; App-Code sollte aufrufen
 `sendToAgentChat()`, anstatt dieses Ereignis direkt zu veröffentlichen.
 
 ### Stille Hintergrundsendungen {#background-send}
@@ -95,17 +95,17 @@ muss den Follow-up-Status korrelieren oder später einen Deep-Link zum Lauf erst
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option                | Typ        | Beschreibung                                                                |
-| --------------------- | ----------- | -------------------------------------------------------------------------- |
-| `message`             | `string`    | Die sichtbare Eingabeaufforderung, die an den Chat gesendet wurde                                        |
-| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat UI angezeigt)                             |
-| `submit`              | `boolean?`  | true = automatische Übermittlung, false = nur Vorabausfüllung                                   |
-| `newTab`              | `boolean?`  | Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung                              |
+| Option                | Typ         | Beschreibung                                                                                       |
+| --------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `message`             | `string`    | Die sichtbare Eingabeaufforderung, die an den Chat gesendet wurde                                  |
+| `context`             | `string?`   | Versteckter Kontext angehängt (nicht im Chat UI angezeigt)                                         |
+| `submit`              | `boolean?`  | true = automatische Übermittlung, false = nur Vorabausfüllung                                      |
+| `newTab`              | `boolean?`  | Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung                            |
 | `background`          | `boolean?`  | Mit `newTab` ausführen, ohne die Registerkarte zu fokussieren, und den Lauf in `RunsTray` anzeigen |
-| `openSidebar`         | `boolean?`  | Setzen Sie „false“, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                    |
-| `projectSlug`         | `string?`   | Optionaler Projekt-Slug für strukturierten Kontext                               |
-| `preset`              | `string?`   | Optionaler voreingestellter Name für nachgeschaltete Verbraucher                              |
-| `referenceImagePaths` | `string[]?` | Optionale Referenzbildpfade                                             |
+| `openSidebar`         | `boolean?`  | Setzen Sie „false“, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                |
+| `projectSlug`         | `string?`   | Optionaler Projekt-Slug für strukturierten Kontext                                                 |
+| `preset`              | `string?`   | Optionaler voreingestellter Name für nachgeschaltete Verbraucher                                   |
+| `referenceImagePaths` | `string[]?` | Optionale Referenzbildpfade                                                                        |
 
 ## Agent-Chat-Kontextstatus (Erweitert) {#agent-chat-context-state}
 
@@ -118,14 +118,14 @@ Nehmen Sie diese Helfer nicht für ein einfaches „Senden Sie dies an den Agent
 Flows „Diesen Entwurf zur Überprüfung vorab ausfüllen“. Verwenden Sie `sendToAgentChat()` mit `context`
 und `submit` für diese.
 
-| API                               | Verwenden wenn                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `useAgentChatContext()`           | Eine React-Komponente benötigt die live bereitgestellte Kontextliste                   |
-| `setAgentChatContextItem(item)`   | Imperativer Code sollte ein Schlüsselkontextelement bereitstellen oder ersetzen         |
-| `listAgentChatContext()`          | Nicht-React-Code benötigt einen einmaligen Snapshot des bereitgestellten Kontexts             |
-| `removeAgentChatContextItem(key)` | UI sollte ein bereitgestelltes Kontextelement durch sein stabiles `key` entfernen           |
+| API                               | Verwenden wenn                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | Eine React-Komponente benötigt die live bereitgestellte Kontextliste                                              |
+| `setAgentChatContextItem(item)`   | Imperativer Code sollte ein Schlüsselkontextelement bereitstellen oder ersetzen                                   |
+| `listAgentChatContext()`          | Nicht-React-Code benötigt einen einmaligen Snapshot des bereitgestellten Kontexts                                 |
+| `removeAgentChatContextItem(key)` | UI sollte ein bereitgestelltes Kontextelement durch sein stabiles `key` entfernen                                 |
 | `clearAgentChatContext()`         | UI sollte den gesamten bereitgestellten Kontext löschen, z. B. nach einem Zurücksetzen der Ansicht oder des Modus |
-| `refreshAgentChatContext()`       | Imperativer Code sollte den neuesten persistenten Kontext-Snapshot erneut lesen   |
+| `refreshAgentChatContext()`       | Imperativer Code sollte den neuesten persistenten Kontext-Snapshot erneut lesen                                   |
 
 `useAgentChatContext()` gibt `{ items, set, remove, clear, refresh }` zurück.
 
@@ -181,11 +181,11 @@ aktuelle bereitgestellte Elemente einmal. `clearAgentChatContext()` ist absichtl
 
 ### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
-| Option        | Typ       | Beschreibung                                            |
-| ------------- | ---------- | ------------------------------------------------------ |
-| `key`         | `string`   | Stabile Kennung, die zum Ersetzen eines vorhandenen Nuggets verwendet wird   |
-| `title`       | `string`   | Kurzbezeichnung wird im Composer-Chip angezeigt                 |
-| `context`     | `string`   | Versteckter Kontext in der nächsten übermittelten Eingabeaufforderung enthalten |
+| Option        | Typ        | Beschreibung                                                                                  |
+| ------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `key`         | `string`   | Stabile Kennung, die zum Ersetzen eines vorhandenen Nuggets verwendet wird                    |
+| `title`       | `string`   | Kurzbezeichnung wird im Composer-Chip angezeigt                                               |
+| `context`     | `string`   | Versteckter Kontext in der nächsten übermittelten Eingabeaufforderung enthalten               |
 | `openSidebar` | `boolean?` | Standardmäßig ist true; Übergeben Sie „false“, um den Kontext stillschweigend bereitzustellen |
 
 ## askUserQuestion(opts) {#ask-user-question}
@@ -200,7 +200,7 @@ sichtbar. Im Gegensatz zum Agenten-Tool – dessen Antwort an den Agenten zurüc
 darauf verzweigen.
 
 Verwenden Sie es, wenn der UI vor ihm genau eine kleine Entscheidung (2–4 Optionen) benötigt.
- startet die Agentenarbeit – anstatt ein benutzerdefiniertes Modal zu erstellen. Greifen Sie nach
+startet die Agentenarbeit – anstatt ein benutzerdefiniertes Modal zu erstellen. Greifen Sie nach
 Composer für Freiformdetails und ein Formular/Popover für die Eingabe mehrerer Felder.
 
 ```tsx
@@ -328,17 +328,17 @@ function App() {
 
 ### Optionen {#usedbsync-options}
 
-| Option             | Typ               | Beschreibung                                                                            |
-| ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | React-Abfrage-Client für Cache-Ungültigmachung                                              |
-| `queryKeys`        | `string[]?`        | Veraltet und ignoriert; für alte Anrufseiten beibehalten                                        |
-| `pollUrl`          | `string?`          | Poll-Endpunkt URL. Standard: `"/_agent-native/poll"`                                    |
-| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | Abfrageintervall in ms. Standard: `2000`                                                |
-| `fallbackInterval` | `number?`          | Fallback-Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | Pausieren Sie die Abfrage, wenn die Browser-Registerkarte ausgeblendet ist. Standard: `true`                          |
-| `ignoreSource`     | `string?`          | Anforderungsquelle pro Tab, die ignoriert werden soll, damit ein Tab nicht erneut aus seinen eigenen Schreibvorgängen abgerufen wird         |
-| `onEvent`          | `(data) => void`   | Optionaler Rückruf, wenn SSE/polling ein Änderungsereignis empfängt                             |
+| Option             | Typ                | Beschreibung                                                                                                                         |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `queryClient`      | `QueryClient?`     | React-Abfrage-Client für Cache-Ungültigmachung                                                                                       |
+| `queryKeys`        | `string[]?`        | Veraltet und ignoriert; für alte Anrufseiten beibehalten                                                                             |
+| `pollUrl`          | `string?`          | Poll-Endpunkt URL. Standard: `"/_agent-native/poll"`                                                                                 |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                                               |
+| `interval`         | `number?`          | Abfrageintervall in ms. Standard: `2000`                                                                                             |
+| `fallbackInterval` | `number?`          | Fallback-Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `15000`                                                           |
+| `pauseWhenHidden`  | `boolean?`         | Pausieren Sie die Abfrage, wenn die Browser-Registerkarte ausgeblendet ist. Standard: `true`                                         |
+| `ignoreSource`     | `string?`          | Anforderungsquelle pro Tab, die ignoriert werden soll, damit ein Tab nicht erneut aus seinen eigenen Schreibvorgängen abgerufen wird |
+| `onEvent`          | `(data) => void`   | Optionaler Rückruf, wenn SSE/polling ein Änderungsereignis empfängt                                                                  |
 
 Für normales CRUD bevorzugen Sie `useActionQuery` und `useActionMutation`; mutierendes actions gibt `source: "action"` aus und diese Hooks werden automatisch erneut abgerufen.
 

@@ -227,11 +227,11 @@ export default defineConfig({
 
 ### 构建/运行时 {#env-runtime}
 
-| 变量                    | 描述                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | 服务器端口（仅限Node.js）                                                                                                                        |
-| `NITRO_PRESET`              | 在构建时覆盖构建预设                                                                                                               |
-| `APP_BASE_PATH`             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。             |
+| 变量                        | 描述                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                      | 服务器端口（仅限Node.js）                                                                                                      |
+| `NITRO_PRESET`              | 在构建时覆盖构建预设                                                                                                           |
+| `APP_BASE_PATH`             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                   |
 | `AGENT_PROD_CODE_EXECUTION` | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。 |
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
@@ -240,14 +240,14 @@ export default defineConfig({
 
 这些必须在将应用程序升级到真正的产品部署之前设置。缺失值要么失败关闭（框架拒绝启动/拒绝处理请求），要么回退到较弱的行为并发出响亮的警告。
 
-| 变量                 | 描述                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ 字符随机字符串。签署会话 cookies AND 是 `OAUTH_STATE_SECRET` 和 `SECRETS_ENCRYPTION_KEY` 的后备 HMAC。硬性要求：如果在生产中缺失，框架将在启动时抛出异常。                                            |
-| `BETTER_AUTH_URL`        | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                                              |
-| `ANTHROPIC_API_KEY`      | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。 |
-| `OAUTH_STATE_SECRET`     | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。    |
-| `A2A_SECRET`             | 为应用程序间 A2A JSON-RPC 共享 HMAC。如果没有它，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自发射端点在生产中都会返回 503。                                                                            |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM 静态加密机密保管库的密钥。回落至 `BETTER_AUTH_SECRET`。当两者都未设置时，生产中会发生硬故障。                                                                                                        |
+| 变量                     | 描述                                                                                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32+ 字符随机字符串。签署会话 cookies AND 是 `OAUTH_STATE_SECRET` 和 `SECRETS_ENCRYPTION_KEY` 的后备 HMAC。硬性要求：如果在生产中缺失，框架将在启动时抛出异常。                            |
+| `BETTER_AUTH_URL`        | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
+| `ANTHROPIC_API_KEY`      | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
+| `OAUTH_STATE_SECRET`     | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
+| `A2A_SECRET`             | 为应用程序间 A2A JSON-RPC 共享 HMAC。如果没有它，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自发射端点在生产中都会返回 503。                                              |
+| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM 静态加密机密保管库的密钥。回落至 `BETTER_AUTH_SECRET`。当两者都未设置时，生产中会发生硬故障。                                                                                 |
 
 ### 身份验证和身份 {#env-auth}
 

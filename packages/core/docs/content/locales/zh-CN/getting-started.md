@@ -168,9 +168,9 @@ export default function ChatRoute() {
 [Native Chat UI](/docs/native-chat-ui) 将操作结果呈现为表格，
 图表和打字卡片而不是纯文本。
 
-**开始无头，稍后想要 UI？** 聊天模板_是_ UI 入口 -
+**开始无头，稍后想要 UI？** 聊天模板*是* UI 入口 -
 它的`app/`层（React Router + Vite）正是无头脚手架
- 省略。最干净的举动是从聊天开始（或重新搭建支架）
+省略。最干净的举动是从聊天开始（或重新搭建支架）
 模板；您的 `actions/`、代理和 SQL 状态保持不变。请参阅
 [Agent Surfaces](/docs/agent-surfaces) 代表其间的每个表面。
 

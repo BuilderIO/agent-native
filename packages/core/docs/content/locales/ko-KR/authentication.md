@@ -24,11 +24,11 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 브라우저 흐름은 모든 곳에서 동일한 Better Auth 흐름입니다. **개발자 인증 우회**가 없으며 `getSession()`는 `local@localhost` 센티넬로 돌아가지 않습니다. 환경 간의 변화는 로그인 장벽이 아니라 가입 마찰입니다.
 
-| 환경      | 첫 번째 로드 동작                                                           | 이메일 확인                              |
-| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| **로컬 개발자**    | 일회용 개발자 계정을 자동 생성하고 로그인합니다(로그인 벽 없음)         | 기본적으로 건너뛰기(이메일 제공업체가 없는 경우) |
+| 환경              | 첫 번째 로드 동작                                                                | 이메일 확인                                      |
+| ----------------- | -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **로컬 개발자**   | 일회용 개발자 계정을 자동 생성하고 로그인합니다(로그인 벽 없음)                  | 기본적으로 건너뛰기(이메일 제공업체가 없는 경우) |
 | **QA / 미리보기** | 일반적인 가입이지만 테스터가 이메일을 기다리지 않도록 확인을 건너뛸 수 있습니다. | `AUTH_SKIP_EMAIL_VERIFICATION=1`로 건너뛰기      |
-| **제작**   | 일반적인 더 나은 인증 가입/로그인                                               | 필수(이메일 제공업체가 구성된 경우) |
+| **제작**          | 일반적인 더 나은 인증 가입/로그인                                                | 필수(이메일 제공업체가 구성된 경우)              |
 
 몇 가지 플래그가 이를 조정합니다. full details are in the [Environment Variables](#environment-variables) table:
 
@@ -65,12 +65,12 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 세션 쿠키의 영역은 배포 형태를 따르므로 공유하는 앱은
 데이터베이스/원본 공유 로그인 및 격리되지 않는 앱:
 
-| 배포 형태                            | 쿠키 영역                                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 독립형 앱                              | 슬러그(`APP_NAME` 또는 로컬 개발의 패키지 이름)로 앱별로 격리됩니다. 프로덕션에서 안정적인 `an` 접두사                |
+| 배포 형태                                 | 쿠키 영역                                                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 독립형 앱                                 | 슬러그(`APP_NAME` 또는 로컬 개발의 패키지 이름)로 앱별로 격리됩니다. 프로덕션에서 안정적인 `an` 접두사                   |
 | 작업공간 모드(`AGENT_NATIVE_WORKSPACE=1`) | 하나의 공유 영역 - 작업 공간 앱은 원본과 데이터베이스를 공유합니다                                                       |
-| 사용자 정의 동일 데이터베이스 하위 도메인             | `COOKIE_DOMAIN`와의 공유 쿠키 선택                                                                         |
-| 자사 호스팅(`*.agent-native.com`)   | 앱별로 격리된 네임스페이스(각각 자체 인증 데이터베이스가 있음) `COOKIE_DOMAIN=.agent-native.com`는 기본적으로 무시됩니다 |
+| 사용자 정의 동일 데이터베이스 하위 도메인 | `COOKIE_DOMAIN`와의 공유 쿠키 선택                                                                                       |
+| 자사 호스팅(`*.agent-native.com`)         | 앱별로 격리된 네임스페이스(각각 자체 인증 데이터베이스가 있음) `COOKIE_DOMAIN=.agent-native.com`는 기본적으로 무시됩니다 |
 
 자사 호스팅 앱마다 자체 인증 데이터베이스가 있으므로 앱 간 로그인
 공유 쿠키가 아닌 [Cross-App SSO](/docs/cross-app-sso)를 통과합니다.
@@ -310,23 +310,23 @@ const state = encodeOAuthState({
 
 ## 환경변수 {#environment-variables}
 
-| 변수                                | 목적                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | 더 나은 인증을 위한 서명 키(설정되지 않은 경우 자동 생성)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/미리보기 환경에서 `1`로 설정하면 확인 없이 이메일/비밀번호 가입이 진행될 수 있습니다. 기본적으로 로컬 개발/테스트 건너뛰기            |
+| 변수                                    | 목적                                                                                                                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | 더 나은 인증을 위한 서명 키(설정되지 않은 경우 자동 생성)                                                                                                                        |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/미리보기 환경에서 `1`로 설정하면 확인 없이 이메일/비밀번호 가입이 진행될 수 있습니다. 기본적으로 로컬 개발/테스트 건너뛰기                                                    |
 | `AUTH_DISABLED`                         | 로그인/가입을 건너뛰려면 `true` 또는 `1`로 설정하세요. 모든 요청은 하나의 공유 사용자로 실행됩니다(로컬 개발/미리 보기에만 해당 - 실제 사용자가 있는 프로덕션에는 해당되지 않음) |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 새로운 개발 데이터베이스에서 로컬 호스트 자동 로그인을 비활성화하려면 `1`로 설정하세요.                                                                         |
-| `AUTH_MODE`                             | `local`는 CLI/에이전트 ID만 확인합니다(개발자 사용자 `pnpm action`가 실행되는 ID). 브라우저 로그인 우회는 절대 안 됩니다                                |
-| `COOKIE_DOMAIN`                         | 동일 데이터베이스 하위 도메인 전체에서 공유 세션 쿠키를 선택합니다([Cookie Realms](#cookie-realms) 참조)                                        |
-| `AGENT_NATIVE_WORKSPACE`                | `1`는 작업 공간 모드에서 실행됩니다. 작업 공간 앱 전반에 걸쳐 하나의 공유 세션 영역입니다.                                                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 자사 하위 도메인 전체에서 하나의 인증 데이터베이스를 공유하도록 `COOKIE_DOMAIN`로 설정                                                            |
-| `OAUTH_STATE_SECRET`                    | OAuth 상태 봉투용 전용 HMAC 키([Security — OAuth State Signing](/docs/security#oauth-state) 참조)                              |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 클라이언트 ID                                                                                     |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 비밀번호                                                                                        |
-| `GOOGLE_CLIENT_ID`                      | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 클라이언트 ID                                                       |
-| `GOOGLE_CLIENT_SECRET`                  | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 비밀번호                                                          |
-| `GITHUB_CLIENT_ID`                      | GitHub OAuth 활성화                                                                                                                          |
-| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth 비밀                                                                                                                          |
-| `ACCESS_TOKEN`                          | MCP/connect 클라이언트에 대한 정적 베어러 폴백; 브라우저 인증 아님                                                                             |
-| `ACCESS_TOKENS`                         | MCP/connect 클라이언트에 대한 쉼표로 구분된 정적 전달자 대체. 브라우저 인증 아님                                                            |
-| `A2A_SECRET`                            | JWT 서명된 A2A 교차 앱 신원 확인 및 존재하는 경우 MCP OAuth 액세스 토큰 서명을 위한 공유 비밀                           |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 새로운 개발 데이터베이스에서 로컬 호스트 자동 로그인을 비활성화하려면 `1`로 설정하세요.                                                                                          |
+| `AUTH_MODE`                             | `local`는 CLI/에이전트 ID만 확인합니다(개발자 사용자 `pnpm action`가 실행되는 ID). 브라우저 로그인 우회는 절대 안 됩니다                                                         |
+| `COOKIE_DOMAIN`                         | 동일 데이터베이스 하위 도메인 전체에서 공유 세션 쿠키를 선택합니다([Cookie Realms](#cookie-realms) 참조)                                                                         |
+| `AGENT_NATIVE_WORKSPACE`                | `1`는 작업 공간 모드에서 실행됩니다. 작업 공간 앱 전반에 걸쳐 하나의 공유 세션 영역입니다.                                                                                       |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 자사 하위 도메인 전체에서 하나의 인증 데이터베이스를 공유하도록 `COOKIE_DOMAIN`로 설정                                                                                           |
+| `OAUTH_STATE_SECRET`                    | OAuth 상태 봉투용 전용 HMAC 키([Security — OAuth State Signing](/docs/security#oauth-state) 참조)                                                                                |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 클라이언트 ID                                                                                                                 |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 앱 로그인을 위해 선호되는 낮은 범위의 Google OAuth 비밀번호                                                                                                                      |
+| `GOOGLE_CLIENT_ID`                      | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 클라이언트 ID                                                                                                     |
+| `GOOGLE_CLIENT_SECRET`                  | 기존 Google 로그인 대체 및 Google API 통합을 위한 공급자 OAuth 비밀번호                                                                                                          |
+| `GITHUB_CLIENT_ID`                      | GitHub OAuth 활성화                                                                                                                                                              |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth 비밀                                                                                                                                                                |
+| `ACCESS_TOKEN`                          | MCP/connect 클라이언트에 대한 정적 베어러 폴백; 브라우저 인증 아님                                                                                                               |
+| `ACCESS_TOKENS`                         | MCP/connect 클라이언트에 대한 쉼표로 구분된 정적 전달자 대체. 브라우저 인증 아님                                                                                                 |
+| `A2A_SECRET`                            | JWT 서명된 A2A 교차 앱 신원 확인 및 존재하는 경우 MCP OAuth 액세스 토큰 서명을 위한 공유 비밀                                                                                    |

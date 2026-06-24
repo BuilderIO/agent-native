@@ -13,11 +13,11 @@ Esta página cubre las métricas de _calidad del agente_: seguimientos, costos, 
 
 Estas tres páginas son fáciles de confundir. Elija según la pregunta que esté haciendo:
 
-| Página                                                   | La pregunta que responde                                    | Cuando se ejecuta                                 | Preocupación        |
-| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------- | -------------- |
-| **Evaluaciones de observabilidad** (esta página, la pestaña _Evals_)   | "¿Cómo les fue a mis tiradas de producción reales?"                      | Pasivo, después de cada ejecución (muestra del juez LLM) | Calidad        |
-| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "¿El agente hace lo correcto en esta entrada fija?"   | Activo, determinista, una puerta de implementación/CI      | Calidad        |
-| **[Observational Memory](/docs/observational-memory)** | "¿Este hilo largo se queda barato y dentro de la ventana?" | Compactación de fondo en hilos largos        | Costo/contexto |
+| Página                                                               | La pregunta que responde                                   | Cuando se ejecuta                                        | Preocupación   |
+| -------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- | -------------- |
+| **Evaluaciones de observabilidad** (esta página, la pestaña _Evals_) | "¿Cómo les fue a mis tiradas de producción reales?"        | Pasivo, después de cada ejecución (muestra del juez LLM) | Calidad        |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                        | "¿El agente hace lo correcto en esta entrada fija?"        | Activo, determinista, una puerta de implementación/CI    | Calidad        |
+| **[Observational Memory](/docs/observational-memory)**               | "¿Este hilo largo se queda barato y dentro de la ventana?" | Compactación de fondo en hilos largos                    | Costo/contexto |
 
 La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto.
 
@@ -61,13 +61,13 @@ Todos los datos se limitan al usuario que inició sesión; hoy no hay una vista 
 
 El panel tiene 5 pestañas:
 
-| Pestaña               | Qué muestra                                                                   |
-| ----------------- | ------------------------------------------------------------------------------- |
-| **Descripción general**      | Métricas clave: ejecuciones, coste, latencia, tasa de éxito de la herramienta, satisfacción, puntuación de evaluación  |
-| **Conversaciones** | Lista de seguimiento con desglose de tramos individuales (agent_run, llm_call, tool_call) |
-| **Evaluaciones**         | Puntuaciones de evaluación automatizadas por criterios, tendencias a lo largo del tiempo                             |
-| **Experimentos**   | Lista de pruebas A/B con insignias de estado, resultados de variantes con intervalos de confianza     |
-| **Comentarios**      | Aprobación/desaprobación, desglose de categorías, puntuaciones de frustración                   |
+| Pestaña                 | Qué muestra                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Descripción general** | Métricas clave: ejecuciones, coste, latencia, tasa de éxito de la herramienta, satisfacción, puntuación de evaluación |
+| **Conversaciones**      | Lista de seguimiento con desglose de tramos individuales (agent_run, llm_call, tool_call)                             |
+| **Evaluaciones**        | Puntuaciones de evaluación automatizadas por criterios, tendencias a lo largo del tiempo                              |
+| **Experimentos**        | Lista de pruebas A/B con insignias de estado, resultados de variantes con intervalos de confianza                     |
+| **Comentarios**         | Aprobación/desaprobación, desglose de categorías, puntuaciones de frustración                                         |
 
 ## Comentarios de los usuarios {#feedback}
 
@@ -79,13 +79,13 @@ Los botones de pulgar hacia arriba/abajo se muestran en línea en cada mensaje d
 
 El marco calcula un índice de frustración (0-100) a partir de señales de conversación:
 
-| Señal         | Peso | Qué detecta                     |
-| -------------- | ------ | ----------------------------------- |
-| Reformulación     | 30%    | El usuario repite mensajes similares       |
-| Reintentar patrones | 20%    | "Inténtalo de nuevo", "no, eso está mal"      |
-| Abandono    | 20%    | La sesión finaliza poco después de la respuesta |
-| Sentimiento      | 15%    | Patrones de lenguaje negativos          |
-| Tendencia de longitud   | 15%    | Longitud de mensajes en disminución           |
+| Señal                 | Peso | Qué detecta                                     |
+| --------------------- | ---- | ----------------------------------------------- |
+| Reformulación         | 30%  | El usuario repite mensajes similares            |
+| Reintentar patrones   | 20%  | "Inténtalo de nuevo", "no, eso está mal"        |
+| Abandono              | 20%  | La sesión finaliza poco después de la respuesta |
+| Sentimiento           | 15%  | Patrones de lenguaje negativos                  |
+| Tendencia de longitud | 15%  | Longitud de mensajes en disminución             |
 
 Interpretación de la puntuación: 0-20 = saludable, 20-40 = fricción, 40-60 = insatisfecho, 60+ = sesión interrumpida.
 
@@ -93,13 +93,13 @@ Interpretación de la puntuación: 0-20 = saludable, 20-40 = fricción, 40-60 = 
 
 Cinco puntuadores deterministas se ejecutan después de cada ejecución del agente:
 
-| Criterios            | Qué mide                                       | Rango de puntuación |
-| ------------------- | ------------------------------------------------------ | ----------- |
-| `tool_success_rate` | % de llamadas a herramientas sin errores                         | 0-1         |
-| `step_efficiency`   | Penaliza las iteraciones excesivas de LLM para ejecuciones que utilizan herramientas | 0-1         |
-| `latency_score`     | Normalizado frente a 10s/línea base de herramienta                   | 0-1         |
-| `cost_efficiency`   | Normalizado respecto de la línea base de costos                       | 0-1         |
-| `error_recovery`    | ¿Se recuperó el agente de los errores de la herramienta?                | 0 o 1      |
+| Criterios           | Qué mide                                                                             | Rango de puntuación |
+| ------------------- | ------------------------------------------------------------------------------------ | ------------------- |
+| `tool_success_rate` | % de llamadas a herramientas sin errores                                             | 0-1                 |
+| `step_efficiency`   | Penaliza las iteraciones excesivas de LLM para ejecuciones que utilizan herramientas | 0-1                 |
+| `latency_score`     | Normalizado frente a 10s/línea base de herramienta                                   | 0-1                 |
+| `cost_efficiency`   | Normalizado respecto de la línea base de costos                                      | 0-1                 |
+| `error_recovery`    | ¿Se recuperó el agente de los errores de la herramienta?                             | 0 o 1               |
 
 ### LLM-como-juez (opcional)
 
@@ -180,23 +180,23 @@ Todas las configuraciones se almacenan en la clave `observability-config`:
 
 Todo montado automáticamente en `/_agent-native/observability/`:
 
-| Método | Ruta                       | Propósito                        |
-| ------ | -------------------------- | ------------------------------ |
-| GET    | `/`                        | Estadísticas generales                 |
-| GET    | `/traces`                  | Enumerar resúmenes de seguimiento           |
+| Método | Ruta                       | Propósito                                 |
+| ------ | -------------------------- | ----------------------------------------- |
+| GET    | `/`                        | Estadísticas generales                    |
+| GET    | `/traces`                  | Enumerar resúmenes de seguimiento         |
 | GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos) |
-| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución                |
-| POST   | `/feedback`                | Enviar comentarios                |
-| GET    | `/feedback`                | Enumerar comentarios                  |
-| GET    | `/feedback/stats`          | Agregación de comentarios           |
-| GET    | `/satisfaction`            | Puntuaciones de satisfacción            |
+| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución           |
+| POST   | `/feedback`                | Enviar comentarios                        |
+| GET    | `/feedback`                | Enumerar comentarios                      |
+| GET    | `/feedback/stats`          | Agregación de comentarios                 |
+| GET    | `/satisfaction`            | Puntuaciones de satisfacción              |
 | GET    | `/evals/stats`             | Estadísticas de evaluación                |
-| POST   | `/experiments`             | Crear experimento              |
-| GET    | `/experiments`             | Enumerar experimentos               |
+| POST   | `/experiments`             | Crear experimento                         |
+| GET    | `/experiments`             | Enumerar experimentos                     |
 | GET    | `/experiments/:id`         | Obtener detalles del experimento          |
-| PUT    | `/experiments/:id`         | Actualizar experimento              |
-| POST   | `/experiments/:id/results` | Calcular resultados                |
-| GET    | `/experiments/:id/results` | Obtener resultados                    |
+| PUT    | `/experiments/:id`         | Actualizar experimento                    |
+| POST   | `/experiments/:id/results` | Calcular resultados                       |
+| GET    | `/experiments/:id/results` | Obtener resultados                        |
 
 Todos los puntos finales admiten los parámetros de consulta `?since=N` (marca de tiempo ms) y `?limit=N`.
 
@@ -232,11 +232,11 @@ Entonces, el costo cuando no ha conectado OTel es un par de lecturas de propieda
 
 El bucle del agente emite tres tipos de intervalos:
 
-| Lapso        | Cuándo                       | Atributos                                                        |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | una vez por ejecución de agente         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| Lapso       | Cuándo                           | Atributos                                                         |
+| ----------- | -------------------------------- | ----------------------------------------------------------------- |
+| `agent.run` | una vez por ejecución de agente  | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
 | `tool.call` | una vez por invocación de acción | `tool.name`, más estado de éxito/error                            |
-| `llm.call`  | por llamada de modelo             | tiempo + estado correcto/error                                          |
+| `llm.call`  | por llamada de modelo            | tiempo + estado correcto/error                                    |
 
 Los tramos finalizan con el estado OK/ERROR y registran el mensaje de error en caso de falla. Los valores de atributo cero/centinela se eliminan para que los intervalos no estén saturados de ruido. Esta capa OTel es puramente aditiva a las tablas internas `agent_trace_spans` / `agent_trace_summaries` que alimentan el tablero de arriba; ambas se producen a partir de los mismos eventos de ejecución.
 
@@ -244,11 +244,11 @@ Los tramos finalizan con el estado OK/ERROR y registran el mensaje de error en c
 
 Los errores del lado del servidor que escapan a los controladores de ruta Nitro se informan a Sentry cuando se configura un DSN. Sin él, el SDK no funciona silenciosamente, por lo que es seguro dejar las variables de entorno sin configurar en desarrollo. Los eventos del navegador y del servidor pueden ir al mismo proyecto Sentry; divídalos en proyectos separados solo cuando desee una separación operativa por propiedad, volumen, cuotas o enrutamiento de alertas.
 
-| Superficie            | SDK               | Var ambiente                                                        | Notas                                                                 |
-| ------------------ | ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Navegador / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` o `SENTRY_DSN` | Captura errores no controlados y rutas de navegación de cambio en el cliente. |
-| Servidor Nitro       | `@sentry/node`    | `SENTRY_SERVER_DSN` o `SENTRY_DSN`                            | Captura respuestas 5xx y errores del ciclo de vida Nitro. Usuario por solicitud.  |
-| `agent-native` CLI | `@sentry/node`    | _codificado_                                                    | Informes de fallos del binario CLI publicado; no configurable por el usuario.   |
+| Superficie         | SDK               | Var ambiente                                                 | Notas                                                                            |
+| ------------------ | ----------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Navegador / SPA    | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` o `SENTRY_DSN` | Captura errores no controlados y rutas de navegación de cambio en el cliente.    |
+| Servidor Nitro     | `@sentry/node`    | `SENTRY_SERVER_DSN` o `SENTRY_DSN`                           | Captura respuestas 5xx y errores del ciclo de vida Nitro. Usuario por solicitud. |
+| `agent-native` CLI | `@sentry/node`    | _codificado_                                                 | Informes de fallos del binario CLI publicado; no configurable por el usuario.    |
 
 ### Configuración del lado del servidor {#sentry-config}
 

@@ -92,13 +92,13 @@ steps (Gmail, Slack, Notion, etc.), call `registerOnboardingStep()` from a
 
 すべてのルートは `/_agent-native/onboarding/` の下に存在します:
 
-| ルート                                               | 目的                           |
-| --------------------------------------------------- | --------------------------------- |
-| `GET /_agent-native/onboarding/steps`               | 完了ステータスを含むステップのリスト |
-| `POST /_agent-native/onboarding/steps/:id/complete` | ステップを完了としてマークする (上書き)     |
-| `POST /_agent-native/onboarding/dismiss`            | オンボーディング バナーを閉じる     |
-| `POST /_agent-native/onboarding/reopen`             | 明確な解雇 (パネルの再表示)   |
-| `GET /_agent-native/onboarding/dismissed`           | 読み取り却下 + allComplete フラグ |
+| ルート                                              | 目的                                    |
+| --------------------------------------------------- | --------------------------------------- |
+| `GET /_agent-native/onboarding/steps`               | 完了ステータスを含むステップのリスト    |
+| `POST /_agent-native/onboarding/steps/:id/complete` | ステップを完了としてマークする (上書き) |
+| `POST /_agent-native/onboarding/dismiss`            | オンボーディング バナーを閉じる         |
+| `POST /_agent-native/onboarding/reopen`             | 明確な解雇 (パネルの再表示)             |
+| `GET /_agent-native/onboarding/dismissed`           | 読み取り却下 + allComplete フラグ       |
 
 ```an-api title="List onboarding steps"
 {
@@ -164,12 +164,12 @@ isComplete: async () => {
 
 ### メソッドの種類
 
-| 種類               | ペイロード                                               | 用途                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | ユーザーを OAuth フロー ページまたはドキュメント ページに送信します   |
-| `form`             | `{ fields, writeScope? }`                             | 環境変数 (キー、シークレット、URL) を収集する    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | 対応するエージェント チャットにプロンプトを送信します |
+| 種類               | ペイロード                                            | 用途                                                                |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | ユーザーを OAuth フロー ページまたはドキュメント ページに送信します |
+| `form`             | `{ fields, writeScope? }`                             | 環境変数 (キー、シークレット、URL) を収集する                       |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                              |
+| `agent-task`       | `{ prompt }`                                          | 対応するエージェント チャットにプロンプトを送信します               |
 
 `primary: true` フラグは、メソッドをそのステップの大きな CTA としてマークします。
 セットアップ パスを表示する必要がある場合は、`badge: "soon"` と `disabled: true` を使用します
@@ -177,12 +177,12 @@ isComplete: async () => {
 
 ### 組み込みステップ
 
-| ID         | 必須 | 説明                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | はい      | Builder 接続またはプロバイダー LLM キー          |
-| `database` | いいえ       | デフォルトのデータベースまたは任意の SQL `DATABASE_URL`        |
-| `auth`     | いいえ       | 組み込みアカウント、オプションの OAuth またはアクセス トークン |
-| `email`    | いいえ       | トランザクション電子メールの再送信または SendGrid        |
+| ID         | 必須   | 説明                                                           |
+| ---------- | ------ | -------------------------------------------------------------- |
+| `llm`      | はい   | Builder 接続またはプロバイダー LLM キー                        |
+| `database` | いいえ | デフォルトのデータベースまたは任意の SQL `DATABASE_URL`        |
+| `auth`     | いいえ | 組み込みアカウント、オプションの OAuth またはアクセス トークン |
+| `email`    | いいえ | トランザクション電子メールの再送信または SendGrid              |
 
 これらはいずれも、その後に同じ `id` で再登録することで上書きできます。
 デフォルトでロードされます。

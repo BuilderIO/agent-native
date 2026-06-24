@@ -13,22 +13,22 @@ La mayoría de las "plantillas" le brindan un marco en blanco y una larga lista 
 
 Cada una es una aplicación real que puedes usar hoy y la plataforma de lanzamiento para tu propia versión.
 
-| Plantilla                                  | Qué es                                                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [**Chat**](/docs/template-chat)           | Aplicación mínima de chat primero con hilos duraderos, actions, autenticación y una ruta limpia hacia UI personalizado o su propio backend. |
-| [**Mail**](/docs/template-mail)           | Un sobrehumano nativo del agente. Bandeja de entrada, etiquetas, clasificación por IA, teclado primero, borradores y envíos a través del agente.      |
-| [**Calendar**](/docs/template-calendar)   | Un agente nativo Google Calendar. Eventos, sincronización, enlaces de reserva pública, programación impulsada por agentes.                  |
-| [**Content**](/docs/template-content)     | Obsidiana de código abierto para MDX. Markdown/MDX local, editor Tiptap, sincronización Notion, colaboración multiusuario en tiempo real.     |
-| [**Brain**](/docs/template-brain)         | Chat limpio de la empresa respaldado por memoria institucional citada, fuentes aprobadas, puertas de revisión y citas.        |
-| [**Assets**](/docs/template-assets)       | Administrador de activos digitales para bibliotecas de marcas, cargas, referencias y generación de imágenes/vídeos de marca.           |
-| [**Slides**](/docs/template-slides)       | Presentaciones de Google nativas del agente. Mazos basados en React que el agente genera y edita directamente.                       |
-| [**Video**](/docs/template-videos)        | Gráficos en movimiento programáticos y vídeos de demostración de productos en Remotion.                                              |
-| [**Analytics**](/docs/template-analytics) | Un Amplitude/Mixpanel nativo del agente. Conecte fuentes de datos, solicite gráficos y ancle a paneles.                |
-| [**Clips**](/docs/template-clips)         | Pantalla asíncrona + grabación de cámara con transcripción, capítulos y resúmenes de IA.                                |
-| [**Design**](/docs/template-design)       | Estudio de creación de prototipos HTML nativo del agente para diseños interactivos Alpine/Tailwind.                                  |
-| [**Forms**](/docs/template-forms)         | Un Typeform nativo del agente. Cree, comparta, recopile y envíe envíos a Slack, Sheets, webhooks o Discord. |
-| [**Plan**](/docs/template-plan)           | Planos visuales y resúmenes de relaciones públicas con diagramas, esquemas y anotaciones.                                         |
-| [**Dispatch**](/docs/template-dispatch)   | El plano de control del espacio de trabajo: secretos compartidos, integraciones reutilizables, Slack/Telegram, trabajos programados.            |
+| Plantilla                                 | Qué es                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [**Chat**](/docs/template-chat)           | Aplicación mínima de chat primero con hilos duraderos, actions, autenticación y una ruta limpia hacia UI personalizado o su propio backend.      |
+| [**Mail**](/docs/template-mail)           | Un sobrehumano nativo del agente. Bandeja de entrada, etiquetas, clasificación por IA, teclado primero, borradores y envíos a través del agente. |
+| [**Calendar**](/docs/template-calendar)   | Un agente nativo Google Calendar. Eventos, sincronización, enlaces de reserva pública, programación impulsada por agentes.                       |
+| [**Content**](/docs/template-content)     | Obsidiana de código abierto para MDX. Markdown/MDX local, editor Tiptap, sincronización Notion, colaboración multiusuario en tiempo real.        |
+| [**Brain**](/docs/template-brain)         | Chat limpio de la empresa respaldado por memoria institucional citada, fuentes aprobadas, puertas de revisión y citas.                           |
+| [**Assets**](/docs/template-assets)       | Administrador de activos digitales para bibliotecas de marcas, cargas, referencias y generación de imágenes/vídeos de marca.                     |
+| [**Slides**](/docs/template-slides)       | Presentaciones de Google nativas del agente. Mazos basados en React que el agente genera y edita directamente.                                   |
+| [**Video**](/docs/template-videos)        | Gráficos en movimiento programáticos y vídeos de demostración de productos en Remotion.                                                          |
+| [**Analytics**](/docs/template-analytics) | Un Amplitude/Mixpanel nativo del agente. Conecte fuentes de datos, solicite gráficos y ancle a paneles.                                          |
+| [**Clips**](/docs/template-clips)         | Pantalla asíncrona + grabación de cámara con transcripción, capítulos y resúmenes de IA.                                                         |
+| [**Design**](/docs/template-design)       | Estudio de creación de prototipos HTML nativo del agente para diseños interactivos Alpine/Tailwind.                                              |
+| [**Forms**](/docs/template-forms)         | Un Typeform nativo del agente. Cree, comparta, recopile y envíe envíos a Slack, Sheets, webhooks o Discord.                                      |
+| [**Plan**](/docs/template-plan)           | Planos visuales y resúmenes de relaciones públicas con diagramas, esquemas y anotaciones.                                                        |
+| [**Dispatch**](/docs/template-dispatch)   | El plano de control del espacio de trabajo: secretos compartidos, integraciones reutilizables, Slack/Telegram, trabajos programados.             |
 
 ¿No quieres una plantilla de dominio? Utilice [Chat](/docs/template-chat) cuando desee una aplicación básica con la que los usuarios puedan hablar inmediatamente o comience a actuar primero con [Pure-Agent Apps](/docs/pure-agent-apps).
 

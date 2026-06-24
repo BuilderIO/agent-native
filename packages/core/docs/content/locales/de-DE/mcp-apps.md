@@ -7,11 +7,11 @@ description: "Erstellen und betten Sie interaktive MCP-Apps UIs in Claude, ChatG
 
 **Diese Seite: Inline-UIs in Claude/ChatGPT.** Erstellen von MCP-App-Ressourcen und der Einbettungsbrücke, die eine echte App-Route im Chat eines kompatiblen Hosts rendert. Diese Seite ist auch die einzige Startseite für die **Client-Support-Matrix** ([below](#client-support)).
 
-| Wenn Sie möchten...                                              | Lesen                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Verbinden Sie einen externen Agenten/Host mit Ihrer App                   | [External Agents](/docs/external-agents) |
-| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)       | [MCP Clients](/docs/mcp-clients)         |
-| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern               | **Diese Seite** – MCP Apps                 |
+| Wenn Sie möchten...                                                                                    | Lesen                                    |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Verbinden Sie einen externen Agenten/Host mit Ihrer App                                                | [External Agents](/docs/external-agents) |
+| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)                                        | [MCP Clients](/docs/mcp-clients)         |
+| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern                                                | **Diese Seite** – MCP Apps               |
 | MCP-Serverreferenz auf niedrigerer Ebene (Authentifizierung, Tools, benutzerdefinierte Bereitstellung) | [MCP Protocol](/docs/mcp-protocol)       |
 
 MCP Apps sind die offizielle `io.modelcontextprotocol/ui`-Erweiterung, mit der kompatible Hosts – Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam und Cursor – interaktive UIs inline im Chat rendern können. In agentennativen Apps ist jede MCP-App eine **echte React-Route** und kein separates einfaches HTML-Widget.
@@ -109,16 +109,16 @@ Wenn Sie Claude über ngrok testen, verwenden Sie einen Produktions-Build (`npx 
 
 Die Host-Bridge ist bewusst klein:
 
-| Modus                   | Nachrichtentyp                          | Verwenden Sie es für                               |
-| ---------------------- | ------------------------------------- | ---------------------------------------- |
-| direkte Host-Route      | `ui/update-model-context`             | Versteckter Kontext für das Hostmodell        |
-| direkte Host-Route      | `ui/message`                          | Veröffentlichen Sie eine sichtbare Benutzerübergabe an den Host   |
-| direkte Host-Route      | `ui/open-link`                        | Öffnen Sie eine externe oder App URL über den Host |
-| direkte Host-Route      | `ui/request-display-mode`             | Anfrage `inline`, `fullscreen` oder `pip` |
-| Claude-Transplantation      | `ui/*`                                | Gleiche direkte Wirtsbrücke nach der Hydratation  |
-| ChatGPT / Iframe-Route | `agentNative.mcpHostContext`          | Theme, Gebietsschema, Hostplattform, Dimensionen |
-| ChatGPT / Iframe-Route | `agentNative.embeddedAppReady`        | Bestätigen Sie, dass der Routen-Iframe geladen wurde          |
-| ChatGPT / Iframe-Route | `agentNative.mcpHost.*` / `.response` | Wrapper-Relay für Host-Anfragen          |
+| Modus                  | Nachrichtentyp                        | Verwenden Sie es für                                            |
+| ---------------------- | ------------------------------------- | --------------------------------------------------------------- |
+| direkte Host-Route     | `ui/update-model-context`             | Versteckter Kontext für das Hostmodell                          |
+| direkte Host-Route     | `ui/message`                          | Veröffentlichen Sie eine sichtbare Benutzerübergabe an den Host |
+| direkte Host-Route     | `ui/open-link`                        | Öffnen Sie eine externe oder App URL über den Host              |
+| direkte Host-Route     | `ui/request-display-mode`             | Anfrage `inline`, `fullscreen` oder `pip`                       |
+| Claude-Transplantation | `ui/*`                                | Gleiche direkte Wirtsbrücke nach der Hydratation                |
+| ChatGPT / Iframe-Route | `agentNative.mcpHostContext`          | Theme, Gebietsschema, Hostplattform, Dimensionen                |
+| ChatGPT / Iframe-Route | `agentNative.embeddedAppReady`        | Bestätigen Sie, dass der Routen-Iframe geladen wurde            |
+| ChatGPT / Iframe-Route | `agentNative.mcpHost.*` / `.response` | Wrapper-Relay für Host-Anfragen                                 |
 
 Eingebettete Routen können `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` und `useMcpAppHostContext()` von `@agent-native/core/client` verwenden. `sendToAgentChat()` verwendet denselben Pfad wie vollständige App-Einbettungen für automatisch übermittelte Eingabeaufforderungen.
 

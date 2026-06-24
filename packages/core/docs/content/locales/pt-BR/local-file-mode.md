@@ -37,9 +37,9 @@ hospedagem de produção sem acesso ao sistema de arquivos local.
 
 Existem dois modos de fonte da verdade:
 
-| Modo            | Fonte da verdade                            | Melhor para                                                                 |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
-| Modo banco de dados   | Linhas SQL até Drizzle                   | Aplicativos hospedados, colaboração, compartilhamento, comentários, histórico de versões           |
+| Modo                  | Fonte da verdade                                         | Melhor para                                                                                                                |
+| --------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Modo banco de dados   | Linhas SQL até Drizzle                                   | Aplicativos hospedados, colaboração, compartilhamento, comentários, histórico de versões                                   |
 | Modo de arquivo local | Arquivos repositórios declarados por `agent-native.json` | Fluxos de trabalho locais/de desenvolvimento, revisão do Git, edições do agente de codificação, conteúdo nativo de arquivo |
 
 O UI e o agente actions devem permanecer na mesma forma em ambos os modos. Um conteúdo
@@ -272,7 +272,7 @@ os arquivos `.md` e `.mdx` através do navegador Sistema de Arquivos Acesse API,
 O Chrome não expõe um caminho de pasta absoluto para Vite compilar
 `components/*.tsx`. Para visualizar e recarregar componentes React personalizados, execute
 Conteúdo localmente ou use o Agent Native Desktop para que a ponte local confiável possa
- registre o espaço de trabalho escolhido no servidor de desenvolvimento de conteúdo local. Nesse modo,
+registre o espaço de trabalho escolhido no servidor de desenvolvimento de conteúdo local. Nesse modo,
 edições em arquivos de componentes existentes, recarregamento a quente por meio de Vite e adição de ou
 a remoção de arquivos de componentes recarrega o registro do componente e o menu de barras.
 
@@ -391,10 +391,10 @@ pastas são convenções colocadas em camadas sobre o mesmo contrato de artefato
 
 O conteúdo tem dois fluxos de trabalho de arquivo diferentes:
 
-| Fluxo de trabalho                     | O que acontece                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Fluxo de trabalho                    | O que acontece                                                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Exportação/importação `/local-files` | O modo banco de dados continua sendo a fonte da verdade. Os arquivos são uma superfície de sincronização explícita que você exporta, edita, visualiza e importa. |
-| Modo de arquivo local              | Os arquivos são a fonte da verdade. A barra lateral e o editor de conteúdo operam diretamente em arquivos locais.                       |
+| Modo de arquivo local                | Os arquivos são a fonte da verdade. A barra lateral e o editor de conteúdo operam diretamente em arquivos locais.                                                |
 
 Use exportar/importar quando quiser revisar arquivos ocasionalmente em um espaço de trabalho hospedado.
 Use o modo de arquivo local quando o próprio repositório for o espaço de trabalho.

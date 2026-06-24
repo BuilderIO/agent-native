@@ -21,11 +21,11 @@ Ein `Processor` ist ein schleifeninterner **Beobachter/Leitplanke** für den Age
 
 Ein Prozessor implementiert eine beliebige Teilmenge von drei optionalen Lebenszyklus-Hooks (die Form ist von den Ausgabeprozessoren von Mastra übernommen):
 
-| Haken                  | Brände…                                                                | Verwenden Sie es, um…                                                  |
-| --------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `processOutputStream` | pro gestreamtem Block (Text-/Denkdeltas), während das Modell generiert | reagieren Sie auf die Ausgabe, bevor die volle Runde erreicht ist                  |
-| `processOutputStep`   | einmal pro Modellantwort, rund um die Toolausführung                        | Überprüfen Sie die Toolaufrufe, die das Modell ausführen soll. Tor sie ein |
-| `processOutputResult` | einmal am Ende des Laufs, mit dem endgültigen Assistententext                        | Zeichnen Sie ein Urteil/einen Nachweis über die vollständige Antwort auf  |
+| Haken                 | Brände…                                                                | Verwenden Sie es, um…                                                      |
+| --------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `processOutputStream` | pro gestreamtem Block (Text-/Denkdeltas), während das Modell generiert | reagieren Sie auf die Ausgabe, bevor die volle Runde erreicht ist          |
+| `processOutputStep`   | einmal pro Modellantwort, rund um die Toolausführung                   | Überprüfen Sie die Toolaufrufe, die das Modell ausführen soll. Tor sie ein |
+| `processOutputResult` | einmal am Ende des Laufs, mit dem endgültigen Assistententext          | Zeichnen Sie ein Urteil/einen Nachweis über die vollständige Antwort auf   |
 
 Jeder Prozessor erhält sein eigenes veränderbares, laufbereichsbezogenes `state`-Objekt, das bei jedem seiner Hook-Aufrufe innerhalb eines einzelnen Laufs bestehen bleibt und vom Status anderer Prozessoren **isoliert** ist.
 
@@ -69,9 +69,9 @@ import { TripWire } from "@agent-native/core";
 
 Das `tripwire`-Ereignis trägt:
 
-| Feld       | Typ     | Notizen                                                          |
-| ----------- | -------- | -------------------------------------------------------------- |
-| `reason`    | `string` | Der für Menschen lesbare Grund, der an `abort` übergeben wird.                   |
+| Feld        | Typ      | Notizen                                                                    |
+| ----------- | -------- | -------------------------------------------------------------------------- |
+| `reason`    | `string` | Der für Menschen lesbare Grund, der an `abort` übergeben wird.             |
 | `processor` | `string` | Name des Prozessors, der abgebrochen hat, als er einen `name` deklarierte. |
 
 `TripWire` trägt auch optional strukturiertes `meta` und den ursprünglichen `processor`-Namen für programmatische Verbraucher, die ihn `instanceof`-prüfen. Da ein Stopp ordnungsgemäß erfolgt, feuert `processOutputResult` weiterhin auf den (angehaltenen) endgültigen Text, sodass ein Proof-of-Done-Prozessor sein Urteil auch dann aufzeichnen kann, wenn der Lauf abgebrochen wurde.

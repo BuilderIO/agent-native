@@ -7,7 +7,7 @@ description: "使用可插入提供程序进行服务器端分析 - PostHog、Mi
 
 一个功能，多个目的地。从任何服务器端代码（actions、插件、服务器路由）调用 `track()`，事件就会分发到每个注册的分析提供商。没有 SDK 依赖性，没有客户端脚本，没有阻塞。相同的 `track()` 也可在 [browser/app code](#client) 中使用，并路由至相同的提供商。
 
-这是_product_分析——您的应用程序的事件流向PostHog/Mixpanel/Amplitude。有关存储在您自己的数据库中的_代理质量_指标（跟踪、成本、评估、反馈），请参阅 [Observability](/docs/observability)。
+这是*product*分析——您的应用程序的事件流向PostHog/Mixpanel/Amplitude。有关存储在您自己的数据库中的*代理质量*指标（跟踪、成本、评估、反馈），请参阅 [Observability](/docs/observability)。
 
 ```ts
 import { track } from "@agent-native/core/tracking";
@@ -30,12 +30,12 @@ track(
 
 设置环境变量，提供程序会在服务器启动时自动注册。无需更改代码。
 
-| 提供商  | 环境变量                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| PostHog   | `POSTHOG_API_KEY`（必填）、`POSTHOG_HOST`（可选，默认为`https://us.i.posthog.com`） |
-| 混合面板  | `MIXPANEL_TOKEN`                                                                                |
-| 振幅 | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL`（必需）、`TRACKING_WEBHOOK_AUTH`（可选 `Authorization` 标头）    |
+| 提供商   | 环境变量                                                                             |
+| -------- | ------------------------------------------------------------------------------------ |
+| PostHog  | `POSTHOG_API_KEY`（必填）、`POSTHOG_HOST`（可选，默认为`https://us.i.posthog.com`）  |
+| 混合面板 | `MIXPANEL_TOKEN`                                                                     |
+| 振幅     | `AMPLITUDE_API_KEY`                                                                  |
+| Webhook  | `TRACKING_WEBHOOK_URL`（必需）、`TRACKING_WEBHOOK_AUTH`（可选 `Authorization` 标头） |
 
 多个提供程序可以同时处于活动状态。每个事件都会发生在他们所有人身上。
 

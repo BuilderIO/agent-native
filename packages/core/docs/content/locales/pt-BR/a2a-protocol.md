@@ -104,7 +104,7 @@ O endpoint do cartão é público, portanto, a estrutura edita skills cujos IDs 
 _(A versão pode ser diferente; busque o cartão ativo do seu aplicativo em `/.well-known/agent-card.json` para o `protocolVersion` atual.)_
 
 Quando `A2A_SECRET` está definido (o caminho recomendado), a placa anuncia um
- Esquema `jwtBearer` como acima. O esquema `apiKey` só é adicionado quando um legado
+Esquema `jwtBearer` como acima. O esquema `apiKey` só é adicionado quando um legado
 `apiKeyEnv` também é configurado, então um cartão com apenas `A2A_SECRET` definido é publicado
 `jwtBearer` sozinho.
 
@@ -112,12 +112,12 @@ Quando `A2A_SECRET` está definido (o caminho recomendado), a placa anuncia um
 
 Todos os métodos são chamados via `POST /_agent-native/a2a` com formato JSON-RPC 2.0:
 
-| Método           | Descrição                                                                                                           | Parâmetros-chave                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Método           | Descrição                                                                                                                            | Parâmetros-chave              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
 | `message/send`   | Envie uma mensagem e aguarde a conclusão da tarefa. Passe `async: true` para retornar imediatamente ao estado `working` e pesquisar. | `message, contextId?, async?` |
 | `message/stream` | Envie uma mensagem e receba atualizações de tarefas SSE                                                                              | `message, contextId?`         |
-| `tasks/get`      | Buscar uma tarefa por ID — usado para pesquisar uma tarefa assíncrona até a conclusão                                                         | `id`                          |
-| `tasks/cancel`   | Cancelar uma tarefa em execução                                                                                                 | `id`                          |
+| `tasks/get`      | Buscar uma tarefa por ID — usado para pesquisar uma tarefa assíncrona até a conclusão                                                | `id`                          |
+| `tasks/cancel`   | Cancelar uma tarefa em execução                                                                                                      | `id`                          |
 
 ```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
 {
@@ -260,13 +260,13 @@ Cada mensagem cria uma tarefa que passa por estes estados:
 
 `input-required` não é terminal: o manipulador está aguardando mais informações do chamador e a tarefa pode voltar para `working` assim que a entrada chegar.
 
-| Estado            | Significado                                        |
-| ---------------- | ---------------------------------------------- |
-| `submitted`      | Tarefa criada, na fila para processamento            |
-| `working`        | O manipulador está processando a mensagem              |
-| `completed`      | Manipulador concluído com sucesso                  |
-| `failed`         | O manipulador gerou um erro                         |
-| `canceled`       | A tarefa foi cancelada através de tarefas/cancelar             |
+| Estado           | Significado                                           |
+| ---------------- | ----------------------------------------------------- |
+| `submitted`      | Tarefa criada, na fila para processamento             |
+| `working`        | O manipulador está processando a mensagem             |
+| `completed`      | Manipulador concluído com sucesso                     |
+| `failed`         | O manipulador gerou um erro                           |
+| `canceled`       | A tarefa foi cancelada através de tarefas/cancelar    |
 | `input-required` | O manipulador precisa de mais informações do chamador |
 
 As tarefas persistem na tabela `a2a_tasks` SQL e podem ser recuperadas posteriormente por meio de `tasks/get`.

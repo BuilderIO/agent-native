@@ -13,22 +13,22 @@ description: "動作する SaaS 製品をフォークして、エージェント
 
 それぞれが今日使用できる実際のアプリであり、独自のバージョンの起動台となります。
 
-| テンプレート                                  | それは何ですか                                                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [**Chat**](/docs/template-chat)           | 耐久性のあるスレッド、actions、認証、カスタム UI または独自のバックエンドへのクリーン パスを備えた最小限のチャット ファースト アプリ。 |
-| [**Mail**](/docs/template-mail)           | エージェント出身のスーパーヒューマン。受信箱、ラベル、AI トリアージ、キーボードファースト、下書き、エージェント経由の送信。      |
-| [**Calendar**](/docs/template-calendar)   | エージェントネイティブの Google Calendar。イベント、同期、公開予約リンク、エージェント主導のスケジューリング。                  |
-| [**Content**](/docs/template-content)     | MDX 用のオープンソース Obsidian。ローカル Markdown/MDX、Tiptap エディター、Notion 同期、リアルタイム マルチユーザー コラボレーション。     |
-| [**Brain**](/docs/template-brain)         | 引用された機関の記憶、承認された情報源、レビューゲート、および引用に裏付けられたクリーンな社内チャット。        |
-| [**Assets**](/docs/template-assets)       | ブランド ライブラリ、アップロード、参照、ブランド上の画像/動画生成のためのデジタル アセット マネージャー。           |
-| [**Slides**](/docs/template-slides)       | エージェントネイティブの Google スライド。エージェントが直接生成および編集する React ベースのデッキ。                       |
-| [**Video**](/docs/template-videos)        | Remotion のプログラマティック モーション グラフィックスと製品デモ ビデオ。                                              |
-| [**Analytics**](/docs/template-analytics) | エージェントネイティブの振幅/ミックスパネル。データ ソースを接続し、グラフのプロンプトを表示し、ダッシュボードに固定します。                |
-| [**Clips**](/docs/template-clips)         | 文字起こし、チャプター、AI 概要を含む非同期画面 + カメラ録画。                                |
-| [**Design**](/docs/template-design)       | インタラクティブな Alpine/Tailwind 設計のためのエージェントネイティブの HTML プロトタイピング スタジオ。                                  |
+| テンプレート                              | それは何ですか                                                                                                                          |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Chat**](/docs/template-chat)           | 耐久性のあるスレッド、actions、認証、カスタム UI または独自のバックエンドへのクリーン パスを備えた最小限のチャット ファースト アプリ。  |
+| [**Mail**](/docs/template-mail)           | エージェント出身のスーパーヒューマン。受信箱、ラベル、AI トリアージ、キーボードファースト、下書き、エージェント経由の送信。             |
+| [**Calendar**](/docs/template-calendar)   | エージェントネイティブの Google Calendar。イベント、同期、公開予約リンク、エージェント主導のスケジューリング。                          |
+| [**Content**](/docs/template-content)     | MDX 用のオープンソース Obsidian。ローカル Markdown/MDX、Tiptap エディター、Notion 同期、リアルタイム マルチユーザー コラボレーション。  |
+| [**Brain**](/docs/template-brain)         | 引用された機関の記憶、承認された情報源、レビューゲート、および引用に裏付けられたクリーンな社内チャット。                                |
+| [**Assets**](/docs/template-assets)       | ブランド ライブラリ、アップロード、参照、ブランド上の画像/動画生成のためのデジタル アセット マネージャー。                              |
+| [**Slides**](/docs/template-slides)       | エージェントネイティブの Google スライド。エージェントが直接生成および編集する React ベースのデッキ。                                   |
+| [**Video**](/docs/template-videos)        | Remotion のプログラマティック モーション グラフィックスと製品デモ ビデオ。                                                              |
+| [**Analytics**](/docs/template-analytics) | エージェントネイティブの振幅/ミックスパネル。データ ソースを接続し、グラフのプロンプトを表示し、ダッシュボードに固定します。            |
+| [**Clips**](/docs/template-clips)         | 文字起こし、チャプター、AI 概要を含む非同期画面 + カメラ録画。                                                                          |
+| [**Design**](/docs/template-design)       | インタラクティブな Alpine/Tailwind 設計のためのエージェントネイティブの HTML プロトタイピング スタジオ。                                |
 | [**Forms**](/docs/template-forms)         | エージェントネイティブの Typeform。提出物を作成、共有、収集し、Slack、スプレッドシート、webhooks、または Discord にルーティングします。 |
-| [**Plan**](/docs/template-plan)           | 図、ワイヤーフレーム、注釈を使用した視覚的な計画と PR の要約。                                         |
-| [**Dispatch**](/docs/template-dispatch)   | ワークスペース コントロール プレーン: 共有シークレット、再利用可能な統合、Slack/テレグラム、スケジュールされたジョブ。            |
+| [**Plan**](/docs/template-plan)           | 図、ワイヤーフレーム、注釈を使用した視覚的な計画と PR の要約。                                                                          |
+| [**Dispatch**](/docs/template-dispatch)   | ワークスペース コントロール プレーン: 共有シークレット、再利用可能な統合、Slack/テレグラム、スケジュールされたジョブ。                  |
 
 ドメイン テンプレートが不要ですか?ユーザーがすぐに会話できる基本的なアプリが必要な場合は、[Chat](/docs/template-chat) を使用するか、[Pure-Agent Apps](/docs/pure-agent-apps) で最初にアクションを開始してください。
 

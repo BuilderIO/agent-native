@@ -84,16 +84,16 @@ description: "本地开发框架、嵌入式代理面板和云框架 - AI 代理
 生成 - PTY 服务器根据注册表验证请求的命令
 允许列表以防止注入：
 
-| CLI         | 命令    | 安装包             |
-| ----------- | ---------- | --------------------------- |
+| CLI        | 命令       | 安装包                      |
+| ---------- | ---------- | --------------------------- |
 | Claude代码 | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io  | `builder`  | （内置）                  |
-| Codex       | `codex`    | `@openai/codex`             |
+| Builder.io | `builder`  | （内置）                    |
+| Codex      | `codex`    | `@openai/codex`             |
 | 双子座CLI  | `gemini`   | `@google/gemini-cli`        |
-| 开放代码    | `opencode` | `opencode-ai`               |
+| 开放代码   | `opencode` | `opencode-ai`               |
 
 如果在 `PATH` 上找不到所选的 CLI，终端将回退到运行它
-通过 `npx --yes <install-package>@latest`（存在安装包的地方）。 
+通过 `npx --yes <install-package>@latest`（存在安装包的地方）。
 默认命令是`claude`。随时从代理面板设置切换 CLI
 时间。
 
@@ -116,9 +116,9 @@ description: "本地开发框架、嵌入式代理面板和云框架 - AI 代理
 这些随 `@agent-native/core` 一起提供，是您的应用用来与
 代理，无论哪个框架托管它：
 
-1. **发送消息** — `sendToAgentChat()` 向代理发送消息。 
+1. **发送消息** — `sendToAgentChat()` 向代理发送消息。
    `useSendToAgentChat()` 钩子用描述的代码请求门控包装它
-    并返回一个 `codeRequiredDialog` 元素进行渲染。参见
+   并返回一个 `codeRequiredDialog` 元素进行渲染。参见
    [Drop-in Agent](/docs/drop-in-agent) 的完整用法和选项。
 2. **生成状态** - `useAgentChatGenerating()` 跟踪代理何时
    正在运行，因此 UI 可以显示进度，而无需直接轮询代理。

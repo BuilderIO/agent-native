@@ -117,12 +117,12 @@ Das vollständige Konzept finden Sie unter [Workspace](/docs/workspace).
 
 ## Was es anders macht {#what-makes-it-different}
 
-| Ansatz                               | Beschreibung                                                                                                                            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Traditionelle Apps mit integrierter KI** | Die KI ist ein nachträglicher Einfall. Beschränkt auf automatische Vervollständigung, Zusammenfassungen oder eine Chat-Seitenleiste, die in der App eigentlich nichts bewirken kann.           |
-| **Reine Chat-/Agentenschnittstellen**       | Leistungsstark, aber unzugänglich. Keine Dashboards, keine Workflows, keine Persistenz. Nicht-Entwickler können sie nicht effektiv nutzen.                     |
-| **Claude Code / Codex für SaaS**       | Ideal für Entwickler auf ihren eigenen Maschinen. Lässt sich nicht auf mandantenfähiges SaaS übertragen – eine Codebasis pro Benutzer auf einer Entwicklungsbox lässt sich nicht skalieren.       |
-| **Agent-native Apps**                  | Der Agent ist ein erstklassiger Bürger. Es nutzt dieselbe Datenbank, denselben Status und kann alles, was UI kann – und umgekehrt. |
+| Ansatz                                     | Beschreibung                                                                                                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Traditionelle Apps mit integrierter KI** | Die KI ist ein nachträglicher Einfall. Beschränkt auf automatische Vervollständigung, Zusammenfassungen oder eine Chat-Seitenleiste, die in der App eigentlich nichts bewirken kann.        |
+| **Reine Chat-/Agentenschnittstellen**      | Leistungsstark, aber unzugänglich. Keine Dashboards, keine Workflows, keine Persistenz. Nicht-Entwickler können sie nicht effektiv nutzen.                                                  |
+| **Claude Code / Codex für SaaS**           | Ideal für Entwickler auf ihren eigenen Maschinen. Lässt sich nicht auf mandantenfähiges SaaS übertragen – eine Codebasis pro Benutzer auf einer Entwicklungsbox lässt sich nicht skalieren. |
+| **Agent-native Apps**                      | Der Agent ist ein erstklassiger Bürger. Es nutzt dieselbe Datenbank, denselben Status und kann alles, was UI kann – und umgekehrt.                                                          |
 
 ## Entwicklung des gesamten Teams {#whole-team-development}
 

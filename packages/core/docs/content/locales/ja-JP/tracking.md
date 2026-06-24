@@ -7,7 +7,7 @@ description: "プラグイン可能なプロバイダーによるサーバー側
 
 1 つの機能、複数の宛先。任意のサーバー側コード (actions、プラグイン、サーバー ルート) から `track()` を呼び出すと、イベントが登録されているすべての分析プロバイダーに広がります。 SDK 依存関係、クライアント側スクリプト、ブロッキングはありません。同じ `track()` は [browser/app code](#client) でも利用でき、同じプロバイダーにルーティングされます。
 
-これは _product_ 分析です。PostHog/Mixpanel/Amplitude に流れるアプリのイベントです。独自のデータベースに保存されている_エージェント品質_指標 (トレース、コスト、評価、フィードバック) については、[Observability](/docs/observability) を参照してください。
+これは _product_ 分析です。PostHog/Mixpanel/Amplitude に流れるアプリのイベントです。独自のデータベースに保存されている*エージェント品質*指標 (トレース、コスト、評価、フィードバック) については、[Observability](/docs/observability) を参照してください。
 
 ```ts
 import { track } from "@agent-native/core/tracking";
@@ -30,12 +30,12 @@ track(
 
 環境変数を設定すると、サーバーの起動時にプロバイダーが自動登録されます。コードの変更は必要ありません。
 
-| プロバイダ  | 環境変数                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
+| プロバイダ     | 環境変数                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------- |
 | ポストホッグ   | `POSTHOG_API_KEY` (必須)、`POSTHOG_HOST` (オプション、デフォルトは `https://us.i.posthog.com`) |
-| ミックスパネル  | `MIXPANEL_TOKEN`                                                                                |
-| 振幅 | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL` (必須)、`TRACKING_WEBHOOK_AUTH` (オプションの `Authorization` ヘッダー)    |
+| ミックスパネル | `MIXPANEL_TOKEN`                                                                               |
+| 振幅           | `AMPLITUDE_API_KEY`                                                                            |
+| Webhook        | `TRACKING_WEBHOOK_URL` (必須)、`TRACKING_WEBHOOK_AUTH` (オプションの `Authorization` ヘッダー) |
 
 複数のプロバイダーを同時にアクティブにすることができます。すべての出来事は彼ら全員に行きます。
 

@@ -77,13 +77,13 @@ pnpm dev
 
 تعيش جميع البيانات في SQL عبر Drizzle ORM. المخطط: `templates/design/server/db/schema.ts`. تحمل التصميمات وأنظمة التصميم معيار `ownableColumns` وجدول مشاركات إطار عمل مطابق، بحيث يتم إدراجها في نموذج المشاركة لكل مستخدم / لكل مؤسسة.
 
-| الجدول                                    | ما يحمله                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designs`                                | مشروع تصميم — `title`، و`description`، و`project_type` (`prototype` / `other`)، و`data` JSON، ورابط `design_system_id` الاختياري |
-| `design_files`                           | الملفات الفردية التي تنتمي إلى التصميم (`filename`، `content`، `file_type` الافتراضية هي `html`)                                                 |
-| `design_versions`                        | `snapshot` في الوقت المناسب لتصميم مع `label` اختياري، للتاريخ والتراجع                                                         |
-| `design_systems`                         | رموز العلامة التجارية القابلة لإعادة الاستخدام - `data` (الألوان/الطباعة/التباعد)، `assets`، `custom_instructions`، وعلامة `is_default`                            |
-| `design_shares` / `design_system_shares` | يشارك إطار العمل الجداول التي تحدد المبادئ الأساسية (المستخدمين أو المؤسسات) للأدوار (العارض، المحرر، المسؤول)                                                      |
+| الجدول                                   | ما يحمله                                                                                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                                | مشروع تصميم — `title`، و`description`، و`project_type` (`prototype` / `other`)، و`data` JSON، ورابط `design_system_id` الاختياري        |
+| `design_files`                           | الملفات الفردية التي تنتمي إلى التصميم (`filename`، `content`، `file_type` الافتراضية هي `html`)                                        |
+| `design_versions`                        | `snapshot` في الوقت المناسب لتصميم مع `label` اختياري، للتاريخ والتراجع                                                                 |
+| `design_systems`                         | رموز العلامة التجارية القابلة لإعادة الاستخدام - `data` (الألوان/الطباعة/التباعد)، `assets`، `custom_instructions`، وعلامة `is_default` |
+| `design_shares` / `design_system_shares` | يشارك إطار العمل الجداول التي تحدد المبادئ الأساسية (المستخدمين أو المؤسسات) للأدوار (العارض، المحرر، المسؤول)                          |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

@@ -48,12 +48,12 @@ Cuando el agente llama a una acción cerrada y esta llamada específica **no** y
 
 El evento `approval_required` incluye todo lo que el cliente necesita para ofrecer un beneficio:
 
-| Campo         | Tipo     | Notas                                                               |
-| ------------- | -------- | ------------------------------------------------------------------- |
-| `tool`        | `string` | El nombre de la acción que el agente intentó llamar.                            |
-| `input`       | objeto   | Los argumentos que pasó el agente.                                     |
-| `approvalKey` | `string` | **Clave estable** el cliente responde para aprobar _esta llamada exacta_. |
-| `toolCallId`  | `string` | El ID de llamada de herramienta del lado del modelo, cuando esté disponible.                        |
+| Campo         | Tipo     | Notas                                                                        |
+| ------------- | -------- | ---------------------------------------------------------------------------- |
+| `tool`        | `string` | El nombre de la acción que el agente intentó llamar.                         |
+| `input`       | objeto   | Los argumentos que pasó el agente.                                           |
+| `approvalKey` | `string` | **Clave estable** el cliente responde para aprobar _esta llamada exacta_.    |
+| `toolCallId`  | `string` | El ID de llamada de herramienta del lado del modelo, cuando esté disponible. |
 
 El `approvalKey` se deriva de manera determinista del nombre de la herramienta más su entrada, por lo que la misma llamada lógica siempre produce la misma clave. El modelo nunca lo ve ni lo configura; es simplemente un apretón de manos entre el marco y la capacidad de aprobación del ser humano.
 

@@ -27,20 +27,20 @@ await notify(
 
 ## Schweregrade {#severities}
 
-| Schweregrad   | Verwenden für                                 |
-| ---------- | --------------------------------------- |
-| `info`     | Bestätigungen, Fortschrittsmeilensteine, FYI |
-| `warning`  | Etwas, das sich der Benutzer bald ansehen sollte  |
-| `critical` | Benötigt sofortige Aufmerksamkeit               |
+| Schweregrad | Verwenden für                                    |
+| ----------- | ------------------------------------------------ |
+| `info`      | Bestätigungen, Fortschrittsmeilensteine, FYI     |
+| `warning`   | Etwas, das sich der Benutzer bald ansehen sollte |
+| `critical`  | Benötigt sofortige Aufmerksamkeit                |
 
 Der Schweregrad steuert den Badge-Stil im Dropdown-Menü und wird an die Kanäle weitergeleitet, damit diese nach Dringlichkeit verzweigen können.
 
 ## Eingebaute Kanäle {#channels}
 
-| Kanal   | Lieferung                                                  | Erfordert                                            |
-| --------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `inbox`   | Bleibt in der `notifications`-Tabelle; treibt die Glocke an UI | Immer an – Teil des Grundelements.                  |
-| `webhook` | POST JSON zu einem konfigurierten URL                             | `NOTIFICATIONS_WEBHOOK_URL` Umgebungsvariable beim Start festgelegt. |
+| Kanal     | Lieferung                                                      | Erfordert                                                            |
+| --------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `inbox`   | Bleibt in der `notifications`-Tabelle; treibt die Glocke an UI | Immer an – Teil des Grundelements.                                   |
+| `webhook` | POST JSON zu einem konfigurierten URL                          | `NOTIFICATIONS_WEBHOOK_URL` Umgebungsvariable beim Start festgelegt. |
 
 Der Webhook-Kanal löst `${keys.NAME}`-Referenzen sowohl im URL als auch im `NOTIFICATIONS_WEBHOOK_AUTH` anhand des Ad-hoc-[secrets](/docs/security) des Eigentümers auf, sodass der Rohwert niemals in den Kontext des Agenten gelangt. Es werden URL-Zulassungslisten pro Schlüssel erzwungen – dieselbe Regel, die das Automatisierungstool `web-request` verwendet.
 
@@ -145,9 +145,9 @@ interface NotificationMeta {
 
 ## HTTP API {#http}
 
- Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet. Alle Routen beziehen sich auf die E-Mail-Adresse der authentifizierten Sitzung.
+Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet. Alle Routen beziehen sich auf die E-Mail-Adresse der authentifizierten Sitzung.
 
-| Methode   | Pfad                                                |
+| Methode  | Pfad                                                |
 | -------- | --------------------------------------------------- |
 | `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
 | `GET`    | `/_agent-native/notifications/count`                |
@@ -194,10 +194,10 @@ Glockensymbol mit ungelesenem Abzeichen. Durch Klicken auf wird ein Dropdown-Men
 
 In jeder Vorlage ist ein einzelnes `manage-notifications`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion | Parameter                                                                    | Zweck                                                         |
-| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Aktion | Parameter                                                                             | Zweck                                                                                          |
+| ------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `send` | `severity` (erforderlich), `title` (erforderlich), `body`, `metadataJson`, `channels` | Senden Sie eine Benachrichtigung an den Posteingang und die registrierten Kanäle des Benutzers |
-| `list` | `unreadOnly`, `limit` (maximal 200, Standard 20)                                   | Letzte Benachrichtigungen für den Kontext auflisten                           |
+| `list` | `unreadOnly`, `limit` (maximal 200, Standard 20)                                      | Letzte Benachrichtigungen für den Kontext auflisten                                            |
 
 Automatisierungen (siehe [Automations](/docs/automations)) können `manage-notifications` mit `action=send` in ihrem Körper aufrufen – dies ist das kanonische Muster, um ein externes Ereignis in eine für den Benutzer sichtbare Warnung umzuwandeln.
 

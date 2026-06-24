@@ -78,7 +78,7 @@ https://your-clips.example.com/api/slack/unfurl
 ```
 
 يحتوي تطبيق Slack على طلب API واحد للأحداث وهو URL. إذا كان يجب على نفس تطبيق Slack التعامل مع
-يتم نشر كل من أحداث محادثة الوكيل والمقاطع، وتوجيه أحداث Slack من خلال 
+يتم نشر كل من أحداث محادثة الوكيل والمقاطع، وتوجيه أحداث Slack من خلال
 المرسل الذي يرسل أحداث الرسالة إلى `/_agent-native/integrations/slack/webhook`
 وأحداث `link_shared` إلى معالج نشر Clips.
 
@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### متغيرات البيئة {#env-vars}
 
-| المنصة | مطلوب                                                                     | اختياري                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| تيليجرام | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| البريد الإلكتروني    | `EMAIL_AGENT_ADDRESS`، بالإضافة إلى واحد من `RESEND_API_KEY` أو `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| واتساب | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| المنصة            | مطلوب                                                                              | اختياري                                               |
+| ----------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack             | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                          | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| تيليجرام          | `TELEGRAM_BOT_TOKEN`                                                               | —                                                     |
+| البريد الإلكتروني | `EMAIL_AGENT_ADDRESS`، بالإضافة إلى واحد من `RESEND_API_KEY` أو `SENDGRID_API_KEY` | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| واتساب            | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`       | —                                                     |
 
 جميع بيانات الاعتماد موجودة في env vars - وليس قاعدة البيانات أبدًا، ولا كود المصدر أبدًا. استخدم إعدادات الشريط الجانبي UI أو لوحة البيئة الخاصة بموفر الاستضافة.
 

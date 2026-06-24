@@ -77,13 +77,13 @@ pnpm dev
 
 Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/design/server/db/schema.ts`. Os designs e sistemas de design carregam o padrão `ownableColumns` e uma tabela de compartilhamentos de estrutura correspondente, para que eles se encaixem no modelo de compartilhamento por usuário/por organização.
 
-| Tabela                                    | O que ele contém                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tabela                                   | O que ele contém                                                                                                                              |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | Um projeto de design — `title`, `description`, `project_type` (`prototype`/`other`), o blob `data` JSON e um link `design_system_id` opcional |
-| `design_files`                           | Arquivos individuais pertencentes a um desenho (`filename`, `content`, `file_type` com padrão `html`)                                                 |
-| `design_versions`                        | `snapshot`s pontuais de um design com um `label` opcional, para histórico e reversão                                                         |
-| `design_systems`                         | Tokens de marca reutilizáveis — `data` (cores/tipografia/espaçamento), `assets`, `custom_instructions` e uma sinalização `is_default`                            |
-| `design_shares` / `design_system_shares` | O Framework compartilha tabelas mapeando principais (usuários ou organizações) para funções (visualizador, editor, administrador)                                                      |
+| `design_files`                           | Arquivos individuais pertencentes a um desenho (`filename`, `content`, `file_type` com padrão `html`)                                         |
+| `design_versions`                        | `snapshot`s pontuais de um design com um `label` opcional, para histórico e reversão                                                          |
+| `design_systems`                         | Tokens de marca reutilizáveis — `data` (cores/tipografia/espaçamento), `assets`, `custom_instructions` e uma sinalização `is_default`         |
+| `design_shares` / `design_system_shares` | O Framework compartilha tabelas mapeando principais (usuários ou organizações) para funções (visualizador, editor, administrador)             |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

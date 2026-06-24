@@ -6,7 +6,7 @@ description: "Donnez à l'agent un accès structuré à n'importe quel outil CLI
 # Adaptateurs CLI
 
 > **Où cela convient :** Les adaptateurs CLI sont l'un des deux joints d'adaptateur du
->. Le guide canonique est [Adapters](/docs/sandbox-adapters), qui
+> . Le guide canonique est [Adapters](/docs/sandbox-adapters), qui
 > couvre à la fois cette couture et la couture du bac à sable `run-code`, y compris la couture partagée
 > contrainte Edge/sans serveur. Cette page est la référence rapide pour le côté CLI.
 

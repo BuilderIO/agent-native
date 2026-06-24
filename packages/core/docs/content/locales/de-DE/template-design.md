@@ -77,13 +77,13 @@ pnpm dev
 
 Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs und Designsysteme verfügen über den Standard `ownableColumns` und eine passende Framework-Freigabentabelle, sodass sie in das Freigabemodell pro Benutzer/pro Organisation passen.
 
-| Tabelle                                    | Was es enthält                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tabelle                                  | Was es enthält                                                                                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | Ein Designprojekt – `title`, `description`, `project_type` (`prototype` / `other`), der `data` JSON Blob und ein optionaler `design_system_id`-Link |
-| `design_files`                           | Einzelne Dateien, die zu einem Design gehören (`filename`, `content`, `file_type`, standardmäßig `html`)                                                 |
-| `design_versions`                        | Zeitpunkt-`snapshot`s eines Designs mit einem optionalen `label` für Verlauf und Rollback                                                         |
-| `design_systems`                         | Wiederverwendbare Markentokens – `data` (Farben/Typografie/Abstände), `assets`, `custom_instructions` und eine `is_default`-Flagge                            |
-| `design_shares` / `design_system_shares` | Framework teilt Tabellen, die Prinzipale (Benutzer oder Organisationen) Rollen (Betrachter, Bearbeiter, Administrator) zuordnen                                                      |
+| `design_files`                           | Einzelne Dateien, die zu einem Design gehören (`filename`, `content`, `file_type`, standardmäßig `html`)                                            |
+| `design_versions`                        | Zeitpunkt-`snapshot`s eines Designs mit einem optionalen `label` für Verlauf und Rollback                                                           |
+| `design_systems`                         | Wiederverwendbare Markentokens – `data` (Farben/Typografie/Abstände), `assets`, `custom_instructions` und eine `is_default`-Flagge                  |
+| `design_shares` / `design_system_shares` | Framework teilt Tabellen, die Prinzipale (Benutzer oder Organisationen) Rollen (Betrachter, Bearbeiter, Administrator) zuordnen                     |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

@@ -35,16 +35,16 @@ description: "エージェント ネイティブ アプリのセキュリティ 
 
 フレームワーク アーキテクチャは、標準パターンを使用する場合に一般的な脆弱性を防止します。
 
-| 脆弱性   | フレームワークの保護                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| SQL インジェクション   | `db-query`/`db-exec` および Drizzle ORM のパラメータ化されたクエリ          |
-| XSS             | React は JSX を自動エスケープします。 TipTap はリッチ テキストをサニタイズします                     |
-| データ漏洩      | 一時ビューによる SQL レベルのスコープ設定 (`owner_email`、`org_id`)        |
-| 認証バイパス     | 認証ガードはすべての `defineAction` エンドポイントを自動保護します                  |
-| インプットインジェクション | `defineAction` での Zod スキーマ検証                                |
-| CSRF            | `SameSite=lax` + `httpOnly` クッキー                                    |
-| 秘密の暴露 | `.env` は無視されました。認証情報と保存時の保管庫の暗号化 (AES-256-GCM) |
-| SSRF            | `ssrfSafeFetch` は内部/メタデータ ターゲット + リダイレクト再バインドをブロックします  |
+| 脆弱性                     | フレームワークの保護                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| SQL インジェクション       | `db-query`/`db-exec` および Drizzle ORM のパラメータ化されたクエリ                    |
+| XSS                        | React は JSX を自動エスケープします。 TipTap はリッチ テキストをサニタイズします      |
+| データ漏洩                 | 一時ビューによる SQL レベルのスコープ設定 (`owner_email`、`org_id`)                   |
+| 認証バイパス               | 認証ガードはすべての `defineAction` エンドポイントを自動保護します                    |
+| インプットインジェクション | `defineAction` での Zod スキーマ検証                                                  |
+| CSRF                       | `SameSite=lax` + `httpOnly` クッキー                                                  |
+| 秘密の暴露                 | `.env` は無視されました。認証情報と保存時の保管庫の暗号化 (AES-256-GCM)               |
+| SSRF                       | `ssrfSafeFetch` は内部/メタデータ ターゲット + リダイレクト再バインドをブロックします |
 
 ## 入力の検証 {#input-validation}
 
@@ -134,7 +134,7 @@ session.orgId → AGENT_ORG_ID → SQL row scoping
 
 ### ユーザーごとのスコープ (`owner_email`)
 
-ユーザー固有のデータを含むすべてのテーブルには、`owner_email` テキスト列が必要です**。キャメルケースの Drizzle プロパティ名を使用します — `accessFilter` は `resourceTable.ownerEmail` と読み取られます:
+ユーザー固有のデータを含むすべてのテーブルには、`owner_email` テキスト列が必要です\*\*。キャメルケースの Drizzle プロパティ名を使用します — `accessFilter` は `resourceTable.ownerEmail` と読み取られます:
 
 ```ts
 import {
@@ -225,13 +225,13 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## 機密管理 {#secrets}
 
-| シークレットの種類                        | 保管場所                                             |
-| ---------------------------------- | ---------------------------------------------------------- |
-| デプロイレベルのキー (アプリごとに 1 つ)    | `.env` ファイル (gitignored、サーバー側のみ)                 |
-| ユーザーごと / 組織ごとの API キー        | `saveCredential` / `resolveCredential` (保存時に暗号化) |
-| 登録されたシークレット (サイドバー ボールト) | `app_secrets` ボールト (保存時に暗号化)                    |
-| OAuth トークン (Google、GitHub)      | `saveOAuthTokens()` 経由で `oauth_tokens` ストア               |
-| セッショントークン                     | 自動 (Better Auth がこれを処理します)                       |
+| シークレットの種類                           | 保管場所                                                |
+| -------------------------------------------- | ------------------------------------------------------- |
+| デプロイレベルのキー (アプリごとに 1 つ)     | `.env` ファイル (gitignored、サーバー側のみ)            |
+| ユーザーごと / 組織ごとの API キー           | `saveCredential` / `resolveCredential` (保存時に暗号化) |
+| 登録されたシークレット (サイドバー ボールト) | `app_secrets` ボールト (保存時に暗号化)                 |
+| OAuth トークン (Google、GitHub)              | `saveOAuthTokens()` 経由で `oauth_tokens` ストア        |
+| セッショントークン                           | 自動 (Better Auth がこれを処理します)                   |
 
 ユーザーごと/組織ごとの資格情報とボールトは、`SECRETS_ENCRYPTION_KEY` によってキー付けされた AES-256-GCM で保存時に暗号化されます (`BETTER_AUTH_SECRET` にフォールバック)。生産はこれなしでは開始できません。既存の平文認証情報行を暗号化するには、`pnpm action db-migrate-encrypt-credentials` (冪等、非破壊) を実行します。
 

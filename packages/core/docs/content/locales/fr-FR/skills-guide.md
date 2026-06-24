@@ -24,25 +24,25 @@ Les éléments `name` et `description` de chaque compétence sont toujours injec
 
 Il s'agit du skills fourni avec le **modèle par défaut**. L'ensemble exact disponible dans une application donnée dépend du modèle à partir duquel vous avez créé votre échafaudage : vérifiez le répertoire `.agents/skills/` de ce modèle pour savoir ce qu'il contient réellement.
 
-| Compétence                  | Quand utiliser                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `storing-data`         | Ajout de modèles de données, lecture/écriture de configuration ou d'état                |
-| `real-time-sync`       | Synchronisation des interrogations de câblage, débogage de UI non mis à jour                     |
-| `delegate-to-agent`    | Déléguer le travail d'IA de UI ou actions à l'agent                 |
-| `actions`              | Création ou exécution de l'agent actions                                  |
-| `self-modifying-code`  | Modification de la source, des composants ou des styles de l'application                          |
-| `create-skill`         | Ajout d'un nouveau skills pour l'agent                                    |
-| `capture-learnings`    | Enregistrement des corrections et des modèles                                 |
-| `frontend-design`      | Créer ou styliser n'importe quel site Web UI, composants ou pages               |
-| `adding-a-feature`     | La liste de contrôle en quatre domaines : UI, actions, skills, état de l'application            |
+| Compétence             | Quand utiliser                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `storing-data`         | Ajout de modèles de données, lecture/écriture de configuration ou d'état                            |
+| `real-time-sync`       | Synchronisation des interrogations de câblage, débogage de UI non mis à jour                        |
+| `delegate-to-agent`    | Déléguer le travail d'IA de UI ou actions à l'agent                                                 |
+| `actions`              | Création ou exécution de l'agent actions                                                            |
+| `self-modifying-code`  | Modification de la source, des composants ou des styles de l'application                            |
+| `create-skill`         | Ajout d'un nouveau skills pour l'agent                                                              |
+| `capture-learnings`    | Enregistrement des corrections et des modèles                                                       |
+| `frontend-design`      | Créer ou styliser n'importe quel site Web UI, composants ou pages                                   |
+| `adding-a-feature`     | La liste de contrôle en quatre domaines : UI, actions, skills, état de l'application                |
 | `internationalization` | Mise à jour de la copie localisée de UI, des catalogues de langues et des styles sécurisés pour RTL |
-| `shadcn-ui`            | Utilisation des primitives et des composants shadcn/ui                          |
-| `security`             | Authentification, contrôle d'accès et gestion des secrets                          |
-| `real-time-collab`     | Édition collaborative multi-utilisateurs                                   |
-| `agent-engines`        | Échange ou configuration du moteur d'agent sous-jacent                |
-| `notifications`        | Modèles de notifications dans l'application et push                              |
-| `progress`             | Suivi et affichage de la progression des tâches en arrière-plan                    |
-| `inline-embeds`        | Intégration d'applications ou d'iframes dans le chat de l'agent                    |
+| `shadcn-ui`            | Utilisation des primitives et des composants shadcn/ui                                              |
+| `security`             | Authentification, contrôle d'accès et gestion des secrets                                           |
+| `real-time-collab`     | Édition collaborative multi-utilisateurs                                                            |
+| `agent-engines`        | Échange ou configuration du moteur d'agent sous-jacent                                              |
+| `notifications`        | Modèles de notifications dans l'application et push                                                 |
+| `progress`             | Suivi et affichage de la progression des tâches en arrière-plan                                     |
+| `inline-embeds`        | Intégration d'applications ou d'iframes dans le chat de l'agent                                     |
 
 `context-awareness` et `a2a-protocol` sont des skills au niveau du framework disponibles dans le répertoire `.agents/skills/` à la racine du dépôt – voir le `.agents/skills/` de chaque modèle pour savoir ce dont il hérite.
 
@@ -104,11 +104,11 @@ Enregistrez le fichier sous `.agents/skills/my-skill/SKILL.md`. Le nom du réper
 
 Un champ frontal `scope` facultatif contrôle à quel agent une compétence est destinée :
 
-| `scope`   | Chargé par l'agent d'exécution ? | Utiliser pour                                                                         |
-| --------- | ---------------------------- | ------------------------------------------------------------------------------- |
-| `both`    | Oui (par défaut)                | Skills utile à l'agent intégré à l'application. Il s'agit de la valeur par défaut lorsque `scope` est omis. |
-| `runtime` | Oui                          | Skills destiné uniquement à l'agent d'exécution intégré à l'application.                                 |
-| `dev`     | Non                           | Skills destiné uniquement à l'agent de codage de l'humain (par exemple, le code Claude).              |
+| `scope`   | Chargé par l'agent d'exécution ? | Utiliser pour                                                                                               |
+| --------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `both`    | Oui (par défaut)                 | Skills utile à l'agent intégré à l'application. Il s'agit de la valeur par défaut lorsque `scope` est omis. |
+| `runtime` | Oui                              | Skills destiné uniquement à l'agent d'exécution intégré à l'application.                                    |
+| `dev`     | Non                              | Skills destiné uniquement à l'agent de codage de l'humain (par exemple, le code Claude).                    |
 
 ```markdown
 ---
@@ -189,11 +189,11 @@ Chaque compétence basée sur l'application commence par `agent-native.app-skill
 
 La visibilité des compétences contrôle ce qui est expédié :
 
-| Visibilité | Signification                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `internal` | Utilisé par le propre agent de l'application, non exporté vers les places de marché.      |
-| `exported` | Exporté vers les places de marché, mais non nécessaire à l'application en interne. |
-| `both`     | Utilisé en interne et exporté.                                   |
+| Visibilité | Signification                                                                        |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `internal` | Utilisé par le propre agent de l'application, non exporté vers les places de marché. |
+| `exported` | Exporté vers les places de marché, mais non nécessaire à l'application en interne.   |
+| `both`     | Utilisé en interne et exporté.                                                       |
 
 Hosted est le chemin d’installation par défaut. Le lancement local est explicite pour la personnalisation,
 travail hors ligne ou utilisation sensible à la confidentialité.

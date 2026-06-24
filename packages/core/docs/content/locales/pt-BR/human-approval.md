@@ -48,12 +48,12 @@ Quando o agente chama uma ação bloqueada e essa chamada específica **não** j
 
 O evento `approval_required` carrega tudo que o cliente precisa para renderizar uma affordance:
 
-| Campo         | Tipo     | Notas                                                               |
-| ------------- | -------- | ------------------------------------------------------------------- |
-| `tool`        | `string` | O nome da ação que o agente tentou chamar.                            |
-| `input`       | objeto   | Os argumentos que o agente passou.                                     |
+| Campo         | Tipo     | Notas                                                                   |
+| ------------- | -------- | ----------------------------------------------------------------------- |
+| `tool`        | `string` | O nome da ação que o agente tentou chamar.                              |
+| `input`       | objeto   | Os argumentos que o agente passou.                                      |
 | `approvalKey` | `string` | **Chave estável** o cliente responde para aprovar _esta chamada exata_. |
-| `toolCallId`  | `string` | O ID de chamada de ferramenta do lado do modelo, quando disponível.                        |
+| `toolCallId`  | `string` | O ID de chamada de ferramenta do lado do modelo, quando disponível.     |
 
 O `approvalKey` é derivado deterministicamente do nome da ferramenta mais sua entrada, portanto a mesma chamada lógica sempre produz a mesma chave. O modelo nunca o vê ou define – é puramente um aperto de mão entre a estrutura e a capacidade de aprovação humana.
 

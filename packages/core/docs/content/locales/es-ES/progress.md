@@ -34,12 +34,12 @@ Preocupación separada de [notifications](/docs/notifications): las notificacion
 
 ## El ciclo de vida {#lifecycle}
 
-| Estado      | Transición                  |
-| ----------- | --------------------------- |
+| Estado      | Transición                          |
+| ----------- | ----------------------------------- |
 | `running`   | Inicial: establecido por `startRun` |
-| `succeeded` | Terminal de camino feliz         |
-| `failed`    | Terminal de error              |
-| `cancelled` | Usuario interrumpido            |
+| `succeeded` | Terminal de camino feliz            |
+| `failed`    | Terminal de error                   |
+| `cancelled` | Usuario interrumpido                |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -150,12 +150,12 @@ Widget de encabezado en línea: móntelo junto a la campana de notificaciones. M
 
 En cada plantilla se registra una única herramienta `manage-progress`. El parámetro `action` selecciona la operación:
 
-| Acción     | Propósito                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | Llamada al final de una tarea larga. Devuelve un runId.                |
+| Acción     | Propósito                                                        |
+| ---------- | ---------------------------------------------------------------- |
+| `start`    | Llamada al final de una tarea larga. Devuelve un runId.          |
 | `update`   | Llamar periódicamente durante la tarea con `percent` y/o `step`. |
-| `complete` | Terminal: uno de `succeeded`, `failed`, `cancelled`.           |
-| `list`     | Inspeccionar ejecuciones recientes (filtrar por `active=true`).                  |
+| `complete` | Terminal: uno de `succeeded`, `failed`, `cancelled`.             |
+| `list`     | Inspeccionar ejecuciones recientes (filtrar por `active=true`).  |
 
 ### Cuándo iniciar una carrera {#when-to-start}
 
@@ -168,7 +168,7 @@ En cada plantilla se registra una única herramienta `manage-progress`. El pará
 
 Se emiten dos eventos en el [event bus](/docs/automations#event-bus):
 
-| Evento                  | Carga útil                            |
+| Evento                 | Carga útil                         |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

@@ -22,7 +22,7 @@ npx @agent-native/core@latest code /migrate https://example.com --describe "mark
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
 ```
 
-पूरा गाइड - इनपुट आकार (पथ / URL / विवरण), `--emit` डोजियर, 
+पूरा गाइड - इनपुट आकार (पथ / URL / विवरण), `--emit` डोजियर,
 प्लान बनाम ऑटो मोड, रन नियंत्रण, क्रेडेंशियल, डेस्कटॉप डीप लिंक और
 `@agent-native/migrate` पैकेज निर्यात - में रहता है
 [Agent-Native Code UI → Migrating to Agent-Native](/docs/code-agents-ui#migrate).

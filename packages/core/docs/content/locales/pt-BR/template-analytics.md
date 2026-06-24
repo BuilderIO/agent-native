@@ -140,15 +140,15 @@ escolhas verdadeiras, definições de métricas, painéis e análises.
 
 As credenciais são armazenadas através da camada de configurações/ambiente da estrutura - sem segredos no git. A produção requer:
 
-| Variável                                 | Propósito                                                 |
+| Variável                                 | Propósito                                               |
 | ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | Conexão SQL persistente URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Autorização                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Cliente de login do Google preferencial (OAuth 2.0)             |
+| `DATABASE_URL`                           | Conexão SQL persistente URL                             |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Autorização                                             |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Cliente de login do Google preferencial (OAuth 2.0)     |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | Backup de login legado/cliente de integração Google API |
 | `BIGQUERY_PROJECT_ID`                    | Projeto BigQuery                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Conta de serviço do BigQuery JSON                           |
-| `ANTHROPIC_API_KEY`                      | Bate-papo com agente                                              |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Conta de serviço do BigQuery JSON                       |
+| `ANTHROPIC_API_KEY`                      | Bate-papo com agente                                    |
 
 As chaves específicas do provedor (HubSpot, Jira, Gong, Pylon etc.) estão documentadas no passo a passo de cada fonte na página Fontes de dados. Se você adicionar uma nova ação que precise de uma chave API, ela aparecerá como uma nova fonte nessa página por meio do registro de integração do modelo.
 

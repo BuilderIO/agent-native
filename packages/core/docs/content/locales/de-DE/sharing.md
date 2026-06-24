@@ -19,11 +19,11 @@ Das bedeutet auch, dass der Agent nie ein neues Freigabemodell pro App erlernen 
 
 Die grobe Sichtbarkeit lebt von der Ressource selbst; Fein abgestufte Zuteilungen werden in einer Companion-Shares-Tabelle gespeichert.
 
-| Sichtbarkeit | Wer kann es sehen                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| `private`  | Eigentümer + Personen ausdrücklich gewährt. **Standard für jede neue Ressource.**                              |
-| `org`      | Eigentümer + explizite Berechtigungen + jeder in derselben Organisation (schreibgeschützt).                              |
-| `public`   | Eigentümer + explizite Genehmigungen + jeder mit dem Link (schreibgeschützt). Erscheint nicht in den Listen/Suchen anderer. |
+| Sichtbarkeit | Wer kann es sehen                                                                                                           |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `private`    | Eigentümer + Personen ausdrücklich gewährt. **Standard für jede neue Ressource.**                                           |
+| `org`        | Eigentümer + explizite Berechtigungen + jeder in derselben Organisation (schreibgeschützt).                                 |
+| `public`     | Eigentümer + explizite Genehmigungen + jeder mit dem Link (schreibgeschützt). Erscheint nicht in den Listen/Suchen anderer. |
 
 `public` ist eine bewusst ruhige Ebene: Eine öffentliche Ressource ist über einen direkten Link erreichbar, sie wird jedoch **nicht** in den Seitenleisten, Listen oder der Suche anderer Benutzer angezeigt. Dadurch bleibt „Öffentlich für die gemeinsame Nutzung des URL“ von „Öffentlich für benutzerübergreifende Erkennung“ getrennt. Galerien und Vorlagenkataloge, die wirklich eine benutzerübergreifende Erkennung wünschen, entscheiden sich ausdrücklich dafür.
 
@@ -96,12 +96,12 @@ Fügen Sie bei Listen neben jeder Zeile ein `<VisibilityBadge visibility={row.vi
 
 Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent nennt sie als Tools und der UI ruft sie über `useActionQuery` / `useActionMutation` auf:
 
-| Aktion                    | Was es tut                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Aktion                    | Was es tut                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `share-resource`          | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
-| `unshare-resource`        | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                               |
-| `list-resource-shares`    | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                              |
-| `set-resource-visibility` | Wechseln Sie zu `private`, `org` oder `public`.                                                       |
+| `unshare-resource`        | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
+| `list-resource-shares`    | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
+| `set-resource-visibility` | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
 

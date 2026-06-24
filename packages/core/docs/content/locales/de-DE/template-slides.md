@@ -188,27 +188,27 @@ Framework-Freigabetabellen (`deck_shares`, `design_system_shares`) ordnen Prinzi
 
 #### Decks
 
-| Spalte       | Typ | Notizen                                                     |
+| Spalte       | Typ  | Notizen                                                   |
 | ------------ | ---- | --------------------------------------------------------- |
-| `id`         | Text | Primärschlüssel, z.B. `deck-1712345-abc`                      |
+| `id`         | Text | Primärschlüssel, z.B. `deck-1712345-abc`                  |
 | `title`      | Text | Deck-Titel                                                |
 | `data`       | Text | JSON-Blob: `{ title, slides: [{ id, content, layout }] }` |
-| `created_at` | Text | Zeitstempel                                                 |
-| `updated_at` | Text | Zeitstempel                                                 |
+| `created_at` | Text | Zeitstempel                                               |
+| `updated_at` | Text | Zeitstempel                                               |
 
 Jedes Deck verfügt außerdem über das Standard-`ownableColumns` (Eigentümer, Sichtbarkeit, Freigabe-Token), sodass es in das Freigabemodell des Frameworks passt.
 
 #### Folienkommentare
 
-| Spalte                        | Notizen                                  |
-| ----------------------------- | -------------------------------------- |
-| `id`                          | Primärschlüssel                            |
-| `deck_id`                     | Übergeordnetes Deck                            |
-| `slide_id`                    | Slide, der Kommentar lebt weiter             |
-| `thread_id`, `parent_id`      | Einfädeln                              |
+| Spalte                        | Notizen                                 |
+| ----------------------------- | --------------------------------------- |
+| `id`                          | Primärschlüssel                         |
+| `deck_id`                     | Übergeordnetes Deck                     |
+| `slide_id`                    | Slide, der Kommentar lebt weiter        |
+| `thread_id`, `parent_id`      | Einfädeln                               |
 | `content`, `quoted_text`      | Kommentartext und optionaler Textauszug |
-| `author_email`, `author_name` | Autor                                 |
-| `resolved`                    | Boolesches Flag                           |
+| `author_email`, `author_name` | Autor                                   |
+| `resolved`                    | Boolesches Flag                         |
 
 #### deck_shares
 

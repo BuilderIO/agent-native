@@ -34,24 +34,24 @@ daher wählen Bundler den browsersicheren Eintrag.
 
 ## Agent und Chat UI {#agent-chat-ui}
 
-| API                                  | Importpfad                                   | Verwenden, wenn                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` oder `/client/chat` | Sie möchten die vollständige Seitenleiste rund um Ihre App.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` oder `/client/chat` | Sie rendern Ihre eigene Kopfzeilenschaltfläche für die Seitenleiste.                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` oder `/client/chat` | Sie möchten das vollständige Panel in Ihrem eigenen Layout, Ihrer eigenen Route, Ihrem eigenen Dialog oder Ihrer eigenen Seitenspalte.                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` oder `/client/chat` | Sie möchten im Panel- oder Seitenmodus ohne den Seitenleisten-Wrapper chatten.                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client` oder `/client/chat` | Sie möchten das umgebende Chrome besitzen und gleichzeitig die Standard-Konversations- und Composer-Laufzeit beibehalten. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` oder `/client/chat` | Sie möchten die Thread-Registerkarten des Frameworks ohne `AgentPanel` Chrome.                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` oder `/client/chat` | Sie verfügen über einen BYO-Agentenendpunkt, der normalisierte Chat-Ereignisse streamt.                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Agents SDK-Stream und möchten den Standard-Chat UI darum herum.                    |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Responses-Ereignisstrom und möchten ihn in den Chat UI normalisieren.               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` oder `/client/chat` | Sie haben einen AG-UI-Ereignisstrom und möchten ihn in den Chat UI normalisieren.                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Claude Agent SDK-Stream und möchten ihn in den Chat UI normalisieren.                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Vercel AI SDK-Stream und möchten ihn in den Chat UI normalisieren.                         |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` oder `/client/chat` | Sie müssen einen `AgentChatRuntime` selbst in die Assistant-UI umwandeln.                              |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` oder `/client/chat` | Sie benötigen den integrierten Agent-Native SSE-Transport als Low-Level-Assistent-UI-Adapter.            |
+| API                                  | Importpfad                                      | Verwenden, wenn                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` oder `/client/chat` | Sie möchten die vollständige Seitenleiste rund um Ihre App.                                                                            |
+| `<AgentToggleButton>`                | `@agent-native/core/client` oder `/client/chat` | Sie rendern Ihre eigene Kopfzeilenschaltfläche für die Seitenleiste.                                                                   |
+| `<AgentPanel>`                       | `@agent-native/core/client` oder `/client/chat` | Sie möchten das vollständige Panel in Ihrem eigenen Layout, Ihrer eigenen Route, Ihrem eigenen Dialog oder Ihrer eigenen Seitenspalte. |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` oder `/client/chat` | Sie möchten im Panel- oder Seitenmodus ohne den Seitenleisten-Wrapper chatten.                                                         |
+| `<AssistantChat>`                    | `@agent-native/core/client` oder `/client/chat` | Sie möchten das umgebende Chrome besitzen und gleichzeitig die Standard-Konversations- und Composer-Laufzeit beibehalten.              |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` oder `/client/chat` | Sie möchten die Thread-Registerkarten des Frameworks ohne `AgentPanel` Chrome.                                                         |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` oder `/client/chat` | Sie verfügen über einen BYO-Agentenendpunkt, der normalisierte Chat-Ereignisse streamt.                                                |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Agents SDK-Stream und möchten den Standard-Chat UI darum herum.                                                 |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` oder `/client/chat` | Sie haben einen OpenAI Responses-Ereignisstrom und möchten ihn in den Chat UI normalisieren.                                           |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` oder `/client/chat` | Sie haben einen AG-UI-Ereignisstrom und möchten ihn in den Chat UI normalisieren.                                                      |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Claude Agent SDK-Stream und möchten ihn in den Chat UI normalisieren.                                                  |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` oder `/client/chat` | Sie haben einen Vercel AI SDK-Stream und möchten ihn in den Chat UI normalisieren.                                                     |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` oder `/client/chat` | Sie müssen einen `AgentChatRuntime` selbst in die Assistant-UI umwandeln.                                                              |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` oder `/client/chat` | Sie benötigen den integrierten Agent-Native SSE-Transport als Low-Level-Assistent-UI-Adapter.                                          |
 | `useChatThreads()`                   | `@agent-native/core/client` oder `/client/chat` | Sie benötigen eine benutzerdefinierte Thread-Liste, eine Verlaufsauswahl oder einen begrenzten Chat UI.                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` oder `/client/chat` | Eine Produktaktion sollte dem Agenten-Chat Arbeit überlassen.                                             |
+| `sendToAgentChat()`                  | `@agent-native/core/client` oder `/client/chat` | Eine Produktaktion sollte dem Agenten-Chat Arbeit überlassen.                                                                          |
 
 `AgentChatRuntime` ist der BYO-Agentenvertrag für die Standard-Chat-Shell. Bestehen
 `runtime` bis `<AssistantChat>`, wenn ein externer Agent den
@@ -105,13 +105,13 @@ für die Connector-Nutzung, den normalisierten Ereignisstrom und wann Sie darauf
 Verwenden Sie `@agent-native/core/client/composer`, wenn Sie denselben Chat platzieren müssen
 Feld, das von der Seitenleiste im benutzerdefinierten UI verwendet wird.
 
-| API                               | Verwenden wenn                                                                                                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API                               | Verwenden wenn                                                                                                                                                                               |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | Sie benötigen ein zum Senden bereites Chatfeld mit Anhängen, Schrägstrichbefehlen, Referenzen, Handhabung von eingefügtem Text, Entwurfspersistenz, Spracheingabe und Übermittlungssemantik. |
-| `<AgentComposerFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Composer-Körper herum.                                                                                                   |
-| `<TiptapComposer>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Composer-Laufzeitumgebung gerendert werden.                                    |
-| `buildPromptComposerSubmission()` | Sie benötigen die gleiche Normalisierung von Anhängen und eingefügtem Text, bevor Sie Ihren eigenen Submit-Handler aufrufen.                                                                  |
-| `formatPromptWithAttachments()`   | Sie müssen versteckte Anhangsmetadaten in eine Eingabeaufforderungszeichenfolge rendern.                                                                                                 |
+| `<AgentComposerFrame>`            | Sie möchten die standardmäßige visuelle Hülle um einen benutzerdefinierten Composer-Körper herum.                                                                                            |
+| `<TiptapComposer>`                | Sie benötigen das Rich-Chat-Feld der untersten Ebene. Es muss innerhalb einer Assistant-UI `ThreadPrimitive.Root` / Composer-Laufzeitumgebung gerendert werden.                              |
+| `buildPromptComposerSubmission()` | Sie benötigen die gleiche Normalisierung von Anhängen und eingefügtem Text, bevor Sie Ihren eigenen Submit-Handler aufrufen.                                                                 |
+| `formatPromptWithAttachments()`   | Sie müssen versteckte Anhangsmetadaten in eine Eingabeaufforderungszeichenfolge rendern.                                                                                                     |
 
 Die meisten benutzerdefinierten UIs sollten mit `PromptComposer` beginnen:
 
@@ -134,12 +134,12 @@ selbst. Es ist das Feld, nicht die gesamte Chat-Laufzeit.
 Verwenden Sie `@agent-native/core/client/conversation` für die Wiedergabe im Transkriptstil
 außerhalb der vollständigen Agentenlaufzeit.
 
-| API                                             | Verwenden wenn                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| `<AgentConversation>`                           | Rendern Sie eine Liste normalisierter Agent-Nachrichten.                      |
-| `<AgentConversationMessageView>`                | Eine normalisierte Nachricht rendern.                                   |
-| `normalizeCodeAgentTranscriptForConversation()` | Konvertieren Sie Code-Agent-Transkriptereignisse in Konversationsnachrichten. |
-| `useNearBottomAutoscroll()`                     | Behalten Sie ein benutzerdefiniertes Transkript beim Streamen unten angeheftet.   |
+| API                                             | Verwenden wenn                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `<AgentConversation>`                           | Rendern Sie eine Liste normalisierter Agent-Nachrichten.                        |
+| `<AgentConversationMessageView>`                | Eine normalisierte Nachricht rendern.                                           |
+| `normalizeCodeAgentTranscriptForConversation()` | Konvertieren Sie Code-Agent-Transkriptereignisse in Konversationsnachrichten.   |
+| `useNearBottomAutoscroll()`                     | Behalten Sie ein benutzerdefiniertes Transkript beim Streamen unten angeheftet. |
 
 Diese Ebene ist bewusst datenorientiert: Sie bestimmen, woher die Nachrichten kommen und
 Der Renderer besitzt konsistente Markdowns, Anhänge, Hinweise, Artefakte usw.
@@ -153,30 +153,30 @@ Innerer Chat statt einfach JSON. Zu den integrierten wiederverwendbaren Ausgäng
 von `@agent-native/core/client/chat` und dem Root-Client-Eintrag. Siehe
 [Native Chat UI](/docs/native-chat-ui) für den Aktionsergebnisvertrag.
 
-| API                              | Verwenden wenn                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | Sie möchten, dass ein Aktionsergebnis Zeilen und Spalten im nativen Chat rendert.                    |
-| `DataChartWidget`                | Sie möchten eine kompakte Ausgabe von Balken-, Linien- oder Flächendiagrammen im nativen Chat.                        |
-| `DataWidgetResult`               | Sie möchten eine typisierte Ergebnisform für `"data-table"`, `"data-chart"` oder `"data-insights"`. |
-| `registerActionChatRenderer()`   | Sie benötigen einen aktionsdeklarierten Renderer, der genau nach `chatUI.renderer` ausgewählt wird.               |
-| `registerToolRenderer()`         | Für ein Ergebnis, das nicht zum Kerntool gehört, benötigen Sie einen produktspezifischen nativen Renderer.                 |
-| `registerReservedToolRenderer()` | Framework-Code benötigt einen reservierten Renderer, der vor Vorlagen-Renderern gewinnt.           |
+| API                              | Verwenden wenn                                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `DataTableWidget`                | Sie möchten, dass ein Aktionsergebnis Zeilen und Spalten im nativen Chat rendert.                          |
+| `DataChartWidget`                | Sie möchten eine kompakte Ausgabe von Balken-, Linien- oder Flächendiagrammen im nativen Chat.             |
+| `DataWidgetResult`               | Sie möchten eine typisierte Ergebnisform für `"data-table"`, `"data-chart"` oder `"data-insights"`.        |
+| `registerActionChatRenderer()`   | Sie benötigen einen aktionsdeklarierten Renderer, der genau nach `chatUI.renderer` ausgewählt wird.        |
+| `registerToolRenderer()`         | Für ein Ergebnis, das nicht zum Kerntool gehört, benötigen Sie einen produktspezifischen nativen Renderer. |
+| `registerReservedToolRenderer()` | Framework-Code benötigt einen reservierten Renderer, der vor Vorlagen-Renderern gewinnt.                   |
 
 ## Zusammenarbeit und Präsenz in Echtzeit {#collab-presence}
 
 Verwenden Sie `@agent-native/core/client/collab` für Präsenz im Liveblocks-Stil und
 Hooks für kollaborative Dokumente.
 
-| API                                                 | Verwenden wenn                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `useCollaborativeDoc()`                             | Binden Sie einen Rich-Text-Editor oder eine benutzerdefinierte Yjs-Oberfläche an `/_agent-native/collab`.                   |
-| `usePresence()`                                     | Beliebige Bewusstseinsfelder veröffentlichen und rendern: Cursor, Auswahl, Ansichtsfenster, Modus.         |
-| `<PresenceBar>`                                     | Aktive Mitarbeiter und Agenten anzeigen.                                                  |
-| `<LiveCursorOverlay>`                               | Remote-Cursor-Beschriftungen über einem positionierten Container rendern.                                    |
-| `<RemoteSelectionRings>`                            | Remote-Auswahlkonturen über DOM-Elementen rendern.                                         |
-| `useFollowUser()`                                   | Folgen Sie dem Ansichtsfenster oder der Auswahl eines anderen Teilnehmers.                                         |
+| API                                                 | Verwenden wenn                                                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc()`                             | Binden Sie einen Rich-Text-Editor oder eine benutzerdefinierte Yjs-Oberfläche an `/_agent-native/collab`.                    |
+| `usePresence()`                                     | Beliebige Bewusstseinsfelder veröffentlichen und rendern: Cursor, Auswahl, Ansichtsfenster, Modus.                           |
+| `<PresenceBar>`                                     | Aktive Mitarbeiter und Agenten anzeigen.                                                                                     |
+| `<LiveCursorOverlay>`                               | Remote-Cursor-Beschriftungen über einem positionierten Container rendern.                                                    |
+| `<RemoteSelectionRings>`                            | Remote-Auswahlkonturen über DOM-Elementen rendern.                                                                           |
+| `useFollowUser()`                                   | Folgen Sie dem Ansichtsfenster oder der Auswahl eines anderen Teilnehmers.                                                   |
 | `useCollaborativeMap()` / `useCollaborativeArray()` | Experimentieren Sie mit dem strukturierten Y.Map/Y.Array-Status, wenn die Zusammenführung von Rich-Text-Körpern nicht passt. |
-| `dedupeCollabUsersByEmail()`                        | Erstellen Sie einen benutzerdefinierten Avatar-Stapel ohne doppelte Registerkarten für denselben Benutzer.                       |
+| `dedupeCollabUsersByEmail()`                        | Erstellen Sie einen benutzerdefinierten Avatar-Stapel ohne doppelte Registerkarten für denselben Benutzer.                   |
 
 ```an-diagram title="Presence: humans and the agent share one awareness layer" summary="useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."
 {
@@ -202,16 +202,16 @@ Verwenden Sie `@agent-native/core/client/editor`, wenn Sie den gemeinsamen Markd
 Oberfläche, die von Plänen, Inhalten, Ressourcen und kollaborativen Dokumenten verwendet wird
 Erfahrungen.
 
-| API                              | Verwenden wenn                                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `<SharedRichEditor>`             | Sie benötigen den aktuellen, konfigurierbaren Editor mit Markdown-Serialisierung, optionalen Yjs und App-Extras. |
-| `<RichMarkdownEditor>`           | Sie benötigen den abwärtskompatiblen Alias für den gemeinsam genutzten Rich-Editor.                                  |
-| `createSharedEditorExtensions()` | Sie erstellen Ihren eigenen Tiptap-Editor, benötigen aber das Framework-Schema und die Markdown-Dialekte.         |
+| API                              | Verwenden wenn                                                                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | Sie benötigen den aktuellen, konfigurierbaren Editor mit Markdown-Serialisierung, optionalen Yjs und App-Extras.                       |
+| `<RichMarkdownEditor>`           | Sie benötigen den abwärtskompatiblen Alias für den gemeinsam genutzten Rich-Editor.                                                    |
+| `createSharedEditorExtensions()` | Sie erstellen Ihren eigenen Tiptap-Editor, benötigen aber das Framework-Schema und die Markdown-Dialekte.                              |
 | `<SlashCommandMenu>`             | Für eine benutzerdefinierte Tiptap-Oberfläche benötigen Sie den gemeinsamen Schrägstrich-Befehl UI.                                    |
-| `<BubbleToolbar>`                | Sie benötigen die gemeinsame Auswahlsymbolleiste für Markierungen, Links und benutzerdefinierte Inline-actions.                   |
-| `createRegistryBlockNode()`      | Sie benötigen registrierungsgestützte Blockknoten in einem Rich-Editor.                                           |
-| `uploadEditorImage()`            | Sie möchten die Framework-Upload-Image-Aktion hinter dem freigegebenen Bildblock des Editors haben.                   |
-| `useCollabReconcile()`           | Sie binden eine benutzerdefinierte Editoroberfläche an ein Yjs-Dokument und behalten dabei den Markdown als gespeicherten Zustand bei.       |
+| `<BubbleToolbar>`                | Sie benötigen die gemeinsame Auswahlsymbolleiste für Markierungen, Links und benutzerdefinierte Inline-actions.                        |
+| `createRegistryBlockNode()`      | Sie benötigen registrierungsgestützte Blockknoten in einem Rich-Editor.                                                                |
+| `uploadEditorImage()`            | Sie möchten die Framework-Upload-Image-Aktion hinter dem freigegebenen Bildblock des Editors haben.                                    |
+| `useCollabReconcile()`           | Sie binden eine benutzerdefinierte Editoroberfläche an ein Yjs-Dokument und behalten dabei den Markdown als gespeicherten Zustand bei. |
 
 Der grundlegende kontrollierte Editor besteht nur aus Markdown-In und Markdown-Out:
 
@@ -259,15 +259,15 @@ const collab = useCollaborativeDoc({
 Verwenden Sie `@agent-native/core/client/resources`, wenn Sie dasselbe verfügbar machen möchten
 Workspace-Ressourcenmodell, das die Registerkarte „Workspace“ des Agentenbereichs unterstützt.
 
-| API                                                                   | Verwenden wenn                                                                |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| API                                                                   | Verwenden wenn                                                                                                                  |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `<ResourcesPanel>`                                                    | Sie möchten die vollständige Registerkarte „Arbeitsbereich“ als Seite, Schublade oder benutzerdefiniertes Bedienfeld verwenden. |
-| `<ResourceTree>`                                                      | Sie möchten Ihren eigenen Ressourcenbrowser rund um Framework-Daten rendern.     |
-| `<ResourceEditor>`                                                    | Sie möchten den Framework-Editor für eine ausgewählte Ressource.                  |
-| `useResourceTree()`                                                   | Sie benötigen einen bereichsbezogenen Baum für persönliche, freigegebene oder geschäftliche Ressourcen.    |
-| `useResource()`                                                       | Sie benötigen den Inhalt und die Metadaten für eine ausgewählte Ressource.            |
-| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | Sie benötigen benutzerdefinierte Kontrollen rund um den Ressourcenlebenszyklus.                 |
-| `useUploadResource()`                                                 | Sie müssen die Datei in den Framework-Ressourcenspeicher hochladen.                 |
+| `<ResourceTree>`                                                      | Sie möchten Ihren eigenen Ressourcenbrowser rund um Framework-Daten rendern.                                                    |
+| `<ResourceEditor>`                                                    | Sie möchten den Framework-Editor für eine ausgewählte Ressource.                                                                |
+| `useResourceTree()`                                                   | Sie benötigen einen bereichsbezogenen Baum für persönliche, freigegebene oder geschäftliche Ressourcen.                         |
+| `useResource()`                                                       | Sie benötigen den Inhalt und die Metadaten für eine ausgewählte Ressource.                                                      |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | Sie benötigen benutzerdefinierte Kontrollen rund um den Ressourcenlebenszyklus.                                                 |
+| `useUploadResource()`                                                 | Sie müssen die Datei in den Framework-Ressourcenspeicher hochladen.                                                             |
 
 Das komplette Panel benötigt keine Requisiten:
 
@@ -322,15 +322,15 @@ function WorkspaceResources() {
 
 ## Andere öffentliche UI {#other-ui}
 
-| Bereich          | APIs                                                   | Importpfad                               |
-| ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| Teilen       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
+| Bereich            | APIs                                                   | Importpfad                                |
+| ------------------ | ------------------------------------------------------ | ----------------------------------------- |
+| Teilen             | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
 | Benachrichtigungen | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| Fortschritt      | `<RunsTray>`, Fortschritts-Hooks und -Typen                 | `@agent-native/core/client/progress`      |
-| Onboarding    | `useOnboarding()`, Onboarding-Panel-Haken              | `@agent-native/core/client/onboarding`    |
-| Beobachtbarkeit | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
-| Ressourcen     | `<ResourcesPanel>`, `<ResourceTree>`, Ressourcen-Hooks   | `@agent-native/core/client/resources`     |
-| Rich-Editor   | `<SharedRichEditor>`, Slash-Befehle, Blockknoten-Hooks | `@agent-native/core/client/editor`        |
+| Fortschritt        | `<RunsTray>`, Fortschritts-Hooks und -Typen            | `@agent-native/core/client/progress`      |
+| Onboarding         | `useOnboarding()`, Onboarding-Panel-Haken              | `@agent-native/core/client/onboarding`    |
+| Beobachtbarkeit    | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
+| Ressourcen         | `<ResourcesPanel>`, `<ResourceTree>`, Ressourcen-Hooks | `@agent-native/core/client/resources`     |
+| Rich-Editor        | `<SharedRichEditor>`, Slash-Befehle, Blockknoten-Hooks | `@agent-native/core/client/editor`        |
 
 ## Einmalige Textvervollständigung {#one-off-text-completion}
 

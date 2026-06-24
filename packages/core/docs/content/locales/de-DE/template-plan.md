@@ -7,7 +7,7 @@ description: "Agent-Native Plans verwandelt den Plan Ihres Programmieragenten in
 
 > **Die meisten Leute installieren Plan als Skill und nicht als Gerüst-App.** Ein CLI-Befehl
 > fügt `/visual-plan` und `/visual-recap` skills sowie den gehosteten Plan hinzu
->-Connector zu Ihrem Codierungsagenten – siehe [Plan plugin & marketplace](/docs/plan-plugin)
+> -Connector zu Ihrem Codierungsagenten – siehe [Plan plugin & marketplace](/docs/plan-plugin)
 > für die Plugin- und Marktplatzrouten. Forken der Planvorlage (behandelt unter
 > [For developers](#for-developers)) ist der sekundäre Pfad für Selbsthosting oder
 > baut auf Plan selbst auf.
@@ -63,7 +63,7 @@ Wenn Sie einen Chat-basierten Host verwenden, der MCP-Connector URLs direkt akze
 `https://plan.agent-native.com/_agent-native/mcp` – siehe [MCP Clients](/docs/mcp-clients) für kundenspezifische Einrichtung.
 
 Die Authentifizierung ist eine einmalige Browser-Anmeldung beim Setup – das ist so beabsichtigt und
- ermöglicht es dem Agenten, die von ihm generierten Pläne beizubehalten und zu teilen. Was ist die Authentifizierung?
+ermöglicht es dem Agenten, die von ihm generierten Pläne beizubehalten und zu teilen. Was ist die Authentifizierung?
 Schritt hängt von Ihrem Kunden ab:
 
 - **OAuth-fähige Hosts** (Claude-Code) erhalten einen nur für URL gültigen MCP-Eintrag sowie eine Aufforderung zu
@@ -355,8 +355,7 @@ lokale Dateien berühren.
 
 Wenn ein Plan-Tool jemals `needs auth`, `Unauthorized` oder „Sitzung“ zurückgibt
 terminated`, versuchen Sie es nicht weiter. Authentifizieren Sie den Connector mit
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
- für Codex, oder führen Sie `/mcp` → **Authentifizieren** auf einem OAuth-fähigen Host erneut aus. Starten Sie ein
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` für Codex, oder führen Sie`/mcp` → **Authentifizieren** auf einem OAuth-fähigen Host erneut aus. Starten Sie ein
 neuer Codex-Thread oder starten/laden Sie den entsprechenden Client neu, bevor Sie das Tool erwarten
 Registrierung zum Aktualisieren.
 
@@ -385,16 +384,16 @@ Die lokale Vorlage ist nützlich, wenn Sie Pläne selbst entwickeln, die lokale 
 
 Schema befindet sich in `templates/plan/server/db/schema.ts`. Kerntabellen:
 
-| Tabelle              | Was es enthält                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabelle            | Was es enthält                                                                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plans`            | Jeder Plan oder jede Zusammenfassung – `title`, `brief`, `kind` (Plan/Zusammenfassung), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, Nutzungsstatistiken, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Geordnete Abschnitte innerhalb eines Plans – `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
-| `plan_comments`    | Thread-Kommentare – `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
-| `plan_events`      | Überwachungsprotokoll von Agenten-/Personenereignissen in einem Plan                                                                                                                                               |
-| `plan_versions`    | Point-in-Time-Snapshots für den Versionsverlauf                                                                                                                                             |
-| `plan_shares`      | Aktiengewährung pro Auftraggeber (Betrachter/Redakteur/Administrator)                                                                                                                                    |
-| `plan_guest_mints` | Ratenbegrenzungsdatensätze für die Ausstellung von Gastsitzungen                                                                                                                                           |
-| `plan_assets`      | Inline-Bild-Assets werden als Base64 gespeichert (Fallback, wenn kein Upload-Anbieter vorhanden ist)                                                                                                                 |
+| `plan_sections`    | Geordnete Abschnitte innerhalb eines Plans – `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                                    |
+| `plan_comments`    | Thread-Kommentare – `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                                              |
+| `plan_events`      | Überwachungsprotokoll von Agenten-/Personenereignissen in einem Plan                                                                                                                                                        |
+| `plan_versions`    | Point-in-Time-Snapshots für den Versionsverlauf                                                                                                                                                                             |
+| `plan_shares`      | Aktiengewährung pro Auftraggeber (Betrachter/Redakteur/Administrator)                                                                                                                                                       |
+| `plan_guest_mints` | Ratenbegrenzungsdatensätze für die Ausstellung von Gastsitzungen                                                                                                                                                            |
+| `plan_assets`      | Inline-Bild-Assets werden als Base64 gespeichert (Fallback, wenn kein Upload-Anbieter vorhanden ist)                                                                                                                        |
 
 ```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
 {
@@ -678,57 +677,57 @@ kann sie abonnieren – kein benutzerdefinierter Integrationscode erforderlich.
 
 Wird ausgelöst, wenn ein neuer visueller Plan oder eine neue Zusammenfassung erstellt wird.
 
-| Feld       | Typ                  | Beschreibung                              |
-| ----------- | --------------------- | ---------------------------------------- |
-| `planId`    | Zeichenfolge                | Eindeutige Plan-ID                   |
-| `title`     | Zeichenfolge                | Plantitel                               |
-| `kind`      | `"plan"` \| `"recap"` | Ob es sich um einen Plan oder eine Zusammenfassung handelt        |
-| `status`    | Zeichenfolge                | Anfangsstatus (z. B. `"review"`)         |
-| `path`      | Zeichenfolge                | App-relativer Pfad (z. B. `/plans/plan-…`) |
-| `createdBy` | Zeichenfolge                | Immer `"agent"` für die Planerstellung       |
+| Feld        | Typ                   | Beschreibung                                               |
+| ----------- | --------------------- | ---------------------------------------------------------- |
+| `planId`    | Zeichenfolge          | Eindeutige Plan-ID                                         |
+| `title`     | Zeichenfolge          | Plantitel                                                  |
+| `kind`      | `"plan"` \| `"recap"` | Ob es sich um einen Plan oder eine Zusammenfassung handelt |
+| `status`    | Zeichenfolge          | Anfangsstatus (z. B. `"review"`)                           |
+| `path`      | Zeichenfolge          | App-relativer Pfad (z. B. `/plans/plan-…`)                 |
+| `createdBy` | Zeichenfolge          | Immer `"agent"` für die Planerstellung                     |
 
 #### `plan.commented`
 
 Wird ausgelöst, wenn einem Plan ein oder mehrere Kommentare hinzugefügt werden.
 
-| Feld              | Typ                             | Beschreibung                                                 |
-| ------------------ | -------------------------------- | ----------------------------------------------------------- |
-| `planId`           | Zeichenfolge                           | Plan-ID                                             |
-| `title`            | Zeichenfolge                           | Plantitel                                                  |
-| `kind`             | `"plan"` \| `"recap"`            | Planen oder rekapitulieren                                               |
-| `commentIds`       | Zeichenfolge[]                         | IDs der neuen Kommentare                                     |
-| `commentCount`     | Nummer                           | Anzahl neuer Kommentare in diesem Batch                        |
+| Feld               | Typ                              | Beschreibung                                                              |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------- |
+| `planId`           | Zeichenfolge                     | Plan-ID                                                                   |
+| `title`            | Zeichenfolge                     | Plantitel                                                                 |
+| `kind`             | `"plan"` \| `"recap"`            | Planen oder rekapitulieren                                                |
+| `commentIds`       | Zeichenfolge[]                   | IDs der neuen Kommentare                                                  |
+| `commentCount`     | Nummer                           | Anzahl neuer Kommentare in diesem Batch                                   |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Dominantes Ziel – `"agent"`, wenn ein Kommentar auf einen Agenten abzielt |
-| `excerpt`          | Zeichenfolge                           | Die ersten 200 Zeichen des ersten Kommentars                   |
-| `author`           | Zeichenfolge \| null                   | E-Mail des Kommentators, falls bekannt                            |
-| `path`             | Zeichenfolge                           | App-relativer Pfad                                           |
+| `excerpt`          | Zeichenfolge                     | Die ersten 200 Zeichen des ersten Kommentars                              |
+| `author`           | Zeichenfolge \| null             | E-Mail des Kommentators, falls bekannt                                    |
+| `path`             | Zeichenfolge                     | App-relativer Pfad                                                        |
 
 #### `plan.published`
 
 Wird ausgelöst, wenn ein lokaler Plan auf einem gehosteten, gemeinsam nutzbaren URL veröffentlicht (oder erneut veröffentlicht) wird.
 
-| Feld                 | Typ                  | Beschreibung                        |
-| --------------------- | --------------------- | ---------------------------------- |
-| `planId`              | Zeichenfolge                | Lokale Plan-ID              |
-| `title`               | Zeichenfolge                | Plantitel                         |
-| `kind`                | `"plan"` \| `"recap"` | Planen oder rekapitulieren                      |
-| `hostedPlanId`        | Zeichenfolge                | ID des gehosteten Plans             |
-| `url`                 | Zeichenfolge                | Vollständige öffentliche URL des gehosteten Plans |
-| `requestedVisibility` | Zeichenfolge                | `"public"`, `"private"` usw.      |
+| Feld                  | Typ                   | Beschreibung                                      |
+| --------------------- | --------------------- | ------------------------------------------------- |
+| `planId`              | Zeichenfolge          | Lokale Plan-ID                                    |
+| `title`               | Zeichenfolge          | Plantitel                                         |
+| `kind`                | `"plan"` \| `"recap"` | Planen oder rekapitulieren                        |
+| `hostedPlanId`        | Zeichenfolge          | ID des gehosteten Plans                           |
+| `url`                 | Zeichenfolge          | Vollständige öffentliche URL des gehosteten Plans |
+| `requestedVisibility` | Zeichenfolge          | `"public"`, `"private"` usw.                      |
 
 #### `plan.status.changed`
 
 Wird ausgelöst, wenn sich der Status eines Plans ändert (z. B. `review` → `approved`).
 
-| Feld       | Typ                  | Beschreibung                        |
-| ----------- | --------------------- | ---------------------------------- |
-| `planId`    | Zeichenfolge                | Plan-ID                    |
-| `title`     | Zeichenfolge                | Plantitel                         |
-| `kind`      | `"plan"` \| `"recap"` | Planen oder rekapitulieren                      |
-| `oldStatus` | Zeichenfolge \| null        | Vorheriger Status                    |
-| `newStatus` | Zeichenfolge                | Neuer Status                         |
-| `changedBy` | Zeichenfolge \| null        | E-Mail-Adresse der Person, die es geändert hat |
-| `path`      | Zeichenfolge                | App-relativer Pfad                  |
+| Feld        | Typ                   | Beschreibung                                   |
+| ----------- | --------------------- | ---------------------------------------------- |
+| `planId`    | Zeichenfolge          | Plan-ID                                        |
+| `title`     | Zeichenfolge          | Plantitel                                      |
+| `kind`      | `"plan"` \| `"recap"` | Planen oder rekapitulieren                     |
+| `oldStatus` | Zeichenfolge \| null  | Vorheriger Status                              |
+| `newStatus` | Zeichenfolge          | Neuer Status                                   |
+| `changedBy` | Zeichenfolge \| null  | E-Mail-Adresse der Person, die es geändert hat |
+| `path`      | Zeichenfolge          | App-relativer Pfad                             |
 
 ### Automatisierungsrezepte {#automation-recipes}
 

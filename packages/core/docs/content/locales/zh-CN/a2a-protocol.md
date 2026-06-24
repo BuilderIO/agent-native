@@ -112,12 +112,12 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
 
 所有方法均通过 `POST /_agent-native/a2a` 调用，格式为 JSON-RPC 2.0：
 
-| 方法           | 描述                                                                                                           | 关键参数                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| 方法             | 描述                                                                   | 关键参数                      |
+| ---------------- | ---------------------------------------------------------------------- | ----------------------------- |
 | `message/send`   | 发送消息并等待任务完成。通过`async: true`立即返回`working`状态并轮询。 | `message, contextId?, async?` |
-| `message/stream` | 发送消息，接收SSE任务更新                                                                              | `message, contextId?`         |
-| `tasks/get`      | 按 ID 获取任务 - 用于轮询异步任务是否完成                                                         | `id`                          |
-| `tasks/cancel`   | 取消正在运行的任务                                                                                                 | `id`                          |
+| `message/stream` | 发送消息，接收SSE任务更新                                              | `message, contextId?`         |
+| `tasks/get`      | 按 ID 获取任务 - 用于轮询异步任务是否完成                              | `id`                          |
+| `tasks/cancel`   | 取消正在运行的任务                                                     | `id`                          |
 
 ```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
 {
@@ -260,13 +260,13 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 
 `input-required` 是非终端：处理程序正在等待来自调用者的更多信息，一旦输入到达，任务就可以移回 `working`。
 
-| 状态            | 含义                                        |
-| ---------------- | ---------------------------------------------- |
-| `submitted`      | 任务已创建，已排队等待处理            |
-| `working`        | Handler正在处理消息              |
-| `completed`      | 处理程序成功完成                  |
-| `failed`         | 处理程序抛出错误                         |
-| `canceled`       | 任务已通过tasks/cancel取消             |
+| 状态             | 含义                           |
+| ---------------- | ------------------------------ |
+| `submitted`      | 任务已创建，已排队等待处理     |
+| `working`        | Handler正在处理消息            |
+| `completed`      | 处理程序成功完成               |
+| `failed`         | 处理程序抛出错误               |
+| `canceled`       | 任务已通过tasks/cancel取消     |
 | `input-required` | 处理程序需要调用者提供更多信息 |
 
 任务保留在 `a2a_tasks` SQL 表中，稍后可以通过 `tasks/get` 检索。

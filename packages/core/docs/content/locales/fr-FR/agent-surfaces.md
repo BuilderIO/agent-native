@@ -13,13 +13,13 @@ application.
 La manière utile de choisir n'est pas d'abord par protocole. Choisissez la surface du produit
 vous voulez, puis utilisez la primitive correspondante.
 
-| Surface                       | Utilisez-le quand                                                                                                 | Commencer par                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Agent sans tête**            | Le code, les tâches, les scripts, une autre application ou un autre agent doivent appeler le travail directement.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Chat enrichi sur Agent-Native** | Vous souhaitez un chat autonome ou intégré soutenu par la boucle d'agent intégrée.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
-| **Chat enrichi sur votre agent**   | Vous avez créé l'agent ailleurs et souhaitez le compositeur, la transcription, les fiches outils et les widgets natifs de Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Side-car intégré**          | Vous disposez déjà d'une application SaaS et souhaitez un agent à côté avec le contexte de la page et les commandes d'hôte.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **Application complète**          | Les humains et les agents doivent partager des écrans, des données, une navigation et une collaboration durables.                        | Modèles, état actions, SQL, connaissance du contexte                                            |
+| Surface                           | Utilisez-le quand                                                                                                                       | Commencer par                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Agent sans tête**               | Le code, les tâches, les scripts, une autre application ou un autre agent doivent appeler le travail directement.                       | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Chat enrichi sur Agent-Native** | Vous souhaitez un chat autonome ou intégré soutenu par la boucle d'agent intégrée.                                                      | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Chat enrichi sur votre agent**  | Vous avez créé l'agent ailleurs et souhaitez le compositeur, la transcription, les fiches outils et les widgets natifs de Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
+| **Side-car intégré**              | Vous disposez déjà d'une application SaaS et souhaitez un agent à côté avec le contexte de la page et les commandes d'hôte.             | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Application complète**          | Les humains et les agents doivent partager des écrans, des données, une navigation et une collaboration durables.                       | Modèles, état actions, SQL, connaissance du contexte                                        |
 
 Ce sont des étapes, pas des produits séparés. Un workflow peut démarrer sans tête
 agent avec une seule action, apparaît dans le chat sous forme de tableau ou de graphique, et devient plus tard un
@@ -374,13 +374,13 @@ vous voulez une forme complète du produit.
 
 ## Comment choisir {#how-to-choose}
 
-| Si vous pensez...                                          | Choisir                    |
-| --------------------------------------------------------------- | ------------------------- |
-| "J'ai juste besoin d'un outil ou d'un workflow appelable."                      | Agent sans tête            |
+| Si vous pensez...                                                          | Choisir                       |
+| -------------------------------------------------------------------------- | ----------------------------- |
+| "J'ai juste besoin d'un outil ou d'un workflow appelable."                 | Agent sans tête               |
 | "Je veux l'agent du framework, mais le chat devrait être le UI principal." | Chat enrichi sur Agent-Native |
-| "J'ai déjà un agent ; j'ai besoin d'un chat UI soigné pour cela."    | Chat enrichi sur votre agent   |
-| "J'ai déjà une application SaaS ; ajoutez un agent à côté."            | Side-car intégré          |
-| "L'agent et UI devraient évoluer ensemble en tant que produit."       | Application complète          |
+| "J'ai déjà un agent ; j'ai besoin d'un chat UI soigné pour cela."          | Chat enrichi sur votre agent  |
+| "J'ai déjà une application SaaS ; ajoutez un agent à côté."                | Side-car intégré              |
+| "L'agent et UI devraient évoluer ensemble en tant que produit."            | Application complète          |
 
 Gardez le contrat petit : définissez les opérations durables comme actions, renvoyez-le explicitement
 résultats du widget lorsque le chat a besoin de UI riche et ajout d'écrans pleins uniquement lorsque les utilisateurs

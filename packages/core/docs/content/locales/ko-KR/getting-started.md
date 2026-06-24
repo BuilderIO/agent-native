@@ -158,7 +158,7 @@ export default function ChatRoute() {
 
 - **`app/routes/_index.tsx`** — 채팅 페이지. 제안 변경, 비어 있음
   상태 및 레이아웃
-- **`app/root.tsx`** — 앱 셸. 
+- **`app/root.tsx`** — 앱 셸.
   에이전트.
 - `<AgentSidebar>`를 사용하여 에이전트를 어떤 화면에나 놓고 수동으로 작업할 수 있습니다.
   `sendToAgentChat()`로 버튼을 누르거나

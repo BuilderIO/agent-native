@@ -6,16 +6,16 @@ description: "Erstellen und passen Sie Agent-Native-Codeoberflächen mit dem gem
 # Agent-Native Code UI
 
 > **Für wen ist das gedacht:** Host-Autoren, die einen Coding-Workspace erstellen oder anpassen
->-Oberfläche (CLI, Desktop oder eine Browservorlage) auf dem freigegebenen Code-UI-Paket.
+> -Oberfläche (CLI, Desktop oder eine Browservorlage) auf dem freigegebenen Code-UI-Paket.
 
 ## Welches Codierungsdokument möchte ich? {#which-doc}
 
-| Sie möchten…                                                               | Verwenden                                    |
-| -------------------------------------------------------------------------- | -------------------------------------- |
-| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil                   | **Agent-Native Code UI** (diese Seite)   |
+| Sie möchten…                                                                       | Verwenden                              |
+| ---------------------------------------------------------------------------------- | -------------------------------------- |
+| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil        | **Agent-Native Code UI** (diese Seite) |
 | Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | [Harness Agents](/docs/harness-agents) |
-| Tausch das Backend, das das **`run-code`-Tool** des Agenten ausführt                 | [Adapters](/docs/sandbox-adapters)     |
-| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann                     | [Adapters](/docs/sandbox-adapters)     |
+| Tausch das Backend, das das **`run-code`-Tool** des Agenten ausführt               | [Adapters](/docs/sandbox-adapters)     |
+| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann          | [Adapters](/docs/sandbox-adapters)     |
 
 Agent-Native Code ist die Agent-Native-Codierungsoberfläche: ein lokaler Arbeitsbereich im Claude Code/Codex-Stil für Codierungssitzungen, Slash-Befehle, Migrationen, Audits, Transkripte, Laufkontrollen und Nachverfolgungen. Ein einfacher `npx @agent-native/core@latest`-Befehl öffnet diesen Arbeitsbereich; `npx @agent-native/core@latest code` ist der explizite Unterbefehl für dasselbe Erlebnis.
 
@@ -62,7 +62,7 @@ export function CodeSurface() {
 
 Hosts können Ausführungsquellen in derselben Liste mischen. Lokale Agent-Native-Codesitzungen
 kann neben Agent Teams oder anderen im Hintergrund ausgeführten Adaptern angezeigt werden, solange jeder
- normalisiert sich zu `CodeAgentRun`. Wenn ein Host `sourceLabel` bereitstellt,
+normalisiert sich zu `CodeAgentRun`. Wenn ein Host `sourceLabel` bereitstellt,
 `source` oder `kind`, der Hub rendert eine kleine Quellbezeichnung wie „Lokaler Code“
 oder „Agent Teams“ in der Ausführungsliste und im Header der ausgewählten Sitzung. Lassen Sie diese Felder weg
 für eine Single-Source-Oberfläche; Der leere Zustand und das Basislayout bleiben unverändert.
@@ -172,9 +172,9 @@ Befehl und weist Sie dann zurück, um die Sitzung fortzusetzen.
 
 Ausführungsmodi machen die Bearbeitungsrichtlinie pro Sitzung explizit:
 
-| Modus          | CLI-Flag | Verhalten                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **Planmodus** | `--plan` | Inspizieren, planen und erklären, ohne Dateien zu schreiben oder Mutationen auszuführen.                                   |
+| Modus                   | CLI-Flag | Verhalten                                                                                                                                                |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Planmodus**           | `--plan` | Inspizieren, planen und erklären, ohne Dateien zu schreiben oder Mutationen auszuführen.                                                                 |
 | **Automatischer Modus** | `--auto` | Bearbeiten Sie Dateien, führen Sie Prüfungen durch und pausieren Sie nur bei wirklich destruktiven Datei-, Git-, Veröffentlichungs- oder Datenvorgängen. |
 
 Der automatische Modus ist die Standardeinstellung für lokale Agent-Native Code-Sitzungen. Verwenden Sie den Planmodus für
@@ -229,19 +229,19 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 `CodeAgentsHost` ist absichtlich klein:
 
-| Methode                                                | Zweck                                                |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| `listRuns(goalId?)`                                   | Sitzungen für das ausgewählte Ziel auflisten                    |
-| `listCodePacks?()`                                    | `.agents/commands` und `.agents/skills` auflisten           |
-| `createRun(request)`                                  | Neuen Lauf starten                                        |
-| `subscribeTranscript?(request, callback)`             | Übertragen Sie Transkriptaktualisierungen an die geteilte Konversation     |
-| `readTranscript(request)`                             | Transkriptereignisse als Kompatibilitäts-Fallback abfragen     |
+| Methode                                               | Zweck                                                                                                           |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `listRuns(goalId?)`                                   | Sitzungen für das ausgewählte Ziel auflisten                                                                    |
+| `listCodePacks?()`                                    | `.agents/commands` und `.agents/skills` auflisten                                                               |
+| `createRun(request)`                                  | Neuen Lauf starten                                                                                              |
+| `subscribeTranscript?(request, callback)`             | Übertragen Sie Transkriptaktualisierungen an die geteilte Konversation                                          |
+| `readTranscript(request)`                             | Transkriptereignisse als Kompatibilitäts-Fallback abfragen                                                      |
 | `appendFollowUp(request)`                             | Fügen Sie eine Nachverfolgung hinzu, die entweder aktive Arbeit steuert oder sich in der Warteschlange befindet |
-| `updateRun(request)`                                  | Aktualisierungsmodus oder Metadaten ausführen                            |
-| `retryRun?(request)`                                  | Wiederholen Sie die ausgewählte Ausführung direkt                        |
-| `rerunRun?(request)`                                  | Starten Sie einen neuen Lauf von einer vorherigen Eingabeaufforderung aus                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | Fortsetzen, genehmigen, aktualisieren oder stoppen                      |
-| `openTerminal?(request)`                              | Optionaler nativer Terminal-Hook                          |
+| `updateRun(request)`                                  | Aktualisierungsmodus oder Metadaten ausführen                                                                   |
+| `retryRun?(request)`                                  | Wiederholen Sie die ausgewählte Ausführung direkt                                                               |
+| `rerunRun?(request)`                                  | Starten Sie einen neuen Lauf von einer vorherigen Eingabeaufforderung aus                                       |
+| `controlRun(goalId, runId, command, permissionMode?)` | Fortsetzen, genehmigen, aktualisieren oder stoppen                                                              |
+| `openTerminal?(request)`                              | Optionaler nativer Terminal-Hook                                                                                |
 
 Browser-Hosts sollten einen ordnungsgemäßen `openTerminal`-Fehler zurückgeben, anstatt zu versuchen, den nativen Terminalstart zu emulieren.
 
@@ -395,19 +395,19 @@ Die kanonischen Remote-Relay-Endpunkte sind:
 }
 ```
 
-| Methode     | Route                                                    | Anrufer          | Zweck                                     |
-| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
+| Methode    | Route                                                    | Anrufer         | Zweck                                                                |
+| ---------- | -------------------------------------------------------- | --------------- | -------------------------------------------------------------------- |
 | `POST`     | `/_agent-native/integrations/remote/register`            | Desktop-Sitzung | Koppeln Sie einen Desktop-Host und geben Sie einmal ein Token zurück |
-| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobil/Sitzung  | Gepaarte Hosts auflisten                           |
-| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobil/Sitzung  | Einen gepaarten Host widerrufen                        |
-| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobil/Sitzung  | Einen gepaarten Host widerrufen                        |
-| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Desktop-Token   | Beanspruchen Sie Arbeit                                  |
-| `POST`     | `/_agent-native/integrations/remote/result`              | Desktop-Token   | Arbeit abschließen oder fehlschlagen                       |
-| `POST`     | `/_agent-native/integrations/remote/run-events`          | Desktop-Token   | Transkriptereignisse spiegeln                    |
-| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobil/Sitzung  | Sitzungen auflisten                               |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobil/Sitzung  | Sitzungszusammenfassung lesen                        |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobil/Sitzung  | Gespiegeltes Transkript lesen                    |
-| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobil/Sitzung  | Expo/Mobile-Push-Token registrieren             |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobil/Sitzung   | Gepaarte Hosts auflisten                                             |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobil/Sitzung   | Einen gepaarten Host widerrufen                                      |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobil/Sitzung   | Einen gepaarten Host widerrufen                                      |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Desktop-Token   | Beanspruchen Sie Arbeit                                              |
+| `POST`     | `/_agent-native/integrations/remote/result`              | Desktop-Token   | Arbeit abschließen oder fehlschlagen                                 |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | Desktop-Token   | Transkriptereignisse spiegeln                                        |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobil/Sitzung   | Sitzungen auflisten                                                  |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobil/Sitzung   | Sitzungszusammenfassung lesen                                        |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobil/Sitzung   | Gespiegeltes Transkript lesen                                        |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobil/Sitzung   | Expo/Mobile-Push-Token registrieren                                  |
 
 Telegram verwendet das gleiche Relay über Dispatch. Unterstützte Befehle sind:
 

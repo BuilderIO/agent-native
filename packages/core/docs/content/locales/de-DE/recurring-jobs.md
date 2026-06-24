@@ -31,17 +31,17 @@ Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder 
 
 ## Frontmatter {#frontmatter}
 
-| Feld        | Typ                          | Standard      | Beschreibung                                                                                            |
-| ------------ | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `schedule`   | Cron-Ausdruck               | _(erforderlich)_ | Standard-Cron mit 5 Feldern. `"0 7 * * *"` = jeden Tag um 07:00; `"0 */4 * * *"` = alle 4 Stunden.            |
-| `enabled`    | boolean                       | `true`       | Wechseln Sie zu `false`, um den Job anzuhalten, ohne ihn zu löschen.                                                     |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` wird mit der Identität des Jobeigentümers und `ANTHROPIC_API_KEY` ausgeführt. `"shared"` verwendet den Schlüssel der Organisation. |
-| `createdBy`  | E-Mail                         | _(auto)_     | Wird ausgefüllt, wenn der Job über den Arbeitsbereich UI oder durch den Agenten erstellt wird.                            |
-| `orgId`      | Zeichenfolge                        | _(auto)_     | Organisationsbereich; Von der aktiven Organisation des Erstellers geerbt.                                                    |
-| `lastRun`    | ISO-Zeitstempel                 | _(verwaltet)_  | Wird vom Planer nach jedem Lauf geschrieben.                                                               |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(verwaltet)_  | Neuestes Ergebnis.                                                                                        |
-| `lastError`  | Zeichenfolge                        | _(verwaltet)_  | Fehlermeldung, wenn der letzte Lauf fehlgeschlagen ist.                                                                  |
-| `nextRun`    | ISO-Zeitstempel                 | _(verwaltet)_  | Berechnet aus `schedule`; Wird vom Planer verwendet, um zu entscheiden, wann das nächste Mal ausgelöst wird.                           |
+| Feld         | Typ                           | Standard         | Beschreibung                                                                                                                                   |
+| ------------ | ----------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | Cron-Ausdruck                 | _(erforderlich)_ | Standard-Cron mit 5 Feldern. `"0 7 * * *"` = jeden Tag um 07:00; `"0 */4 * * *"` = alle 4 Stunden.                                             |
+| `enabled`    | boolean                       | `true`           | Wechseln Sie zu `false`, um den Job anzuhalten, ohne ihn zu löschen.                                                                           |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`      | `"creator"` wird mit der Identität des Jobeigentümers und `ANTHROPIC_API_KEY` ausgeführt. `"shared"` verwendet den Schlüssel der Organisation. |
+| `createdBy`  | E-Mail                        | _(auto)_         | Wird ausgefüllt, wenn der Job über den Arbeitsbereich UI oder durch den Agenten erstellt wird.                                                 |
+| `orgId`      | Zeichenfolge                  | _(auto)_         | Organisationsbereich; Von der aktiven Organisation des Erstellers geerbt.                                                                      |
+| `lastRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Wird vom Planer nach jedem Lauf geschrieben.                                                                                                   |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(verwaltet)_    | Neuestes Ergebnis.                                                                                                                             |
+| `lastError`  | Zeichenfolge                  | _(verwaltet)_    | Fehlermeldung, wenn der letzte Lauf fehlgeschlagen ist.                                                                                        |
+| `nextRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Berechnet aus `schedule`; Wird vom Planer verwendet, um zu entscheiden, wann das nächste Mal ausgelöst wird.                                   |
 
 Die Felder `last*` und `nextRun` werden vom Scheduler geschrieben. Sie können sie lesen, um den Verlauf anzuzeigen, aber bearbeiten Sie sie nicht manuell – beim nächsten Durchlauf werden sie überschrieben.
 
@@ -49,15 +49,15 @@ Die Felder `last*` und `nextRun` werden vom Scheduler geschrieben. Sie können s
 
 Standard-Cron mit 5 Feldern (Minute, Stunde, Tag des Monats, Monat, Wochentag):
 
-| Cron           | Bedeutung                  |
-| -------------- | ------------------------ |
-| `*/5 * * * *`  | Alle 5 Minuten          |
-| `0 * * * *`    | Jede volle Stunde   |
+| Cron           | Bedeutung                 |
+| -------------- | ------------------------- |
+| `*/5 * * * *`  | Alle 5 Minuten            |
+| `0 * * * *`    | Jede volle Stunde         |
 | `0 */4 * * *`  | Alle 4 Stunden            |
-| `0 7 * * *`    | Jeden Tag um 07:00 Uhr       |
-| `0 9 * * 1`    | Jeden Montag um 09:00 Uhr    |
-| `0 17 * * 1-5` | Wochentags um 17:00        |
-| `0 0 1 * *`    | Erster Tag jedes Monats |
+| `0 7 * * *`    | Jeden Tag um 07:00 Uhr    |
+| `0 9 * * 1`    | Jeden Montag um 09:00 Uhr |
+| `0 17 * * 1-5` | Wochentags um 17:00       |
+| `0 0 1 * *`    | Erster Tag jedes Monats   |
 
 Das Framework umfasst Cron-Dienstprogramme (`isValidCron()` und `describeCron()`) zum Validieren und Rendern von Cron-Strings, die intern von der Ressourcen- und Scheduler-Ebene verwendet werden.
 
@@ -116,12 +116,12 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion   | Parameter                                                        | Zweck                                                      |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                                   |
-| `list`   | `scope` (`personal`, `shared` oder alle)                            | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
-| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs` | Bestehenden Job bearbeiten                                         |
-| `delete` | `name` (erforderlich)                                                 | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen            |
+| Aktion   | Parameter                                                             | Zweck                                                                          |
+| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
+| `list`   | `scope` (`personal`, `shared` oder alle)                              | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
+| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs` | Bestehenden Job bearbeiten                                                     |
+| `delete` | `name` (erforderlich)                                                 | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
 
 **Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Die Parameter `scope` und `runAs` steuern dies zum Zeitpunkt der Erstellung. Organisationsadministratoren können alle freigegebenen Jobs aktualisieren oder löschen. Nicht-Administrator-Mitglieder können nur ihre eigenen verwalten.
 

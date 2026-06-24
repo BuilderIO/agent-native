@@ -119,15 +119,15 @@ defineAction({
 Skills y actions son complementarios. Una habilidad es una guía que el agente lee; un
 la acción es el código que el agente puede ejecutar.
 
-| Necesidad                                                                   | Usar                                |
-| ---------------------------------------------------------------------- | ---------------------------------- |
-| El agente debe seguir un flujo de trabajo, una política, una lista de verificación o una rúbrica     | **Habilidad**                          |
-| El agente necesita ejemplos, material de referencia o reglas específicas del dominio | **Habilidad**                          |
-| El agente necesita leer o escribir datos de la aplicación                              | **Acción**                         |
-| El agente necesita llamar a un API externo o realizar una aprobación         | **Acción**                         |
-| El agente llama a la operación correcta pero de forma incorrecta               | Mejorar la **habilidad**              |
-| El agente no puede invocar la operación de manera confiable                         | Mejorar la **acción**             |
-| El agente elige la herramienta equivocada                                       | Mejorar la **descripción de la acción** |
+| Necesidad                                                                                        | Usar                                    |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| El agente debe seguir un flujo de trabajo, una política, una lista de verificación o una rúbrica | **Habilidad**                           |
+| El agente necesita ejemplos, material de referencia o reglas específicas del dominio             | **Habilidad**                           |
+| El agente necesita leer o escribir datos de la aplicación                                        | **Acción**                              |
+| El agente necesita llamar a un API externo o realizar una aprobación                             | **Acción**                              |
+| El agente llama a la operación correcta pero de forma incorrecta                                 | Mejorar la **habilidad**                |
+| El agente no puede invocar la operación de manera confiable                                      | Mejorar la **acción**                   |
+| El agente elige la herramienta equivocada                                                        | Mejorar la **descripción de la acción** |
 
 La mayoría de las funciones reales utilizan ambas: la habilidad explica cómo abordar la tarea y
 la acción proporciona la operación escrita. Por ejemplo, una habilidad `invoice-review`
@@ -148,12 +148,12 @@ Póngalas como reglas básicas en `AGENTS.md` para que se apliquen en todos los 
 
 Cada pieza de orientación que usted crea aterriza en una de las cuatro superficies. Saber qué superficie utilizar evita duplicaciones y detalles fuera de lugar:
 
-| Superficie                     | Quién lo escribe             | Cuando está cargado                                       | Qué pertenece allí                                          |
-| --------------------------- | ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
-| Instrucciones `AGENTS.md`    | Tú (desarrollador)           | Cada giro, como orientación                             | Propósito, reglas básicas, claves de estado, índice de acción, índice skills |
-| Skills (`SKILL.md`)         | Tú (desarrollador)           | A pedido, cuando el agente decide que la habilidad es relevante | Instrucciones paso a paso para un patrón específico, listas de lo que se debe/no se debe hacer  |
-| Descripciones de acciones (herramientas) | Tú (desarrollador)           | Cada turno, según la lista de herramientas                           | Qué hace la acción, qué devuelve, semántica de los parámetros  |
-| Contexto `application_state` | Su código UI (en tiempo de ejecución) | Cada turno, como estado de la aplicación en vivo                          | Navegación actual, selección, objeto enfocado, URL          |
+| Superficie                               | Quién lo escribe                      | Cuando está cargado                                             | Qué pertenece allí                                                                             |
+| ---------------------------------------- | ------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Instrucciones `AGENTS.md`                | Tú (desarrollador)                    | Cada giro, como orientación                                     | Propósito, reglas básicas, claves de estado, índice de acción, índice skills                   |
+| Skills (`SKILL.md`)                      | Tú (desarrollador)                    | A pedido, cuando el agente decide que la habilidad es relevante | Instrucciones paso a paso para un patrón específico, listas de lo que se debe/no se debe hacer |
+| Descripciones de acciones (herramientas) | Tú (desarrollador)                    | Cada turno, según la lista de herramientas                      | Qué hace la acción, qué devuelve, semántica de los parámetros                                  |
+| Contexto `application_state`             | Su código UI (en tiempo de ejecución) | Cada turno, como estado de la aplicación en vivo                | Navegación actual, selección, objeto enfocado, URL                                             |
 
 **Diagnóstico rápido:**
 

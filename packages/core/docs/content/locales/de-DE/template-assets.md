@@ -97,7 +97,7 @@ Generieren und wählen Sie Markenmedien aus, ohne Codex, Claude Code, Claude ode
    Dieses ausgewählte Asset im aktuellen Artefakt oder Design verwenden.
 
    Ausgewählter Asset-Kontext:
-   { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "image", ... } 
+   { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "image", ... }
    ```
 
 4. **Auf Code anwenden.** Die ausgewählten Medien URL und `assetId` kehren zum Agenten zurück, der den URL direkt in dem Code verwendet, den er schreibt (ein `<img>`-Quelle, ein Download) oder `export-asset` aufruft.
@@ -118,17 +118,17 @@ Alle Daten befinden sich in SQL über Drizzle ORM (Binärmedien befinden sich im
 
 Hinweis: Die SQL-Tabellennamen behalten das alte `image_*`-Präfix aus der Zeit, als die App „Bilder“ hieß. Sie decken auch Videos und andere Medien ab.
 
-| Tabelle                            | Was es enthält                                                                                                                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabelle                          | Was es enthält                                                                                                                                                                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `image_libraries`                | Eine Bibliothek – der Container der obersten Ebene, gruppiert nach Marke, Kampagne, Produkt oder Kategorie. Enthält `custom_instructions`, `style_brief`, kanonische Logo- und Cover-Asset-Referenzen sowie den Archivstatus |
-| `image_library_shares`           | Framework teilt Tabellenzuordnungsprinzipale (Benutzer oder Organisationen) zu Rollen (Betrachter, Editor, Administrator) pro Bibliothek                                                                                   |
-| `image_collections`              | Stil-/Kategoriegruppierungen innerhalb einer Bibliothek – `style_brief`, `prompt_template`, Standardseitenverhältnis und Bildgröße                                                                        |
-| `asset_folders`                  | Verschachtelbare Ordner innerhalb einer Bibliothek (`parent_id` für Hierarchie)                                                                                                                            |
-| `image_generation_presets`       | Gespeicherte Generierungsrezepte – Medientyp, Eingabeaufforderungsvorlage, Seitenverhältnis, Modell und Text-/Referenzrichtlinie                                                                                   |
-| `image_generation_sessions`      | Eine iterative Generier-und-Auswahl-Sitzung mit einer kurzen Zusammenfassung, dem Status, dem aktiven Asset und einer Feedback-Zusammenfassung                                                                                        |
-| `image_generation_session_items` | Kandidaten-Assets innerhalb einer Sitzung, jeweils mit einer Rolle und einer Notiz                                                                                                                             |
-| `image_assets`                   | Der Asset-Datensatz – Medientyp, Rolle, Status, Titel/Beschreibung/Alternativtext, Eingabeaufforderung, Modell, Abmessungen, MIME-Typ, Objekt-/Miniaturbildschlüssel und Herkunft                                        |
-| `image_generation_runs`          | Das Generierungs-Audit-Protokoll – Eingabeaufforderung, kompilierte Eingabeaufforderung, Modell, Referenzen, Status, Fehler und das `source` (`chat` / `ui` / `a2a`), das es ausgelöst hat                                        |
+| `image_library_shares`           | Framework teilt Tabellenzuordnungsprinzipale (Benutzer oder Organisationen) zu Rollen (Betrachter, Editor, Administrator) pro Bibliothek                                                                                     |
+| `image_collections`              | Stil-/Kategoriegruppierungen innerhalb einer Bibliothek – `style_brief`, `prompt_template`, Standardseitenverhältnis und Bildgröße                                                                                           |
+| `asset_folders`                  | Verschachtelbare Ordner innerhalb einer Bibliothek (`parent_id` für Hierarchie)                                                                                                                                              |
+| `image_generation_presets`       | Gespeicherte Generierungsrezepte – Medientyp, Eingabeaufforderungsvorlage, Seitenverhältnis, Modell und Text-/Referenzrichtlinie                                                                                             |
+| `image_generation_sessions`      | Eine iterative Generier-und-Auswahl-Sitzung mit einer kurzen Zusammenfassung, dem Status, dem aktiven Asset und einer Feedback-Zusammenfassung                                                                               |
+| `image_generation_session_items` | Kandidaten-Assets innerhalb einer Sitzung, jeweils mit einer Rolle und einer Notiz                                                                                                                                           |
+| `image_assets`                   | Der Asset-Datensatz – Medientyp, Rolle, Status, Titel/Beschreibung/Alternativtext, Eingabeaufforderung, Modell, Abmessungen, MIME-Typ, Objekt-/Miniaturbildschlüssel und Herkunft                                            |
+| `image_generation_runs`          | Das Generierungs-Audit-Protokoll – Eingabeaufforderung, kompilierte Eingabeaufforderung, Modell, Referenzen, Status, Fehler und das `source` (`chat` / `ui` / `a2a`), das es ausgelöst hat                                   |
 
 ```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
 {

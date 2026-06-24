@@ -227,12 +227,12 @@ export default defineConfig({
 
 ### Build/Laufzeit {#env-runtime}
 
-| Variable                    | Beschreibung                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | Server-Port (nur Node.js)                                                                                                                        |
-| `NITRO_PRESET`              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                               |
-| `APP_BASE_PATH`             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen.             |
-| `AGENT_PROD_CODE_EXECUTION` | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution). |
+| Variable                    | Beschreibung                                                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | Server-Port (nur Node.js)                                                                                                                                        |
+| `NITRO_PRESET`              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                           |
+| `APP_BASE_PATH`             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen. |
+| `AGENT_PROD_CODE_EXECUTION` | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).        |
 
 Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, pro App `<APP_NAME>_DATABASE_URL`) leben in [Database](/docs/database#production).
 
@@ -240,14 +240,14 @@ Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, pro App `<
 
 Diese müssen festgelegt werden, bevor eine App zu einer echten Produktbereitstellung hochgestuft wird. Fehlende Werte führen entweder zu einem Fail-Closing (das Framework verweigert den Start/verweigert die Bearbeitung von Anfragen) oder sie fallen mit einer lauten Warnung auf ein schwächeres Verhalten zurück.
 
-| Variable                 | Beschreibung                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ Zeichen zufällige Zeichenfolge. Signiert Sitzungscookies. AND ist der Fallback HMAC für `OAUTH_STATE_SECRET` und `SECRETS_ENCRYPTION_KEY`. Unbedingt erforderlich: Das Framework löst beim Start aus, wenn es in der Produktion fehlt.                                            |
-| `BETTER_AUTH_URL`        | Öffentlicher Ursprung dieser App (z. B. `https://mail.example.com`). Wird für die Cookie-Domäne und die OAuth-Weiterleitungskonstruktion verwendet.                                                                                                                              |
+| Variable                 | Beschreibung                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32+ Zeichen zufällige Zeichenfolge. Signiert Sitzungscookies. AND ist der Fallback HMAC für `OAUTH_STATE_SECRET` und `SECRETS_ENCRYPTION_KEY`. Unbedingt erforderlich: Das Framework löst beim Start aus, wenn es in der Produktion fehlt.                                                                                                   |
+| `BETTER_AUTH_URL`        | Öffentlicher Ursprung dieser App (z. B. `https://mail.example.com`). Wird für die Cookie-Domäne und die OAuth-Weiterleitungskonstruktion verwendet.                                                                                                                                                                                          |
 | `ANTHROPIC_API_KEY`      | API-Schlüssel für den eingebetteten Produktionsagenten. **Bei mandantenfähigen Bereitstellungen** weigert sich das Framework, darauf zurückzugreifen, wenn der Benutzer keinen benutzerspezifischen Schlüssel hat – Bring-Your-Own-Key ist erforderlich. Selbstgehostete Einzelmandanteninstallationen verwenden ihn als globalen Schlüssel. |
-| `OAUTH_STATE_SECRET`     | Dedizierte HMAC-Taste für OAuth-Staatsumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn es nicht festgelegt ist, es wird jedoch ein dedizierter Wert empfohlen, damit durch Drehen eines Werts der andere nicht ungültig wird. Generieren über `openssl rand -hex 32`.    |
-| `A2A_SECRET`             | Gemeinsames HMAC für App-übergreifendes A2A JSON-RPC. Ohne sie geben jeder A2A-Endpunkt und der `/_agent-native/integrations/process-task`-Self-Fire-Endpunkt 503 in der Produktion zurück.                                                                            |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM Schlüssel für den Tresor für verschlüsselte ruhende Geheimnisse. Fällt auf `BETTER_AUTH_SECRET` zurück. Hard-Fails in der Produktion, wenn beide nicht festgelegt sind.                                                                                                        |
+| `OAUTH_STATE_SECRET`     | Dedizierte HMAC-Taste für OAuth-Staatsumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn es nicht festgelegt ist, es wird jedoch ein dedizierter Wert empfohlen, damit durch Drehen eines Werts der andere nicht ungültig wird. Generieren über `openssl rand -hex 32`.                                        |
+| `A2A_SECRET`             | Gemeinsames HMAC für App-übergreifendes A2A JSON-RPC. Ohne sie geben jeder A2A-Endpunkt und der `/_agent-native/integrations/process-task`-Self-Fire-Endpunkt 503 in der Produktion zurück.                                                                                                                                                  |
+| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM Schlüssel für den Tresor für verschlüsselte ruhende Geheimnisse. Fällt auf `BETTER_AUTH_SECRET` zurück. Hard-Fails in der Produktion, wenn beide nicht festgelegt sind.                                                                                                                                                          |
 
 ### Authentifizierung und Identität {#env-auth}
 

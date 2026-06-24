@@ -79,13 +79,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Ayudante    | Propósito                                                         |
-| --------- | --------------------------------------------------------------- |
-| `table`   | Definir una tabla: delega en `pgTable` o `sqliteTable`        |
-| `text`    | Columna de texto, compatible con `{ enum: [...] }`                         |
-| `integer` | Columna entera, `{ mode: "boolean" }` se asigna al booleano Postgres  |
-| `real`    | Columna flotante: `real` en SQLite, `double precision` en Postgres |
-| `now`     | Marca de tiempo actual independiente del dialecto para `.default(now())`        |
+| Ayudante  | Propósito                                                                |
+| --------- | ------------------------------------------------------------------------ |
+| `table`   | Definir una tabla: delega en `pgTable` o `sqliteTable`                   |
+| `text`    | Columna de texto, compatible con `{ enum: [...] }`                       |
+| `integer` | Columna entera, `{ mode: "boolean" }` se asigna al booleano Postgres     |
+| `real`    | Columna flotante: `real` en SQLite, `double precision` en Postgres       |
+| `now`     | Marca de tiempo actual independiente del dialecto para `.default(now())` |
 
 La tabla `tasks` anterior define las mismas columnas en cada backend:
 
@@ -177,7 +177,7 @@ En lugar de enviarlos directamente, los cambios de esquema deben aplicarse media
 
 ## Variables de entorno {#environment-variables}
 
-| Variable              | Propósito                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Variable              | Propósito                                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Cadena de conexión SQL persistente (no configurada = SQLite local, que solo es duradera para el desarrollo local) |
-| `DATABASE_AUTH_TOKEN` | Token de autenticación para proveedores que requieren un token separado, como Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | Token de autenticación para proveedores que requieren un token separado, como Turso/libSQL                        |

@@ -13,10 +13,10 @@ OM es completamente automático y está restringido al propietario. **Los subpro
 
 OM representa un hilo largo de tres capas, desde la más destilada hasta la más reciente:
 
-| Nivel                    | Qué es                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| **Reflexiones**         | Nivel más alto, condensado del registro de observación una vez que crece. El resumen extenso.      |
-| **Observaciones**        | Entradas densas y fechadas que combinan una serie de mensajes sin procesar en un registro compacto de lo que sucedió.  |
+| Nivel                               | Qué es                                                                                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Reflexiones**                     | Nivel más alto, condensado del registro de observación una vez que crece. El resumen extenso.                                 |
+| **Observaciones**                   | Entradas densas y fechadas que combinan una serie de mensajes sin procesar en un registro compacto de lo que sucedió.         |
 | **Mensajes sin procesar recientes** | Los últimos N turnos se mantienen **textualmente** (nunca se doblan) para que el agente siempre vea el contexto más reciente. |
 
 ```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
@@ -50,11 +50,11 @@ Los datos OM residen en la propia base de datos SQL de la aplicación, con alcan
 
 Los valores predeterminados son conservadores. Un operador puede marcar la compactación en el momento de la implementación con las variables de entorno `AGENT_NATIVE_OM_*` (no es necesario volver a implementar el código de la aplicación); un valor no válido o faltante siempre vuelve al valor predeterminado nombrado.
 
-| Var ambiente                                       | Predeterminado | Qué controla                                                                       |
-| --------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000` | Fichas de mensajes no observados que hacen que el observador los combine en una sola observación. |
-| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000` | Fichas de registro de observación que activan el reflector para que se condense en un reflejo.       |
-| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`    | Cuántos de los mensajes más recientes permanecen textuales (nunca incluidos en una observación). |
+| Var ambiente                                  | Predeterminado | Qué controla                                                                                      |
+| --------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000`        | Fichas de mensajes no observados que hacen que el observador los combine en una sola observación. |
+| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000`        | Fichas de registro de observación que activan el reflector para que se condense en un reflejo.    |
+| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`           | Cuántos de los mensajes más recientes permanecen textuales (nunca incluidos en una observación).  |
 
 Los límites de salida de Observer y Reflector (4000/2000 tokens) evitan que una sola pasada de compactación arruine el presupuesto; se pueden ajustar en el código a través de `resolveObservationalMemoryConfig({ ... })` pero no están expuestos al entorno.
 

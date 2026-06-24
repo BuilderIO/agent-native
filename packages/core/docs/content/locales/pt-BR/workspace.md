@@ -18,14 +18,14 @@ A diferença: **são linhas SQL, não arquivos do sistema de arquivos.** Cada us
 }
 ```
 
-| Código Claude / Codex              | Espaço de trabalho nativo do agente                             |
-| -------------------------------- | -------------------------------------------------- |
-| Arquivos em seu disco local         | Linhas em um banco de dados SQL compartilhado                      |
-| Uma base de código por desenvolvedor       | Uma base de código, muitos usuários                           |
-| Precisa de um dev-box ou contêiner     | Executa em qualquer host sem servidor/de borda                   |
-| Personalização em `~/.claude/`    | Personalização por usuário, escopo `u:<email>:…`       |
-| `CLAUDE.md`/skills por projeto | `AGENTS.md` por aplicativo + recursos de memória do espaço de trabalho   |
-| Configuração MCP em um arquivo JSON        | Configuração MCP em JSON _ou_ as configurações UI, por escopo |
+| Código Claude / Codex                | Espaço de trabalho nativo do agente                                    |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| Arquivos em seu disco local          | Linhas em um banco de dados SQL compartilhado                          |
+| Uma base de código por desenvolvedor | Uma base de código, muitos usuários                                    |
+| Precisa de um dev-box ou contêiner   | Executa em qualquer host sem servidor/de borda                         |
+| Personalização em `~/.claude/`       | Personalização por usuário, escopo `u:<email>:…`                       |
+| `CLAUDE.md`/skills por projeto       | `AGENTS.md` por aplicativo + recursos de memória do espaço de trabalho |
+| Configuração MCP em um arquivo JSON  | Configuração MCP em JSON _ou_ as configurações UI, por escopo          |
 
 Mesmas capacidades. Economia diferente. Consulte [Templates](/docs/cloneable-saas) para saber por que isso é importante para SaaS.
 
@@ -41,13 +41,13 @@ O painel Workspace do aplicativo mostra todos os três escopos. Recursos pessoai
 
 Os caminhos canônicos que controlam como o agente usa cada recurso:
 
-| Recurso de tempo de execução        | Caminho                                    | Como os agentes usam                               |
-| ----------------------- | --------------------------------------- | ----------------------------------------------- |
-| Instruções do guarda-corpo  | `AGENTS.md` ou `instructions/<slug>.md` | Carregado a cada turno em todos os aplicativos que o recebem |
-| skills global           | `skills/<slug>/SKILL.md`                | Listado como espaço de trabalho skills e lido sob demanda   |
-| Recursos da marca/empresa | `context/<slug>.md`                     | Indexado a cada turno, lido quando relevante          |
-| Perfis de agentes personalizados   | `agents/<slug>.md`                      | Disponível como perfis de agentes locais reutilizáveis      |
-| Servidores HTTP MCP compartilhados | `mcp-servers/<slug>.json`               | Carregado no registro da ferramenta MCP dos aplicativos concedidos     |
+| Recurso de tempo de execução       | Caminho                                 | Como os agentes usam                                               |
+| ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------ |
+| Instruções do guarda-corpo         | `AGENTS.md` ou `instructions/<slug>.md` | Carregado a cada turno em todos os aplicativos que o recebem       |
+| skills global                      | `skills/<slug>/SKILL.md`                | Listado como espaço de trabalho skills e lido sob demanda          |
+| Recursos da marca/empresa          | `context/<slug>.md`                     | Indexado a cada turno, lido quando relevante                       |
+| Perfis de agentes personalizados   | `agents/<slug>.md`                      | Disponível como perfis de agentes locais reutilizáveis             |
+| Servidores HTTP MCP compartilhados | `mcp-servers/<slug>.json`               | Carregado no registro da ferramenta MCP dos aplicativos concedidos |
 
 Esses caminhos se aplicam a todos os três escopos: espaço de trabalho, organização/aplicativo e pessoal. O escopo posterior vence quando o mesmo caminho existe em vários níveis.
 
@@ -169,15 +169,15 @@ O sistema de recursos também gera um `LEARNINGS.md` pessoal para compatibilidad
 
 **Onde cabe.**
 
-| Superfície            | Escopo              | Escrito por                           | Ler quando                              |
-| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
-| `AGENTS.md`        | Compartilhado             | Humanos/agente mediante solicitação            | Cada turno                             |
-| `LEARNINGS.md`     | Compartilhado             | Humanos/agente mediante solicitação            | Todo turno (somente cópia compartilhada)          |
-| `memory/MEMORY.md` | Pessoal           | Agente / humanos                       | Cada turno                             |
-| `instructions/…`   | Compartilhado             | Humanos/agente mediante solicitação            | Cada turno                             |
-| `skills/…`         | Compartilhado             | Humanos/agente mediante solicitação            | Sob demanda (comando `/slash`)           |
-| `context/…`        | Compartilhado             | Humanos/agente mediante solicitação            | Indexado a cada turno, lido quando relevante |
-| `mcp-servers/…`    | Espaço de trabalho/compartilhado | Humanos via Dispatch ou espaço de trabalho do aplicativo | Atualização de configuração MCP                     |
+| Superfície         | Escopo                           | Escrito por                                              | Ler quando                                   |
+| ------------------ | -------------------------------- | -------------------------------------------------------- | -------------------------------------------- |
+| `AGENTS.md`        | Compartilhado                    | Humanos/agente mediante solicitação                      | Cada turno                                   |
+| `LEARNINGS.md`     | Compartilhado                    | Humanos/agente mediante solicitação                      | Todo turno (somente cópia compartilhada)     |
+| `memory/MEMORY.md` | Pessoal                          | Agente / humanos                                         | Cada turno                                   |
+| `instructions/…`   | Compartilhado                    | Humanos/agente mediante solicitação                      | Cada turno                                   |
+| `skills/…`         | Compartilhado                    | Humanos/agente mediante solicitação                      | Sob demanda (comando `/slash`)               |
+| `context/…`        | Compartilhado                    | Humanos/agente mediante solicitação                      | Indexado a cada turno, lido quando relevante |
+| `mcp-servers/…`    | Espaço de trabalho/compartilhado | Humanos via Dispatch ou espaço de trabalho do aplicativo | Atualização de configuração MCP              |
 
 Os usuários podem editar esses arquivos de memória diretamente na guia Workspace — eles são recursos regulares. Exclua as linhas que o agente errou, mantenha as preferências pessoais em `memory/MEMORY.md` ou promova regras para toda a equipe em `AGENTS.md`.
 
@@ -254,19 +254,19 @@ Quando você envia uma mensagem, **arquivos/recursos** são passados como refer�
 
 ## /Comandos de barra {#slash-commands}
 
- Digite `/` no início de uma linha para invocar uma habilidade. Um menu suspenso mostra os skills disponíveis com seus nomes e descrições; selecionar um adiciona um chip embutido e inclui seu conteúdo como contexto quando a mensagem é enviada. Se nenhum skills estiver configurado, o menu suspenso leva a esses documentos.
+Digite `/` no início de uma linha para invocar uma habilidade. Um menu suspenso mostra os skills disponíveis com seus nomes e descrições; selecionar um adiciona um chip embutido e inclui seu conteúdo como contexto quando a mensagem é enviada. Se nenhum skills estiver configurado, o menu suspenso leva a esses documentos.
 
 ## Modo Código versus Modo Aplicativo {#dev-vs-prod}
 
 O sistema de recursos funciona de forma idêntica em ambos os modos. O que difere são as fontes adicionais disponíveis para marcação `@` e comandos `/`:
 
-| Recurso            | Modo de código                                                               | Modo de aplicativo                                               |
-| ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| @ marcação          | Arquivos de base de código + recursos de espaço de trabalho + agentes personalizados + agentes conectados | Recursos do espaço de trabalho + agentes personalizados + agentes conectados |
-| comandos/barra   | .agents/skills/ + recurso skills                                       | Somente recurso skills                                   |
-| Acesso ao arquivo do agente  | Sistema de arquivos + recursos                                                  | Somente recursos                                         |
-| Painel da área de trabalho    | Acesso total                                                             | Acesso total                                            |
-| AGENTS.md/memória | Disponível                                                               | Disponível                                              |
+| Recurso                     | Modo de código                                                                                            | Modo de aplicativo                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| @ marcação                  | Arquivos de base de código + recursos de espaço de trabalho + agentes personalizados + agentes conectados | Recursos do espaço de trabalho + agentes personalizados + agentes conectados |
+| comandos/barra              | .agents/skills/ + recurso skills                                                                          | Somente recurso skills                                                       |
+| Acesso ao arquivo do agente | Sistema de arquivos + recursos                                                                            | Somente recursos                                                             |
+| Painel da área de trabalho  | Acesso total                                                                                              | Acesso total                                                                 |
+| AGENTS.md/memória           | Disponível                                                                                                | Disponível                                                                   |
 
 ## Conexões do espaço de trabalho {#workspace-connections}
 
@@ -286,17 +286,17 @@ Os recursos podem ser gerenciados a partir do código do servidor, actions ou RE
 
 Endpoints REST montados automaticamente:
 
-| Método   | Ponto final                                      | Descrição                          |
-| -------- | --------------------------------------------- | ------------------------------------ |
-| `GET`    | `/_agent-native/resources?scope=all`          | Listar recursos                       |
-| `GET`    | `/_agent-native/resources?scope=workspace`    | Listar recursos herdados do espaço de trabalho   |
-| `GET`    | `/_agent-native/resources/tree?scope=all`     | Obter árvore de pastas                      |
-| `GET`    | `/_agent-native/resources/effective?path=...` | Mostrar a pilha de herança efetiva |
-| `POST`   | `/_agent-native/resources`                    | Crie um recurso                    |
-| `GET`    | `/_agent-native/resources/:id`                | Obtenha recursos com conteúdo            |
-| `PUT`    | `/_agent-native/resources/:id`                | Atualizar um recurso                    |
-| `DELETE` | `/_agent-native/resources/:id`                | Excluir um recurso                    |
-| `POST`   | `/_agent-native/resources/upload`             | Fazer upload de um arquivo como recurso            |
+| Método   | Ponto final                                   | Descrição                                      |
+| -------- | --------------------------------------------- | ---------------------------------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`          | Listar recursos                                |
+| `GET`    | `/_agent-native/resources?scope=workspace`    | Listar recursos herdados do espaço de trabalho |
+| `GET`    | `/_agent-native/resources/tree?scope=all`     | Obter árvore de pastas                         |
+| `GET`    | `/_agent-native/resources/effective?path=...` | Mostrar a pilha de herança efetiva             |
+| `POST`   | `/_agent-native/resources`                    | Crie um recurso                                |
+| `GET`    | `/_agent-native/resources/:id`                | Obtenha recursos com conteúdo                  |
+| `PUT`    | `/_agent-native/resources/:id`                | Atualizar um recurso                           |
+| `DELETE` | `/_agent-native/resources/:id`                | Excluir um recurso                             |
+| `POST`   | `/_agent-native/resources/upload`             | Fazer upload de um arquivo como recurso        |
 
 ### Ação API {#script-api}
 

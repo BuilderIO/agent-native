@@ -11,13 +11,13 @@ Les applications natives d'agent utilisent le **routeur React v7** avec un routa
 
 ### Fichier → Mappage URL
 
-| Fichier                  | URL                | Remarques                                  |
-| --------------------- | ------------------ | -------------------------------------- |
-| `_index.tsx`          | `/`                | Indexer l'itinéraire                            |
-| `settings.tsx`        | `/settings`        | Page simple                            |
-| `inbox.$threadId.tsx` | `/inbox/:threadId` | Point = `/`, `$` = paramètre dynamique         |
-| `_app.tsx`            | (pas de segment URL)   | Mise en page sans chemin – préfixe avec `_`      |
-| `inbox/route.tsx`     | `/inbox`           | Formulaire de dossier — `route.tsx` est l'index |
+| Fichier               | URL                  | Remarques                                       |
+| --------------------- | -------------------- | ----------------------------------------------- |
+| `_index.tsx`          | `/`                  | Indexer l'itinéraire                            |
+| `settings.tsx`        | `/settings`          | Page simple                                     |
+| `inbox.$threadId.tsx` | `/inbox/:threadId`   | Point = `/`, `$` = paramètre dynamique          |
+| `_app.tsx`            | (pas de segment URL) | Mise en page sans chemin – préfixe avec `_`     |
+| `inbox/route.tsx`     | `/inbox`             | Formulaire de dossier — `route.tsx` est l'index |
 
 Préfixez un segment avec `$` pour un paramètre dynamique. Préfixez `_` pour en faire un itinéraire de tracé sans chemin (pas de segment URL). Les modèles utilisent `flatRoutes()` — le fichier de notation par points ci-dessus est principal ; le formulaire de dossier imbriqué `inbox/route.tsx` fonctionne également.
 

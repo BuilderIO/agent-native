@@ -13,11 +13,11 @@ OM est entièrement automatique et limité au propriétaire. **Les threads court
 
 OM représente un long fil de discussion composé de trois couches, du plus distillé au plus récent :
 
-| Niveau                    | Qu'est-ce que c'est                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| **Réflexions**         | Niveau le plus élevé, condensé à partir du journal d'observation une fois qu'il devient volumineux. Le résumé en arc long.      |
-| **Observations**        | Des entrées denses et datées qui regroupent une série de messages bruts dans un enregistrement compact de ce qui s'est passé.  |
-| **Messages bruts récents** | Les N derniers tours, conservés **textuellement** — jamais pliés — afin que l'agent voie toujours le dernier contexte. |
+| Niveau                     | Qu'est-ce que c'est                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Réflexions**             | Niveau le plus élevé, condensé à partir du journal d'observation une fois qu'il devient volumineux. Le résumé en arc long.    |
+| **Observations**           | Des entrées denses et datées qui regroupent une série de messages bruts dans un enregistrement compact de ce qui s'est passé. |
+| **Messages bruts récents** | Les N derniers tours, conservés **textuellement** — jamais pliés — afin que l'agent voie toujours le dernier contexte.        |
 
 ```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
 {
@@ -50,11 +50,11 @@ Les données OM résident dans la propre base de données SQL de l'application, 
 
 Les valeurs par défaut sont conservatrices. Un opérateur peut composer le compactage au moment du déploiement avec les variables d'environnement `AGENT_NATIVE_OM_*` (aucun redéploiement du code de l'application n'est nécessaire) ; une valeur invalide ou manquante revient toujours à la valeur par défaut nommée.
 
-| Variable d'environnement                                       | Par défaut | Ce qu'il contrôle                                                                       |
-| --------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000` | Jetons de message non observés qui incitent l'observateur à les regrouper en une seule observation. |
-| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000` | Jetons de journal d'observation qui déclenchent la condensation du réflecteur en une réflexion.       |
-| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`    | Combien de messages parmi les plus récents restent textuellement (jamais intégrés à une observation). |
+| Variable d'environnement                      | Par défaut | Ce qu'il contrôle                                                                                     |
+| --------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000`    | Jetons de message non observés qui incitent l'observateur à les regrouper en une seule observation.   |
+| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000`    | Jetons de journal d'observation qui déclenchent la condensation du réflecteur en une réflexion.       |
+| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`       | Combien de messages parmi les plus récents restent textuellement (jamais intégrés à une observation). |
 
 Les capuchons de sortie Observer et Reflector (4 000 / 2 000 jetons) empêchent une seule passe de compactage de faire exploser le budget ; ils sont réglables dans le code via `resolveObservationalMemoryConfig({ ... })` mais ne sont pas exposés à l'environnement.
 

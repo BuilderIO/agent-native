@@ -86,11 +86,11 @@ npx @agent-native/core@latest create my-platform
 
 모든 데이터는 Drizzle ORM를 통해 SQL에 있습니다. 스키마: `templates/forms/server/db/schema.ts`. 양식에는 표준 `ownableColumns`와 일치하는 프레임워크 공유 테이블이 있으므로 사용자별/조직별 공유 모델에 속합니다.
 
-| 테이블         | 무엇을 담고 있는지                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 테이블        | 무엇을 담고 있는지                                                                                                                                                                            |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forms`       | 양식 정의 — `title`, `description`, 고유한 `slug`, `fields`(`FormField`의 JSON 배열), `settings`(JSON `FormSettings`), `status`(`draft` / `published` / `closed`) 및 소프트 삭제 `deleted_at` |
-| `responses`   | 행당 하나의 제출 — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, 선택적 `ip` 및 `submitter_email`                                                                                    |
-| `form_shares` | 프레임워크는 양식별로 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                                                                                            |
+| `responses`   | 행당 하나의 제출 — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, 선택적 `ip` 및 `submitter_email`                                                                            |
+| `form_shares` | 프레임워크는 양식별로 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                                                                     |
 
 `fields` 및 `settings` JSON 형상은 `templates/forms/shared/types.ts`(`FormField`, `FormSettings`)에 정의됩니다. 통합 웹훅 URL 및 허용된 출처와 같은 소유자 개인 설정은 데이터가 `toPublicFormSettings`를 통해 공개 채우기 페이지에 도달하기 전에 제거됩니다.
 

@@ -7,14 +7,14 @@ description: "Criar e incorporar aplicativos MCP interativos UIs dentro de Claud
 
 **Esta página: UIs inline em Claude/ChatGPT.** Criação de recursos do aplicativo MCP e a ponte incorporada que renderiza uma rota de aplicativo real dentro do bate-papo de um host compatível. Esta página também é o único local da **matriz de suporte ao cliente** ([below](#client-support)).
 
-| Se você quiser…                                              | Ler                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Conecte um agente/host externo ao seu aplicativo                   | [External Agents](/docs/external-agents) |
-| Dê mais ferramentas ao seu agente (consuma outros servidores MCP)       | [MCP Clients](/docs/mcp-clients)         |
-| Crie UIs embutidos que renderizam em Claude/ChatGPT               | **Esta página** — Aplicativos MCP                 |
+| Se você quiser…                                                                                  | Ler                                      |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Conecte um agente/host externo ao seu aplicativo                                                 | [External Agents](/docs/external-agents) |
+| Dê mais ferramentas ao seu agente (consuma outros servidores MCP)                                | [MCP Clients](/docs/mcp-clients)         |
+| Crie UIs embutidos que renderizam em Claude/ChatGPT                                              | **Esta página** — Aplicativos MCP        |
 | Referência do servidor MCP de nível inferior (autenticação, ferramentas, montagem personalizada) | [MCP Protocol](/docs/mcp-protocol)       |
 
- Os aplicativos MCP são a extensão `io.modelcontextprotocol/ui` oficial que permite que hosts compatíveis – Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam e Cursor – renderizem UIs interativos inline no bate-papo. Em aplicativos nativos de agente, cada aplicativo MCP é uma **rota React real**, não um widget HTML simples separado.
+Os aplicativos MCP são a extensão `io.modelcontextprotocol/ui` oficial que permite que hosts compatíveis – Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam e Cursor – renderizem UIs interativos inline no bate-papo. Em aplicativos nativos de agente, cada aplicativo MCP é uma **rota React real**, não um widget HTML simples separado.
 
 No próprio bate-papo do aplicativo Agent-Native, prefira [native chat renderers](/docs/native-chat-ui) para widgets originais, como tabelas, gráficos, resultados digitados e recursos de aprovação. Use aplicativos MCP para UI em linha externo/entre hosts em Claude, ChatGPT, Copilot, Cursor e outros hosts compatíveis, com a ação `link` como substituto de deep-link universal.
 
@@ -109,20 +109,20 @@ Ao testar Claude por meio do ngrok, use uma compilação de produção (`npx @ag
 
 A ponte do host é deliberadamente pequena:
 
-| Modo                   | Tipo de mensagem                          | Use-o para                               |
-| ---------------------- | ------------------------------------- | ---------------------------------------- |
-| rota direta do host      | `ui/update-model-context`             | Contexto oculto para o modelo host        |
-| rota direta do host      | `ui/message`                          | Postar uma transformação de usuário visível no host   |
-| rota direta do host      | `ui/open-link`                        | Abra um URL externo ou aplicativo por meio do host |
-| rota direta do host      | `ui/request-display-mode`             | Solicitar `inline`, `fullscreen` ou `pip` |
-| Transplante Claude      | `ui/*`                                | Mesma ponte direta do hospedeiro após a hidratação  |
-| ChatGPT / rota iframe | `agentNative.mcpHostContext`          | Tema, localidade, plataforma host, dimensões |
-| ChatGPT / rota iframe | `agentNative.embeddedAppReady`        | Confirme o iframe da rota carregado          |
-| ChatGPT / rota iframe | `agentNative.mcpHost.*` / `.response` | Retransmissão wrapper para solicitações de host          |
+| Modo                  | Tipo de mensagem                      | Use-o para                                          |
+| --------------------- | ------------------------------------- | --------------------------------------------------- |
+| rota direta do host   | `ui/update-model-context`             | Contexto oculto para o modelo host                  |
+| rota direta do host   | `ui/message`                          | Postar uma transformação de usuário visível no host |
+| rota direta do host   | `ui/open-link`                        | Abra um URL externo ou aplicativo por meio do host  |
+| rota direta do host   | `ui/request-display-mode`             | Solicitar `inline`, `fullscreen` ou `pip`           |
+| Transplante Claude    | `ui/*`                                | Mesma ponte direta do hospedeiro após a hidratação  |
+| ChatGPT / rota iframe | `agentNative.mcpHostContext`          | Tema, localidade, plataforma host, dimensões        |
+| ChatGPT / rota iframe | `agentNative.embeddedAppReady`        | Confirme o iframe da rota carregado                 |
+| ChatGPT / rota iframe | `agentNative.mcpHost.*` / `.response` | Retransmissão wrapper para solicitações de host     |
 
 Rotas incorporadas podem usar `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` e `useMcpAppHostContext()` de `@agent-native/core/client`. `sendToAgentChat()` usa o mesmo caminho das incorporações completas do aplicativo para solicitações enviadas automaticamente.
 
- O modo de exibição é o melhor esforço. O `McpAppRenderer` no aplicativo atualmente relata um contexto de host da web embutido e um modo de exibição somente embutido; hosts externos podem atender a solicitações de exibição maiores, ignorá-las ou responder com um erro de modo não suportado. Sempre mantenha a rota inline utilizável.
+O modo de exibição é o melhor esforço. O `McpAppRenderer` no aplicativo atualmente relata um contexto de host da web embutido e um modo de exibição somente embutido; hosts externos podem atender a solicitações de exibição maiores, ignorá-las ou responder com um erro de modo não suportado. Sempre mantenha a rota inline utilizável.
 
 ## Suporte ao cliente e armazenamento em cache {#client-support}
 

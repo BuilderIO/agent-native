@@ -170,7 +170,7 @@ des graphiques et des cartes dactylographiées au lieu de texte brut.
 
 **Vous avez commencé sans tête et vous voulez un UI plus tard ?** Le modèle Chat _est_ la rampe d'accès au UI —
 sa couche `app/` (routeur React + Vite) correspond exactement à l'échafaudage sans tête
- laisse de côté. Le geste le plus simple consiste à démarrer (ou à ré-échafauder) à partir du chat
+laisse de côté. Le geste le plus simple consiste à démarrer (ou à ré-échafauder) à partir du chat
 modèle ; vos états `actions/`, agent et SQL restent inchangés. Voir
 [Agent Surfaces](/docs/agent-surfaces) pour chaque surface intermédiaire.
 

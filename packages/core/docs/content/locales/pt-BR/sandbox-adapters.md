@@ -23,11 +23,11 @@ não é executado em tempos de execução de borda/trabalho — consulte [Edge a
 
 ## Qual documento de codificação eu quero? {#which-doc}
 
-| Você quer…                                                               | Usar                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Troque o back-end que executa a **ferramenta `run-code`** do agente                 | **Adaptadores sandbox** (esta página)             |
-| Prepare uma ferramenta CLI (`gh`, `ffmpeg`) para o agente ligar                     | **Adaptadores CLI** (esta página)                 |
-| Renderizar um espaço de trabalho de codificação estilo Claude/Codex **UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Você quer…                                                                               | Usar                                         |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Troque o back-end que executa a **ferramenta `run-code`** do agente                      | **Adaptadores sandbox** (esta página)        |
+| Prepare uma ferramenta CLI (`gh`, `ffmpeg`) para o agente ligar                          | **Adaptadores CLI** (esta página)            |
+| Renderizar um espaço de trabalho de codificação estilo Claude/Codex **UI**               | [Agent-Native Code UI](/docs/code-agents-ui) |
 | Execute o código Claude / Codex / Pi **como agente**, com seu próprio loop + ferramentas | [Harness Agents](/docs/harness-agents)       |
 
 # Adaptadores de sandbox
@@ -111,7 +111,7 @@ interface SandboxRunResult {
 
 ## O padrão: `LocalChildProcessAdapter` {#default}
 
- Pronto para uso, `getSandboxAdapter()` retorna `LocalChildProcessAdapter` (`id: "local-child-process"`). Ele preserva o comportamento histórico do `run-code`, byte por byte:
+Pronto para uso, `getSandboxAdapter()` retorna `LocalChildProcessAdapter` (`id: "local-child-process"`). Ele preserva o comportamento histórico do `run-code`, byte por byte:
 
 - A fonte do módulo preparado é gravada em um novo diretório temporário.
 - O filho é executado com o ambiente limpo (sem segredos), com `TMPDIR`/`TEMP`/`TMP` apontado para dentro do diretório sandbox.

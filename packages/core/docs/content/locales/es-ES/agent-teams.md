@@ -54,13 +54,13 @@ El marco le brinda al agente principal una herramienta `agent-teams`. Cuando el 
 
 El conjunto de acciones completo de `agent-teams` es:
 
-| Acción        | Propósito                              |
-| ------------- | ------------------------------------ |
-| `spawn`       | Iniciar una nueva tarea de subagente           |
+| Acción        | Propósito                                          |
+| ------------- | -------------------------------------------------- |
+| `spawn`       | Iniciar una nueva tarea de subagente               |
 | `status`      | Verificar el progreso de un subagente en ejecución |
-| `read-result` | Obtener el resultado final de un subagente    |
-| `send`        | Enviar mensajes a un subagente en ejecución          |
-| `list`        | Ver todas las tareas del usuario actual   |
+| `read-result` | Obtener el resultado final de un subagente         |
+| `send`        | Enviar mensajes a un subagente en ejecución        |
+| `list`        | Ver todas las tareas del usuario actual            |
 
 ### 3. Generación programática {#programmatic-spawn}
 
@@ -151,11 +151,11 @@ La aplicación de la ley es ambiental: cada subagente se ejecuta dentro de un `A
 
 Anule el valor predeterminado en el momento de la implementación con `AGENT_NATIVE_MAX_SUBAGENT_DEPTH`:
 
-| Valor           | Efecto                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| _(desarmado)_       | Límite predeterminado de `2`.                                                                                                                   |
-| `0`             | **No se pueden generar subagentes**: el agente de nivel superior hace todo el trabajo.                                                                 |
-| `1`…`16`        | Tantos niveles de delegación.                                                                                                       |
+| Valor             | Efecto                                                                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| _(desarmado)_     | Límite predeterminado de `2`.                                                                                                                                            |
+| `0`               | **No se pueden generar subagentes**: el agente de nivel superior hace todo el trabajo.                                                                                   |
+| `1`…`16`          | Tantos niveles de delegación.                                                                                                                                            |
 | no válido / `>16` | Un valor no entero/negativo/NaN vuelve a `2`; todo lo que esté por encima de `16` se fija en `16`, por lo que un error tipográfico nunca podrá desactivar la protección. |
 
 ```bash

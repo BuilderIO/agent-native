@@ -13,13 +13,13 @@ aplicativo.
 A maneira útil de escolher não é primeiro por protocolo. Escolha a superfície do produto
 você deseja, então use a primitiva correspondente.
 
-| Superfície                       | Use quando                                                                                                 | Comece com                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Agente sem cabeça**            | Código, tarefas, scripts, outro aplicativo ou outro agente devem chamar o trabalho diretamente.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Bate-papo rico em Agent-Native** | Você deseja um bate-papo independente ou incorporado, apoiado pelo loop de agente integrado.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
-| **Bate-papo avançado com seu agente**   | Você criou o agente em outro lugar e deseja o compositor, a transcrição, os cartões de ferramentas e os widgets nativos do Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Carro lateral incorporado**          | Você já tem um aplicativo SaaS e deseja um agente ao lado dele com contexto de página e comandos de host.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **Aplicativo completo**          | Humanos e agentes devem compartilhar telas, dados, navegação e colaboração duráveis.                        | Modelos, actions, estado SQL, reconhecimento de contexto                                            |
+| Superfície                            | Use quando                                                                                                                               | Comece com                                                                                  |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Agente sem cabeça**                 | Código, tarefas, scripts, outro aplicativo ou outro agente devem chamar o trabalho diretamente.                                          | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Bate-papo rico em Agent-Native**    | Você deseja um bate-papo independente ou incorporado, apoiado pelo loop de agente integrado.                                             | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Bate-papo avançado com seu agente** | Você criou o agente em outro lugar e deseja o compositor, a transcrição, os cartões de ferramentas e os widgets nativos do Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
+| **Carro lateral incorporado**         | Você já tem um aplicativo SaaS e deseja um agente ao lado dele com contexto de página e comandos de host.                                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Aplicativo completo**               | Humanos e agentes devem compartilhar telas, dados, navegação e colaboração duráveis.                                                     | Modelos, actions, estado SQL, reconhecimento de contexto                                    |
 
 São etapas, não produtos separados. Um fluxo de trabalho pode começar sem interface
 agente com uma ação, aparece no chat como uma tabela ou gráfico e depois se torna um
@@ -70,7 +70,7 @@ Quando você adiciona o shell de bate-papo integrado, a estrutura fornece cinco 
 superfícies que você não precisa criar: **Chat** (a entrada principal), **Workspace**
 (skills, memória, instruções, subagentes, servidores MCP conectados, agendados
 trabalhos), **Histórico de trabalhos**, **Histórico de threads** e **Configurações**. Geralmente são
-basta — converse com ele, veja o que ele faz, configure como ele se comporta. Alcance 
+basta — converse com ele, veja o que ele faz, configure como ele se comporta. Alcance
 [Chat](/docs/template-chat) quando estiver pronto para adicionar o navegador UI ou o
 [Dispatch template](/docs/template-dispatch) para uma inicialização estilo espaço de trabalho
 ponto com Slack/Telegram, trabalhos agendados e segredos compartilhados prontos para uso.
@@ -374,13 +374,13 @@ quer um formato de produto completo.
 
 ## Como escolher {#how-to-choose}
 
-| Se você está pensando...                                          | Escolher                    |
-| --------------------------------------------------------------- | ------------------------- |
-| "Só preciso de uma ferramenta ou fluxo de trabalho que possa ser chamado."                      | Agente sem cabeça            |
-| "Quero o agente do framework, mas o chat deve ser o principal UI." | Bate-papo rico em Agent-Native |
-| "Já tenho um agente; preciso de um chat sofisticado UI para isso."    | Bate-papo avançado com seu agente   |
-| "Já tenho um aplicativo SaaS; adicione um agente ao lado dele."            | Carrinho lateral incorporado          |
-| "O agente e UI devem evoluir juntos como o produto."       | Aplicativo completo          |
+| Se você está pensando...                                                   | Escolher                          |
+| -------------------------------------------------------------------------- | --------------------------------- |
+| "Só preciso de uma ferramenta ou fluxo de trabalho que possa ser chamado." | Agente sem cabeça                 |
+| "Quero o agente do framework, mas o chat deve ser o principal UI."         | Bate-papo rico em Agent-Native    |
+| "Já tenho um agente; preciso de um chat sofisticado UI para isso."         | Bate-papo avançado com seu agente |
+| "Já tenho um aplicativo SaaS; adicione um agente ao lado dele."            | Carrinho lateral incorporado      |
+| "O agente e UI devem evoluir juntos como o produto."                       | Aplicativo completo               |
 
 Mantenha o contrato pequeno: defina operações duráveis como actions, retorne explícito
 resultados de widget quando o bate-papo precisa de UI rico e adicionar telas inteiras somente quando os usuários

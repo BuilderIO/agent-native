@@ -34,15 +34,15 @@ Si está ejecutando una única plantilla independiente, no necesita Dispatch: ca
 
 Siete capacidades, todas ubicadas encima de la misma base de datos del espacio de trabajo que usan las otras aplicaciones:
 
-| Capacidad               | Lo que te aporta                                                               | Configurarlo                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Bandeja de entrada central**        | Slack, correo electrónico, Telegram y WhatsApp llegan a un solo agente con memoria compartida y herramientas | **Configuración → Mensajería** ([Messaging](/docs/messaging))       |
-| **Bóveda secreta**         | Almacene cada credencial una vez; rotar en un solo lugar en cada aplicación                | **Vault** + modo de acceso (todas las aplicaciones o manual)                  |
-| **Delegación entre aplicaciones** | Envía una solicitud a la aplicación especializada adecuada a través de A2A y responde en el hilo     | Automático ([A2A](/docs/a2a-protocol))                         |
-| **Puerta de enlace MCP unificada**  | Un conector MCP para agentes externos llega a todas las aplicaciones del espacio de trabajo otorgado       | [External Agents](/docs/external-agents)                      |
-| **Recursos del espacio de trabajo**  | Autor skills/instrucciones/perfiles una vez; las aplicaciones los heredan en tiempo de ejecución          | **Recursos** ([Workspace](/docs/workspace#global-resources)) |
-| **Sueños**               | Revisa ejecuciones y comentarios anteriores y propone mejoras duraderas para que usted las apruebe | Pestaña **Sueños**                                                |
-| **Flujo de aprobación**        | Cambios en el tiempo de ejecución sensibles de la puerta detrás de la revisión del administrador en línea                       | **política de aprobación de envío**                                  |
+| Capacidad                           | Lo que te aporta                                                                                             | Configurarlo                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| **Bandeja de entrada central**      | Slack, correo electrónico, Telegram y WhatsApp llegan a un solo agente con memoria compartida y herramientas | **Configuración → Mensajería** ([Messaging](/docs/messaging)) |
+| **Bóveda secreta**                  | Almacene cada credencial una vez; rotar en un solo lugar en cada aplicación                                  | **Vault** + modo de acceso (todas las aplicaciones o manual)  |
+| **Delegación entre aplicaciones**   | Envía una solicitud a la aplicación especializada adecuada a través de A2A y responde en el hilo             | Automático ([A2A](/docs/a2a-protocol))                        |
+| **Puerta de enlace MCP unificada**  | Un conector MCP para agentes externos llega a todas las aplicaciones del espacio de trabajo otorgado         | [External Agents](/docs/external-agents)                      |
+| **Recursos del espacio de trabajo** | Autor skills/instrucciones/perfiles una vez; las aplicaciones los heredan en tiempo de ejecución             | **Recursos** ([Workspace](/docs/workspace#global-resources))  |
+| **Sueños**                          | Revisa ejecuciones y comentarios anteriores y propone mejoras duraderas para que usted las apruebe           | Pestaña **Sueños**                                            |
+| **Flujo de aprobación**             | Cambios en el tiempo de ejecución sensibles de la puerta detrás de la revisión del administrador en línea    | **política de aprobación de envío**                           |
 
 Cada uno se detalla a continuación.
 

@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### Conventions de dénomination des itinéraires {#route-naming-conventions}
 
-| Modèle de nom de fichier  | Méthode HTTP | Exemple de chemin                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` ou fourre-tout |
+| Modèle de nom de fichier | Méthode HTTP | Exemple de chemin             |
+| ------------------------ | ------------ | ----------------------------- |
+| `index.get.ts`           | GET          | `/api/items`                  |
+| `index.post.ts`          | POST         | `/api/items`                  |
+| `[id].get.ts`            | GET          | `/api/items/:id`              |
+| `[id].patch.ts`          | PATCH        | `/api/items/:id`              |
+| `[id].delete.ts`         | DELETE       | `/api/items/:id`              |
+| `[...slug].get.ts`       | GET          | `/api/items/*` ou fourre-tout |
 
 ## Préférez Actions pour les opérations d'application {#actions-first}
 
@@ -149,19 +149,19 @@ Les migrations doivent être additives. Ne mettez jamais de SQL destructeur dans
 
 Le framework monte ses propres routes sous `/_agent-native/`. Traitez cet espace de noms comme réservé.
 
-| Préfixe d'itinéraire                     | Objectif                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Points de terminaison de l'action HTTP                                                           |
-| `/_agent-native/agent-chat`      | Boucle de discussion avec les agents                                                                 |
-| `/_agent-native/poll`            | Synchronisation UI basée sur SQL                                                              |
-| `/_agent-native/resources/*`     | Ressources de l'espace de travail                                                             |
+| Préfixe d'itinéraire             | Objectif                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Points de terminaison de l'action HTTP                                                |
+| `/_agent-native/agent-chat`      | Boucle de discussion avec les agents                                                  |
+| `/_agent-native/poll`            | Synchronisation UI basée sur SQL                                                      |
+| `/_agent-native/resources/*`     | Ressources de l'espace de travail                                                     |
 | `/_agent-native/extensions/*`    | Extensions d'exécution et proxy d'extension (alias hérité : `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Intégrations de messagerie/webhook                                                  |
-| `/_agent-native/a2a`             | Agent à agent JSON-RPC                                                         |
-| `/_agent-native/mcp`             | Point de terminaison MCP                                                                    |
-| `/_agent-native/onboarding/*`    | Liste de contrôle de configuration                                                                 |
-| `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                            |
-| `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléchargement de fichiers                                                   |
+| `/_agent-native/integrations/*`  | Intégrations de messagerie/webhook                                                    |
+| `/_agent-native/a2a`             | Agent à agent JSON-RPC                                                                |
+| `/_agent-native/mcp`             | Point de terminaison MCP                                                              |
+| `/_agent-native/onboarding/*`    | Liste de contrôle de configuration                                                    |
+| `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                             |
+| `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléchargement de fichiers                     |
 
 Les routes d'application personnalisées doivent utiliser `/api/*`, des chemins d'application publics ou des chemins de rappel spécifiques au fournisseur qui n'entrent pas en collision avec `/_agent-native/`.
 

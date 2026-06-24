@@ -30,12 +30,12 @@ track(
 
 Establezca una var de entorno y el proveedor se registre automáticamente al iniciar el servidor. No se requieren cambios de código.
 
-| Proveedor  | Variaciones de entorno                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| Correo   | `POSTHOG_API_KEY` (obligatorio), `POSTHOG_HOST` (opcional, por defecto `https://us.i.posthog.com`) |
-| Panel mixto  | `MIXPANEL_TOKEN`                                                                                |
-| Amplitud | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL` (obligatorio), `TRACKING_WEBHOOK_AUTH` (encabezado `Authorization` opcional)    |
+| Proveedor   | Variaciones de entorno                                                                              |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| Correo      | `POSTHOG_API_KEY` (obligatorio), `POSTHOG_HOST` (opcional, por defecto `https://us.i.posthog.com`)  |
+| Panel mixto | `MIXPANEL_TOKEN`                                                                                    |
+| Amplitud    | `AMPLITUDE_API_KEY`                                                                                 |
+| Webhook     | `TRACKING_WEBHOOK_URL` (obligatorio), `TRACKING_WEBHOOK_AUTH` (encabezado `Authorization` opcional) |
 
 Varios proveedores pueden estar activos simultáneamente. Cada evento es para todos ellos.
 

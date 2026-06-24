@@ -7,12 +7,12 @@ description: "Stellen Sie Ihre agentennative App als Remote-MCP-Server bereit, d
 
 **Diese Seite: die MCP-Serverreferenz auf niedrigerer Ebene.** Wie jede agentennative App ihren actions über MCP verfügbar macht – der automatisch gemountete Endpunkt, Authentifizierungsmodi, die `tools/call`-/`ask-agent`-Oberfläche und benutzerdefiniertes Mounten. Greifen Sie darauf zu, wenn Sie Serverinterna benötigen; Um einen Host anzuschließen, beginnen Sie mit [External Agents](/docs/external-agents).
 
-| Wenn Sie möchten...                                              | Lesen                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Verbinden Sie einen externen Agenten/Host mit Ihrer App                   | [External Agents](/docs/external-agents) |
-| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)       | [MCP Clients](/docs/mcp-clients)         |
-| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern               | [MCP Apps](/docs/mcp-apps)               |
-| MCP-Serverreferenz auf niedrigerer Ebene (Authentifizierung, Tools, benutzerdefinierte Bereitstellung) | **Diese Seite** – MCP-Protokoll             |
+| Wenn Sie möchten...                                                                                    | Lesen                                    |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Verbinden Sie einen externen Agenten/Host mit Ihrer App                                                | [External Agents](/docs/external-agents) |
+| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)                                        | [MCP Clients](/docs/mcp-clients)         |
+| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern                                                | [MCP Apps](/docs/mcp-apps)               |
+| MCP-Serverreferenz auf niedrigerer Ebene (Authentifizierung, Tools, benutzerdefinierte Bereitstellung) | **Diese Seite** – MCP-Protokoll          |
 
 Jede agentennative App stellt automatisch einen Remote-MCP-Server (Model Context Protocol) bereit, sodass externe KI-Tools wie Claude, ChatGPT benutzerdefinierte MCP-Apps, Claude Code, Cursor, Codex und VS Code GitHub Copilot den actions Ihrer App direkt erkennen und aufrufen können – kein zusätzlicher Code erforderlich. Wenn Ihr Ziel darin besteht, einen dieser Hosts mit einer gehosteten App zu _verbinden_, deckt [External Agents](/docs/external-agents) den empfohlenen einzelnen Dispatch-Connector, URLs, OAuth, MCP Inline-Apps pro App und Deep Links ab. Diese Seite dokumentiert, was sich darunter befindet.
 
@@ -41,14 +41,14 @@ Schlüsselkonzepte:
 
 Beide Protokolle werden automatisch gemountet. Verwenden Sie, was zu Ihrem Anwendungsfall passt:
 
-|                    | MCP                                                                      | A2A                                          |
-| ------------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
-| **Am besten für**       | Externe Tools rufen Ihre App auf                                          | Agent-zu-Agent-Kommunikation                 |
-| **Protokoll**       | MCP Streambar HTTP                                                      | JSON-RPC 2.0                                 |
-| **Toolerkennung** | `tools/list`                                                             | Agentenkarte bei `/.well-known/agent-card.json` |
-| **Endpunkt**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
-| **Unterstützt von**   | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork und andere MCP-Hosts | Andere agentennative Apps                      |
-| **Ausführung**      | Direkte Werkzeugaufrufe (kein zusätzliches LLM)                                         | Vollständige Agentenschleife (LLM-Begründung)              |
+|                     | MCP                                                                      | A2A                                             |
+| ------------------- | ------------------------------------------------------------------------ | ----------------------------------------------- |
+| **Am besten für**   | Externe Tools rufen Ihre App auf                                         | Agent-zu-Agent-Kommunikation                    |
+| **Protokoll**       | MCP Streambar HTTP                                                       | JSON-RPC 2.0                                    |
+| **Toolerkennung**   | `tools/list`                                                             | Agentenkarte bei `/.well-known/agent-card.json` |
+| **Endpunkt**        | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                            |
+| **Unterstützt von** | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork und andere MCP-Hosts | Andere agentennative Apps                       |
+| **Ausführung**      | Direkte Werkzeugaufrufe (kein zusätzliches LLM)                          | Vollständige Agentenschleife (LLM-Begründung)   |
 
 Sie können auch das Tool `ask-agent` MCP verwenden, um das Beste aus beiden Welten zu erhalten – rufen Sie es über den Claude-Code auf und lassen Sie den Agenten Ihrer App komplexe Aufgaben durchdenken.
 
@@ -133,10 +133,10 @@ Jeder Anrufer erhält einen **standardmäßig kompakten Katalog** (in der Vorlag
 
 Jede Aktion ist direkt einem MCP-Tool zugeordnet:
 
-| Aktionseigenschaft    | MCP-Tool-Eigenschaft |
-| ------------------ | ----------------- |
-| `tool.description` | `description`     |
-| `tool.parameters`  | `inputSchema`     |
+| Aktionseigenschaft | MCP-Tool-Eigenschaft |
+| ------------------ | -------------------- |
+| `tool.description` | `description`        |
+| `tool.parameters`  | `inputSchema`        |
 | Aktionsname        | Werkzeugname         |
 
 Wenn `mcpApp` vorhanden ist, enthält der Toolseintrag auch `_meta.ui.resourceUri`, `_meta["ui/resourceUri"]` und `_meta["openai/outputTemplate"]`, und die entsprechende `ui://`-Ressource wird als `text/html;profile=mcp-app` zurückgegeben.
@@ -162,14 +162,14 @@ Der Agent führt die gleiche Schleife aus wie der interaktive Chat – er kann m
 
 Der MCP-Endpunkt unterstützt den Standard-Remote-MCP OAuth sowie den vorhandenen Bearer-Token-Fallback:
 
-| Modus                        | Wie es funktioniert                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Standard MCP OAuth          | Der Client erkennt die Authentifizierung von `WWW-Authenticate`, registriert sich, führt PKCE aus und sendet `Authorization: Bearer <access-token>` |
-| Connect-Minted JWT          | `npx @agent-native/core@latest connect` / Die Connect-Seite prägt ein widerrufliches JWT pro Benutzer                            |
-| `ACCESS_TOKEN`              | Statisches Inhabertoken – Client sendet `Authorization: Bearer <token>`                                                    |
-| `ACCESS_TOKENS`             | Komma-getrennte Liste gültiger statischer Trägertoken                                                                    |
-| `A2A_SECRET`                | JWT-basierte Authentifizierung – Token werden kryptografisch überprüft                                                                |
-| _(keine festgelegt, nur Loopback)_ | Keine Authentifizierung für lokale Entwicklungstests erforderlich                                                                                 |
+| Modus                              | Wie es funktioniert                                                                                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Standard MCP OAuth                 | Der Client erkennt die Authentifizierung von `WWW-Authenticate`, registriert sich, führt PKCE aus und sendet `Authorization: Bearer <access-token>` |
+| Connect-Minted JWT                 | `npx @agent-native/core@latest connect` / Die Connect-Seite prägt ein widerrufliches JWT pro Benutzer                                               |
+| `ACCESS_TOKEN`                     | Statisches Inhabertoken – Client sendet `Authorization: Bearer <token>`                                                                             |
+| `ACCESS_TOKENS`                    | Komma-getrennte Liste gültiger statischer Trägertoken                                                                                               |
+| `A2A_SECRET`                       | JWT-basierte Authentifizierung – Token werden kryptografisch überprüft                                                                              |
+| _(keine festgelegt, nur Loopback)_ | Keine Authentifizierung für lokale Entwicklungstests erforderlich                                                                                   |
 
 Konfigurieren Sie für OAuth-fähige MCP-Hosts den Remote-Server URL ohne statische Header:
 
@@ -186,12 +186,12 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 Erkennungsendpunkte:
 
-| Endpunkt                                  | Zweck                                     |
-| ----------------------------------------- | ------------------------------------------- |
-| `/.well-known/oauth-protected-resource`   | RFC 9728 Metadaten geschützter Ressourcen        |
-| `/.well-known/oauth-authorization-server` | OAuth Autorisierungsserver-Metadaten         |
-| `/_agent-native/mcp/oauth/register`       | Dynamische öffentliche Kundenregistrierung          |
-| `/_agent-native/mcp/oauth/authorize`      | Browserautorisierung + Einwilligung             |
+| Endpunkt                                  | Zweck                                                  |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 Metadaten geschützter Ressourcen              |
+| `/.well-known/oauth-authorization-server` | OAuth Autorisierungsserver-Metadaten                   |
+| `/_agent-native/mcp/oauth/register`       | Dynamische öffentliche Kundenregistrierung             |
+| `/_agent-native/mcp/oauth/authorize`      | Browserautorisierung + Einwilligung                    |
 | `/_agent-native/mcp/oauth/token`          | Autorisierungscode- und Aktualisierungstoken-Gewährung |
 
 ```an-diagram title="OAuth discovery flow" summary="A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."
@@ -203,11 +203,11 @@ Erkennungsendpunkte:
 
 Zugriffstoken sind signierte JWTs, deren Zielgruppe genau die MCP-Ressource URL ist. Der Server akzeptiert nur für ihn selbst ausgestellte Token und wendet Bereiche an, bevor er Tools auflistet/aufruft:
 
-| Geltungsbereich       | Erlaubt                                      |
-| ----------- | ------------------------------------------- |
-| `mcp:read`  | schreibgeschützt actions                           |
-| `mcp:write` | Mutierung von actions und `ask-agent`            |
-| `mcp:apps`  | MCP Apps-Ressourcen (`ui://` HTML-Ressourcen) |
+| Geltungsbereich | Erlaubt                                       |
+| --------------- | --------------------------------------------- |
+| `mcp:read`      | schreibgeschützt actions                      |
+| `mcp:write`     | Mutierung von actions und `ask-agent`         |
+| `mcp:apps`      | MCP Apps-Ressourcen (`ui://` HTML-Ressourcen) |
 
 Aktualisierungstoken werden nur als Hashes gespeichert und bei jeder Aktualisierung rotiert. `npx @agent-native/core@latest connect` schreibt standardmäßig diesen nur für URL gültigen OAuth-Eintrag für Claude-Code-Clients. Behalten Sie die Connect-Seite, `npx @agent-native/core@latest connect --token <token>` und die statische Bearer-Konfiguration für lokales Standard-Proxying, ältere Clients und Notfall-/Debug-Flows bei.
 

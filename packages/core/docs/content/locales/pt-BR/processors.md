@@ -21,11 +21,11 @@ Um `Processor` é um **observador/guardrail** interno de loop para a execução 
 
 Um processador implementa qualquer subconjunto de três ganchos de ciclo de vida opcionais (a forma é emprestada dos processadores de saída do Mastra):
 
-| Gancho                  | Incêndios…                                                                | Use-o para…                                                  |
-| --------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `processOutputStream` | por pedaço transmitido (deltas de texto/pensamento) enquanto o modelo gera | reaja à saída antes do turno completo acontecer                  |
-| `processOutputStep`   | uma vez por resposta do modelo, próximo à execução da ferramenta                        | inspecione as chamadas de ferramenta que o modelo está prestes a executar; bloqueie-os |
-| `processOutputResult` | uma vez no final da execução, com o texto final do assistente                        | registrar um veredicto/prova de conclusão sobre a resposta completa  |
+| Gancho                | Incêndios…                                                                 | Use-o para…                                                                            |
+| --------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `processOutputStream` | por pedaço transmitido (deltas de texto/pensamento) enquanto o modelo gera | reaja à saída antes do turno completo acontecer                                        |
+| `processOutputStep`   | uma vez por resposta do modelo, próximo à execução da ferramenta           | inspecione as chamadas de ferramenta que o modelo está prestes a executar; bloqueie-os |
+| `processOutputResult` | uma vez no final da execução, com o texto final do assistente              | registrar um veredicto/prova de conclusão sobre a resposta completa                    |
 
 Cada processador obtém seu próprio objeto `state` mutável com escopo de execução que persiste em cada uma de suas invocações de gancho em uma única execução e é **isolado** do estado de outros processadores.
 
@@ -69,9 +69,9 @@ import { TripWire } from "@agent-native/core";
 
 O evento `tripwire` carrega:
 
-| Campo       | Tipo     | Notas                                                          |
-| ----------- | -------- | -------------------------------------------------------------- |
-| `reason`    | `string` | O motivo legível passado para `abort`.                   |
+| Campo       | Tipo     | Notas                                                      |
+| ----------- | -------- | ---------------------------------------------------------- |
+| `reason`    | `string` | O motivo legível passado para `abort`.                     |
 | `processor` | `string` | Nome do processador que abortou quando declarou um `name`. |
 
 `TripWire` também carrega `meta` estruturado opcional e o nome `processor` de origem para consumidores programáticos que `instanceof` o verificam. Como uma parada é normal, `processOutputResult` ainda é acionado no texto final (interrompido) para que um processador de prova de conclusão possa registrar seu veredicto mesmo quando a execução foi abortada.

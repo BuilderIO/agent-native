@@ -77,13 +77,13 @@ pnpm dev
 
 所有数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/design/server/db/schema.ts`。设计和设计系统采用标准 `ownableColumns` 和匹配的框架共享表，因此它们可以插入每用户/每组织共享模型。
 
-| 表                                    | 它包含什么                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 表                                       | 它包含什么                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | 一个设计项目 - `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON Blob 和可选的 `design_system_id` 链接 |
-| `design_files`                           | 属于某个设计的各个文件（`filename`、`content`、`file_type` 默认为 `html`）                                                 |
-| `design_versions`                        | 具有可选 `label` 的设计的时间点 `snapshot`，用于历史记录和回滚                                                         |
+| `design_files`                           | 属于某个设计的各个文件（`filename`、`content`、`file_type` 默认为 `html`）                                                       |
+| `design_versions`                        | 具有可选 `label` 的设计的时间点 `snapshot`，用于历史记录和回滚                                                                   |
 | `design_systems`                         | 可重复使用的品牌标记 - `data`（颜色/版式/间距）、`assets`、`custom_instructions` 和 `is_default` 标志                            |
-| `design_shares` / `design_system_shares` | 框架共享将主体（用户或组织）映射到角色（查看者、编辑者、管理员）的表                                                      |
+| `design_shares` / `design_system_shares` | 框架共享将主体（用户或组织）映射到角色（查看者、编辑者、管理员）的表                                                             |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

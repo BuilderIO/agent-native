@@ -34,15 +34,15 @@ Wenn Sie eine einzelne Vorlage eigenständig ausführen, benötigen Sie Dispatch
 
 Sieben Funktionen, die alle auf derselben Workspace-Datenbank basieren, die auch die anderen Apps verwenden:
 
-| Fähigkeit               | Was es Ihnen bietet                                                               | Einrichten                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Zentraler Posteingang**        | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools | **Einstellungen → Nachrichten** ([Messaging](/docs/messaging))       |
-| **Geheimer Tresor**         | Speichern Sie jeden Berechtigungsnachweis einmal. rotieren an einer Stelle in jeder App                | **Vault** + Zugriffsmodus (alle Apps oder manuell)                  |
-| **App-übergreifende Delegierung** | Leitet eine Anfrage über A2A an die richtige Fach-App weiter und antwortet im Thread     | Automatisch ([A2A](/docs/a2a-protocol))                         |
-| **Einheitliches MCP-Gateway**  | Ein MCP-Connector für externe Agenten erreicht jede gewährte Workspace-App       | [External Agents](/docs/external-agents)                      |
-| **Arbeitsbereichsressourcen**  | Autor skills/instructions/profiles einmal; Apps erben sie zur Laufzeit          | **Ressourcen** ([Workspace](/docs/workspace#global-resources)) |
-| **Träume**               | Überprüft vergangene Läufe/Feedback und schlägt dauerhafte Verbesserungen vor, die Sie genehmigen können | Registerkarte „Träume**“                                                |
-| **Genehmigungsablauf**        | Gate-sensitive Laufzeitänderungen hinter der Inline-Administratorüberprüfung                       | **Versandgenehmigungsrichtlinie**                                  |
+| Fähigkeit                         | Was es Ihnen bietet                                                                                      | Einrichten                                                     |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Zentraler Posteingang**         | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools          | **Einstellungen → Nachrichten** ([Messaging](/docs/messaging)) |
+| **Geheimer Tresor**               | Speichern Sie jeden Berechtigungsnachweis einmal. rotieren an einer Stelle in jeder App                  | **Vault** + Zugriffsmodus (alle Apps oder manuell)             |
+| **App-übergreifende Delegierung** | Leitet eine Anfrage über A2A an die richtige Fach-App weiter und antwortet im Thread                     | Automatisch ([A2A](/docs/a2a-protocol))                        |
+| **Einheitliches MCP-Gateway**     | Ein MCP-Connector für externe Agenten erreicht jede gewährte Workspace-App                               | [External Agents](/docs/external-agents)                       |
+| **Arbeitsbereichsressourcen**     | Autor skills/instructions/profiles einmal; Apps erben sie zur Laufzeit                                   | **Ressourcen** ([Workspace](/docs/workspace#global-resources)) |
+| **Träume**                        | Überprüft vergangene Läufe/Feedback und schlägt dauerhafte Verbesserungen vor, die Sie genehmigen können | Registerkarte „Träume\*\*“                                     |
+| **Genehmigungsablauf**            | Gate-sensitive Laufzeitänderungen hinter der Inline-Administratorüberprüfung                             | **Versandgenehmigungsrichtlinie**                              |
 
 Jedes wird unten detailliert beschrieben.
 

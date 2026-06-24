@@ -13,11 +13,11 @@ Chaque application native d'agent reçoit immédiatement un journal d'audit : u
 
 Trois systèmes enregistrent « ce qui s'est passé », pour trois raisons différentes. Choisissez en fonction de la question que vous posez :
 
-| Système                                   | La question à laquelle il répond                                | Fidélité                         | Public                      |
-| ---------------------------------------- | ------------------------------------------------------ | -------------------------------- | ----------------------------- |
-| **Journal d'audit** (cette page)                | "Qui a modifié cet enregistrement, quand et était-ce l'agent ?" | **Complet, durable, limité**    | Utilisateur, administrateur, l'agent lui-même |
-| **[Observability](/docs/observability)** | "Pourquoi l'agent a-t-il fait cela et combien cela a-t-il coûté ?"     | Télémétrie d'étendue échantillonnée           | Développeur                     |
-| **[Tracking](/docs/tracking)**           | "Comment les gens utilisent-ils le produit ?"                    | Activez et oubliez le SaaS externe | PM / croissance                   |
+| Système                                  | La question à laquelle il répond                                   | Fidélité                            | Public                                        |
+| ---------------------------------------- | ------------------------------------------------------------------ | ----------------------------------- | --------------------------------------------- |
+| **Journal d'audit** (cette page)         | "Qui a modifié cet enregistrement, quand et était-ce l'agent ?"    | **Complet, durable, limité**        | Utilisateur, administrateur, l'agent lui-même |
+| **[Observability](/docs/observability)** | "Pourquoi l'agent a-t-il fait cela et combien cela a-t-il coûté ?" | Télémétrie d'étendue échantillonnée | Développeur                                   |
+| **[Tracking](/docs/tracking)**           | "Comment les gens utilisent-ils le produit ?"                      | Activez et oubliez le SaaS externe  | PM / croissance                               |
 
 Un journal d'audit échantillonné ou expédié à un fournisseur d'analyses est inutile : l'essentiel est qu'il soit complet, local et interrogeable. C'est donc son propre sous-système, pas un mode des deux autres.
 
@@ -63,13 +63,13 @@ Tout dans `audit` est facultatif. L'ajout minimum utile est `target: () => ({ ty
 
 ### Capture de réglage {#tuning}
 
-| Option               | Effet                                                          |
-| -------------------- | --------------------------------------------------------------- |
+| Option               | Effet                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
 | `audit.target`       | Étiquetez l'événement avec la ressource et la portée lit à son propriétaire. |
-| `audit.summary`      | Une courte ligne lisible par l'homme pour l'événement.                      |
+| `audit.summary`      | Une courte ligne lisible par l'homme pour l'événement.                       |
 | `audit.onRead`       | Auditer une **lecture** sensible (accès secret, exportation groupée).        |
-| `audit.enabled`      | `true` force la capture ; `false` supprime une mutation bruyante.    |
-| `audit.recordInputs` | `false` ignore la capture des arguments (déjà expurgés).       |
+| `audit.enabled`      | `true` force la capture ; `false` supprime une mutation bruyante.            |
+| `audit.recordInputs` | `false` ignore la capture des arguments (déjà expurgés).                     |
 
 ## Lecture du parcours {#reading}
 

@@ -32,12 +32,12 @@ llamada modelo.
 
 ## ¿Qué documento de codificación quiero? {#which-doc}
 
-| Quieres...                                                               | Usar                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Ejecute Claude Code / Codex / Pi **como agente**, con su propio bucle + herramientas | **Aprovecha a los agentes** (esta página)               |
-| Renderizar un código Claude/estilo Codex **espacio de trabajo de codificación UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
-| Cambiar el backend que ejecuta la **herramienta `run-code`**                 | [Adapters](/docs/sandbox-adapters)           |
-| Preparar una herramienta CLI (`gh`, `ffmpeg`) para que el agente la llame                     | [Adapters](/docs/sandbox-adapters)           |
+| Quieres...                                                                           | Usar                                         |
+| ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Ejecute Claude Code / Codex / Pi **como agente**, con su propio bucle + herramientas | **Aprovecha a los agentes** (esta página)    |
+| Renderizar un código Claude/estilo Codex **espacio de trabajo de codificación UI**   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Cambiar el backend que ejecuta la **herramienta `run-code`**                         | [Adapters](/docs/sandbox-adapters)           |
+| Preparar una herramienta CLI (`gh`, `ffmpeg`) para que el agente la llame            | [Adapters](/docs/sandbox-adapters)           |
 
 Superficies adyacentes: coloque un agente que haya creado en otro lugar detrás del chat de Agent-Native
 UI con [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes); deja un
@@ -49,11 +49,11 @@ El fondo generado/el subagente se ejecuta con [Custom Agents & Teams](/docs/agen
 `registerBuiltinAgentHarnesses()` registra tres adaptadores respaldados por AI SDK
 `HarnessAgent`:
 
-| Nombre                         | Tiempo de ejecución     | Caja de arena | Aprobaciones |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Código Claude | sí     | sí       |
-| `ai-sdk-harness:codex`       | Codex       | sí     | no        |
-| `ai-sdk-harness:pi`          | Pi          | no      | sí       |
+| Nombre                       | Tiempo de ejecución | Caja de arena | Aprobaciones |
+| ---------------------------- | ------------------- | ------------- | ------------ |
+| `ai-sdk-harness:claude-code` | Código Claude       | sí            | sí           |
+| `ai-sdk-harness:codex`       | Codex               | sí            | no           |
+| `ai-sdk-harness:pi`          | Pi                  | no            | sí           |
 
 Sus paquetes de tiempo de ejecución son **dependencias de pares opcionales** y se cargan con pereza, por lo que
 la aplicación que nunca usa un arnés no paga por ello. Cada adaptador lleva un
@@ -79,11 +79,11 @@ entorno principal, por lo que el agente reutiliza cualquier inicio de sesión lo
 transporte alojado o en espacio aislado, y no es un transporte de chat/A2A, para esos,
 ver [Agent Surfaces](/docs/agent-surfaces).
 
-| Nombre              | Comando predeterminado                                | Reanudable\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(suministro `command`/`args` mediante configuración)_         | sí         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | sí         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | sí         |
+| Nombre            | Comando predeterminado                                 | Reanudable\* |
+| ----------------- | ------------------------------------------------------ | ------------ |
+| `acp`             | _(suministro `command`/`args` mediante configuración)_ | sí           |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp`         | sí           |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`               | sí           |
 
 \*El currículum funciona cuando el agente anuncia la capacidad `loadSession` y
 de lo contrario, se degrada a una sesión nueva.
@@ -247,11 +247,11 @@ Sí,
 
 `permissionMode` indica lo que el arnés puede hacer sin aprobación:
 
-| Modo          | Significado                                            |
-| ------------- | -------------------------------------------------- |
+| Modo          | Significado                                                                      |
+| ------------- | -------------------------------------------------------------------------------- |
 | `allow-reads` | Predeterminado. Las lecturas se ejecutan; ediciones y mensaje arriesgado actions |
-| `allow-edits` | Se ejecutan lecturas y ediciones; otro aviso arriesgado actions    |
-| `allow-all`   | Sin control de aprobación                                 |
+| `allow-edits` | Se ejecutan lecturas y ediciones; otro aviso arriesgado actions                  |
+| `allow-all`   | Sin control de aprobación                                                        |
 
 Cuando un arnés se detiene para su aprobación, emite un evento `approval-request` y el
 La sesión está marcada como `idle` con la aprobación pendiente registrada, por lo que UI puede

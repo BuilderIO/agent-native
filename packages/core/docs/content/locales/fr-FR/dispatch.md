@@ -34,15 +34,15 @@ Si vous exécutez un seul modèle autonome, vous n'avez pas besoin de Dispatch 
 
 Sept fonctionnalités, toutes situées au-dessus de la même base de données d'espace de travail que celles utilisées par les autres applications :
 
-| Capacité               | Ce que cela vous donne                                                               | Configurez-le                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Boîte de réception centrale**        | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils | **Paramètres → Messagerie** ([Messaging](/docs/messaging))       |
-| **Coffre secret**         | Stockez chaque identifiant une fois ; effectuer une rotation au même endroit dans chaque application                | **Vault** + mode d'accès (toutes les applications ou manuel)                  |
-| **Délégation inter-applications** | Achemine une demande vers la bonne application spécialisée via A2A et répond dans le fil de discussion     | Automatique ([A2A](/docs/a2a-protocol))                         |
-| **Passerelle unifiée MCP**  | Un connecteur MCP pour les agents externes atteint chaque application d'espace de travail accordée       | [External Agents](/docs/external-agents)                      |
-| **Ressources de l'espace de travail**  | Auteur skills/instructions/profils une fois ; les applications en héritent au moment de l'exécution          | **Ressources** ([Workspace](/docs/workspace#global-resources)) |
-| **Rêves**               | Examine les exécutions/commentaires passés et propose des améliorations durables à approuver | Onglet **Rêves**                                                |
-| **Flux d'approbation**        | Gestion des modifications d'exécution sensibles derrière la révision par l'administrateur en ligne                       | **Politique d'approbation d'expédition**                                  |
+| Capacité                              | Ce que cela vous donne                                                                                 | Configurez-le                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| **Boîte de réception centrale**       | Slack, e-mail, Telegram, WhatsApp atteignent tous un seul agent avec mémoire partagée + outils         | **Paramètres → Messagerie** ([Messaging](/docs/messaging))     |
+| **Coffre secret**                     | Stockez chaque identifiant une fois ; effectuer une rotation au même endroit dans chaque application   | **Vault** + mode d'accès (toutes les applications ou manuel)   |
+| **Délégation inter-applications**     | Achemine une demande vers la bonne application spécialisée via A2A et répond dans le fil de discussion | Automatique ([A2A](/docs/a2a-protocol))                        |
+| **Passerelle unifiée MCP**            | Un connecteur MCP pour les agents externes atteint chaque application d'espace de travail accordée     | [External Agents](/docs/external-agents)                       |
+| **Ressources de l'espace de travail** | Auteur skills/instructions/profils une fois ; les applications en héritent au moment de l'exécution    | **Ressources** ([Workspace](/docs/workspace#global-resources)) |
+| **Rêves**                             | Examine les exécutions/commentaires passés et propose des améliorations durables à approuver           | Onglet **Rêves**                                               |
+| **Flux d'approbation**                | Gestion des modifications d'exécution sensibles derrière la révision par l'administrateur en ligne     | **Politique d'approbation d'expédition**                       |
 
 Chacun est détaillé ci-dessous.
 

@@ -140,17 +140,17 @@ Postgres, Neon, D1, Turso 및 유사한 호스트. 애플리케이션 상태는
 
 Brain의 스키마는 `templates/brain/server/db/schema.ts`에 있습니다. 테이블 8개:
 
-| 테이블                    | 무엇을 담고 있는지                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brain_sources`          | 커넥터 구성 — 공급자, 허용 목록에 있는 채널/저장소, 동기화 커서, 상태 검토, `ingest_token_hash`, `status`, `last_synced_at`        |
-| `brain_source_shares`    | 소스별 공유 부여(뷰어/편집자/관리자)                                                                                              |
-| `brain_raw_captures`     | `external_id` 중복 제거 키, `content_hash`, 종류 및 증류 상태를 사용한 스크립트, 채널 내보내기, 메모 및 웹훅 가져오기          |
-| `brain_knowledge`        | 정제된 원자 항목 — 종류(결정/사실/과정/...), 주제, 엔터티, 증거 인용문, 신뢰도, `publish_tier`, 대체 링크 |
-| `brain_knowledge_shares` | 지식별 공유 부여                                                                                                                     |
-| `brain_proposals`        | 보류 중인 검토 항목 — 증거 및 검토자 메모가 포함된 생성/업데이트/보관 제안                                                         |
-| `brain_proposal_shares`  | 제안별 지분 부여                                                                                                                      |
-| `brain_sync_runs`        | 동기화 감사 로그 — 공급자, 상태, 통계 JSON, 오류, 시작/종료 타임스탬프                                                                     |
-| `brain_ingest_queue`     | 백그라운드 증류 큐 — 작업, 상태, 우선순위, 재시도 횟수, `run_after`                                                          |
+| 테이블                   | 무엇을 담고 있는지                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | 커넥터 구성 — 공급자, 허용 목록에 있는 채널/저장소, 동기화 커서, 상태 검토, `ingest_token_hash`, `status`, `last_synced_at` |
+| `brain_source_shares`    | 소스별 공유 부여(뷰어/편집자/관리자)                                                                                        |
+| `brain_raw_captures`     | `external_id` 중복 제거 키, `content_hash`, 종류 및 증류 상태를 사용한 스크립트, 채널 내보내기, 메모 및 웹훅 가져오기       |
+| `brain_knowledge`        | 정제된 원자 항목 — 종류(결정/사실/과정/...), 주제, 엔터티, 증거 인용문, 신뢰도, `publish_tier`, 대체 링크                   |
+| `brain_knowledge_shares` | 지식별 공유 부여                                                                                                            |
+| `brain_proposals`        | 보류 중인 검토 항목 — 증거 및 검토자 메모가 포함된 생성/업데이트/보관 제안                                                  |
+| `brain_proposal_shares`  | 제안별 지분 부여                                                                                                            |
+| `brain_sync_runs`        | 동기화 감사 로그 — 공급자, 상태, 통계 JSON, 오류, 시작/종료 타임스탬프                                                      |
+| `brain_ingest_queue`     | 백그라운드 증류 큐 — 작업, 상태, 우선순위, 재시도 횟수, `run_after`                                                         |
 
 ```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {

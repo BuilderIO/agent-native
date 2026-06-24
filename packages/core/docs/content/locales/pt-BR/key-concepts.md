@@ -41,11 +41,11 @@ a superfície do produto é headless, chat-first ou UI completo:
 }
 ```
 
-| Bloco de construção   | Use-o para                                                                                          | Carregado quando                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Instruções** | Orientação estável que o agente deve levar em cada tarefa: o que é o aplicativo, invariantes, tom, índices  | Cada turno                                            |
-| **Skills**       | Comportamento reutilizável: como seguir um fluxo de trabalho, aplicar uma política, inspecionar evidências ou verificar uma saída  | Sob demanda quando a descrição da habilidade corresponde à tarefa |
-| **Actions**      | Operações reais: ler ou gravar dados, chamar APIs, enviar mensagens, executar aprovações, produzir resultados digitados |  Listadas como ferramentas a cada passo; executado somente quando chamado |
+| Bloco de construção | Use-o para                                                                                                                        | Carregado quando                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Instruções**      | Orientação estável que o agente deve levar em cada tarefa: o que é o aplicativo, invariantes, tom, índices                        | Cada turno                                                               |
+| **Skills**          | Comportamento reutilizável: como seguir um fluxo de trabalho, aplicar uma política, inspecionar evidências ou verificar uma saída | Sob demanda quando a descrição da habilidade corresponde à tarefa        |
+| **Actions**         | Operações reais: ler ou gravar dados, chamar APIs, enviar mensagens, executar aprovações, produzir resultados digitados           | Listadas como ferramentas a cada passo; executado somente quando chamado |
 
 Skills e actions trabalham juntos. Uma habilidade ensina o agente a fazer uma aula de
 trabalho; uma ação é o caminho do código que ela pode chamar enquanto realiza esse trabalho. Por exemplo,
@@ -66,12 +66,12 @@ Seis regras governam a arquitetura:
 
 Cada recurso voltado para o usuário deve atualizar todas as áreas aplicáveis. Ignorar uma área aplicável quebra o contrato do agente nativo; forçar um UI em um primitivo somente de ação também é um cheiro.
 
-| Área             | Descrição                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| **1. UI**        | Página, componente ou caixa de diálogo com a qual o usuário interage             |
-| **2. Ação**    | Ação que pode ser chamada pelo agente em actions/ para a mesma operação       |
-| **3. Skills**    | Atualize AGENTS.md e/ou crie uma habilidade documentando o padrão |
-| **4. Estado do aplicativo** | Estado de navegação, dados da tela de visualização e comandos de navegação      |
+| Área                        | Descrição                                                                  |
+| --------------------------- | -------------------------------------------------------------------------- |
+| **1. UI**                   | Página, componente ou caixa de diálogo com a qual o usuário interage       |
+| **2. Ação**                 | Ação que pode ser chamada pelo agente em actions/ para a mesma operação    |
+| **3. Skills**               | Atualize AGENTS.md e/ou crie uma habilidade documentando o padrão          |
+| **4. Estado do aplicativo** | Estado de navegação, dados da tela de visualização e comandos de navegação |
 
 Um recurso com apenas UI é invisível para o agente. Um recurso UI completo com apenas actions é invisível para o usuário. Um recurso sem estado de aplicativo significa que o agente não sabe o que o usuário está fazendo. Uma operação headless pode começar legitimamente com ação + instruções e adicionar UI/estado do aplicativo posteriormente, quando humanos precisarem navegar, aprovar, configurar ou compartilhá-lo.
 

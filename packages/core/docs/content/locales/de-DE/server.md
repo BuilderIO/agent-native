@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### Routenbenennungskonventionen {#route-naming-conventions}
 
-| Dateinamenmuster  | HTTP-Methode | Beispielpfad                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` oder Catch-All |
+| Dateinamenmuster   | HTTP-Methode | Beispielpfad                  |
+| ------------------ | ------------ | ----------------------------- |
+| `index.get.ts`     | GET          | `/api/items`                  |
+| `index.post.ts`    | POST         | `/api/items`                  |
+| `[id].get.ts`      | GET          | `/api/items/:id`              |
+| `[id].patch.ts`    | PATCH        | `/api/items/:id`              |
+| `[id].delete.ts`   | DELETE       | `/api/items/:id`              |
+| `[...slug].get.ts` | GET          | `/api/items/*` oder Catch-All |
 
 ## Actions für App-Vorgänge bevorzugen {#actions-first}
 
@@ -149,17 +149,17 @@ Migrationen müssen additiv sein. Fügen Sie niemals destruktives SQL in Startup
 
 Das Framework mountet seine eigenen Routen unter `/_agent-native/`. Behandeln Sie diesen Namespace als reserviert.
 
-| Routenpräfix                     | Zweck                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Aktion HTTP Endpunkte                                                           |
-| `/_agent-native/agent-chat`      | Agent-Chat-Schleife                                                                 |
-| `/_agent-native/poll`            | SQL-gestützte UI-Synchronisierung                                                              |
+| Routenpräfix                     | Zweck                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Aktion HTTP Endpunkte                                                                 |
+| `/_agent-native/agent-chat`      | Agent-Chat-Schleife                                                                   |
+| `/_agent-native/poll`            | SQL-gestützte UI-Synchronisierung                                                     |
 | `/_agent-native/resources/*`     | Arbeitsbereichsressourcen                                                             |
 | `/_agent-native/extensions/*`    | Laufzeiterweiterungen und Erweiterungs-Proxy (Legacy-Alias: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Messaging-/Webhook-Integrationen                                                  |
-| `/_agent-native/a2a`             | Agent-zu-Agent JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP-Endpunkt                                                                    |
-| `/_agent-native/onboarding/*`    | Setup-Checkliste                                                                 |
+| `/_agent-native/integrations/*`  | Messaging-/Webhook-Integrationen                                                      |
+| `/_agent-native/a2a`             | Agent-zu-Agent JSON-RPC                                                               |
+| `/_agent-native/mcp`             | MCP-Endpunkt                                                                          |
+| `/_agent-native/onboarding/*`    | Setup-Checkliste                                                                      |
 | `/_agent-native/observability/*` | Spuren, Feedback, Bewertungen, Experimente                                            |
 | `/_agent-native/file-upload`     | Endpunkt des Datei-Upload-Anbieters                                                   |
 

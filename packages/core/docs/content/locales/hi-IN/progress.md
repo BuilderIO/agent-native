@@ -34,12 +34,12 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ## जीवनचक्र {#lifecycle}
 
-| स्थिति      | संक्रमण                  |
-| ----------- | --------------------------- |
+| स्थिति      | संक्रमण                           |
+| ----------- | --------------------------------- |
 | `running`   | प्रारंभिक - `startRun` द्वारा सेट |
-| `succeeded` | हैप्पी-पाथ टर्मिनल         |
-| `failed`    | त्रुटि टर्मिनल              |
-| `cancelled` | उपयोगकर्ता ने व्यवधान डाला            |
+| `succeeded` | हैप्पी-पाथ टर्मिनल                |
+| `failed`    | त्रुटि टर्मिनल                    |
+| `cancelled` | उपयोगकर्ता ने व्यवधान डाला        |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 कोर-रूट्स प्लगइन द्वारा `/_agent-native/runs/*` पर माउंट किया गया। **HTTP पर केवल पढ़ने के लिए** - एजेंट टूल के माध्यम से लिखा जाता है क्योंकि एजेंट विहित लेखक है। सभी मार्ग स्वामी के दायरे वाले हैं।
 
-| विधि   | पथ                              |
+| विधि     | पथ                                |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ export function HeaderBar() {
 
 प्रत्येक टेम्पलेट में एक एकल `manage-progress` टूल पंजीकृत है। `action` पैरामीटर ऑपरेशन का चयन करता है:
 
-| कार्रवाई     | उद्देश्य                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | किसी लंबे कार्य के शीर्ष पर कॉल करें। एक रनआईडी लौटाता है।                |
+| कार्रवाई   | उद्देश्य                                                          |
+| ---------- | ----------------------------------------------------------------- |
+| `start`    | किसी लंबे कार्य के शीर्ष पर कॉल करें। एक रनआईडी लौटाता है।        |
 | `update`   | कार्य के दौरान समय-समय पर `percent` और/या `step` के साथ कॉल करें। |
 | `complete` | टर्मिनल - `succeeded`, `failed`, `cancelled` में से एक।           |
-| `list`     | हाल के रनों का निरीक्षण करें (`active=true` द्वारा फ़िल्टर करें)।                  |
+| `list`     | हाल के रनों का निरीक्षण करें (`active=true` द्वारा फ़िल्टर करें)। |
 
 ### दौड़ कब शुरू करें {#when-to-start}
 
@@ -168,7 +168,7 @@ export function HeaderBar() {
 
 [event bus](/docs/automations#event-bus) पर दो घटनाएँ उत्सर्जित होती हैं:
 
-| घटना                  | पेलोड                            |
+| घटना                   | पेलोड                              |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

@@ -30,12 +30,12 @@ track(
 
 env var를 설정하면 공급자가 서버 시작 시 자동 등록됩니다. 코드 변경이 필요하지 않습니다.
 
-| 제공자  | 환경 변수                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| 포스트호그   | `POSTHOG_API_KEY`(필수), `POSTHOG_HOST`(선택사항, 기본값은 `https://us.i.posthog.com`) |
-| 믹스패널  | `MIXPANEL_TOKEN`                                                                                |
-| 진폭 | `AMPLITUDE_API_KEY`                                                                             |
-| 웹훅   | `TRACKING_WEBHOOK_URL`(필수), `TRACKING_WEBHOOK_AUTH`(선택적 `Authorization` 헤더)    |
+| 제공자     | 환경 변수                                                                              |
+| ---------- | -------------------------------------------------------------------------------------- |
+| 포스트호그 | `POSTHOG_API_KEY`(필수), `POSTHOG_HOST`(선택사항, 기본값은 `https://us.i.posthog.com`) |
+| 믹스패널   | `MIXPANEL_TOKEN`                                                                       |
+| 진폭       | `AMPLITUDE_API_KEY`                                                                    |
+| 웹훅       | `TRACKING_WEBHOOK_URL`(필수), `TRACKING_WEBHOOK_AUTH`(선택적 `Authorization` 헤더)     |
 
 여러 공급자가 동시에 활성화될 수 있습니다. 모든 이벤트는 그들 모두에게 전달됩니다.
 

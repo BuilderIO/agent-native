@@ -103,14 +103,14 @@ Dann fügen Sie die Aktion [actions/labeler](https://github.com/actions/labeler)
 
 ## PR-Überprüfungsrichtlinien
 
-| Typ ändern                       | Wer bewertet                           | Worauf Sie achten sollten                                                         |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
-| **Nur App** (`templates/<app>/`) | Eigentümer des App-Teams                       | Domänenkorrektheit, Aktionsschemata                                        |
-| **Framework** (`packages/core/`)  | Plattformteam + ein betroffenes App-Team | Breaking Changes, Leistung, Abwärtskompatibilität                           |
-| **Schemamigrationen**             | Plattformteam + leitender Ingenieur       | Datensicherheit, Dialektagnostizismus (SQLite + Postgres)                      |
-| **Actions**                       | Eigentümerteam                           | Actions sind beide Agent-Tools, AND HTTP Endpunkte – Überprüfung aus beiden Blickwinkeln |
-| **App-übergreifendes A2A**                 | Beide App-Teams                        | Wenn Sie eine A2A-Schnittstelle ändern, müssen die Anrufer davon erfahren                  |
-| **Tresor/Ressourcen versenden**      | Plattform-Team                         | Geheimer Zugriff, Gewährungsbereich, wer was bekommt                                 |
+| Typ ändern                       | Wer bewertet                             | Worauf Sie achten sollten                                                                |
+| -------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Nur App** (`templates/<app>/`) | Eigentümer des App-Teams                 | Domänenkorrektheit, Aktionsschemata                                                      |
+| **Framework** (`packages/core/`) | Plattformteam + ein betroffenes App-Team | Breaking Changes, Leistung, Abwärtskompatibilität                                        |
+| **Schemamigrationen**            | Plattformteam + leitender Ingenieur      | Datensicherheit, Dialektagnostizismus (SQLite + Postgres)                                |
+| **Actions**                      | Eigentümerteam                           | Actions sind beide Agent-Tools, AND HTTP Endpunkte – Überprüfung aus beiden Blickwinkeln |
+| **App-übergreifendes A2A**       | Beide App-Teams                          | Wenn Sie eine A2A-Schnittstelle ändern, müssen die Anrufer davon erfahren                |
+| **Tresor/Ressourcen versenden**  | Plattform-Team                           | Geheimer Zugriff, Gewährungsbereich, wer was bekommt                                     |
 
 ### Gleichzeitige Agentenarbeit
 
@@ -132,16 +132,16 @@ Beim Überprüfen von PRs in dieser Umgebung:
 
 Die [Dispatch](/docs/dispatch)-App ist die Laufzeitsteuerungsebene des Arbeitsbereichs. Es ergänzt die Governance auf Git-Ebene durch die Laufzeit-Governance:
 
-| Bedenken                         | Git / GitHub                  | Versand                                                     |
-| ------------------------------- | ----------------------------- | ------------------------------------------------------------ |
-| Wer kann Code ändern?             | CODEOWNERS, Zweigschutz | —                                                            |
-| Wer kann auf Geheimnisse zugreifen?          | —                             | Vault-Richtlinie, Zuschüsse, Antragsworkflow                       |
-| Welche Anweisungen Agenten befolgen | —                             | Globale Arbeitsbereichsressourcen (AGENTS.md, Anweisungen, skills) |
-| Welche Agenten werden gemeinsam genutzt?         | —                             | Workspace-Agentenprofile                                     |
-| Integrationsinventar           | —                             | Katalog für Workspace-Verbindungen und -Integrationen               |
-| Genehmigung von Laufzeitänderungen         | —                             | Versandgenehmigungsablauf                                       |
-| Audit-Trail                     | `git log` / `git blame`       | Vault-Audit- und Versand-Audit-Protokolle                            |
-| Nachrichten und Routing             | —                             | Slack / Telegram-Integration                                 |
+| Bedenken                                 | Git / GitHub            | Versand                                                            |
+| ---------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
+| Wer kann Code ändern?                    | CODEOWNERS, Zweigschutz | —                                                                  |
+| Wer kann auf Geheimnisse zugreifen?      | —                       | Vault-Richtlinie, Zuschüsse, Antragsworkflow                       |
+| Welche Anweisungen Agenten befolgen      | —                       | Globale Arbeitsbereichsressourcen (AGENTS.md, Anweisungen, skills) |
+| Welche Agenten werden gemeinsam genutzt? | —                       | Workspace-Agentenprofile                                           |
+| Integrationsinventar                     | —                       | Katalog für Workspace-Verbindungen und -Integrationen              |
+| Genehmigung von Laufzeitänderungen       | —                       | Versandgenehmigungsablauf                                          |
+| Audit-Trail                              | `git log` / `git blame` | Vault-Audit- und Versand-Audit-Protokolle                          |
+| Nachrichten und Routing                  | —                       | Slack / Telegram-Integration                                       |
 
 **Git übernimmt die Code-Governance. Dispatch übernimmt die Laufzeit-Governance.** Versuchen Sie nicht, Git-Workflows innerhalb von Dispatch zu replizieren oder umgekehrt.
 

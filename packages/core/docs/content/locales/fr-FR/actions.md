@@ -125,11 +125,11 @@ export default defineAction({
 
 `outputErrorStrategy` contrôle ce qui se passe en cas de non-concordance :
 
-| Stratégie     | Comportement en cas de non-concordance                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
+| Stratégie    | Comportement en cas de non-concordance                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Default.** `console.warn` résout les problèmes et renvoie le résultat **original** inchangé. Incassable. |
-| `"strict"`   | Lancez une erreur claire pour qu'une action buggée fasse surface bruyamment.                                             |
-| `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat non valide.                         |
+| `"strict"`   | Lancez une erreur claire pour qu'une action buggée fasse surface bruyamment.                               |
+| `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat non valide.                              |
 
 En cas de succès, la valeur **validée** est renvoyée, de sorte que toute coercition ou valeur par défaut définie sur le `outputSchema` prend effet (reflétant le chemin d'entrée). Lorsqu'aucun `outputSchema` n'est fourni, le comportement est inchangé octet par octet : il n'y a pas de retour à la ligne. Ceci est emprunté à la sortie structurée Mastra/Flue et conservé sans dépendance sur la couche d'action.
 
@@ -188,12 +188,12 @@ Un assistant consultatif au niveau du dépôt, `node scripts/audit-template-acti
 
 Quatre indicateurs contrôlent _qui_ peut invoquer une action. Tous sont définis par défaut sur la valeur permissive, vous n'en définissez donc qu'un seul pour resserrer une surface spécifique. Ce tableau est le résumé visible ; les sous-sections ajoutent le détail dont chacune a besoin.
 
-| Drapeau            | Par défaut       | Valeur restrictive → qui peut encore appeler                                      | Utilisation typique                                                     |
-| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → UI, HTTP, CLI uniquement — **masqué du modèle**, MCP et A2A      | actions uniquement/programmatique qui ne devrait pas dépenser d'emplacement d'outil |
-| `toolCallable`  | `true`        | `false` → tout **sauf** le pont iframe d'extension en bac à sable (403) | Opérations adjacentes à l'authentification (supprimer le compte, modifier l'adhésion/les rôles de l'organisation) |
-| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l'action aux surfaces **publiques** MCP/A2A/OpenAPI | Outils de lecture/ingestion sécurisés accessibles sans authentification         |
-| `needsApproval` | `false`       | `true` → l'agent **fait une pause** ; un humain doit approuver l'appel spécifique       | Effets secondaires consécutifs (envoyer un e-mail, débiter une carte, supprimer)  |
+| Drapeau         | Par défaut        | Valeur restrictive → qui peut encore appeler                                      | Utilisation typique                                                                                               |
+| --------------- | ----------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`            | `false` → UI, HTTP, CLI uniquement — **masqué du modèle**, MCP et A2A             | actions uniquement/programmatique qui ne devrait pas dépenser d'emplacement d'outil                               |
+| `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe d'extension en bac à sable (403)           | Opérations adjacentes à l'authentification (supprimer le compte, modifier l'adhésion/les rôles de l'organisation) |
+| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l'action aux surfaces **publiques** MCP/A2A/OpenAPI   | Outils de lecture/ingestion sécurisés accessibles sans authentification                                           |
+| `needsApproval` | `false`           | `true` → l'agent **fait une pause** ; un humain doit approuver l'appel spécifique | Effets secondaires consécutifs (envoyer un e-mail, débiter une carte, supprimer)                                  |
 
 Ceux-ci sont indépendants : `agentTool` contrôle la vue du modèle, `toolCallable` contrôle uniquement l'iframe d'extension, `publicAgent` ajoute une surface publique opt-in (les routes Web publiques n'impliquent jamais l'exposition publique de l'outil) et `needsApproval` contrôle l'exécution une fois l'appel effectué - voir [Human-in-the-loop approval](#needs-approval) ci-dessous.
 
@@ -259,24 +259,24 @@ export default defineAction({
 
 Champs `ActionRunContext` :
 
-| Champ         | Tapez                    | Remarques                                                                                                                                                           |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | Comment l'action a été invoquée (voir ci-dessous).                                                                                                                         |
-| `send`        | `(event) => void`       | Facultatif. Émettez un événement SSE au client. Présent uniquement dans la boucle d'outils de l'agent (`caller: "tool"`) ; `undefined` ailleurs.                                   |
-| `attachments` | `AgentChatAttachment[]` | Fichiers, images et blocs de texte collés soumis avec le tour actuel de l'agent. Rempli uniquement lorsque `caller: "tool"` ; `undefined` sur toutes les autres surfaces.           |
+| Champ         | Tapez                   | Remarques                                                                                                                                                                 |
+| ------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.           |
+| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                                   |
+| `caller`      | `ActionCaller`          | Comment l'action a été invoquée (voir ci-dessous).                                                                                                                        |
+| `send`        | `(event) => void`       | Facultatif. Émettez un événement SSE au client. Présent uniquement dans la boucle d'outils de l'agent (`caller: "tool"`) ; `undefined` ailleurs.                          |
+| `attachments` | `AgentChatAttachment[]` | Fichiers, images et blocs de texte collés soumis avec le tour actuel de l'agent. Rempli uniquement lorsque `caller: "tool"` ; `undefined` sur toutes les autres surfaces. |
 
 `caller` est l'union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"` :
 
-| `caller`     | Définir quand…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `caller`     | Définir quand…                                                                                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `"tool"`     | La boucle d'agent dans l'application, une équipe de sous-agents/d'agents ou une requête A2A (A2A pilote la même boucle d'agent, ses appels d'outils sont donc `"tool"`). |
-| `"frontend"` | Un appel de navigateur via `useActionMutation` / `useActionQuery` / `callAction` (marqué avec l'en-tête `X-Agent-Native-Frontend: 1`).      |
-| `"http"`     | Un `POST` / `GET` programmatique nu vers `/_agent-native/actions/<name>` sans le marqueur frontal.                                   |
-| `"cli"`      | `pnpm action <name>` (le coureur CLI).                                                                                               |
-| `"mcp"`      | Un agent externe sur le point de terminaison MCP `tools/call`.                                                                                |
-| `"a2a"`      | Réservé pour une future expédition directe d'action A2A. Aujourd'hui, A2A traverse la boucle d'agent, ces appels sont donc `"tool"`.                |
+| `"frontend"` | Un appel de navigateur via `useActionMutation` / `useActionQuery` / `callAction` (marqué avec l'en-tête `X-Agent-Native-Frontend: 1`).                                   |
+| `"http"`     | Un `POST` / `GET` programmatique nu vers `/_agent-native/actions/<name>` sans le marqueur frontal.                                                                       |
+| `"cli"`      | `pnpm action <name>` (le coureur CLI).                                                                                                                                   |
+| `"mcp"`      | Un agent externe sur le point de terminaison MCP `tools/call`.                                                                                                           |
+| `"a2a"`      | Réservé pour une future expédition directe d'action A2A. Aujourd'hui, A2A traverse la boucle d'agent, ces appels sont donc `"tool"`.                                     |
 
 `run` reste rétrocompatible : les gestionnaires existants à 1 argument et les gestionnaires qui déstructurent uniquement `{ send }` continuent de fonctionner sans changement.
 
@@ -564,14 +564,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## Fonctions utilitaires {#utility-functions}
 
-| Fonction                | Retours   | Description                                           |
-| ----------------------- | --------- | ----------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | Chargez `.env` depuis la racine du projet (ou un chemin personnalisé).       |
-| `camelCaseArgs(args)`   | `Record`  | Convertir les clés kebab-case en camelCase.                 |
-| `isValidPath(p)`        | `boolean` | Valider un chemin relatif (pas de parcours, pas d'absolu). |
-| `isValidProjectPath(p)` | `boolean` | Valider un slug de projet (par exemple `my-project`).          |
-| `ensureDir(dir)`        | `void`    | Aide `mkdir -p`.                                    |
-| `fail(message)`         | `never`   | Imprimer sur stderr et `exit(1)`.                        |
+| Fonction                | Retours   | Description                                                            |
+| ----------------------- | --------- | ---------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | Chargez `.env` depuis la racine du projet (ou un chemin personnalisé). |
+| `camelCaseArgs(args)`   | `Record`  | Convertir les clés kebab-case en camelCase.                            |
+| `isValidPath(p)`        | `boolean` | Valider un chemin relatif (pas de parcours, pas d'absolu).             |
+| `isValidProjectPath(p)` | `boolean` | Valider un slug de projet (par exemple `my-project`).                  |
+| `ensureDir(dir)`        | `void`    | Aide `mkdir -p`.                                                       |
+| `fail(message)`         | `never`   | Imprimer sur stderr et `exit(1)`.                                      |
 
 ## Quelle est la prochaine étape
 

@@ -18,9 +18,9 @@ Automatisierungen erweitern [recurring jobs](/docs/recurring-jobs) mit **Ereigni
 
 ## Zwei Triggertypen {#trigger-types}
 
-| Typ       | Wird ausgelöst, wenn                                             | Schlüsselfeld         |
-| ---------- | ------------------------------------------------------ | ----------------- |
-| `schedule` | Ein Cron-Ausdruck stimmt überein (wie bei wiederkehrenden Jobs)     | `schedule` (cron) |
+| Typ        | Wird ausgelöst, wenn                                                 | Schlüsselfeld     |
+| ---------- | -------------------------------------------------------------------- | ----------------- |
+| `schedule` | Ein Cron-Ausdruck stimmt überein (wie bei wiederkehrenden Jobs)      | `schedule` (cron) |
 | `event`    | Ein passendes Ereignis wird auf dem Framework-Ereignisbus ausgegeben | `event` (Name)    |
 
 Ereignisauslöser können einen `condition` enthalten – eine Zeichenfolge in natürlicher Sprache, die von Haiku vor dem Versand anhand der Ereignisnutzlast ausgewertet wird. Wenn die Bedingung nicht zutrifft, wird die Automatisierung stillschweigend übersprungen.
@@ -57,13 +57,13 @@ Der dritte Pfad – das manuelle Schreiben der `jobs/<name>.md`-Datei über `res
 
 Automatisierungen teilen sich jedes Feld im [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Diese zusätzlichen Felder steuern Ereignisauslöser, Bedingungen und den Ausführungsmodus:
 
-| Feld         | Typ                             | Standard      | Beschreibung                                                                                                                                                  |
-| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Wie die Automatisierung ausgelöst wird                                                                                                                                     |
-| `event`       | Zeichenfolge                           | _(optional)_ | Ereignisname zum Abonnieren (nur Ereignisauslöser)                                                                                                             |
-| `condition`   | Zeichenfolge                           | _(optional)_ | Zustand in natürlicher Sprache wird vor dem Versand ausgewertet                                                                                                         |
+| Feld          | Typ                              | Standard     | Beschreibung                                                                                                                                                                                                                |
+| ------------- | -------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Wie die Automatisierung ausgelöst wird                                                                                                                                                                                      |
+| `event`       | Zeichenfolge                     | _(optional)_ | Ereignisname zum Abonnieren (nur Ereignisauslöser)                                                                                                                                                                          |
+| `condition`   | Zeichenfolge                     | _(optional)_ | Zustand in natürlicher Sprache wird vor dem Versand ausgewertet                                                                                                                                                             |
 | `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Vollständige Agentenschleife. (`"deterministic"` ist reserviert, aber noch nicht implementiert – Automatisierungen, die es festlegen, werden übersprungen. Verwenden Sie `"agentic"` für alle aktuellen Automatisierungen.) |
-| `domain`      | Zeichenfolge                           | _(optional)_ | Gruppierungs-Tag (E-Mail, Kalender, Clips usw.)                                                                                                                   |
+| `domain`      | Zeichenfolge                     | _(optional)_ | Gruppierungs-Tag (E-Mail, Kalender, Clips usw.)                                                                                                                                                                             |
 
 Für einen Ereignisauslöser ist `schedule` `""` (leer); Für einen Zeitplanauslöser trägt es den Cron-Ausdruck. Der Dispatcher schreibt außerdem dieselben verwalteten `lastRun`-/`lastStatus`-/`lastError`-Felder wie der Scheduler, plus einen `"skipped"`-Status, wenn eine Bedingung als „falsch“ ausgewertet wird.
 
@@ -73,13 +73,13 @@ Integrationen registrieren Ereignisse zur Modulladezeit. Der Bus validiert Nutzd
 
 ### Eingebaute Ereignisse {#built-in-events}
 
-| Ereignis                  | Quelle                                         |
-| ---------------------- | ---------------------------------------------- |
+| Ereignis               | Quelle                                           |
+| ---------------------- | ------------------------------------------------ |
 | `test.event.fired`     | Handbuch / `manage-automations` action=fire-test |
 | `agent.turn.completed` | Agenten-Chat                                     |
-| `calendar.*`           | Kalenderintegration                           |
-| `clip.*`               | Clips-Integration                              |
-| `mail.*`               | Mail-Integration                               |
+| `calendar.*`           | Kalenderintegration                              |
+| `clip.*`               | Clips-Integration                                |
+| `mail.*`               | Mail-Integration                                 |
 
 Rufen Sie `manage-automations` mit `action=list-events` vom Agenten auf, um alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata für die aktuelle Vorlage anzuzeigen.
 
@@ -152,13 +152,13 @@ Platzhalter werden **serverseitig** aufgelöst, nachdem der Agent den Tool-Aufru
 
 ### Parameter {#web-request-params}
 
-| Parameter    | Typ   | Standard | Beschreibung                                         |
-| ------------ | ------ | ------- | --------------------------------------------------- |
-| `url`        | Zeichenfolge | —       | Vollständig URL. Kann `${keys.NAME}`-Referenzen enthalten.    |
-| `method`     | Zeichenfolge | `GET`   | HTTP-Methode (GET, POST, PUT, PATCH, DELETE, HEAD).  |
-| `headers`    | Zeichenfolge | `{}`    | JSON-Objekt der Header. Kann `${keys.NAME}` enthalten. |
-| `body`       | Zeichenfolge | —       | Anforderungstext. Kann `${keys.NAME}` enthalten.           |
-| `timeout_ms` | Nummer | 15000   | Timeout in Millisekunden (max. 30.000).                |
+| Parameter    | Typ          | Standard | Beschreibung                                               |
+| ------------ | ------------ | -------- | ---------------------------------------------------------- |
+| `url`        | Zeichenfolge | —        | Vollständig URL. Kann `${keys.NAME}`-Referenzen enthalten. |
+| `method`     | Zeichenfolge | `GET`    | HTTP-Methode (GET, POST, PUT, PATCH, DELETE, HEAD).        |
+| `headers`    | Zeichenfolge | `{}`     | JSON-Objekt der Header. Kann `${keys.NAME}` enthalten.     |
+| `body`       | Zeichenfolge | —        | Anforderungstext. Kann `${keys.NAME}` enthalten.           |
+| `timeout_ms` | Nummer       | 15000    | Timeout in Millisekunden (max. 30.000).                    |
 
 ## Schlüssel {#keys}
 
@@ -173,26 +173,26 @@ Schlüssel sind Ad-hoc-Geheimnisse, die von Benutzern oder dem Agenten zur Autom
 
 Der Zugriff auf alle Automatisierungsvorgänge erfolgt über ein einziges `manage-automations`-Tool mit einem `action`-Parameter:
 
-| Aktion        | Zweck                                                              |
-| ------------- | -------------------------------------------------------------------- |
-| `list-events` | Erkennen Sie alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata |
-| `list`        | Alle Automatisierungen mit Status auflisten; Nach Domäne filtern oder aktiviert        |
+| Aktion        | Zweck                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `list-events` | Erkennen Sie alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata    |
+| `list`        | Alle Automatisierungen mit Status auflisten; Nach Domäne filtern oder aktiviert       |
 | `define`      | Erstellen Sie eine neue Automatisierung (Name, Triggertyp, Ereignis, Bedingung, Text) |
-| `update`      | Aktualisieren Sie eine vorhandene Automatisierung (aktiviert, Bedingung, Text)             |
+| `update`      | Aktualisieren Sie eine vorhandene Automatisierung (aktiviert, Bedingung, Text)        |
 | `delete`      | Eine Automatisierung löschen (immer zuerst mit dem Benutzer bestätigen)               |
-| `fire-test`   | Ein `test.event.fired`-Ereignis ausgeben, um Automatisierungen zu validieren              |
+| `fire-test`   | Ein `test.event.fired`-Ereignis ausgeben, um Automatisierungen zu validieren          |
 
 Zusätzliches Tool: `web-request` – ausgehender HTTP mit `${keys.NAME}`-Ersetzung.
 
 ## API-Endpunkte {#api}
 
-| Endpunkt                               | Methode | Beschreibung                     |
-| -------------------------------------- | ------ | ------------------------------- |
-| `/_agent-native/automations`           | GET    | Alle Automatisierungen auflisten (geparst)   |
-| `/_agent-native/automations/fire-test` | POST   | Ein `test.event.fired`-Ereignis ausgeben |
-| `/_agent-native/secrets/adhoc`         | GET    | Ad-hoc-Schlüssel auflisten (keine Werte)    |
-| `/_agent-native/secrets/adhoc`         | POST   | Erstellen oder aktualisieren Sie einen Ad-hoc-Schlüssel  |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | Einen Ad-hoc-Schlüssel löschen            |
+| Endpunkt                               | Methode | Beschreibung                                            |
+| -------------------------------------- | ------- | ------------------------------------------------------- |
+| `/_agent-native/automations`           | GET     | Alle Automatisierungen auflisten (geparst)              |
+| `/_agent-native/automations/fire-test` | POST    | Ein `test.event.fired`-Ereignis ausgeben                |
+| `/_agent-native/secrets/adhoc`         | GET     | Ad-hoc-Schlüssel auflisten (keine Werte)                |
+| `/_agent-native/secrets/adhoc`         | POST    | Erstellen oder aktualisieren Sie einen Ad-hoc-Schlüssel |
+| `/_agent-native/secrets/adhoc/:name`   | DELETE  | Einen Ad-hoc-Schlüssel löschen                          |
 
 ```an-api title="Fire a test event"
 {

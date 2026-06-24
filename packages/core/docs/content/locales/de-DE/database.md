@@ -79,13 +79,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Helfer    | Zweck                                                         |
-| --------- | --------------------------------------------------------------- |
-| `table`   | Definieren Sie eine Tabelle – delegiert an `pgTable` oder `sqliteTable`        |
-| `text`    | Textspalte, unterstützt `{ enum: [...] }`                         |
-| `integer` | Integer-Spalte, `{ mode: "boolean" }` wird dem booleschen Wert Postgres zugeordnet  |
-| `real`    | Float-Spalte – `real` auf SQLite, `double precision` auf Postgres |
-| `now`     | Dialektunabhängiger aktueller Zeitstempel für `.default(now())`        |
+| Helfer    | Zweck                                                                              |
+| --------- | ---------------------------------------------------------------------------------- |
+| `table`   | Definieren Sie eine Tabelle – delegiert an `pgTable` oder `sqliteTable`            |
+| `text`    | Textspalte, unterstützt `{ enum: [...] }`                                          |
+| `integer` | Integer-Spalte, `{ mode: "boolean" }` wird dem booleschen Wert Postgres zugeordnet |
+| `real`    | Float-Spalte – `real` auf SQLite, `double precision` auf Postgres                  |
+| `now`     | Dialektunabhängiger aktueller Zeitstempel für `.default(now())`                    |
 
 Die obige `tasks`-Tabelle definiert die gleichen Spalten auf jedem Backend:
 
@@ -177,7 +177,7 @@ Anstatt direkt zu pushen, sollten Schemaänderungen über SQL-Migrationen angewe
 
 ## Umgebungsvariablen {#environment-variables}
 
-| Variable              | Zweck                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Variable              | Zweck                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Persistente SQL-Verbindungszeichenfolge (nicht gesetzt = lokales SQLite, das nur für die lokale Entwicklung dauerhaft ist) |
-| `DATABASE_AUTH_TOKEN` | Auth-Token für Anbieter, die ein separates Token erfordern, wie z. B. Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | Auth-Token für Anbieter, die ein separates Token erfordern, wie z. B. Turso/libSQL                                         |

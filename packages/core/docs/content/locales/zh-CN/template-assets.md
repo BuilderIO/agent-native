@@ -118,17 +118,17 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 
 注意：SQL 表名称保留了应用程序被称为 Images 时的旧 `image_*` 前缀。他们还涵盖视频和其他媒体。
 
-| 表                            | 它包含什么                                                                                                                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 表                               | 它包含什么                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `image_libraries`                | 库 - 按品牌、营销活动、产品或类别分组的顶级容器。保存 `custom_instructions`、`style_brief`、规范徽标和封面资源引用以及存档状态 |
-| `image_library_shares`           | 框架共享表，将每个库的主体（用户或组织）映射到角色（查看者、编辑者、管理员）                                                                                   |
-| `image_collections`              | 库内的样式/类别分组 - `style_brief`、`prompt_template`、默认宽高比和图像大小                                                                        |
-| `asset_folders`                  | 库内的可嵌套文件夹（`parent_id` 表示层次结构）                                                                                                                            |
-| `image_generation_presets`       | 保存的生成配方 - 媒体类型、提示模板、宽高比、模型和文本/参考策略                                                                                   |
-| `image_generation_sessions`      | 迭代生成和选择会话，包含简介、状态、活动资产和反馈摘要                                                                                        |
-| `image_generation_session_items` | 会话中的候选资产，每个资产都有一个角色和注释                                                                                                                             |
-| `image_assets`                   | 资产记录 - 媒体类型、角色、状态、标题/描述/替代文本、提示、模型、尺寸、MIME 类型、对象/缩略图键和沿袭                                        |
-| `image_generation_runs`          | 生成审核日志 - 提示、编译提示、模型、引用、状态、错误以及触发它的 `source` (`chat` / `ui` / `a2a`)                                        |
+| `image_library_shares`           | 框架共享表，将每个库的主体（用户或组织）映射到角色（查看者、编辑者、管理员）                                                   |
+| `image_collections`              | 库内的样式/类别分组 - `style_brief`、`prompt_template`、默认宽高比和图像大小                                                   |
+| `asset_folders`                  | 库内的可嵌套文件夹（`parent_id` 表示层次结构）                                                                                 |
+| `image_generation_presets`       | 保存的生成配方 - 媒体类型、提示模板、宽高比、模型和文本/参考策略                                                               |
+| `image_generation_sessions`      | 迭代生成和选择会话，包含简介、状态、活动资产和反馈摘要                                                                         |
+| `image_generation_session_items` | 会话中的候选资产，每个资产都有一个角色和注释                                                                                   |
+| `image_assets`                   | 资产记录 - 媒体类型、角色、状态、标题/描述/替代文本、提示、模型、尺寸、MIME 类型、对象/缩略图键和沿袭                          |
+| `image_generation_runs`          | 生成审核日志 - 提示、编译提示、模型、引用、状态、错误以及触发它的 `source` (`chat` / `ui` / `a2a`)                             |
 
 ```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
 {

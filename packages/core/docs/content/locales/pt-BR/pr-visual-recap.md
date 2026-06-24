@@ -68,10 +68,10 @@ fixa sua pasta `visual-recap` comprometida, defina a variável do repositório
 
 Escolha qual agente de codificação executa a habilidade com a variável de repositório `VISUAL_RECAP_AGENT`:
 
-| `VISUAL_RECAP_AGENT` | Agente de codificação     | Chave API necessária    |
-| -------------------- | ---------------- | ------------------- |
-| `claude` _(padrão)_ | Código Claude CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `VISUAL_RECAP_AGENT` | Agente de codificação | Chave API necessária |
+| -------------------- | --------------------- | -------------------- |
+| `claude` _(padrão)_  | Código Claude CLI     | `ANTHROPIC_API_KEY`  |
+| `codex`              | OpenAI Codex CLI      | `OPENAI_API_KEY`     |
 
 Se a variável não estiver definida, a ação usará `claude`.
 
@@ -91,10 +91,10 @@ Defina-os em **Configurações → Segredos e variáveis → Actions** do seu re
 
 ### Segredos (são necessários apenas dois)
 
-| Segredo              | Propósito                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Segredo             | Propósito                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PLAN_RECAP_TOKEN`  | Token revogável cunhado por `npx @agent-native/core@latest connect`. Autoriza a publicação do plano de recapitulação e do upload da captura de tela. |
-| `ANTHROPIC_API_KEY` | A chave LLM para o back-end padrão do código Claude.                                                                                   |
+| `ANTHROPIC_API_KEY` | A chave LLM para o back-end padrão do código Claude.                                                                                                 |
 
 **Equipes: use um token de serviço organizacional.** Um token pessoal está vinculado à pessoa
 quem o cunhou — se eles deixarem a organização ou revogarem seus tokens, todos os repositórios usarão
@@ -128,14 +128,14 @@ token real.
 
 ### Opcional (somente se você alterar os padrões)
 
-| Segredo/variável        | Padrão                         | Quando você precisar                                                                                                                                |
-| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | Segredo. Defina junto com `VISUAL_RECAP_AGENT=codex` para executar a recapitulação com Codex.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variável. Seleciona o back-end do agente de codificação (`claude` ou `codex`).                                                                               |
-| `VISUAL_RECAP_MODEL`     | padrão de cada CLI              | Variável. Fixa o modelo - por ex. `gpt-5.5` para Codex ou um ID de modelo Claude. Unset usa o próprio padrão do CLI.                                    |
-| `VISUAL_RECAP_REASONING` | padrão de cada modelo            | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao back-end Codex.                                |
+| Segredo/variável         | Padrão                          | Quando você precisar                                                                                                                                                |
+| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                               | Segredo. Defina junto com `VISUAL_RECAP_AGENT=codex` para executar a recapitulação com Codex.                                                                       |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | Variável. Seleciona o back-end do agente de codificação (`claude` ou `codex`).                                                                                      |
+| `VISUAL_RECAP_MODEL`     | padrão de cada CLI              | Variável. Fixa o modelo - por ex. `gpt-5.5` para Codex ou um ID de modelo Claude. Unset usa o próprio padrão do CLI.                                                |
+| `VISUAL_RECAP_REASONING` | padrão de cada modelo           | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao back-end Codex.                                           |
 | `RECAP_CLI_VERSION`      | `latest`                        | Variável. Fixa a versão `@agent-native/core` CLI que o fluxo de trabalho instala - por exemplo. `1.5.0`. Consulte [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Segredo. Somente ao auto-hospedar o aplicativo Planos em uma origem diferente.                                                                             |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Segredo. Somente ao auto-hospedar o aplicativo Planos em uma origem diferente.                                                                                      |
 
 O fluxo de trabalho detecta automaticamente como invocar seu auxiliar CLI (fonte local dentro deste monorepo, o `@agent-native/core` publicado em outro lugar), portanto, não há variável `RECAP_CLI` a ser definida.
 
@@ -173,14 +173,14 @@ Para instalá-lo, copie o arquivo de [BuilderIO/agent-native](https://github.com
 
 ### O que o fluxo de trabalho do fork faz e o que NOT faz
 
-| O fluxo de trabalho DOES                                                                                                      | O fluxo de trabalho faz NOT                                                              |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Faça check-out do **repositório base** na **ref da ramificação base** — somente código confiável                                        | Verifique ou execute qualquer código do fork                                        |
+| O fluxo de trabalho DOES                                                                                                             | O fluxo de trabalho faz NOT                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Faça check-out do **repositório base** na **ref da ramificação base** — somente código confiável                                     | Verifique ou execute qualquer código do fork                                              |
 | Busque a cabeça do fork como uma referência remota (`git fetch origin pull/<n>/head:refs/recap/fork-head`) - buscar commits é seguro | Instale pacotes do fork, execute scripts de fork ou avalie o conteúdo do fork como código |
-| Execute `git diff base...refs/recap/fork-head` — comparação de texto puro de dois objetos já obtidos                             | Use o diff como algo diferente de entrada de texto para o LLM                          |
-| Execute a habilidade de recapitulação visual e a configuração do agente do **repo base**                                                     | Carregue qualquer habilidade ou configuração do fork                                             |
-| Passe a comparação pela mesma etapa de verificação secreta (fechamento com falha) que os PRs primários                                       | Ignorar a verificação secreta                                                               |
-| Adicione uma nota explícita de proteção de prompt ao prompt do agente, marcando o conteúdo diferente como não confiável                            | Conceda ao agente quaisquer permissões adicionais além do agente de recapitulação normal           |
+| Execute `git diff base...refs/recap/fork-head` — comparação de texto puro de dois objetos já obtidos                                 | Use o diff como algo diferente de entrada de texto para o LLM                             |
+| Execute a habilidade de recapitulação visual e a configuração do agente do **repo base**                                             | Carregue qualquer habilidade ou configuração do fork                                      |
+| Passe a comparação pela mesma etapa de verificação secreta (fechamento com falha) que os PRs primários                               | Ignorar a verificação secreta                                                             |
+| Adicione uma nota explícita de proteção de prompt ao prompt do agente, marcando o conteúdo diferente como não confiável              | Conceda ao agente quaisquer permissões adicionais além do agente de recapitulação normal  |
 
 ### Por que você deve revisar a diferença antes de rotular
 
@@ -202,14 +202,14 @@ Os dois arquivos de fluxo de trabalho são independentes. Para atualizações de
 
 A etapa `gate` ignora totalmente a recapitulação quando um PR atinge qualquer um dos caminhos a seguir, portanto, um PR nunca pode reescrever o fluxo de trabalho, a habilidade ou a configuração do agente que o trabalho de recapitulação confiável carrega e exfiltra os segredos:
 
-| Padrão de caminho                               | Motivo                                   |
-| ------------------------------------------ | ---------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | O próprio fluxo de trabalho                      |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
-| `**/.claude/**`                            | Configurações do agente que o executor carrega          |
-| `**/CLAUDE.md`                             | Instruções do agente que o executor carrega      |
-| `**/AGENTS.md`                             | Instruções do agente que o executor carrega      |
-| `**/.mcp.json`                             | Configuração do servidor MCP que o executor carrega       |
+| Padrão de caminho                          | Motivo                                              |
+| ------------------------------------------ | --------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | O próprio fluxo de trabalho                         |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows            |
+| `**/.claude/**`                            | Configurações do agente que o executor carrega      |
+| `**/CLAUDE.md`                             | Instruções do agente que o executor carrega         |
+| `**/AGENTS.md`                             | Instruções do agente que o executor carrega         |
+| `**/.mcp.json`                             | Configuração do servidor MCP que o executor carrega |
 
 No monorepo `BuilderIO/agent-native`, o fluxo de trabalho executa a recapitulação CLI a partir da origem confiável da ramificação base em vez da origem PR-head. Isso mantém as alterações normais do pacote, incluindo `packages/core/**`, elegíveis para recapitulações sem executar o código CLI modificado por PR.
 
@@ -301,12 +301,12 @@ O instalador padrão copia o fluxo de trabalho completo de aproximadamente 360 l
 
 A opção **reutilizável** grava um chamador fino de aproximadamente 20 linhas. Delega para `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via `uses:`. Cada chamador seleciona automaticamente a lógica mais recente quando o fluxo de trabalho é executado, sem necessidade de atualização local.
 
-|                                | Copiar (padrão)            | Reutilizável                       |
-| ------------------------------ | ------------------------- | ------------------------------ |
-| Tamanho do fluxo de trabalho no seu repositório     | ~360 linhas                | ~20 linhas                      |
-| Captura correções automaticamente   | Não — execute novamente `recap setup` | Sim                            |
-| Air-gap/auditabilidade total    | Sim                       | Não                             |
-| Fixável em uma versão específica | Somente editando localmente   | Sim — defina `@v1.2.3` em `uses:` |
+|                                                 | Copiar (padrão)                       | Reutilizável                      |
+| ----------------------------------------------- | ------------------------------------- | --------------------------------- |
+| Tamanho do fluxo de trabalho no seu repositório | ~360 linhas                           | ~20 linhas                        |
+| Captura correções automaticamente               | Não — execute novamente `recap setup` | Sim                               |
+| Air-gap/auditabilidade total                    | Sim                                   | Não                               |
+| Fixável em uma versão específica                | Somente editando localmente           | Sim — defina `@v1.2.3` em `uses:` |
 
 ### Snippet do autor da chamada
 

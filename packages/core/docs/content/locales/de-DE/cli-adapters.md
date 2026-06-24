@@ -6,7 +6,7 @@ description: "Gewähren Sie dem Agenten strukturierten Zugriff auf jedes CLI-Too
 # CLI-Adapter
 
 > **Wo das passt:** CLI-Adapter sind eine von zwei Adapternähten im
->-Framework. Der kanonische Leitfaden ist [Adapters](/docs/sandbox-adapters), der
+> -Framework. Der kanonische Leitfaden ist [Adapters](/docs/sandbox-adapters), der
 > deckt sowohl diese Naht als auch die `run-code`-Sandbox-Naht ab – einschließlich der gemeinsamen
 > Edge-/serverlose Einschränkung. Diese Seite ist die Kurzreferenz für die CLI-Seite.
 

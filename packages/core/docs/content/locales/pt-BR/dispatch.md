@@ -34,15 +34,15 @@ Se você estiver executando um único modelo independente, não precisará do Di
 
 Sete recursos, todos localizados no mesmo banco de dados de espaço de trabalho usado por outros aplicativos:
 
-| Capacidade               | O que isso oferece                                                               | Configure                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Caixa de entrada central**        | Slack, e-mail, Telegram, WhatsApp, todos alcançam um agente com memória compartilhada e ferramentas | **Configurações → Mensagens** ([Messaging](/docs/messaging))       |
-| **Cofre secreto**         | Armazene cada credencial uma vez; gire em um só lugar em todos os apps                | **Vault** + modo de acesso (todos os aplicativos ou manual)                  |
-| **Delegação entre aplicativos** | Encaminha uma solicitação para o aplicativo especializado certo via A2A e responde no tópico     | Automático ([A2A](/docs/a2a-protocol))                         |
-| **Gateway MCP unificado**  | Um conector MCP para agentes externos alcança todos os aplicativos de espaço de trabalho concedidos       | [External Agents](/docs/external-agents)                      |
-| **Recursos do espaço de trabalho**  | Autor skills/instruções/perfis uma vez; os aplicativos os herdam em tempo de execução          | **Recursos** ([Workspace](/docs/workspace#global-resources)) |
-| **Sonhos**               | Analisa execuções/feedback anteriores e propõe melhorias duradouras para você aprovar | **Guia Sonhos**                                                |
-| **Fluxo de aprovação**        | Proteger alterações sensíveis no tempo de execução por meio de revisão administrativa in-line                       | **política de aprovação de envio**                                  |
+| Capacidade                         | O que isso oferece                                                                                  | Configure                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Caixa de entrada central**       | Slack, e-mail, Telegram, WhatsApp, todos alcançam um agente com memória compartilhada e ferramentas | **Configurações → Mensagens** ([Messaging](/docs/messaging)) |
+| **Cofre secreto**                  | Armazene cada credencial uma vez; gire em um só lugar em todos os apps                              | **Vault** + modo de acesso (todos os aplicativos ou manual)  |
+| **Delegação entre aplicativos**    | Encaminha uma solicitação para o aplicativo especializado certo via A2A e responde no tópico        | Automático ([A2A](/docs/a2a-protocol))                       |
+| **Gateway MCP unificado**          | Um conector MCP para agentes externos alcança todos os aplicativos de espaço de trabalho concedidos | [External Agents](/docs/external-agents)                     |
+| **Recursos do espaço de trabalho** | Autor skills/instruções/perfis uma vez; os aplicativos os herdam em tempo de execução               | **Recursos** ([Workspace](/docs/workspace#global-resources)) |
+| **Sonhos**                         | Analisa execuções/feedback anteriores e propõe melhorias duradouras para você aprovar               | **Guia Sonhos**                                              |
+| **Fluxo de aprovação**             | Proteger alterações sensíveis no tempo de execução por meio de revisão administrativa in-line       | **política de aprovação de envio**                           |
 
 Cada um é detalhado abaixo.
 

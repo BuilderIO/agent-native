@@ -64,14 +64,14 @@ O fluxo é um redirecionamento padrão de autorização → token assinado → r
 
 3. **Dispatch → Aplicativo (token de identidade assinado).** O Dispatch valida `redirect_uri` em uma lista de permissões estrita e redireciona 302 de volta para o `redirect_uri` do aplicativo carregando uma identidade de curta duração **`A2A_SECRET` assinada por JWT**. As reivindicações do token são intencionalmente mínimas:
 
-   | Reivindicação        | Significado                                                  |
-   | ------------ | -------------------------------------------------------- |
-   | `sub`        | ID de usuário estável na autoridade de identidade                 |
-   | `email`      | E-mail **verificado** do usuário — a única chave de adesão        |
-   | `name`       | Nome de exibição (não oficial, somente para UI)            |
-   | `org_domain` | Domínio do espaço de trabalho/organização, quando presente                       |
-   | `scope`      | Sempre `"identity"` — este token autoriza apenas o login |
-   | `exp`        | **≤ 2 minutos** a partir da edição                               |
+   | Reivindicação | Significado                                                |
+   | ------------- | ---------------------------------------------------------- |
+   | `sub`         | ID de usuário estável na autoridade de identidade          |
+   | `email`       | E-mail **verificado** do usuário — a única chave de adesão |
+   | `name`        | Nome de exibição (não oficial, somente para UI)            |
+   | `org_domain`  | Domínio do espaço de trabalho/organização, quando presente |
+   | `scope`       | Sempre `"identity"` — este token autoriza apenas o login   |
+   | `exp`         | **≤ 2 minutos** a partir da edição                         |
 
 4. **O aplicativo verifica os links JIT por e-mail.** O aplicativo verifica a assinatura do token com seu próprio `A2A_SECRET`, verifica `scope: "identity"` e `exp` e, em seguida, executa **vinculação just-in-time estritamente por e-mail verificado**:
    - Se existir um usuário local com esse e-mail → reutilize-o inalterado.

@@ -48,12 +48,12 @@ Lorsque l'agent appelle une action fermée et que cet appel spécifique n'a **pa
 
 L'événement `approval_required` contient tout ce dont le client a besoin pour proposer une offre :
 
-| Champ         | Tapez     | Remarques                                                               |
-| ------------- | -------- | ------------------------------------------------------------------- |
-| `tool`        | `string` | Le nom de l'action que l'agent a tenté d'appeler.                            |
-| `input`       | objet   | Les arguments transmis par l'agent.                                     |
+| Champ         | Tapez    | Remarques                                                              |
+| ------------- | -------- | ---------------------------------------------------------------------- |
+| `tool`        | `string` | Le nom de l'action que l'agent a tenté d'appeler.                      |
+| `input`       | objet    | Les arguments transmis par l'agent.                                    |
 | `approvalKey` | `string` | **Clé stable** que le client renvoie pour approuver _cet appel exact_. |
-| `toolCallId`  | `string` | L'identifiant d'appel d'outil côté modèle, lorsqu'il est disponible.                        |
+| `toolCallId`  | `string` | L'identifiant d'appel d'outil côté modèle, lorsqu'il est disponible.   |
 
 Le `approvalKey` est dérivé de manière déterministe du nom de l'outil et de son entrée, de sorte que le même appel logique produit toujours la même clé. Le modèle ne le voit ni ne le définit jamais : il s'agit simplement d'une poignée de main entre le cadre et l'accessibilité d'approbation de l'humain.
 
@@ -66,7 +66,7 @@ Sur `approval_required`, le chat UI affiche une autorisation **Approuver/Refuser
 - **Approuver** réémet le tour (un message de suite ordinaire) portant la clé d'appel dans `approvedToolCalls: [approvalKey]`. Au tour réédité, la porte voit la clé dans le jeu approuvé et laisse cet appel spécifique se dérouler normalement.
 - **Deny** rejette l'affordance localement ; rien n'est réédité, donc l'action ne s'exécute jamais.
 
-`approvedToolCalls` est un champ sur la demande de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n'y sont pas présentes restent en pause : l'approbation d'un appel n'en approuve jamais directement les autres. Parce que la clé est adressée au contenu, une approbation autorise _cet appel avec ces arguments_ ; si le modèle propose ultérieurement un envoi différent, c'est une nouvelle clé et une nouvelle approbation.
+`approvedToolCalls` est un champ sur la demande de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n'y sont pas présentes restent en pause : l'approbation d'un appel n'en approuve jamais directement les autres. Parce que la clé est adressée au contenu, une approbation autorise *cet appel avec ces arguments* ; si le modèle propose ultérieurement un envoi différent, c'est une nouvelle clé et une nouvelle approbation.
 
 ## De bout en bout {#flow}
 

@@ -92,12 +92,12 @@ plug-in serveur.
 
 Tous les itinéraires sont en direct sous `/_agent-native/onboarding/` :
 
-| Itinéraire                                               | Objectif                           |
-| --------------------------------------------------- | --------------------------------- |
+| Itinéraire                                          | Objectif                                        |
+| --------------------------------------------------- | ----------------------------------------------- |
 | `GET /_agent-native/onboarding/steps`               | Répertorier les étapes avec l'état d'achèvement |
-| `POST /_agent-native/onboarding/steps/:id/complete` | Marquer l'étape terminée (remplacement)     |
-| `POST /_agent-native/onboarding/dismiss`            | Ignorer la bannière d'intégration     |
-| `POST /_agent-native/onboarding/reopen`             | Effacer le licenciement (réafficher le panneau)   |
+| `POST /_agent-native/onboarding/steps/:id/complete` | Marquer l'étape terminée (remplacement)         |
+| `POST /_agent-native/onboarding/dismiss`            | Ignorer la bannière d'intégration               |
+| `POST /_agent-native/onboarding/reopen`             | Effacer le licenciement (réafficher le panneau) |
 | `GET /_agent-native/onboarding/dismissed`           | Lire le licenciement + l'indicateur allComplete |
 
 ```an-api title="List onboarding steps"
@@ -164,12 +164,12 @@ Référez-vous à la documentation [Workspace Connections](/docs/workspace-conne
 
 ### Types de méthodes
 
-| Gentil               | Charge utile                                               | Utiliser pour                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | Envoyer l'utilisateur vers un flux OAuth ou une page de documentation   |
-| `form`             | `{ fields, writeScope? }`                             | Collecter les variables d'environnement (clés, secrets, URL)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | Envoyer une invite au chat de l'agent pour gérer |
+| Gentil             | Charge utile                                          | Utiliser pour                                                         |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | Envoyer l'utilisateur vers un flux OAuth ou une page de documentation |
+| `form`             | `{ fields, writeScope? }`                             | Collecter les variables d'environnement (clés, secrets, URL)          |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                                |
+| `agent-task`       | `{ prompt }`                                          | Envoyer une invite au chat de l'agent pour gérer                      |
 
 L'indicateur `primary: true` marque une méthode comme le grand CTA pour son étape.
 Utilisez `badge: "soon"` plus `disabled: true` lorsqu'un chemin de configuration doit être visible
@@ -177,12 +177,12 @@ avant qu'il ne soit disponible.
 
 ### Étapes intégrées
 
-| ID         | Obligatoire | Description                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | oui      | Connexion Builder ou clé LLM du fournisseur          |
-| `database` | non       | Base de données par défaut ou n'importe quel SQL `DATABASE_URL`        |
-| `auth`     | non       | Comptes intégrés, OAuth ou jeton d'accès en option |
-| `email`    | non       | Renvoyer ou SendGrid pour les e-mails transactionnels        |
+| ID         | Obligatoire | Description                                                     |
+| ---------- | ----------- | --------------------------------------------------------------- |
+| `llm`      | oui         | Connexion Builder ou clé LLM du fournisseur                     |
+| `database` | non         | Base de données par défaut ou n'importe quel SQL `DATABASE_URL` |
+| `auth`     | non         | Comptes intégrés, OAuth ou jeton d'accès en option              |
+| `email`    | non         | Renvoyer ou SendGrid pour les e-mails transactionnels           |
 
 N'importe lequel de ces éléments peut être annulé en vous réinscrivant avec le même `id` après le
 Chargement des valeurs par défaut.

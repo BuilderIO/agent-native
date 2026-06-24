@@ -68,10 +68,10 @@ fichiers de référence avec lesquels la compétence est livrée. Si votre dép�
 
 Choisissez quel agent de codage exécute la compétence avec la variable du référentiel `VISUAL_RECAP_AGENT` :
 
-| `VISUAL_RECAP_AGENT` | Agent de codage     | Clé API requise    |
-| -------------------- | ---------------- | ------------------- |
+| `VISUAL_RECAP_AGENT`    | Agent de codage  | Clé API requise     |
+| ----------------------- | ---------------- | ------------------- |
 | `claude` _(par défaut)_ | Code Claude CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `codex`                 | OpenAI Codex CLI | `OPENAI_API_KEY`    |
 
 Si la variable n'est pas définie, l'action utilise `claude`.
 
@@ -91,10 +91,10 @@ Définissez-les dans **Paramètres → Secrets et variables → Actions** de vot
 
 ### Secrets (seulement deux requis)
 
-| Secret              | Objectif                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Secret              | Objectif                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PLAN_RECAP_TOKEN`  | Jeton révocable émis par `npx @agent-native/core@latest connect`. Autorise la publication du plan récapitulatif et le téléchargement de la capture d'écran. |
-| `ANTHROPIC_API_KEY` | La clé LLM pour le backend du code Claude par défaut.                                                                                   |
+| `ANTHROPIC_API_KEY` | La clé LLM pour le backend du code Claude par défaut.                                                                                                       |
 
 **Équipes : utilisez un jeton de service d'organisation.** Un jeton personnel est lié à la personne
 qui l'a créé – s'il quitte l'organisation ou révoque ses jetons, chaque dépôt utilisant
@@ -128,14 +128,14 @@ vrai jeton.
 
 ### Facultatif (uniquement si vous modifiez les valeurs par défaut)
 
-| Secret / variable        | Par défaut                         | Quand vous en avez besoin                                                                                                                                |
-| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | Secret. Configurez-le avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Sélectionne le backend de l'agent de codage (`claude` ou `codex`).                                                                               |
-| `VISUAL_RECAP_MODEL`     | valeur par défaut de chaque CLI              | Variable. Épingle le modèle - par ex. `gpt-5.5` pour Codex, ou un identifiant de modèle Claude. Unset utilise la valeur par défaut du CLI.                                    |
-| `VISUAL_RECAP_REASONING` | valeur par défaut de chaque modèle            | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. S'applique au backend Codex.                                |
-| `RECAP_CLI_VERSION`      | `latest`                        | Variable. Épingle la version `@agent-native/core` CLI installée par le flux de travail, par ex. `1.5.0`. Voir [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Secret. Uniquement lors de l'auto-hébergement de l'application Plans à une origine différente.                                                                             |
+| Secret / variable        | Par défaut                         | Quand vous en avez besoin                                                                                                                                       |
+| ------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                  | Secret. Configurez-le avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                     |
+| `VISUAL_RECAP_AGENT`     | `claude`                           | Variable. Sélectionne le backend de l'agent de codage (`claude` ou `codex`).                                                                                    |
+| `VISUAL_RECAP_MODEL`     | valeur par défaut de chaque CLI    | Variable. Épingle le modèle - par ex. `gpt-5.5` pour Codex, ou un identifiant de modèle Claude. Unset utilise la valeur par défaut du CLI.                      |
+| `VISUAL_RECAP_REASONING` | valeur par défaut de chaque modèle | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. S'applique au backend Codex.                                      |
+| `RECAP_CLI_VERSION`      | `latest`                           | Variable. Épingle la version `@agent-native/core` CLI installée par le flux de travail, par ex. `1.5.0`. Voir [Version pinning](#version-pinning-copy-variant). |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`    | Secret. Uniquement lors de l'auto-hébergement de l'application Plans à une origine différente.                                                                  |
 
 Le workflow détecte automatiquement comment appeler son assistant CLI (source locale dans ce monorepo, le `@agent-native/core` publié ailleurs), il n'y a donc aucune variable `RECAP_CLI` à définir.
 
@@ -173,14 +173,14 @@ Pour l'installer, copiez le fichier de [BuilderIO/agent-native](https://github.c
 
 ### Ce que fait le workflow fork et ce que fait NOT
 
-| Le workflow DOES                                                                                                      | Le workflow fait NOT                                                              |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Consultez le **dépôt de base** sur la **réf. de branche de base** – code approuvé uniquement                                        | Extrayez ou exécutez n'importe quel code du fork                                        |
+| Le workflow DOES                                                                                                                                           | Le workflow fait NOT                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Consultez le **dépôt de base** sur la **réf. de branche de base** – code approuvé uniquement                                                               | Extrayez ou exécutez n'importe quel code du fork                                                                    |
 | Récupérer la tête de fourche en tant que référence distante (`git fetch origin pull/<n>/head:refs/recap/fork-head`) – la récupération des commits est sûre | Installez les packages à partir du fork, exécutez des scripts fork ou évaluez le contenu du fork sous forme de code |
-| Exécuter `git diff base...refs/recap/fork-head` — différence de texte pur de deux objets déjà récupérés                             | Utilisez le différentiel comme autre chose que la saisie de texte dans le LLM                          |
-| Exécutez la compétence de récapitulation visuelle et la configuration de l'agent du **dépôt de base**                                                     | Chargez n'importe quelle compétence ou configuration depuis le fork                                             |
-| Faites passer le diff par la même étape d'analyse secrète (fermée en cas d'échec) que les PR propriétaires                                       | Ignorer l'analyse secrète                                                               |
-| Ajouter une note explicite de renforcement des invites à l'invite de l'agent marquant le contenu des différences comme non fiable                            | Accordez à l'agent toutes autorisations supplémentaires au-delà de l'agent de récapitulation normal           |
+| Exécuter `git diff base...refs/recap/fork-head` — différence de texte pur de deux objets déjà récupérés                                                    | Utilisez le différentiel comme autre chose que la saisie de texte dans le LLM                                       |
+| Exécutez la compétence de récapitulation visuelle et la configuration de l'agent du **dépôt de base**                                                      | Chargez n'importe quelle compétence ou configuration depuis le fork                                                 |
+| Faites passer le diff par la même étape d'analyse secrète (fermée en cas d'échec) que les PR propriétaires                                                 | Ignorer l'analyse secrète                                                                                           |
+| Ajouter une note explicite de renforcement des invites à l'invite de l'agent marquant le contenu des différences comme non fiable                          | Accordez à l'agent toutes autorisations supplémentaires au-delà de l'agent de récapitulation normal                 |
 
 ### Pourquoi devez-vous examiner la différence avant de l'étiqueter
 
@@ -202,14 +202,14 @@ Les deux fichiers de workflow sont indépendants. Pour les mises à jour PR non 
 
 L'étape `gate` ignore entièrement le récapitulatif lorsqu'un PR touche l'un des chemins suivants, de sorte qu'un PR ne peut jamais réécrire le flux de travail, la compétence ou la configuration de l'agent que la tâche de récapitulation approuvée charge et exfiltre les secrets :
 
-| Modèle de chemin                               | Raison                                   |
-| ------------------------------------------ | ---------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | Le workflow lui-même                      |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
-| `**/.claude/**`                            | Paramètres de l'agent chargés par le coureur          |
+| Modèle de chemin                           | Raison                                             |
+| ------------------------------------------ | -------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | Le workflow lui-même                               |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows           |
+| `**/.claude/**`                            | Paramètres de l'agent chargés par le coureur       |
 | `**/CLAUDE.md`                             | Instructions de l'agent que le coureur charge      |
 | `**/AGENTS.md`                             | Instructions de l'agent que le coureur charge      |
-| `**/.mcp.json`                             | Configuration du serveur MCP que le coureur charge       |
+| `**/.mcp.json`                             | Configuration du serveur MCP que le coureur charge |
 
 Dans le monorepo `BuilderIO/agent-native`, le workflow exécute le récapitulatif CLI à partir d'une source de branche de base fiable au lieu de la source de tête PR. Cela permet de conserver les modifications normales du package, y compris `packages/core/**`, éligibles aux récapitulatifs sans exécuter le code CLI modifié par PR.
 
@@ -301,12 +301,12 @@ Le programme d'installation par défaut copie le flux de travail complet d'envir
 
 L'option **réutilisable** écrit à la place un appelant mince d'environ 20 lignes. Il délègue à `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via `uses:`. Chaque appelant récupère automatiquement la dernière logique lors de l'exécution du workflow, sans qu'aucune mise à jour locale ne soit nécessaire.
 
-|                                | Copier (par défaut)            | Réutilisable                       |
-| ------------------------------ | ------------------------- | ------------------------------ |
-| Taille du workflow dans votre dépôt     | ~360 lignes                | ~20 lignes                      |
-| Récupère automatiquement les correctifs   | Non – réexécutez `recap setup` | Oui                            |
-| Air-gap / auditabilité totale    | Oui                       | Non                             |
-| Épinglable à une version spécifique | Uniquement en modifiant localement   | Oui – définir `@v1.2.3` dans `uses:` |
+|                                         | Copier (par défaut)                | Réutilisable                         |
+| --------------------------------------- | ---------------------------------- | ------------------------------------ |
+| Taille du workflow dans votre dépôt     | ~360 lignes                        | ~20 lignes                           |
+| Récupère automatiquement les correctifs | Non – réexécutez `recap setup`     | Oui                                  |
+| Air-gap / auditabilité totale           | Oui                                | Non                                  |
+| Épinglable à une version spécifique     | Uniquement en modifiant localement | Oui – définir `@v1.2.3` dans `uses:` |
 
 ### Extrait de l'appelant
 

@@ -230,14 +230,14 @@ Les modèles peuvent ajouter un système de commentaires avec des discussions en
 
 Toutes les routes de collaboration sont montées automatiquement sous `/_agent-native/collab/` par le plugin de collaboration :
 
-| Itinéraire                         | Objectif                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | Récupérer l'état complet de Y.Doc (base64)          |
-| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client                  |
+| Itinéraire                    | Objectif                                                               |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `GET /:docId/state`           | Récupérer l'état complet de Y.Doc (base64)                             |
+| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client                                 |
 | `POST /:docId/text`           | Appliquer le remplacement du texte intégral (basé sur les différences) |
-| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment   |
-| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence               |
-| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document          |
+| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment                  |
+| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence                             |
+| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document                          |
 
 ## Action de modification de l'agent {#edit-document}
 
@@ -284,41 +284,41 @@ import {
 
 ### Public API {#presence-public-api}
 
-| API                                                 | Objectif                                                                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API                                                 | Objectif                                                                                                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `useCollaborativeDoc(options)`                      | Crée l'instance stable `Y.Doc` et de sensibilisation, gère la synchronisation état-vecteur, le chemin rapide SSE, le repli d'interrogation, les utilisateurs actifs et les indicateurs de présence d'agent. |
-| `usePresence(awareness, localClientId)`             | Dérive les participants distants et publie des champs de sensibilisation locale arbitraires tels que le curseur, la sélection, la fenêtre d'affichage ou le mode outil.                          |
-| `<PresenceBar>`                                     | Rend les collaborateurs actifs ainsi que l'agent IA, avec câblage en mode suivi par clic d'avatar en option.                                                         |
-| `<LiveCursorOverlay>`                               | Rend les étiquettes du curseur distant sur un conteneur positionné à partir des coordonnées 0-1 normalisées.                                                              |
-| `<RemoteSelectionRings>`                            | Rend les anneaux et les étiquettes colorés autour des éléments DOM sélectionnés résolus par votre application.                                                                    |
-| `useFollowUser(options)`                            | Appelle un rappel lorsque le participant suivi publie des modifications dans la fenêtre d'affichage.                                                                           |
-| `toNormalized()` / `fromNormalized()`               | Convertir les coordonnées du pointeur vers/à partir des coordonnées normalisées du conteneur.                                                                                  |
-| `dedupeCollabUsersByEmail()`                        | Créez des piles d'avatars personnalisées sans qu'un seul utilisateur ne s'affiche une fois par onglet ouvert.                                                                                 |
-| `useCollaborativeMap()` / `useCollaborativeArray()` | Hooks client pour la collaboration structurée Y.Map/Y.Array. Traitez comme un niveau inférieur jusqu'à ce qu'un modèle prouve le modèle exact du produit.                       |
+| `usePresence(awareness, localClientId)`             | Dérive les participants distants et publie des champs de sensibilisation locale arbitraires tels que le curseur, la sélection, la fenêtre d'affichage ou le mode outil.                                     |
+| `<PresenceBar>`                                     | Rend les collaborateurs actifs ainsi que l'agent IA, avec câblage en mode suivi par clic d'avatar en option.                                                                                                |
+| `<LiveCursorOverlay>`                               | Rend les étiquettes du curseur distant sur un conteneur positionné à partir des coordonnées 0-1 normalisées.                                                                                                |
+| `<RemoteSelectionRings>`                            | Rend les anneaux et les étiquettes colorés autour des éléments DOM sélectionnés résolus par votre application.                                                                                              |
+| `useFollowUser(options)`                            | Appelle un rappel lorsque le participant suivi publie des modifications dans la fenêtre d'affichage.                                                                                                        |
+| `toNormalized()` / `fromNormalized()`               | Convertir les coordonnées du pointeur vers/à partir des coordonnées normalisées du conteneur.                                                                                                               |
+| `dedupeCollabUsersByEmail()`                        | Créez des piles d'avatars personnalisées sans qu'un seul utilisateur ne s'affiche une fois par onglet ouvert.                                                                                               |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Hooks client pour la collaboration structurée Y.Map/Y.Array. Traitez comme un niveau inférieur jusqu'à ce qu'un modèle prouve le modèle exact du produit.                                                   |
 
 `UseCollaborativeDocOptions`:
 
-| Option                | Description                                                         |
-| --------------------- | ------------------------------------------------------------------- |
-| `docId`               | ID du document ou `null` pour désactiver le hook.                         |
-| `pollInterval`        | Intervalle d'interrogation lorsque SSE n'est pas disponible. Par défaut : `2000`.             |
-| `pollIntervalWithSse` | Intervalle d'interrogation lent alors que SSE est sain. Par défaut : `12000`.          |
-| `pauseWhenHidden`     |  Suspendre l'interrogation de mise à jour/présence à distance lorsqu'elle est masquée. Par défaut : `true`. |
-| `baseUrl`             | Préfixe du point de terminaison de la collaboration. Par défaut : `/_agent-native/collab`.           |
-| `requestSource`       | Identifiant d'onglet/source stable utilisé pour ignorer le bruit d'actualisation d'origine personnelle.  |
-| `user`                | `{ name, email, color }` affiché dans le curseur et présence UI.           |
+| Option                | Description                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `docId`               | ID du document ou `null` pour désactiver le hook.                                                          |
+| `pollInterval`        | Intervalle d'interrogation lorsque SSE n'est pas disponible. Par défaut : `2000`.                          |
+| `pollIntervalWithSse` | Intervalle d'interrogation lent alors que SSE est sain. Par défaut : `12000`.                              |
+| `pauseWhenHidden`     | Suspendre l'interrogation de mise à jour/présence à distance lorsqu'elle est masquée. Par défaut : `true`. |
+| `baseUrl`             | Préfixe du point de terminaison de la collaboration. Par défaut : `/_agent-native/collab`.                 |
+| `requestSource`       | Identifiant d'onglet/source stable utilisé pour ignorer le bruit d'actualisation d'origine personnelle.    |
+| `user`                | `{ name, email, color }` affiché dans le curseur et présence UI.                                           |
 
 `UseCollaborativeDocResult`:
 
-| Champ          | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `ydoc`         | `Y.Doc` stable pour le `docId` actuel.                              |
+| Champ          | Description                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- |
+| `ydoc`         | `Y.Doc` stable pour le `docId` actuel.                                                |
 | `awareness`    | Instance Yjs Awareness utilisée par les curseurs, les sélections et le mode de suivi. |
-| `isLoading`    | L'état initial du serveur est toujours en cours de chargement.                               |
-| `isSynced`     | Le hook a rattrapé l'état du serveur.                              |
-| `activeUsers`  | Collaborateurs humains de la conscience.                                  |
+| `isLoading`    | L'état initial du serveur est toujours en cours de chargement.                        |
+| `isSynced`     | Le hook a rattrapé l'état du serveur.                                                 |
+| `activeUsers`  | Collaborateurs humains de la conscience.                                              |
 | `agentActive`  | L'agent est en train de modifier activement en ce moment.                             |
-| `agentPresent` | L'agent dispose d'une entrée de sensibilisation pour ce document.                  |
+| `agentPresent` | L'agent dispose d'une entrée de sensibilisation pour ce document.                     |
 
 ### Conscience rapide {#fast-awareness}
 
@@ -476,30 +476,30 @@ Les métadonnées de sélection transitent par `usePresence` sur les clients con
 Toutes les routes sont montées automatiquement sous `/_agent-native/collab/` par la collaboration
 plug-in :
 
-| Itinéraire                         | Objectif                                                     |
-| ----------------------------- | ----------------------------------------------------------- |
-| `GET /:docId/state`           | État Y.Doc complet (base64). Accepte `?stateVector=` pour la différence |
-| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client (base64). Max 2 Mo par défaut       |
-| `POST /:docId/text`           | Appliquer le remplacement du texte intégral (basé sur les différences)                    |
-| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment                      |
-| `POST /:docId/json`           | Appliquer la différence JSON complète à Y.Map/Y.Array                       |
-| `GET /:docId/json`            | Lire l'état actuel du JSON                                     |
-| `POST /:docId/patch`          | Appliquer des opérations de patch chirurgical JSON (insérer/supprimer/réorganiser)       |
-| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence                                  |
-| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document                             |
+| Itinéraire                    | Objectif                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `GET /:docId/state`           | État Y.Doc complet (base64). Accepte `?stateVector=` pour la différence            |
+| `POST /:docId/update`         | Appliquer la mise à jour Yjs du client (base64). Max 2 Mo par défaut               |
+| `POST /:docId/text`           | Appliquer le remplacement du texte intégral (basé sur les différences)             |
+| `POST /:docId/search-replace` | Recherche/remplacement chirurgical dans Y.XmlFragment                              |
+| `POST /:docId/json`           | Appliquer la différence JSON complète à Y.Map/Y.Array                              |
+| `GET /:docId/json`            | Lire l'état actuel du JSON                                                         |
+| `POST /:docId/patch`          | Appliquer des opérations de patch chirurgical JSON (insérer/supprimer/réorganiser) |
+| `POST /:docId/awareness`      | Synchroniser le curseur/l'état de présence                                         |
+| `GET /:docId/users`           | Liste des utilisateurs actifs sur un document                                      |
 
 ## Transport et performances {#transport}
 
-| Propriété                     | Valeur                                                      |
-| ---------------------------- | ---------------------------------------------------------- |
-| Mise à jour anti-rebond              | ~80 ms (fusionne les frappes rapides via `Y.mergeUpdates`)   |
-| Intervalle d'interrogation (pas de SSE)       | 2 s (configurable via `pollInterval`)                      |
-| Intervalle d'interrogation (SSE sain)  | ~12 s (configurable via `pollIntervalWithSse`)             |
-| Fréquence de récupération du vecteur d'état | Lors de la reconnexion, de l'espacement du tampon en anneau ou tous les 15 cycles d'interrogation    |
-| Retour en cas d'erreur             | Exponentielle avec gigue, plafond ~15 s                         |
-| Charge utile maximale (écritures)         | 2 Mo par défaut, configurable via `maxPayloadBytes`           |
-| Seuil de compactage         | Blob stocké > 4 fois un nouvel encodage déclenche un compactage de pierre tombale |
-| Lectures de base de données par écriture           | 1 (version CAS lue dans `persistMergedState` uniquement)      |
+| Propriété                                   | Valeur                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Mise à jour anti-rebond                     | ~80 ms (fusionne les frappes rapides via `Y.mergeUpdates`)                                        |
+| Intervalle d'interrogation (pas de SSE)     | 2 s (configurable via `pollInterval`)                                                             |
+| Intervalle d'interrogation (SSE sain)       | ~12 s (configurable via `pollIntervalWithSse`)                                                    |
+| Fréquence de récupération du vecteur d'état | Lors de la reconnexion, de l'espacement du tampon en anneau ou tous les 15 cycles d'interrogation |
+| Retour en cas d'erreur                      | Exponentielle avec gigue, plafond ~15 s                                                           |
+| Charge utile maximale (écritures)           | 2 Mo par défaut, configurable via `maxPayloadBytes`                                               |
+| Seuil de compactage                         | Blob stocké > 4 fois un nouvel encodage déclenche un compactage de pierre tombale                 |
+| Lectures de base de données par écriture    | 1 (version CAS lue dans `persistMergedState` uniquement)                                          |
 
 ## Sécurité {#security}
 
@@ -584,7 +584,7 @@ Utiliser la collaboration corporelle (Y.XmlFragment + TipTap) lorsque :
 ### Portée des annulations collaboratives (Y.UndoManager)
 
 Le modèle de conception utilise `Y.UndoManager` pour étendre l'annulation/le rétablissement au niveau local
- propres modifications de l'utilisateur. Les modifications apportées par les pairs distants et les modifications apportées par les agents ne sont jamais annulées par un
+propres modifications de l'utilisateur. Les modifications apportées par les pairs distants et les modifications apportées par les agents ne sont jamais annulées par un
 Cmd+Z de l'utilisateur.
 
 ```ts

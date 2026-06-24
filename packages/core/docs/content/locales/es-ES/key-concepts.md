@@ -41,11 +41,11 @@ la superficie del producto es headless, chat-first o UI completo:
 }
 ```
 
-| Bloque de creación   | Úsalo para                                                                                          | Cargado cuando                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Instrucciones** | Guía estable que el agente debe llevar a cabo en cada tarea: qué es la aplicación, invariantes, tono, índices  | Cada turno                                            |
-| **Skills**       | Comportamiento reutilizable: cómo seguir un flujo de trabajo, aplicar una política, inspeccionar pruebas o verificar un resultado  | Bajo demanda cuando la descripción de la habilidad coincide con la tarea |
-| **Actions**      | Operaciones reales: leer o escribir datos, llamar a API, enviar mensajes, ejecutar aprobaciones, producir resultados escritos | Listados como herramientas en cada turno; ejecutado sólo cuando se llama |
+| Bloque de creación | Úsalo para                                                                                                                        | Cargado cuando                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Instrucciones**  | Guía estable que el agente debe llevar a cabo en cada tarea: qué es la aplicación, invariantes, tono, índices                     | Cada turno                                                               |
+| **Skills**         | Comportamiento reutilizable: cómo seguir un flujo de trabajo, aplicar una política, inspeccionar pruebas o verificar un resultado | Bajo demanda cuando la descripción de la habilidad coincide con la tarea |
+| **Actions**        | Operaciones reales: leer o escribir datos, llamar a API, enviar mensajes, ejecutar aprobaciones, producir resultados escritos     | Listados como herramientas en cada turno; ejecutado sólo cuando se llama |
 
 Skills y actions trabajan juntos. Una habilidad le enseña al agente cómo hacer una clase de
 trabajo; una acción es la ruta del código que puede llamar mientras realiza ese trabajo. Por ejemplo,
@@ -66,12 +66,12 @@ Seis reglas gobiernan la arquitectura:
 
 Cada función orientada al usuario debe actualizar todas las áreas aplicables. Omitir un área aplicable rompe el contrato entre el agente nativo; forzar un UI a una primitiva de solo acción también es un olor.
 
-| Área             | Descripción                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| **1. UI**        | Página, componente o cuadro de diálogo con el que interactúa el usuario             |
-| **2. Acción**    | Acción invocable por el agente en actions/ para la misma operación       |
-| **3. Skills**    | Actualice AGENTS.md y/o cree una habilidad que documente el patrón |
-| **4. Estado de la aplicación** | Estado de navegación, visualización de datos en pantalla y comandos de navegación      |
+| Área                           | Descripción                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| **1. UI**                      | Página, componente o cuadro de diálogo con el que interactúa el usuario           |
+| **2. Acción**                  | Acción invocable por el agente en actions/ para la misma operación                |
+| **3. Skills**                  | Actualice AGENTS.md y/o cree una habilidad que documente el patrón                |
+| **4. Estado de la aplicación** | Estado de navegación, visualización de datos en pantalla y comandos de navegación |
 
 Una característica con solo UI es invisible para el agente. Una función UI completa con solo actions es invisible para el usuario. Una función sin estado de aplicación significa que el agente no ve lo que está haciendo el usuario. Una operación sin cabeza puede comenzar legítimamente con acción + instrucciones y agregar UI/app-state más tarde, cuando los humanos necesiten explorarla, aprobarla, configurarla o compartirla.
 

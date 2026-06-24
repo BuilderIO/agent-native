@@ -273,7 +273,7 @@ export default defineAction({
 
 ## 쓰기 에이전트 지침 {#write-agents-md}
 
-`AGENTS.md`는 에이전트의 앱 맵입니다. 
+`AGENTS.md`는 에이전트의 앱 맵입니다.
 목적 라인, 핵심 규칙, 애플리케이션 상태 키, 작업 테이블 및 skills
 색인:
 

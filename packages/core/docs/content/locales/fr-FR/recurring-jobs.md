@@ -31,17 +31,17 @@ C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchemen
 
 ## Première question {#frontmatter}
 
-| Champ        | Tapez                          | Par défaut      | Description                                                                                            |
-| ------------ | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `schedule`   | expression cron               | _(obligatoire)_ | Cron standard à 5 champs. `"0 7 * * *"` = tous les jours à 07h00 ; `"0 */4 * * *"` = toutes les 4 heures.            |
-| `enabled`    | booléen                       | `true`       | Basculez vers `false` pour mettre en pause sans supprimer la tâche.                                                     |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation. |
-| `createdBy`  | e-mail                         | _(auto)_     | Rempli lorsque le travail est créé via l'espace de travail UI ou par l'agent.                            |
-| `orgId`      | chaîne                        | _(auto)_     | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                    |
-| `lastRun`    | Horodatage ISO                 | _(géré)_  | Écrit par le planificateur après chaque exécution.                                                               |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_  | Dernier résultat.                                                                                        |
-| `lastError`  | chaîne                        | _(géré)_  | Message d'erreur si la dernière exécution a échoué.                                                                  |
-| `nextRun`    | Horodatage ISO                 | _(géré)_  | Calculé à partir de `schedule` ; utilisé par le planificateur pour décider quand déclencher ensuite.                           |
+| Champ        | Tapez                         | Par défaut      | Description                                                                                                                            |
+| ------------ | ----------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | expression cron               | _(obligatoire)_ | Cron standard à 5 champs. `"0 7 * * *"` = tous les jours à 07h00 ; `"0 */4 * * *"` = toutes les 4 heures.                              |
+| `enabled`    | booléen                       | `true`          | Basculez vers `false` pour mettre en pause sans supprimer la tâche.                                                                    |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation. |
+| `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'espace de travail UI ou par l'agent.                                                          |
+| `orgId`      | chaîne                        | _(auto)_        | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                                |
+| `lastRun`    | Horodatage ISO                | _(géré)_        | Écrit par le planificateur après chaque exécution.                                                                                     |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_        | Dernier résultat.                                                                                                                      |
+| `lastError`  | chaîne                        | _(géré)_        | Message d'erreur si la dernière exécution a échoué.                                                                                    |
+| `nextRun`    | Horodatage ISO                | _(géré)_        | Calculé à partir de `schedule` ; utilisé par le planificateur pour décider quand déclencher ensuite.                                   |
 
 Les champs `last*` et `nextRun` sont écrits par le planificateur. Vous pouvez les lire pour voir l'historique, mais ne les modifiez pas manuellement : la prochaine exécution les écrasera.
 
@@ -49,14 +49,14 @@ Les champs `last*` et `nextRun` sont écrits par le planificateur. Vous pouvez l
 
 Cron standard à 5 champs (minute, heure, jour du mois, mois, jour de la semaine) :
 
-| Cron           | Signification                  |
-| -------------- | ------------------------ |
-| `*/5 * * * *`  | Toutes les 5 minutes          |
-| `0 * * * *`    | Toutes les heures   |
-| `0 */4 * * *`  | Toutes les 4 heures            |
-| `0 7 * * *`    | Tous les jours à 07h00       |
-| `0 9 * * 1`    | Tous les lundis à 09h00    |
-| `0 17 * * 1-5` | En semaine à 17h00        |
+| Cron           | Signification               |
+| -------------- | --------------------------- |
+| `*/5 * * * *`  | Toutes les 5 minutes        |
+| `0 * * * *`    | Toutes les heures           |
+| `0 */4 * * *`  | Toutes les 4 heures         |
+| `0 7 * * *`    | Tous les jours à 07h00      |
+| `0 9 * * 1`    | Tous les lundis à 09h00     |
+| `0 17 * * 1-5` | En semaine à 17h00          |
 | `0 0 1 * *`    | Premier jour de chaque mois |
 
 Le framework comprend des utilitaires cron (`isValidCron()` et `describeCron()`) pour valider et restituer les chaînes cron, utilisées en interne par les couches de ressources et de planificateur.
@@ -116,12 +116,12 @@ Le planificateur est un plugin de framework (la routine interne `processRecurrin
 
 Un seul outil `manage-jobs` est enregistré dans chaque modèle. Le paramètre `action` sélectionne l'opération :
 
-| Actions   | Paramètres                                                        | Objectif                                                      |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (obligatoire) ; `scope`, `runAs`   | Créer une nouvelle tâche récurrente                                   |
-| `list`   | `scope` (`personal`, `shared` ou tous)                            | Liste de toutes les tâches avec statut (planification, activé, dernière/prochaine exécution) |
-| `update` | `name` (obligatoire) ; `schedule`, `instructions`, `enabled`, `runAs` | Modifier une tâche existante                                         |
-| `delete` | `name` (obligatoire)                                                 | Supprimer une tâche – toujours confirmer d'abord avec l'utilisateur            |
+| Actions  | Paramètres                                                            | Objectif                                                                                     |
+| -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `create` | `name`, `schedule`, `instructions` (obligatoire) ; `scope`, `runAs`   | Créer une nouvelle tâche récurrente                                                          |
+| `list`   | `scope` (`personal`, `shared` ou tous)                                | Liste de toutes les tâches avec statut (planification, activé, dernière/prochaine exécution) |
+| `update` | `name` (obligatoire) ; `schedule`, `instructions`, `enabled`, `runAs` | Modifier une tâche existante                                                                 |
+| `delete` | `name` (obligatoire)                                                  | Supprimer une tâche – toujours confirmer d'abord avec l'utilisateur                          |
 
 **Portée personnelle ou partagée.** Chaque tâche se déroule soit dans une portée personnelle (s'exécute en tant que et n'est visible que par le créateur), soit dans une portée partagée/organisationnelle (s'exécute au nom du créateur mais est visible par les membres de l'organisation). Les paramètres `scope` et `runAs` contrôlent cela au moment de la création. Les administrateurs de l'organisation peuvent mettre à jour ou supprimer n'importe quelle tâche partagée ; Les membres non-administrateurs ne peuvent gérer que les leurs.
 

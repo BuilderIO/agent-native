@@ -24,25 +24,25 @@ O frontmatter `name` e `description` de cada habilidade é sempre injetado no bl
 
 Estes são os skills incluídos no **modelo padrão**. O conjunto exato disponível em qualquer aplicativo depende do modelo a partir do qual você criou o scaffold. Verifique no diretório `.agents/skills/` desse modelo o que ele realmente é enviado.
 
-| Habilidade                  | Quando usar                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `storing-data`         | Adicionar modelos de dados, configuração ou estado de leitura/gravação                |
-| `real-time-sync`       | Fiação de sincronização de polling, depuração UI sem atualização                     |
-| `delegate-to-agent`    | Delegação do trabalho de IA de UI ou actions ao agente                 |
-| `actions`              | Criando ou executando o agente actions                                  |
-| `self-modifying-code`  | Editar origem, componentes ou estilos do aplicativo                          |
-| `create-skill`         | Adicionando novo skills para o agente                                    |
-| `capture-learnings`    | Gravando correções e padrões                                 |
-| `frontend-design`      | Construir ou estilizar qualquer UI da web, componentes ou páginas               |
-| `adding-a-feature`     | A lista de verificação de quatro áreas: UI, actions, skills, estado do aplicativo            |
+| Habilidade             | Quando usar                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `storing-data`         | Adicionar modelos de dados, configuração ou estado de leitura/gravação              |
+| `real-time-sync`       | Fiação de sincronização de polling, depuração UI sem atualização                    |
+| `delegate-to-agent`    | Delegação do trabalho de IA de UI ou actions ao agente                              |
+| `actions`              | Criando ou executando o agente actions                                              |
+| `self-modifying-code`  | Editar origem, componentes ou estilos do aplicativo                                 |
+| `create-skill`         | Adicionando novo skills para o agente                                               |
+| `capture-learnings`    | Gravando correções e padrões                                                        |
+| `frontend-design`      | Construir ou estilizar qualquer UI da web, componentes ou páginas                   |
+| `adding-a-feature`     | A lista de verificação de quatro áreas: UI, actions, skills, estado do aplicativo   |
 | `internationalization` | Atualização de cópia UI localizada, catálogos de idiomas e estilos seguros para RTL |
-| `shadcn-ui`            | Usando primitivos e componentes shadcn/ui                          |
-| `security`             | Autenticação, controle de acesso e tratamento de segredos                          |
-| `real-time-collab`     | Edição colaborativa multiusuário                                   |
-| `agent-engines`        | Trocar ou configurar o mecanismo do agente subjacente                |
-| `notifications`        | Padrões de notificação push e no aplicativo                              |
-| `progress`             | Acompanhamento e exibição do progresso da tarefa em segundo plano                    |
-| `inline-embeds`        | Incorporação de aplicativos ou iframes no chat do agente                    |
+| `shadcn-ui`            | Usando primitivos e componentes shadcn/ui                                           |
+| `security`             | Autenticação, controle de acesso e tratamento de segredos                           |
+| `real-time-collab`     | Edição colaborativa multiusuário                                                    |
+| `agent-engines`        | Trocar ou configurar o mecanismo do agente subjacente                               |
+| `notifications`        | Padrões de notificação push e no aplicativo                                         |
+| `progress`             | Acompanhamento e exibição do progresso da tarefa em segundo plano                   |
+| `inline-embeds`        | Incorporação de aplicativos ou iframes no chat do agente                            |
 
 `context-awareness` e `a2a-protocol` são skills em nível de estrutura disponíveis no diretório `.agents/skills/` na raiz do repositório. Consulte o `.agents/skills/` de cada modelo para saber o que ele herda.
 
@@ -104,11 +104,11 @@ Salve o arquivo em `.agents/skills/my-skill/SKILL.md`. O nome do diretório deve
 
 Um campo de frontmatter `scope` opcional controla para qual agente uma habilidade se destina:
 
-| `scope`   | Carregado pelo agente de tempo de execução? | Usar para                                                                         |
-| --------- | ---------------------------- | ------------------------------------------------------------------------------- |
-| `both`    | Sim (padrão)                | Skills útil para o agente no aplicativo. Este é o padrão quando `scope` é omitido. |
-| `runtime` | Sim                          | Skills destinado apenas ao agente de tempo de execução no aplicativo.                                 |
-| `dev`     | Não                           | Skills destina-se apenas ao agente de codificação humano (por exemplo, código Claude).              |
+| `scope`   | Carregado pelo agente de tempo de execução? | Usar para                                                                              |
+| --------- | ------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `both`    | Sim (padrão)                                | Skills útil para o agente no aplicativo. Este é o padrão quando `scope` é omitido.     |
+| `runtime` | Sim                                         | Skills destinado apenas ao agente de tempo de execução no aplicativo.                  |
+| `dev`     | Não                                         | Skills destina-se apenas ao agente de codificação humano (por exemplo, código Claude). |
 
 ```markdown
 ---
@@ -189,11 +189,11 @@ Cada habilidade apoiada pelo aplicativo começa com `agent-native.app-skill.json
 
 A visibilidade da habilidade controla o que é enviado:
 
-| Visibilidade | Significado                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `internal` | Usado pelo próprio agente do aplicativo, não exportado para marketplaces.      |
-| `exported` | Exportado para mercados, mas não é necessário internamente para o aplicativo. |
-| `both`     | Usado internamente e exportado.                                   |
+| Visibilidade | Significado                                                                   |
+| ------------ | ----------------------------------------------------------------------------- |
+| `internal`   | Usado pelo próprio agente do aplicativo, não exportado para marketplaces.     |
+| `exported`   | Exportado para mercados, mas não é necessário internamente para o aplicativo. |
+| `both`       | Usado internamente e exportado.                                               |
 
 Hospedado é o caminho de instalação padrão. O lançamento local é explícito para personalização,
 trabalho off-line ou uso sensível à privacidade.

@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### मार्ग नामकरण परंपराएँ {#route-naming-conventions}
 
-| फ़ाइल नाम पैटर्न  | HTTP विधि | उदाहरण पथ                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` या कैच-ऑल |
+| फ़ाइल नाम पैटर्न   | HTTP विधि | उदाहरण पथ                |
+| ------------------ | --------- | ------------------------ |
+| `index.get.ts`     | GET       | `/api/items`             |
+| `index.post.ts`    | POST      | `/api/items`             |
+| `[id].get.ts`      | GET       | `/api/items/:id`         |
+| `[id].patch.ts`    | PATCH     | `/api/items/:id`         |
+| `[id].delete.ts`   | DELETE    | `/api/items/:id`         |
+| `[...slug].get.ts` | GET       | `/api/items/*` या कैच-ऑल |
 
 ## ऐप संचालन के लिए Actions को प्राथमिकता दें {#actions-first}
 
@@ -101,7 +101,7 @@ export default defineAction({
 
 ## संदर्भ और पहुंच का अनुरोध करें {#request-context}
 
-फ़्रेमवर्क द्वारा माउंट किया गया Actions स्वचालित रूप से अनुरोध संदर्भ के साथ चलता है। कस्टम मार्ग नहीं हैं. यदि कोई कस्टम रूट स्वामित्व योग्य संसाधनों को पढ़ता या लिखता है, तो सत्र लोड करें और कार्य को लपेटें: 
+फ़्रेमवर्क द्वारा माउंट किया गया Actions स्वचालित रूप से अनुरोध संदर्भ के साथ चलता है। कस्टम मार्ग नहीं हैं. यदि कोई कस्टम रूट स्वामित्व योग्य संसाधनों को पढ़ता या लिखता है, तो सत्र लोड करें और कार्य को लपेटें:
 
 ```an-annotated-code title="Scoping a custom route to the request user"
 {
@@ -149,19 +149,19 @@ export default runMigrations(
 
 फ्रेमवर्क `/_agent-native/` के तहत अपने स्वयं के मार्गों को माउंट करता है। उस नामस्थान को आरक्षित मानें।
 
-| रूट उपसर्ग                     | उद्देश्य                                                                         |
+| रूट उपसर्ग                       | उद्देश्य                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | कार्रवाई HTTP समापन बिंदु                                                           |
-| `/_agent-native/agent-chat`      | एजेंट चैट लूप                                                                 |
-| `/_agent-native/poll`            | SQL-समर्थित UI सिंक                                                              |
-| `/_agent-native/resources/*`     | कार्यस्थान संसाधन                                                             |
+| `/_agent-native/actions/:name`   | कार्रवाई HTTP समापन बिंदु                                                       |
+| `/_agent-native/agent-chat`      | एजेंट चैट लूप                                                                   |
+| `/_agent-native/poll`            | SQL-समर्थित UI सिंक                                                             |
+| `/_agent-native/resources/*`     | कार्यस्थान संसाधन                                                               |
 | `/_agent-native/extensions/*`    | रनटाइम एक्सटेंशन और एक्सटेंशन प्रॉक्सी (विरासत उपनाम: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक एकीकरण                                                  |
+| `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक एकीकरण                                                          |
 | `/_agent-native/a2a`             | एजेंट-से-एजेंट JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP समापन बिंदु                                                                    |
-| `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                 |
-| `/_agent-native/observability/*` | निशान, फीडबैक, मूल्यांकन, प्रयोग                                            |
-| `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता समापन बिंदु                                                   |
+| `/_agent-native/mcp`             | MCP समापन बिंदु                                                                 |
+| `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                  |
+| `/_agent-native/observability/*` | निशान, फीडबैक, मूल्यांकन, प्रयोग                                                |
+| `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता समापन बिंदु                                                 |
 
 कस्टम ऐप रूट को `/api/*`, सार्वजनिक ऐप पथ, या प्रदाता-विशिष्ट कॉलबैक पथ का उपयोग करना चाहिए जो `/_agent-native/` से नहीं टकराते।
 
@@ -215,7 +215,7 @@ export default runMigrations(
 
 अधिकांश टेम्प्लेट को कभी भी इनकी आवश्यकता नहीं होती है। Nitro फ़ाइल रूट और फ़्रेमवर्क का एजेंट
 चैट प्लगइन पहले से ही ऐप सर्वर और प्रोडक्शन एजेंट हैंडलर को वायर अप कर देता है।
-केवल तभी उन तक पहुंचें जब आप 
+केवल तभी उन तक पहुंचें जब आप
 मानक टेम्पलेट प्लगइन स्टैक।
 
 ### प्रोग्रामेटिक H3 सर्वर {#create-server}

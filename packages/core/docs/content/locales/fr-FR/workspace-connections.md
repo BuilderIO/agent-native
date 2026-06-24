@@ -139,16 +139,16 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 
 Les identifiants de fournisseur initiaux sont :
 
-| Fournisseur       | Capacités                   | Utilisations courantes                    |
-| -------------- | ------------------------------ | ------------------------------ |
-| `slack`        | recherche, importation, messages       | cerveau, répartition, analyses     |
-| `github`       | recherche, importation, code, documents     | cerveau, analyses, répartition     |
-| `notion`       | recherche, importation, documents           | cerveau, contenu, répartition       |
-| `gmail`        | recherche, importation, messages       | courrier, cerveau, expédition          |
-| `google_drive` | recherche, importation, documents           | cerveau, contenu, diapositives         |
-| `hubspot`      | recherche, importation, CRM            | analyse, cerveau, courrier         |
-| `granola`      | recherche, importation, réunions, documents | cerveau, calendrier, répartition      |
-| `clips`        | recherche, importation, réunions       | cerveau, clips, vidéos           |
+| Fournisseur    | Capacités                                   | Utilisations courantes                           |
+| -------------- | ------------------------------------------- | ------------------------------------------------ |
+| `slack`        | recherche, importation, messages            | cerveau, répartition, analyses                   |
+| `github`       | recherche, importation, code, documents     | cerveau, analyses, répartition                   |
+| `notion`       | recherche, importation, documents           | cerveau, contenu, répartition                    |
+| `gmail`        | recherche, importation, messages            | courrier, cerveau, expédition                    |
+| `google_drive` | recherche, importation, documents           | cerveau, contenu, diapositives                   |
+| `hubspot`      | recherche, importation, CRM                 | analyse, cerveau, courrier                       |
+| `granola`      | recherche, importation, réunions, documents | cerveau, calendrier, répartition                 |
+| `clips`        | recherche, importation, réunions            | cerveau, clips, vidéos                           |
 | `generic`      | recherche, importation, documents           | webhooks personnalisé et suppression de fichiers |
 
 Les clés d'identification sont uniquement des noms, tels que `SLACK_BOT_TOKEN` ou `GITHUB_TOKEN`. Les métadonnées du fournisseur ne doivent jamais inclure les valeurs réelles des informations d'identification.

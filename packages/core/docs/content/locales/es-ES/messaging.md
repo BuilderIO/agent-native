@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Variables de entorno {#env-vars}
 
-| Plataforma | Obligatorio                                                                     | Opcional                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| Telegrama | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| Correo electrónico    | `EMAIL_AGENT_ADDRESS`, más uno de `RESEND_API_KEY` o `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| Plataforma         | Obligatorio                                                                  | Opcional                                              |
+| ------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack              | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Telegrama          | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
+| Correo electrónico | `EMAIL_AGENT_ADDRESS`, más uno de `RESEND_API_KEY` o `SENDGRID_API_KEY`      | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp           | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
 Todas las credenciales residen en env vars: nunca la base de datos, nunca el código fuente. Utilice la configuración de la barra lateral UI o el panel ambiental de su proveedor de hosting.
 

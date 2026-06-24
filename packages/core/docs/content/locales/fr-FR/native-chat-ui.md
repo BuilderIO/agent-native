@@ -34,10 +34,10 @@ Le chemin natif comporte deux parties explicites :
 Les moteurs de rendu de données intégrés utilisent un résultat JSON simple avec `widget` plus le
 charge utile correspondante :
 
-| Widget            | Charge utile requise             | Rendu comme                                      |
-| ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | Une table de données native et réutilisable                   |
-| `"data-chart"`    | `chartSeries`                | Un graphique natif à barres, à courbes ou à aires               |
+| Widget            | Charge utile requise        | Rendu comme                                                         |
+| ----------------- | --------------------------- | ------------------------------------------------------------------- |
+| `"data-table"`    | `table`                     | Une table de données native et réutilisable                         |
+| `"data-chart"`    | `chartSeries`               | Un graphique natif à barres, à courbes ou à aires                   |
 | `"data-insights"` | `table` et/ou `chartSeries` | Une carte d'informations combinée avec une sortie graphique/tableau |
 
 Le serveur actions doit importer les assistants et les schémas sécurisés pour le serveur à partir de

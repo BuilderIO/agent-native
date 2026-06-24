@@ -230,14 +230,14 @@ useEffect(() => {
 
 모든 협업 경로는 협업 플러그인에 의해 `/_agent-native/collab/` 아래에 자동으로 마운트됩니다:
 
-| 경로                         | 목적                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | 전체 Y.Doc 상태 가져오기(base64)          |
-| `POST /:docId/update`         | 클라이언트 Yjs 업데이트 적용                  |
-| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반) |
-| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기   |
-| `POST /:docId/awareness`      | 동기화 커서/현재 상태               |
-| `GET /:docId/users`           | 문서의 활성 사용자 목록          |
+| 경로                          | 목적                                 |
+| ----------------------------- | ------------------------------------ |
+| `GET /:docId/state`           | 전체 Y.Doc 상태 가져오기(base64)     |
+| `POST /:docId/update`         | 클라이언트 Yjs 업데이트 적용         |
+| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반)     |
+| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기 |
+| `POST /:docId/awareness`      | 동기화 커서/현재 상태                |
+| `GET /:docId/users`           | 문서의 활성 사용자 목록              |
 
 ## 에이전트 편집 작업 {#edit-document}
 
@@ -284,41 +284,41 @@ import {
 
 ### 공개 API {#presence-public-api}
 
-| API                                                 | 목적                                                                                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API                                                 | 목적                                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `useCollaborativeDoc(options)`                      | 안정적인 `Y.Doc` 및 인식 인스턴스를 생성하고 상태 벡터 동기화, SSE 빠른 경로, 폴링 폴백, 활성 사용자 및 에이전트 존재 플래그를 처리합니다. |
-| `usePresence(awareness, localClientId)`             | 원격 참가자를 파생시키고 커서, 선택, 뷰포트 또는 도구 모드와 같은 임의의 로컬 인식 필드를 게시합니다.                          |
-| `<PresenceBar>`                                     | 선택적인 아바타 클릭 팔로우 모드 연결을 통해 활성 공동 작업자와 AI 에이전트를 렌더링합니다.                                                         |
-| `<LiveCursorOverlay>`                               | 정규화된 0-1 좌표에서 위치가 지정된 컨테이너 위에 원격 커서 라벨을 렌더링합니다.                                                              |
-| `<RemoteSelectionRings>`                            | 앱에서 확인된 선택된 DOM 요소 주위에 컬러 링과 라벨을 렌더링합니다.                                                                    |
-| `useFollowUser(options)`                            | 팔로우 참가자가 뷰포트 변경 사항을 게시할 때 콜백을 호출합니다.                                                                           |
-| `toNormalized()` / `fromNormalized()`               | 포인터 좌표를 정규화된 컨테이너 좌표로 변환하거나 그 반대로 변환합니다.                                                                                  |
-| `dedupeCollabUsersByEmail()`                        | 열린 탭당 한 번만 표시되는 사용자 없이 맞춤 아바타 스택을 구축하세요.                                                                                 |
-| `useCollaborativeMap()` / `useCollaborativeArray()` | Y.Map/Y.Array 구조적 협업을 위한 클라이언트 후크입니다. 템플릿이 정확한 제품 패턴을 입증할 때까지 하위 수준으로 취급됩니다.                       |
+| `usePresence(awareness, localClientId)`             | 원격 참가자를 파생시키고 커서, 선택, 뷰포트 또는 도구 모드와 같은 임의의 로컬 인식 필드를 게시합니다.                                      |
+| `<PresenceBar>`                                     | 선택적인 아바타 클릭 팔로우 모드 연결을 통해 활성 공동 작업자와 AI 에이전트를 렌더링합니다.                                                |
+| `<LiveCursorOverlay>`                               | 정규화된 0-1 좌표에서 위치가 지정된 컨테이너 위에 원격 커서 라벨을 렌더링합니다.                                                           |
+| `<RemoteSelectionRings>`                            | 앱에서 확인된 선택된 DOM 요소 주위에 컬러 링과 라벨을 렌더링합니다.                                                                        |
+| `useFollowUser(options)`                            | 팔로우 참가자가 뷰포트 변경 사항을 게시할 때 콜백을 호출합니다.                                                                            |
+| `toNormalized()` / `fromNormalized()`               | 포인터 좌표를 정규화된 컨테이너 좌표로 변환하거나 그 반대로 변환합니다.                                                                    |
+| `dedupeCollabUsersByEmail()`                        | 열린 탭당 한 번만 표시되는 사용자 없이 맞춤 아바타 스택을 구축하세요.                                                                      |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Y.Map/Y.Array 구조적 협업을 위한 클라이언트 후크입니다. 템플릿이 정확한 제품 패턴을 입증할 때까지 하위 수준으로 취급됩니다.                |
 
 `UseCollaborativeDocOptions`:
 
-| 옵션                | 설명                                                         |
-| --------------------- | ------------------------------------------------------------------- |
-| `docId`               | 후크를 비활성화하려면 문서 ID 또는 `null`입니다.                         |
-| `pollInterval`        | SSE를 사용할 수 없는 경우 폴링 간격입니다. 기본값: `2000`.             |
-| `pollIntervalWithSse` | SSE가 정상인 동안에는 폴링 간격이 느립니다. 기본값: `12000`.          |
+| 옵션                  | 설명                                                                        |
+| --------------------- | --------------------------------------------------------------------------- |
+| `docId`               | 후크를 비활성화하려면 문서 ID 또는 `null`입니다.                            |
+| `pollInterval`        | SSE를 사용할 수 없는 경우 폴링 간격입니다. 기본값: `2000`.                  |
+| `pollIntervalWithSse` | SSE가 정상인 동안에는 폴링 간격이 느립니다. 기본값: `12000`.                |
 | `pauseWhenHidden`     | 숨겨진 동안 원격 업데이트/현재 상태 폴링을 일시 중지합니다. 기본값: `true`. |
-| `baseUrl`             | Collab 끝점 접두사. 기본값: `/_agent-native/collab`.           |
-| `requestSource`       | 자체 새로 고침 노이즈를 무시하는 데 사용되는 안정적인 탭/소스 ID입니다.  |
-| `user`                | `{ name, email, color }`는 커서와 UI의 존재로 표시됩니다.           |
+| `baseUrl`             | Collab 끝점 접두사. 기본값: `/_agent-native/collab`.                        |
+| `requestSource`       | 자체 새로 고침 노이즈를 무시하는 데 사용되는 안정적인 탭/소스 ID입니다.     |
+| `user`                | `{ name, email, color }`는 커서와 UI의 존재로 표시됩니다.                   |
 
 `UseCollaborativeDocResult`:
 
-| 필드          | 설명                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `ydoc`         | 현재 `docId`에 대한 안정적인 `Y.Doc`.                              |
+| 필드           | 설명                                                     |
+| -------------- | -------------------------------------------------------- |
+| `ydoc`         | 현재 `docId`에 대한 안정적인 `Y.Doc`.                    |
 | `awareness`    | 커서, 선택 및 팔로우 모드에서 사용되는 Yjs 인식 인스턴스 |
-| `isLoading`    | 초기 서버 상태가 아직 로드 중입니다.                               |
-| `isSynced`     | 후크가 서버 상태를 따라잡았습니다.                              |
-| `activeUsers`  | 인식의 인간 협력자.                                  |
+| `isLoading`    | 초기 서버 상태가 아직 로드 중입니다.                     |
+| `isSynced`     | 후크가 서버 상태를 따라잡았습니다.                       |
+| `activeUsers`  | 인식의 인간 협력자.                                      |
 | `agentActive`  | 현재 상담원이 편집 중입니다.                             |
-| `agentPresent` | 에이전트가 이 문서에 대한 인식 항목을 가지고 있습니다.                  |
+| `agentPresent` | 에이전트가 이 문서에 대한 인식 항목을 가지고 있습니다.   |
 
 ### 빠른 인식 {#fast-awareness}
 
@@ -476,30 +476,30 @@ try {
 모든 경로는 공동 작업에 의해 `/_agent-native/collab/` 아래에 자동 마운트됩니다.
 플러그인:
 
-| 경로                         | 목적                                                     |
-| ----------------------------- | ----------------------------------------------------------- |
-| `GET /:docId/state`           | 전체 Y.Doc 상태(base64). 차이점에 대해 `?stateVector=` 허용 |
-| `POST /:docId/update`         | 클라이언트 Yjs 업데이트(base64)를 적용합니다. 기본적으로 최대 2MB       |
-| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반)                    |
-| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기                      |
-| `POST /:docId/json`           | Y.Map/Y.Array에 전체 JSON 차이 적용                       |
-| `GET /:docId/json`            | 현재 JSON 상태 읽기                                     |
-| `POST /:docId/patch`          | 수술용 JSON 패치 작업 적용(업로드/제거/재주문)       |
-| `POST /:docId/awareness`      | 동기화 커서/현재 상태                                  |
-| `GET /:docId/users`           | 문서의 활성 사용자 목록                             |
+| 경로                          | 목적                                                              |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `GET /:docId/state`           | 전체 Y.Doc 상태(base64). 차이점에 대해 `?stateVector=` 허용       |
+| `POST /:docId/update`         | 클라이언트 Yjs 업데이트(base64)를 적용합니다. 기본적으로 최대 2MB |
+| `POST /:docId/text`           | 전체 텍스트 대체 적용(diff 기반)                                  |
+| `POST /:docId/search-replace` | Y.XmlFragment에서 외과적 찾기/바꾸기                              |
+| `POST /:docId/json`           | Y.Map/Y.Array에 전체 JSON 차이 적용                               |
+| `GET /:docId/json`            | 현재 JSON 상태 읽기                                               |
+| `POST /:docId/patch`          | 수술용 JSON 패치 작업 적용(업로드/제거/재주문)                    |
+| `POST /:docId/awareness`      | 동기화 커서/현재 상태                                             |
+| `GET /:docId/users`           | 문서의 활성 사용자 목록                                           |
 
 ## 운송 및 성능 {#transport}
 
-| 재산                     | 값                                                      |
-| ---------------------------- | ---------------------------------------------------------- |
-| 디바운스 업데이트              | ~80ms(`Y.mergeUpdates`를 통해 빠른 키 입력 통합)   |
-| 폴링 간격(SSE 없음)       | 2초(`pollInterval`를 통해 구성 가능)                      |
-| 폴링 간격(SSE 정상)  | ~12초(`pollIntervalWithSse`를 통해 구성 가능)             |
-| 상태 벡터 가져오기 빈도 | 재연결 시, 링 버퍼 간격 또는 15번째 폴링 주기마다    |
-| 오류 시 백오프             | 지터가 있는 지수, 최대 15초                         |
-| 최대 페이로드(쓰기)         | 기본값 2MB, `maxPayloadBytes`를 통해 구성 가능           |
-| 압축 임계값         | 저장된 blob > 4배의 새로운 인코딩으로 Tombstone Compact가 트리거됨 |
-| 쓰기별 DB 읽기           | 1(`persistMergedState` 내부에서 읽은 CAS 버전만 해당)      |
+| 재산                    | 값                                                                 |
+| ----------------------- | ------------------------------------------------------------------ |
+| 디바운스 업데이트       | ~80ms(`Y.mergeUpdates`를 통해 빠른 키 입력 통합)                   |
+| 폴링 간격(SSE 없음)     | 2초(`pollInterval`를 통해 구성 가능)                               |
+| 폴링 간격(SSE 정상)     | ~12초(`pollIntervalWithSse`를 통해 구성 가능)                      |
+| 상태 벡터 가져오기 빈도 | 재연결 시, 링 버퍼 간격 또는 15번째 폴링 주기마다                  |
+| 오류 시 백오프          | 지터가 있는 지수, 최대 15초                                        |
+| 최대 페이로드(쓰기)     | 기본값 2MB, `maxPayloadBytes`를 통해 구성 가능                     |
+| 압축 임계값             | 저장된 blob > 4배의 새로운 인코딩으로 Tombstone Compact가 트리거됨 |
+| 쓰기별 DB 읽기          | 1(`persistMergedState` 내부에서 읽은 CAS 버전만 해당)              |
 
 ## 보안 {#security}
 
@@ -564,7 +564,7 @@ type PatchDeckOp =
   | { type: "reorder"; slideId: string; newIndex: number };
 ```
 
-두 명의 사용자가 서로 다른 슬라이드를 편집하는 데 성공했습니다. 
+두 명의 사용자가 서로 다른 슬라이드를 편집하는 데 성공했습니다.
 데크 레벨
 
 **양식(`patch-form-fields`)** — upsert/remove/reorder를 사용한 필드 수준 병합
@@ -627,7 +627,7 @@ undoManager.redo(); // Shift+Cmd+Z
 
 - **동일 지역 동시 재작성은 LWW** — 에이전트가
   구절과 인간이 정확히 같은 지역에 저장되지 않은 편집 내용을 가지고 있습니다.
-  리드 클라이언트 스냅샷은 사람의 진행 중인 변경 사항을 덮어쓸 수 있습니다. 
+  리드 클라이언트 스냅샷은 사람의 진행 중인 변경 사항을 덮어쓸 수 있습니다.
   다른 지역은 CRDT를 통해 올바르게 병합됩니다. 세분화된 서버측 병합
   (위 참조)는 구조화된 문서에 대해 이를 방지합니다.
 - **서버리스에서 진행 중인 쓰기 잠금** — `_writeLocks` 맵은

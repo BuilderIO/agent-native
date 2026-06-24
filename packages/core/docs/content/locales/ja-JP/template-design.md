@@ -25,7 +25,7 @@ Design は、エージェントネイティブの HTML プロトタイピング 
 
 ## いつ選択するか
 
-- **レイヤー化された描画キャンバスではなく、ツールを実際の HTML のままにできる、洗練されたランディング ページのコンセプト、製品 UI の方向性、またはブランド探索が必要です。
+- \*\*レイヤー化された描画キャンバスではなく、ツールを実際の HTML のままにできる、洗練されたランディング ページのコンセプト、製品 UI の方向性、またはブランド探索が必要です。
 - **静的なモックアップではなく、Alpine interactions および Tailwind スタイルを使用した、動作するインタラクティブ プロトタイプ**が必要です。
 - **ルートを迅速に比較したいと考えています**。いくつかのバリエーションを生成し、最も強力なものを選択し、改良を続けます。
 - **自分が所有するデザイン出力が必要な場合** — HTML、ZIP、または PDF をエクスポートするか、プロトタイプをコーディング ツールに渡します。
@@ -77,13 +77,13 @@ pnpm dev
 
 すべてのデータは、Drizzle ORM を介して SQL に存在します。スキーマ: `templates/design/server/db/schema.ts`。デザインとデザイン システムは標準 `ownableColumns` と一致するフレームワーク共有テーブルをサポートするため、ユーザーごと/組織ごとの共有モデルに組み込まれます。
 
-| テーブル                                    | 内容                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| テーブル                                 | 内容                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | 設計プロジェクト — `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON BLOB、およびオプションの `design_system_id` リンク |
-| `design_files`                           | デザインに属する個々のファイル (`filename`、`content`、`file_type`、デフォルトは `html`)                                                 |
-| `design_versions`                        | 履歴とロールバック用の、オプションの `label` を備えたデザインのポイントインタイム `snapshot`                                                         |
-| `design_systems`                         | 再利用可能なブランド トークン — `data` (色/タイポグラフィ/間隔)、`assets`、`custom_instructions`、および `is_default` フラグ                            |
-| `design_shares` / `design_system_shares` | フレームワークは、プリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするテーブルを共有します                                                      |
+| `design_files`                           | デザインに属する個々のファイル (`filename`、`content`、`file_type`、デフォルトは `html`)                                                          |
+| `design_versions`                        | 履歴とロールバック用の、オプションの `label` を備えたデザインのポイントインタイム `snapshot`                                                      |
+| `design_systems`                         | 再利用可能なブランド トークン — `data` (色/タイポグラフィ/間隔)、`assets`、`custom_instructions`、および `is_default` フラグ                      |
+| `design_shares` / `design_system_shares` | フレームワークは、プリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするテーブルを共有します                        |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

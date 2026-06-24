@@ -75,11 +75,11 @@ Frames. Bei einigen Nur-Text-Webchats wird das Transkript gelesen, es werden jed
 von alleine; Laden Sie dort ein Schlüsselbild hoch oder öffnen Sie den Clip in einem bildfähigen Format
 Agent.
 
-| Endpunkt                                          | Was Agenten bekommen                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkripten/Frames APIs   |
+| Endpunkt                                          | Was Agenten bekommen                                                                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkripten/Frames APIs               |
 | `/api/agent-transcript.json?id=<recordingId>`     | Transkriptsegmente mit Zeitstempel mit `startMs`, `endMs`, lesbaren Zeitstempeln, Text und optionalen Quellenbezeichnungen |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein JPEG-Frame, der mit einem Originalvideo-Zeitstempel aus dem Video extrahiert wurde                                           |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein JPEG-Frame, der mit einem Originalvideo-Zeitstempel aus dem Video extrahiert wurde                                     |
 
 Die Endpunkte folgen denselben öffentlichen/Passwort-/Ablaufregeln wie die Freigabeseite.
 Passwortgeschützte Clips erfordern das einmalige Passwort; Erfolgreiche Antworten werden zurückgegeben
@@ -180,7 +180,7 @@ Clips ist eine größere Vorlage mit einem nativen Rekorder (es wird ein Desktop
 ### Hosten Sie Ihren eigenen Clips-Server
 
 Die gehostete Clips-App unter [clips.agent-native.com](https://clips.agent-native.com)
- ist lediglich eine bereitgestellte Kopie der Clips-Vorlage. Um Ihren eigenen Server zu betreiben, erstellen Sie ein Gerüst
+ist lediglich eine bereitgestellte Kopie der Clips-Vorlage. Um Ihren eigenen Server zu betreiben, erstellen Sie ein Gerüst
 die Vorlage, stellen Sie sie wie jede andere agentennative App bereit und verweisen Sie dann auf den Desktop
 Tray-App bei Ihrer Bereitstellung.
 
@@ -312,22 +312,22 @@ Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/clips/serv
 }
 ```
 
-| Tabelle                                           | Was es enthält                                                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordings`                                    | Die Kernressource – Titel, Video URL/Format/Größe, Dauer, Miniaturansichten, Status, zerstörungsfreies `edits_json`, `chapters_json`, Datenschutz (Passwort, Ablauf) und Player-Umschaltung |
-| `recording_transcripts`                         | Transkript pro Aufnahme: `segments_json` (`{startMs,endMs,text}`), `full_text`, Sprache und Status                                                                         |
-| `recording_tags`                                | Freiform-Tags für eine Aufnahme                                                                                                                                                 |
-| `recording_ctas`                                | Call-to-Action-Schaltflächen (Beschriftung, URL, Farbe, Platzierung), die einer Aufzeichnung überlagert sind                                                                                                 |
-| `recording_comments`                            | Kommentare mit Threads, Zeitstempel, Emoji-Reaktionskarte und Aufgelöst-Flag                                                                                                      |
-| `recording_reactions`                           | Emoji reactions an einen Videozeitstempel angeheftet (anonyme Zuschauer erlaubt)                                                                                                       |
-| `recording_viewers` / `recording_events`        | Ansichtsanalysen: Wiedergabezeit und -abschluss pro Zuschauer sowie detaillierte Ereignisse (Ansichtsstart, Wiedergabefortschritt, Suche, Pause, CTA-Klick, Reaktion)                                     |
-| `clips_meetings`                                | Kalenderbezogene oder Ad-hoc-Besprechungen – geplante/tatsächliche Zeiträume, Plattform, Benutzernotizen, AI `summary_md`, `bullets_json`, `action_items_json` und der Link zu seinem `recording_id`   |
-| `meeting_participants` / `meeting_action_items` | Teilnehmer und extrahierte Aktionselemente für ein Meeting                                                                                                                            |
-| `calendar_accounts` / `calendar_events`         | Verbundene Kalenderkonten (OAuth-Tokens leben in `app_secrets`, hier wird nur referenziert) und synchronisierte Ereignis-Snapshots                                                             |
-| `clips_dictations`                              | Push-to-talk-Diktierverlauf – rohes `full_text`, optionales `cleaned_text`, Quelle (`fn-hold` usw.) und Ziel-App                                                           |
-| `clips_vocabulary`                              | Persönliche Vokabelkorrekturen (Begriff → bevorzugte Ersetzung), die zukünftige Diktate beeinflussen                                                                                    |
-| `spaces` / `space_members` / `folders`          | Bibliotheksorganisation – Bereiche (themenbezogene Container), ihre Mitglieder und verschachtelbare Ordner                                                                                  |
-| `organization_settings`                         | Sidecar für Clips pro Organisation: Markenfarbe, Logo, Standardsichtbarkeit                                                                                                                  |
+| Tabelle                                         | Was es enthält                                                                                                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | Die Kernressource – Titel, Video URL/Format/Größe, Dauer, Miniaturansichten, Status, zerstörungsfreies `edits_json`, `chapters_json`, Datenschutz (Passwort, Ablauf) und Player-Umschaltung          |
+| `recording_transcripts`                         | Transkript pro Aufnahme: `segments_json` (`{startMs,endMs,text}`), `full_text`, Sprache und Status                                                                                                   |
+| `recording_tags`                                | Freiform-Tags für eine Aufnahme                                                                                                                                                                      |
+| `recording_ctas`                                | Call-to-Action-Schaltflächen (Beschriftung, URL, Farbe, Platzierung), die einer Aufzeichnung überlagert sind                                                                                         |
+| `recording_comments`                            | Kommentare mit Threads, Zeitstempel, Emoji-Reaktionskarte und Aufgelöst-Flag                                                                                                                         |
+| `recording_reactions`                           | Emoji reactions an einen Videozeitstempel angeheftet (anonyme Zuschauer erlaubt)                                                                                                                     |
+| `recording_viewers` / `recording_events`        | Ansichtsanalysen: Wiedergabezeit und -abschluss pro Zuschauer sowie detaillierte Ereignisse (Ansichtsstart, Wiedergabefortschritt, Suche, Pause, CTA-Klick, Reaktion)                                |
+| `clips_meetings`                                | Kalenderbezogene oder Ad-hoc-Besprechungen – geplante/tatsächliche Zeiträume, Plattform, Benutzernotizen, AI `summary_md`, `bullets_json`, `action_items_json` und der Link zu seinem `recording_id` |
+| `meeting_participants` / `meeting_action_items` | Teilnehmer und extrahierte Aktionselemente für ein Meeting                                                                                                                                           |
+| `calendar_accounts` / `calendar_events`         | Verbundene Kalenderkonten (OAuth-Tokens leben in `app_secrets`, hier wird nur referenziert) und synchronisierte Ereignis-Snapshots                                                                   |
+| `clips_dictations`                              | Push-to-talk-Diktierverlauf – rohes `full_text`, optionales `cleaned_text`, Quelle (`fn-hold` usw.) und Ziel-App                                                                                     |
+| `clips_vocabulary`                              | Persönliche Vokabelkorrekturen (Begriff → bevorzugte Ersetzung), die zukünftige Diktate beeinflussen                                                                                                 |
+| `spaces` / `space_members` / `folders`          | Bibliotheksorganisation – Bereiche (themenbezogene Container), ihre Mitglieder und verschachtelbare Ordner                                                                                           |
+| `organization_settings`                         | Sidecar für Clips pro Organisation: Markenfarbe, Logo, Standardsichtbarkeit                                                                                                                          |
 
 Aufzeichnungen und Transkripte sind absichtlich getrennte Tabellen, damit die Bibliotheks- und Transkriptansichten jeweils schnell gerendert werden können. Meetings bestehen aus Aufzeichnungen und nicht aus duplizierten Medien: Ein Meeting ist Eigentümer der Aufzeichnung, die es erfasst, aber die Zeile `recordings` bleibt die Quelle der Wahrheit für das Video und das Transkript pro Segment.
 

@@ -227,12 +227,12 @@ export default defineConfig({
 
 ### 빌드/런타임 {#env-runtime}
 
-| 변수                    | 설명                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | 서버 포트(Node.js만 해당)                                                                                                                        |
-| `NITRO_PRESET`              | 빌드 시 빌드 사전 설정 재정의                                                                                                               |
-| `APP_BASE_PATH`             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다.             |
-| `AGENT_PROD_CODE_EXECUTION` | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요. |
+| 변수                        | 설명                                                                                                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | 서버 포트(Node.js만 해당)                                                                                                                                        |
+| `NITRO_PRESET`              | 빌드 시 빌드 사전 설정 재정의                                                                                                                                    |
+| `APP_BASE_PATH`             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다. |
+| `AGENT_PROD_CODE_EXECUTION` | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                 |
 
 데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/database#production)에 있습니다.
 
@@ -240,14 +240,14 @@ export default defineConfig({
 
 앱을 실제 프로덕션 배포로 승격하기 전에 설정해야 합니다. 누락된 값은 실패 시 닫히거나(프레임워크 시작 거부/요청 처리 거부) 큰 경고와 함께 더 약한 동작으로 돌아갑니다.
 
-| 변수                 | 설명                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32자 이상의 임의 문자열. 서명 세션 쿠키 AND는 `OAUTH_STATE_SECRET` 및 `SECRETS_ENCRYPTION_KEY`에 대한 대체 HMAC입니다. 필수: 프로덕션에서 누락된 경우 프레임워크가 시작 시 오류를 발생시킵니다.                                            |
-| `BETTER_AUTH_URL`        | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                              |
+| 변수                     | 설명                                                                                                                                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32자 이상의 임의 문자열. 서명 세션 쿠키 AND는 `OAUTH_STATE_SECRET` 및 `SECRETS_ENCRYPTION_KEY`에 대한 대체 HMAC입니다. 필수: 프로덕션에서 누락된 경우 프레임워크가 시작 시 오류를 발생시킵니다.                                                         |
+| `BETTER_AUTH_URL`        | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                     |
 | `ANTHROPIC_API_KEY`      | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다. |
-| `OAUTH_STATE_SECRET`     | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.    |
-| `A2A_SECRET`             | 앱 간 A2A JSON-RPC에 대해 HMAC를 공유했습니다. 이것이 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 프로덕션에서 503을 반환합니다.                                                                            |
-| `SECRETS_ENCRYPTION_KEY` | 미사용 암호화 비밀 저장소에 대한 AES-256-GCM 키입니다. `BETTER_AUTH_SECRET`로 돌아갑니다. 둘 다 설정되지 않은 경우 프로덕션이 실패합니다.                                                                                                        |
+| `OAUTH_STATE_SECRET`     | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.             |
+| `A2A_SECRET`             | 앱 간 A2A JSON-RPC에 대해 HMAC를 공유했습니다. 이것이 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 프로덕션에서 503을 반환합니다.                                                                     |
+| `SECRETS_ENCRYPTION_KEY` | 미사용 암호화 비밀 저장소에 대한 AES-256-GCM 키입니다. `BETTER_AUTH_SECRET`로 돌아갑니다. 둘 다 설정되지 않은 경우 프로덕션이 실패합니다.                                                                                                               |
 
 ### 인증 및 신원 {#env-auth}
 

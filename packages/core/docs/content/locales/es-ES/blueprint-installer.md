@@ -40,11 +40,11 @@ agent-native add --list                   # list available kinds and blueprints
 
 `agent-native add --list` muestra lo que se incluye en la caja:
 
-| Amable       | Nombre      | Qué configura                                                                    |
-| ---------- | --------- | ---------------------------------------------------------------------------------- |
-| `provider` | `stripe`  | Conecte un proveedor al sustrato `provider-api` (catálogo/docs/solicitud trío). |
-| `channel`  | `discord` | Implemente un canal de webhook entrante `PlatformAdapter` y regístrelo.             |
-| `sandbox`  | `docker`  | Implemente la unión `SandboxAdapter` para ejecutar `run-code` en un contenedor Docker.       |
+| Amable     | Nombre    | Qué configura                                                                                      |
+| ---------- | --------- | -------------------------------------------------------------------------------------------------- |
+| `provider` | `stripe`  | Conecte un proveedor al sustrato `provider-api` (catálogo/docs/solicitud trío).                    |
+| `channel`  | `discord` | Implemente un canal de webhook entrante `PlatformAdapter` y regístrelo.                            |
+| `sandbox`  | `docker`  | Implemente la unión `SandboxAdapter` para ejecutar `run-code` en un contenedor Docker.             |
 | `action`   | `crud`    | Agregue un único `defineAction` de múltiples superficies con un esquema Zod (un `update` sobre N). |
 
 Cada plano es autónomo: el agente de codificación que lo lee obtiene los archivos que debe tocar, las reglas del marco que debe respetar (actions son la única fuente de verdad, nunca codifica secretos, abarca los datos que se pueden poseer, agrega un conjunto de cambios para la fuente `packages/*`) y una sección concreta de **Verificación**.
@@ -57,7 +57,7 @@ Cuando pasas un URL del tipo que no tiene una receta seleccionada (o no quieres 
 agent-native add provider https://docs.example.com/api | claude
 ```
 
-El plano generado le indica al agente de codificación que busque el URL (y las páginas a las que vincula) para los puntos finales reales, el modelo de autenticación, las formas de carga útil y los requisitos de firma/verificación (no_ que adivine a partir de los datos de entrenamiento), luego lo implemente y lo verifique. También incluye orientación específica del tipo (por ejemplo, un `provider` URL se dirige hacia el sustrato `provider-api`; un `channel` URL hacia un `PlatformAdapter`).
+El plano generado le indica al agente de codificación que busque el URL (y las páginas a las que vincula) para los puntos finales reales, el modelo de autenticación, las formas de carga útil y los requisitos de firma/verificación (no\_ que adivine a partir de los datos de entrenamiento), luego lo implemente y lo verifique. También incluye orientación específica del tipo (por ejemplo, un `provider` URL se dirige hacia el sustrato `provider-api`; un `channel` URL hacia un `PlatformAdapter`).
 
 ## Añadiendo tu propio plano {#authoring}
 

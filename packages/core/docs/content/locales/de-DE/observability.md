@@ -7,17 +7,17 @@ description: "Agentenverfolgungen, Auswertungen, Feedback, A/B-Experimente und d
 
 Jede agentennative App ist sofort beobachtbar. Traces, automatisierte Auswertungen, Benutzerfeedback und A/B-Experimente funktionieren ohne Konfiguration – alle Daten werden in der SQL-Datenbank der App gespeichert.
 
-Diese Seite behandelt Metriken zur Agentenqualität: Spuren, Kosten, Auswertungen und Feedback, die in Ihrer Datenbank gespeichert sind. Informationen zu _Produktanalysen (die Ereignisse Ihrer App, die an PostHog/Mixpanel/Amplitude fließen) finden Sie unter [Tracking](/docs/tracking).
+Diese Seite behandelt Metriken zur Agentenqualität: Spuren, Kosten, Auswertungen und Feedback, die in Ihrer Datenbank gespeichert sind. Informationen zu \_Produktanalysen (die Ereignisse Ihrer App, die an PostHog/Mixpanel/Amplitude fließen) finden Sie unter [Tracking](/docs/tracking).
 
 ## Drei Dinge namens „Bewertungen“/„Beobachtbarkeit“ – was will ich? {#which}
 
 Diese drei Seiten sind leicht zu verwechseln. Wählen Sie die Frage aus, die Sie stellen:
 
-| Seite                                                   | Die Frage, die es beantwortet                                    | Wenn es läuft                                 | Bedenken        |
-| ------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------- | -------------- |
-| **Beobachtbarkeitsbewertungen** (diese Seite, die Registerkarte „_Bewertungen_“)   | „Wie liefen meine tatsächlichen Produktionsläufe?“                      | Passiv, nach jedem Lauf (LLM-Richter geprüft) | Qualität        |
-| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | „Tut der Agent bei dieser festen Eingabe das Richtige?“   | Aktiv, deterministisch, ein CI/Deploy-Gate      | Qualität        |
-| **[Observational Memory](/docs/observational-memory)** | „Bleibt dieser lange Faden billig und im Fenster?“ | Hintergrundkomprimierung bei langen Threads        | Kosten/Kontext |
+| Seite                                                                            | Die Frage, die es beantwortet                           | Wenn es läuft                                 | Bedenken       |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- | -------------- |
+| **Beobachtbarkeitsbewertungen** (diese Seite, die Registerkarte „_Bewertungen_“) | „Wie liefen meine tatsächlichen Produktionsläufe?“      | Passiv, nach jedem Lauf (LLM-Richter geprüft) | Qualität       |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                                    | „Tut der Agent bei dieser festen Eingabe das Richtige?“ | Aktiv, deterministisch, ein CI/Deploy-Gate    | Qualität       |
+| **[Observational Memory](/docs/observational-memory)**                           | „Bleibt dieser lange Faden billig und im Fenster?“      | Hintergrundkomprimierung bei langen Threads   | Kosten/Kontext |
 
 Observability und das CI Eval Gate bewerten beide _Qualität_, allerdings von entgegengesetzten Enden – passive Post-hoc-Bewertung des realen Datenverkehrs im Vergleich zu aktiven Pass/Fail-Prüfungen an festen Eingaben. Das Beobachtungsgedächtnis hat nichts mit der Qualität zu tun; Es geht um Tokenkosten und Kontextfensterdruck.
 
@@ -61,13 +61,13 @@ Alle Daten beziehen sich auf den angemeldeten Benutzer. Es gibt heute keine benu
 
 Das Dashboard verfügt über 5 Registerkarten:
 
-| Tab               | Was es zeigt                                                                   |
-| ----------------- | ------------------------------------------------------------------------------- |
-| **Übersicht**      | Wichtige Kennzahlen – Ausführungen, Kosten, Latenz, Tool-Erfolgsquote, Zufriedenheit, Bewertungsergebnis  |
-| **Gespräche** | Trace-Liste mit Drilldown auf einzelne Spans (agent_run, llm_call, tool_call) |
-| **Bewertungen**         | Automatisierte Bewertungsergebnisse nach Kriterien und Trends im Zeitverlauf                             |
-| **Experimente**   | A/B-Testliste mit Statusabzeichen, Variantenergebnisse mit Konfidenzintervallen     |
-| **Feedback**      | Daumen hoch/abwärts Stream, Aufschlüsselung nach Kategorien, Frustrationswerte                   |
+| Tab             | Was es zeigt                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| **Übersicht**   | Wichtige Kennzahlen – Ausführungen, Kosten, Latenz, Tool-Erfolgsquote, Zufriedenheit, Bewertungsergebnis |
+| **Gespräche**   | Trace-Liste mit Drilldown auf einzelne Spans (agent_run, llm_call, tool_call)                            |
+| **Bewertungen** | Automatisierte Bewertungsergebnisse nach Kriterien und Trends im Zeitverlauf                             |
+| **Experimente** | A/B-Testliste mit Statusabzeichen, Variantenergebnisse mit Konfidenzintervallen                          |
+| **Feedback**    | Daumen hoch/abwärts Stream, Aufschlüsselung nach Kategorien, Frustrationswerte                           |
 
 ## Benutzerfeedback {#feedback}
 
@@ -79,13 +79,13 @@ Daumen-hoch/runter-Schaltflächen werden in jeder Agentennachricht im Chat angez
 
 Das Framework berechnet einen Frustrationsindex (0-100) aus Gesprächssignalen:
 
-| Signal         | Gewicht | Was es erkennt                     |
-| -------------- | ------ | ----------------------------------- |
-| Umformulierung     | 30%    | Benutzer wiederholt ähnliche Nachrichten       |
-| Wiederholungsmuster | 20%    | „Versuchen Sie es noch einmal“, „Nein, das ist falsch“      |
-| Abbruch    | 20%    | Sitzung endet kurz nach der Antwort |
-| Stimmung      | 15%    | Negative Sprachmuster          |
-| Längentrend   | 15%    | Abnehmende Nachrichtenlängen           |
+| Signal              | Gewicht | Was es erkennt                                         |
+| ------------------- | ------- | ------------------------------------------------------ |
+| Umformulierung      | 30%     | Benutzer wiederholt ähnliche Nachrichten               |
+| Wiederholungsmuster | 20%     | „Versuchen Sie es noch einmal“, „Nein, das ist falsch“ |
+| Abbruch             | 20%     | Sitzung endet kurz nach der Antwort                    |
+| Stimmung            | 15%     | Negative Sprachmuster                                  |
+| Längentrend         | 15%     | Abnehmende Nachrichtenlängen                           |
 
 Bewertungsinterpretation: 0–20 = gesund, 20–40 = Reibung, 40–60 = unzufrieden, 60+ = abgebrochene Sitzung.
 
@@ -93,13 +93,13 @@ Bewertungsinterpretation: 0–20 = gesund, 20–40 = Reibung, 40–60 = unzufrie
 
 Fünf deterministische Scorer werden nach jedem Agentenlauf ausgeführt:
 
-| Kriterien            | Was es misst                                       | Bewertungsbereich |
-| ------------------- | ------------------------------------------------------ | ----------- |
-| `tool_success_rate` | % der Toolaufrufe ohne Fehler                         | 0-1         |
-| `step_efficiency`   | Straft übermäßige LLM-Iterationen für Tool-verwendende Läufe | 0-1         |
-| `latency_score`     | Normalisiert gegenüber der Basislinie von 10 Sekunden/Werkzeug                   | 0-1         |
-| `cost_efficiency`   | Normalisiert gegenüber der Kostenbasis                       | 0-1         |
-| `error_recovery`    | Hat sich der Agent nach Toolfehlern erholt?                | 0 oder 1      |
+| Kriterien           | Was es misst                                                   | Bewertungsbereich |
+| ------------------- | -------------------------------------------------------------- | ----------------- |
+| `tool_success_rate` | % der Toolaufrufe ohne Fehler                                  | 0-1               |
+| `step_efficiency`   | Straft übermäßige LLM-Iterationen für Tool-verwendende Läufe   | 0-1               |
+| `latency_score`     | Normalisiert gegenüber der Basislinie von 10 Sekunden/Werkzeug | 0-1               |
+| `cost_efficiency`   | Normalisiert gegenüber der Kostenbasis                         | 0-1               |
+| `error_recovery`    | Hat sich der Agent nach Toolfehlern erholt?                    | 0 oder 1          |
 
 ### LLM-als-Richter (optional)
 
@@ -180,23 +180,23 @@ Alle Einstellungen werden im `observability-config`-Schlüssel gespeichert:
 
 Alle automatisch montiert bei `/_agent-native/observability/`:
 
-| Methode | Pfad                       | Zweck                        |
-| ------ | -------------------------- | ------------------------------ |
-| GET    | `/`                        | Übersichtsstatistiken                 |
-| GET    | `/traces`                  | Trace-Zusammenfassungen auflisten           |
-| GET    | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen) |
-| GET    | `/traces/:runId/evals`     | Bewertungen für einen Lauf                |
-| POST   | `/feedback`                | Feedback abgeben                |
-| GET    | `/feedback`                | Feedback auflisten                  |
-| GET    | `/feedback/stats`          | Feedback-Aggregation           |
-| GET    | `/satisfaction`            | Zufriedenheitswerte            |
-| GET    | `/evals/stats`             | Bewertungsstatistiken                |
-| POST   | `/experiments`             | Experiment erstellen              |
-| GET    | `/experiments`             | Experimente auflisten               |
-| GET    | `/experiments/:id`         | Testdetails abrufen          |
-| PUT    | `/experiments/:id`         | Experiment aktualisieren              |
-| POST   | `/experiments/:id/results` | Ergebnisse berechnen                |
-| GET    | `/experiments/:id/results` | Ergebnisse erhalten                    |
+| Methode | Pfad                       | Zweck                                     |
+| ------- | -------------------------- | ----------------------------------------- |
+| GET     | `/`                        | Übersichtsstatistiken                     |
+| GET     | `/traces`                  | Trace-Zusammenfassungen auflisten         |
+| GET     | `/traces/:runId`           | Trace-Details (Zusammenfassung + Spannen) |
+| GET     | `/traces/:runId/evals`     | Bewertungen für einen Lauf                |
+| POST    | `/feedback`                | Feedback abgeben                          |
+| GET     | `/feedback`                | Feedback auflisten                        |
+| GET     | `/feedback/stats`          | Feedback-Aggregation                      |
+| GET     | `/satisfaction`            | Zufriedenheitswerte                       |
+| GET     | `/evals/stats`             | Bewertungsstatistiken                     |
+| POST    | `/experiments`             | Experiment erstellen                      |
+| GET     | `/experiments`             | Experimente auflisten                     |
+| GET     | `/experiments/:id`         | Testdetails abrufen                       |
+| PUT     | `/experiments/:id`         | Experiment aktualisieren                  |
+| POST    | `/experiments/:id/results` | Ergebnisse berechnen                      |
+| GET     | `/experiments/:id/results` | Ergebnisse erhalten                       |
 
 Alle Endpunkte unterstützen die Abfrageparameter `?since=N` (ms-Zeitstempel) und `?limit=N`.
 
@@ -232,11 +232,11 @@ Wenn Sie OTel nicht verkabelt haben, betragen die Kosten also ein paar zwischeng
 
 Die Agentenschleife gibt drei Span-Typen aus:
 
-| Spanne        | Wann                       | Attribute                                                        |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | einmal pro Agentenlauf         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | einmal pro Aktionsaufruf | `tool.name`, plus Erfolgs-/Fehlerstatus                            |
-| `llm.call`  | pro Modellaufruf             | Timing + OK/Fehlerstatus                                          |
+| Spanne      | Wann                     | Attribute                                                         |
+| ----------- | ------------------------ | ----------------------------------------------------------------- |
+| `agent.run` | einmal pro Agentenlauf   | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | einmal pro Aktionsaufruf | `tool.name`, plus Erfolgs-/Fehlerstatus                           |
+| `llm.call`  | pro Modellaufruf         | Timing + OK/Fehlerstatus                                          |
 
 Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wird eine Fehlermeldung aufgezeichnet. Null-/Sentinel-Attributwerte werden bereinigt, damit Spannen nicht mit Rauschen überfrachtet werden. Diese OTel-Schicht ist eine reine Ergänzung zu den hauseigenen `agent_trace_spans`-/`agent_trace_summaries`-Tabellen, die das obige Dashboard unterstützen – beide werden aus den gleichen Laufereignissen erstellt.
 
@@ -244,11 +244,11 @@ Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wi
 
 Serverseitige Fehler, die Nitro-Routenhandlern entgehen, werden an Sentry gemeldet, wenn ein DSN konfiguriert wird. Ohne sie funktioniert der SDK stillschweigend nicht, daher ist es sicher, die Env-Variablen in Dev nicht gesetzt zu lassen. Browser- und Serverereignisse können zum selben Sentry-Projekt gehen; Teilen Sie sie nur dann in separate Projekte auf, wenn Sie eine betriebliche Trennung für Eigentum, Volumen, Kontingente oder Alarmweiterleitung wünschen.
 
-| Oberfläche            | SDK               | Umgebungsvariable                                                        | Notizen                                                                 |
-| ------------------ | ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` oder `SENTRY_DSN` | Erfasst nicht behandelte Fehler und Routenänderungs-Breadcrumbs im Client. |
-| Nitro-Server       | `@sentry/node`    | `SENTRY_SERVER_DSN` oder `SENTRY_DSN`                            | Erfasst 5xx-Antworten und Nitro-Lebenszyklusfehler. Benutzer pro Anfrage.  |
-| `agent-native` CLI | `@sentry/node`    | _hardcoded_                                                    | Absturzberichte aus der veröffentlichten CLI-Binärdatei; nicht vom Benutzer konfigurierbar.   |
+| Oberfläche         | SDK               | Umgebungsvariable                                               | Notizen                                                                                     |
+| ------------------ | ----------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Browser / SPA      | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`, `SENTRY_CLIENT_DSN` oder `SENTRY_DSN` | Erfasst nicht behandelte Fehler und Routenänderungs-Breadcrumbs im Client.                  |
+| Nitro-Server       | `@sentry/node`    | `SENTRY_SERVER_DSN` oder `SENTRY_DSN`                           | Erfasst 5xx-Antworten und Nitro-Lebenszyklusfehler. Benutzer pro Anfrage.                   |
+| `agent-native` CLI | `@sentry/node`    | _hardcoded_                                                     | Absturzberichte aus der veröffentlichten CLI-Binärdatei; nicht vom Benutzer konfigurierbar. |
 
 ### Serverseitige Konfiguration {#sentry-config}
 

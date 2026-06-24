@@ -70,7 +70,7 @@ Codex, Claude 코드, Claude 또는 ChatGPT를 떠나지 않고 브랜드 미디
 
 1. **한 번 설치합니다.** 기술 지침이 추가되고 호스팅된 MCP 커넥터가 함께 등록됩니다.
 
-   ````배시
+   `````배시
    npx @agent-native/core@latest skills 자산 # 별칭 추가: 이미지 생성
    ```
 
@@ -86,6 +86,8 @@ Codex, Claude 코드, Claude 또는 ChatGPT를 떠나지 않고 브랜드 미디
    MCP 커넥터 설정을 실행하세요. 원하는 경우 위의 Agent Native CLI 경로를 사용하세요
    단일 명령 설정
 
+   `````
+
 2. **이미지를 요청하세요.** 에이전트 채팅에서 "Acme 제품 사진에서 세 가지 블로그 히어로 옵션을 생성하세요." 에이전트는 재생성, 재조정(프롬프트, 측면, 개수) 및 선택할 수 있는 후보 이미지가 포함된 선택기를 엽니다.
 3. **선택.** 인라인 호스트(ChatGPT, Claude.ai, Claude 데스크톱 기본 채팅)에서 선택기는 채팅에서 바로 렌더링됩니다. 후보자를 클릭하면 선택 항목이 자동으로 되돌아갑니다. CLI/링크 전용 호스트(Codex, Claude 코드, Claude 데스크톱 "코드" 탭)에서는 **"자산에서 열기 →"** 링크가 표시됩니다. 그것을 열고 브라우저에서 선택한 다음 복사한 핸드오프 요약을 다시 채팅에 붙여넣거나 "이미지 A 사용"이라고 말하면 됩니다.
 
@@ -99,6 +101,8 @@ Codex, Claude 코드, Claude 또는 ChatGPT를 떠나지 않고 브랜드 미디
    선택한 자산 컨텍스트:
    { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "image", ... } }
    ```
+
+   ````
 
 4. **코드에 적용.** 선택한 미디어 URL 및 `assetId`가 에이전트로 돌아오며 에이전트는 작성하는 코드(`<img>` src, 다운로드)에서 직접 URL를 사용하거나 `export-asset`를 호출합니다.
 
@@ -118,17 +122,17 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 
 참고: SQL 테이블 이름은 앱이 이미지라고 불렸을 때의 레거시 `image_*` 접두사를 유지합니다. 동영상과 기타 미디어도 다루고 있습니다.
 
-| 테이블                            | 무엇을 담고 있는지                                                                                                                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 테이블                           | 무엇을 담고 있는지                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `image_libraries`                | 라이브러리 — 브랜드, 캠페인, 제품 또는 카테고리별로 그룹화된 최상위 컨테이너입니다. `custom_instructions`, `style_brief`, 표준 로고 및 표지 자산 참조 및 아카이브 상태를 보유합니다. |
-| `image_library_shares`           | 프레임워크는 라이브러리당 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)로 매핑하는 테이블을 공유합니다.                                                                                   |
-| `image_collections`              | 라이브러리 내부의 스타일/카테고리 그룹화 — `style_brief`, `prompt_template`, 기본 종횡비 및 이미지 크기                                                                        |
-| `asset_folders`                  | 라이브러리 내부에 중첩 가능한 폴더(계층 구조의 경우 `parent_id`)                                                                                                                            |
-| `image_generation_presets`       | 저장된 생성 레시피 — 미디어 유형, 프롬프트 템플릿, 종횡비, 모델 및 텍스트/참조 정책                                                                                   |
-| `image_generation_sessions`      | 간단한 상태, 활성 자산 및 피드백 요약이 포함된 반복적인 생성 및 선택 세션                                                                                        |
-| `image_generation_session_items` | 세션 내의 후보 자산(각각 역할 및 메모 포함)                                                                                                                             |
-| `image_assets`                   | 자산 기록 — 미디어 유형, 역할, 상태, 제목/설명/대체 텍스트, 프롬프트, 모델, 크기, MIME 유형, 개체/썸네일 키 및 계보                                        |
-| `image_generation_runs`          | 생성 감사 로그 — 프롬프트, 컴파일된 프롬프트, 모델, 참조, 상태, 오류 및 이를 트리거한 `source`(`chat` / `ui` / `a2a`)                                        |
+| `image_library_shares`           | 프레임워크는 라이브러리당 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)로 매핑하는 테이블을 공유합니다.                                                                        |
+| `image_collections`              | 라이브러리 내부의 스타일/카테고리 그룹화 — `style_brief`, `prompt_template`, 기본 종횡비 및 이미지 크기                                                                              |
+| `asset_folders`                  | 라이브러리 내부에 중첩 가능한 폴더(계층 구조의 경우 `parent_id`)                                                                                                                     |
+| `image_generation_presets`       | 저장된 생성 레시피 — 미디어 유형, 프롬프트 템플릿, 종횡비, 모델 및 텍스트/참조 정책                                                                                                  |
+| `image_generation_sessions`      | 간단한 상태, 활성 자산 및 피드백 요약이 포함된 반복적인 생성 및 선택 세션                                                                                                            |
+| `image_generation_session_items` | 세션 내의 후보 자산(각각 역할 및 메모 포함)                                                                                                                                          |
+| `image_assets`                   | 자산 기록 — 미디어 유형, 역할, 상태, 제목/설명/대체 텍스트, 프롬프트, 모델, 크기, MIME 유형, 개체/썸네일 키 및 계보                                                                  |
+| `image_generation_runs`          | 생성 감사 로그 — 프롬프트, 컴파일된 프롬프트, 모델, 참조, 상태, 오류 및 이를 트리거한 `source`(`chat` / `ui` / `a2a`)                                                                |
 
 ```an-schema title="Assets data model" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
 {

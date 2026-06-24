@@ -17,17 +17,17 @@ O padrão **espaço de trabalho multiaplicativos** é como o agente nativo resol
 
 Qualquer coisa com a qual todos os aplicativos da sua organização devem concordar pode residir em `packages/shared`:
 
-| Coisa compartilhada                  | Onde mora                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| Substituição de autenticação/SSO           | Exportar `authPlugin` de `src/server/index.ts`                                |
-| Regras da organização/RBAC              | Organizações de autenticação melhores, opcionalmente agrupadas por esse `authPlugin`            |
-| Modificação de bate-papo do agente           | Exportar `agentChatPlugin` de `src/server/index.ts`                           |
-| Instruções do agente empresarial | `AGENTS.md`                                                                   |
-| Agente skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
-| Agente compartilhado actions          | `actions/*.ts`                                                                |
-| Componentes React compartilhados       | Exportar de `src/client/index.ts`                                             |
-| Design de tokens/marca         | Adicione um arquivo CSS compartilhado e importe-o de cada aplicativo                             |
-| Credenciais API compartilhadas        | Prefira credenciais com escopo de estrutura; adicione ajudantes apenas se precisar de namespace |
+| Coisa compartilhada                | Onde mora                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Substituição de autenticação/SSO   | Exportar `authPlugin` de `src/server/index.ts`                                                  |
+| Regras da organização/RBAC         | Organizações de autenticação melhores, opcionalmente agrupadas por esse `authPlugin`            |
+| Modificação de bate-papo do agente | Exportar `agentChatPlugin` de `src/server/index.ts`                                             |
+| Instruções do agente empresarial   | `AGENTS.md`                                                                                     |
+| Agente skills                      | `.agents/skills/<skill-name>/SKILL.md`                                                          |
+| Agente compartilhado actions       | `actions/*.ts`                                                                                  |
+| Componentes React compartilhados   | Exportar de `src/client/index.ts`                                                               |
+| Design de tokens/marca             | Adicione um arquivo CSS compartilhado e importe-o de cada aplicativo                            |
+| Credenciais API compartilhadas     | Prefira credenciais com escopo de estrutura; adicione ajudantes apenas se precisar de namespace |
 
 Cada aplicativo individual se torna _apenas um conjunto de telas_ — rotas, painéis, visualizações, actions específico do domínio. Os padrões da estrutura cobrem o resto até você adicionar uma personalização real do espaço de trabalho.
 
@@ -124,12 +124,12 @@ A mesclagem acontece pelo nome do arquivo. Se um aplicativo fornecer um arquivo 
 
 Quando um aplicativo precisar de algo diferente, solte um arquivo local:
 
-| Coisa a ser substituída             | Arquivo a ser criado dentro do aplicativo                       |
-| ----------------------------- | --------------------------------------------------- |
-| Plugin de autenticação                   | `apps/<name>/server/plugins/auth.ts`                |
-| Plugin de bate-papo com agente             | `apps/<name>/server/plugins/agent-chat.ts`          |
-| Uma habilidade específica              | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`  |
-| Uma ação específica             | `apps/<name>/actions/<action-name>.ts`              |
+| Coisa a ser substituída         | Arquivo a ser criado dentro do aplicativo                    |
+| ------------------------------- | ------------------------------------------------------------ |
+| Plugin de autenticação          | `apps/<name>/server/plugins/auth.ts`                         |
+| Plugin de bate-papo com agente  | `apps/<name>/server/plugins/agent-chat.ts`                   |
+| Uma habilidade específica       | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`           |
+| Uma ação específica             | `apps/<name>/actions/<action-name>.ts`                       |
 | Instruções adicionais do agente | `apps/<name>/AGENTS.md` (mescla com o espaço de trabalho um) |
 
 Sem fiação, sem configuração. Crie o arquivo e ele assumirá o controle.

@@ -18,10 +18,10 @@ Las automatizaciones amplían [recurring jobs](/docs/recurring-jobs) con **activ
 
 ## Dos tipos de activadores {#trigger-types}
 
-| Tipo       | Se dispara cuando                                             | Campo clave         |
-| ---------- | ------------------------------------------------------ | ----------------- |
-| `schedule` | Una expresión cron coincide (igual que los trabajos recurrentes)     | `schedule` (cron) |
-| `event`    | Se emite un evento coincidente en el bus de eventos del marco | `event` (nombre)    |
+| Tipo       | Se dispara cuando                                                | Campo clave       |
+| ---------- | ---------------------------------------------------------------- | ----------------- |
+| `schedule` | Una expresión cron coincide (igual que los trabajos recurrentes) | `schedule` (cron) |
+| `event`    | Se emite un evento coincidente en el bus de eventos del marco    | `event` (nombre)  |
 
 Los desencadenantes de eventos pueden incluir un `condition`, una cadena en lenguaje natural evaluada por Haiku con respecto a la carga útil del evento antes del envío. Si la condición no coincide, la automatización se omite silenciosamente.
 
@@ -57,13 +57,13 @@ La tercera ruta (escribir el archivo `jobs/<name>.md` a mano mediante `resourceP
 
 Las automatizaciones comparten todos los campos del [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Estos campos adicionales controlan los desencadenadores de eventos, las condiciones y el modo de ejecución:
 
-| Campo         | Tipo                             | Predeterminado      | Descripción                                                                                                                                                  |
-| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Cómo se activa la automatización                                                                                                                                     |
-| `event`       | cadena                           | _(opcional)_ | Nombre del evento al que suscribirse (solo activadores de eventos)                                                                                                             |
-| `condition`   | cadena                           | _(opcional)_ | Condición del lenguaje natural evaluada antes del envío                                                                                                         |
-| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Bucle de agente completo. (`"deterministic"` está reservado pero aún no se ha implementado; las automatizaciones que lo configuran se omiten. Utilice `"agentic"` para todas las automatizaciones actuales). |
-| `domain`      | cadena                           | _(opcional)_ | Etiqueta de agrupación (correo, calendario, clips, etc.)                                                                                                                   |
+| Campo         | Tipo                             | Predeterminado | Descripción                                                                                                                                                                                                  |
+| ------------- | -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"`   | Cómo se activa la automatización                                                                                                                                                                             |
+| `event`       | cadena                           | _(opcional)_   | Nombre del evento al que suscribirse (solo activadores de eventos)                                                                                                                                           |
+| `condition`   | cadena                           | _(opcional)_   | Condición del lenguaje natural evaluada antes del envío                                                                                                                                                      |
+| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`    | Bucle de agente completo. (`"deterministic"` está reservado pero aún no se ha implementado; las automatizaciones que lo configuran se omiten. Utilice `"agentic"` para todas las automatizaciones actuales). |
+| `domain`      | cadena                           | _(opcional)_   | Etiqueta de agrupación (correo, calendario, clips, etc.)                                                                                                                                                     |
 
 Para un desencadenador de evento, `schedule` es `""` (vacío); para un desencadenador de programación, lleva la expresión cron. El despachador también escribe los mismos campos administrados `lastRun` / `lastStatus` / `lastError` que escribe el programador, además de un estado `"skipped"` cuando una condición se evalúa como falsa.
 
@@ -73,13 +73,13 @@ Las integraciones registran eventos en el momento de carga del módulo. El bus v
 
 ### Eventos integrados {#built-in-events}
 
-| Evento                  | Fuente                                         |
-| ---------------------- | ---------------------------------------------- |
+| Evento                 | Fuente                                               |
+| ---------------------- | ---------------------------------------------------- |
 | `test.event.fired`     | Manual / `manage-automations` acción=prueba de fuego |
-| `agent.turn.completed` | Chat del agente                                     |
-| `calendar.*`           | Integración de calendario                           |
-| `clip.*`               | Integración de clips                              |
-| `mail.*`               | Integración de correo                               |
+| `agent.turn.completed` | Chat del agente                                      |
+| `calendar.*`           | Integración de calendario                            |
+| `clip.*`               | Integración de clips                                 |
+| `mail.*`               | Integración de correo                                |
 
 Llame a `manage-automations` con `action=list-events` desde el agente para ver todos los eventos registrados con descripciones y esquemas de carga útil para la plantilla actual.
 
@@ -152,13 +152,13 @@ Los marcadores de posición se resuelven **del lado del servidor** después de q
 
 ### Parámetros {#web-request-params}
 
-| Parámetro    | Tipo   | Predeterminado | Descripción                                         |
-| ------------ | ------ | ------- | --------------------------------------------------- |
-| `url`        | cadena | —       | URL completo. Puede contener referencias a `${keys.NAME}`.    |
-| `method`     | cadena | `GET`   | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).  |
-| `headers`    | cadena | `{}`    | JSON objeto de encabezados. Puede contener `${keys.NAME}`. |
-| `body`       | cadena | —       | Cuerpo de la solicitud. Puede contener `${keys.NAME}`.           |
-| `timeout_ms` | número | 15000   | Tiempo de espera en milisegundos (máximo 30000).                |
+| Parámetro    | Tipo   | Predeterminado | Descripción                                                |
+| ------------ | ------ | -------------- | ---------------------------------------------------------- |
+| `url`        | cadena | —              | URL completo. Puede contener referencias a `${keys.NAME}`. |
+| `method`     | cadena | `GET`          | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).         |
+| `headers`    | cadena | `{}`           | JSON objeto de encabezados. Puede contener `${keys.NAME}`. |
+| `body`       | cadena | —              | Cuerpo de la solicitud. Puede contener `${keys.NAME}`.     |
+| `timeout_ms` | número | 15000          | Tiempo de espera en milisegundos (máximo 30000).           |
 
 ## Claves {#keys}
 
@@ -173,26 +173,26 @@ Las claves son secretos ad hoc creados por los usuarios o el agente para su uso 
 
 Se accede a todas las operaciones de automatización a través de una única herramienta `manage-automations` con un parámetro `action`:
 
-| Acción        | Propósito                                                              |
-| ------------- | -------------------------------------------------------------------- |
-| `list-events` | Descubre todos los eventos registrados con descripciones y esquemas de carga útil |
-| `list`        | Enumerar todas las automatizaciones con estado; filtrar por dominio o habilitado        |
+| Acción        | Propósito                                                                             |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `list-events` | Descubre todos los eventos registrados con descripciones y esquemas de carga útil     |
+| `list`        | Enumerar todas las automatizaciones con estado; filtrar por dominio o habilitado      |
 | `define`      | Crear una nueva automatización (nombre, tipo de activador, evento, condición, cuerpo) |
-| `update`      | Actualizar una automatización existente (habilitada, condición, cuerpo)             |
-| `delete`      | Eliminar una automatización (siempre confirma primero con el usuario)               |
-| `fire-test`   | Emitir un evento `test.event.fired` para validar automatizaciones              |
+| `update`      | Actualizar una automatización existente (habilitada, condición, cuerpo)               |
+| `delete`      | Eliminar una automatización (siempre confirma primero con el usuario)                 |
+| `fire-test`   | Emitir un evento `test.event.fired` para validar automatizaciones                     |
 
 Herramienta adicional: `web-request`: HTTP saliente con sustitución de `${keys.NAME}`.
 
 ## Puntos finales API {#api}
 
-| Punto final                               | Método | Descripción                     |
-| -------------------------------------- | ------ | ------------------------------- |
-| `/_agent-native/automations`           | GET    | Enumerar todas las automatizaciones (analizadas)   |
-| `/_agent-native/automations/fire-test` | POST   | Emitir un evento `test.event.fired` |
-| `/_agent-native/secrets/adhoc`         | GET    | Lista de claves ad-hoc (sin valores)    |
-| `/_agent-native/secrets/adhoc`         | POST   | Crear o actualizar una clave ad-hoc  |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | Eliminar una clave ad hoc            |
+| Punto final                            | Método | Descripción                                      |
+| -------------------------------------- | ------ | ------------------------------------------------ |
+| `/_agent-native/automations`           | GET    | Enumerar todas las automatizaciones (analizadas) |
+| `/_agent-native/automations/fire-test` | POST   | Emitir un evento `test.event.fired`              |
+| `/_agent-native/secrets/adhoc`         | GET    | Lista de claves ad-hoc (sin valores)             |
+| `/_agent-native/secrets/adhoc`         | POST   | Crear o actualizar una clave ad-hoc              |
+| `/_agent-native/secrets/adhoc/:name`   | DELETE | Eliminar una clave ad hoc                        |
 
 ```an-api title="Fire a test event"
 {

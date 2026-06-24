@@ -86,11 +86,11 @@ npx @agent-native/core@latest create my-platform
 
 すべてのデータは、Drizzle ORM を介して SQL に存在します。スキーマ: `templates/forms/server/db/schema.ts`。フォームには標準の `ownableColumns` と一致するフレームワーク共有テーブルが含まれるため、ユーザーごと/組織ごとの共有モデルに組み込まれます。
 
-| テーブル         | 内容                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| テーブル      | 内容                                                                                                                                                                                                            |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forms`       | フォーム定義 — `title`、`description`、一意の `slug`、`fields` (`FormField` の JSON 配列)、`settings` (JSON `FormSettings`)、`status` (`draft` / `published` / `closed`)、および論理的に削除された `deleted_at` |
-| `responses`   | 行ごとに 1 つの送信 — `form_id`、`data` (JSON `{ fieldId: value }`)、`submitted_at`、オプションの `ip` および `submitter_email`                                                                                    |
-| `form_shares` | フレームワークは、フォームごとにプリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするテーブルを共有します                                                                                                            |
+| `responses`   | 行ごとに 1 つの送信 — `form_id`、`data` (JSON `{ fieldId: value }`)、`submitted_at`、オプションの `ip` および `submitter_email`                                                                                 |
+| `form_shares` | フレームワークは、フォームごとにプリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするテーブルを共有します                                                                        |
 
 `fields` および `settings` JSON 形状は、`templates/forms/shared/types.ts` (`FormField`、`FormSettings`) で定義されています。統合 Webhook URL や許可されたオリジンなどの所有者プライベート設定は、データが `toPublicFormSettings` 経由でパブリック入力ページに到達する前に削除されます。
 

@@ -140,15 +140,15 @@ pnpm dev
 
 يتم تخزين بيانات الاعتماد عبر إعدادات إطار العمل/طبقة البيئة - لا توجد أسرار في git. يتطلب الإنتاج:
 
-| متغير                                 | الغرض                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | اتصال SQL الدائم URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | المصادقة                                                    |
+| متغير                                    | الغرض                                                          |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `DATABASE_URL`                           | اتصال SQL الدائم URL                                           |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | المصادقة                                                       |
 | `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | العميل المفضل لتسجيل الدخول إلى Google (OAuth 2.0)             |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | الإجراء الاحتياطي القديم لتسجيل الدخول / عميل تكامل Google API |
-| `BIGQUERY_PROJECT_ID`                    | مشروع BigQuery                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | حساب خدمة BigQuery JSON                           |
-| `ANTHROPIC_API_KEY`                      | دردشة الوكيل                                              |
+| `BIGQUERY_PROJECT_ID`                    | مشروع BigQuery                                                 |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | حساب خدمة BigQuery JSON                                        |
+| `ANTHROPIC_API_KEY`                      | دردشة الوكيل                                                   |
 
 يتم توثيق المفاتيح الخاصة بالموفر (HubSpot، وJira، وGong، وPylon، وما إلى ذلك) في الإرشادات التفصيلية لكل مصدر في صفحة مصادر البيانات. إذا قمت بإضافة إجراء جديد يحتاج إلى مفتاح API، فسيظهر كمصدر جديد على تلك الصفحة عبر تسجيل تأهيل القالب.
 

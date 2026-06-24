@@ -106,7 +106,7 @@ pnpm agent "Call hello for Steve and explain the result"
 
 ### 验证返回值 {#output-schema}
 
-`schema` 验证_输入_。要验证操作 **返回**，请传递 `outputSchema`（任何标准模式兼容模式 - Zod、Valibot、ArkType、与 `schema` 相同的表面）。框架在 `run()` 解析之后验证结果，并与输入验证组合：在 `run` 之前验证输入，在 `run` 之后验证输出。
+`schema` 验证*输入*。要验证操作 **返回**，请传递 `outputSchema`（任何标准模式兼容模式 - Zod、Valibot、ArkType、与 `schema` 相同的表面）。框架在 `run()` 解析之后验证结果，并与输入验证组合：在 `run` 之前验证输入，在 `run` 之后验证输出。
 
 ```ts
 export default defineAction({
@@ -125,11 +125,11 @@ export default defineAction({
 
 `outputErrorStrategy` 控制不匹配时发生的情况：
 
-| 策略     | 不匹配时的行为                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
+| 策略         | 不匹配时的行为                                                 |
+| ------------ | -------------------------------------------------------------- |
 | `"warn"`     | **默认。** `console.warn` 问题并返回**原始**结果不变。不间断。 |
-| `"strict"`   | 抛出一个明显的错误，以便大声地浮现出有问题的操作。                                             |
-| `"fallback"` | 返回提供的 `outputFallback` 值来代替无效结果。                         |
+| `"strict"`   | 抛出一个明显的错误，以便大声地浮现出有问题的操作。             |
+| `"fallback"` | 返回提供的 `outputFallback` 值来代替无效结果。                 |
 
 成功后，将返回 **validated** 值，因此 `outputSchema` 上定义的任何强制或默认值都会生效（镜像输入路径）。当没有提供 `outputSchema` 时，行为是逐字节不变的——没有包装。这是从 Mastra/Flue 结构化输出借来的，并且在操作层上保持无依赖性。
 
@@ -177,7 +177,7 @@ export default defineAction({
 
 代理可以看到的每个动作都是模型上下文窗口中的一个工具，而长而重叠的工具列表会降低模型的工具选择质量。将操作界面设计为您维护的 API，而不是为每个 UI 功能提供一个操作：
 
--  更喜欢**一个 CRUD 风格的 `update`**，它采用一个可选字段补丁，而不是 N 个每个字段 actions（`update-name`、`update-order`、`update-color`，...）。调用者仅发送更改的内容。
+- 更喜欢**一个 CRUD 风格的 `update`**，它采用一个可选字段补丁，而不是 N 个每个字段 actions（`update-name`、`update-order`、`update-color`，...）。调用者仅发送更改的内容。
 - 在为每个查询/过滤器添加新的读取操作之前，请使用通用逃生口：用于提供程序数据的 [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) 或用于应用程序数据的 dev `db-query` 工具。
 - 标记仅 UI 或编程 actions [`agentTool: false`](#agent-tool)，以便它们保持前端/HTTP 可调用，而无需在模型的工具列表中占用一个位置。
 - 删除或隐藏 UI 不再使用的 actions，而不是将它们暴露给模型。
@@ -188,12 +188,12 @@ export default defineAction({
 
 四个标志控制谁可以调用操作。所有默认值都为允许值，因此您只需设置一个即可收紧特定表面。该表是一目了然的摘要；这些小节添加了每个需要的细节。
 
-| 标记            | 默认       | 限制值→谁仍然可以调用                                      | 典型用途                                                     |
-| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → 仅 UI、HTTP、CLI — **对模型隐藏**、MCP 和 A2A      | 仅 UI/程序化 actions，不应该花费工具槽 |
-| `toolCallable`  | `true`        | `false` → 一切**除了**沙盒扩展 iframe 桥 (403) | 授权相邻操作（删除帐户、更改组织成员资格/角色） |
-| `publicAgent`   | 关闭（私人） | `{ expose: true }` → 将操作添加到**公共** MCP/A2A/OpenAPI 表面 | 无需身份验证即可访问安全读取/摄取工具         |
-| `needsApproval` | `false`       | `true` → 特工**暂停**；人类必须批准特定的呼叫       | 间接副作用（发送电子邮件、为卡充值、删除）  |
+| 标记            | 默认         | 限制值→谁仍然可以调用                                          | 典型用途                                        |
+| --------------- | ------------ | -------------------------------------------------------------- | ----------------------------------------------- |
+| `agentTool`     | `true`       | `false` → 仅 UI、HTTP、CLI — **对模型隐藏**、MCP 和 A2A        | 仅 UI/程序化 actions，不应该花费工具槽          |
+| `toolCallable`  | `true`       | `false` → 一切**除了**沙盒扩展 iframe 桥 (403)                 | 授权相邻操作（删除帐户、更改组织成员资格/角色） |
+| `publicAgent`   | 关闭（私人） | `{ expose: true }` → 将操作添加到**公共** MCP/A2A/OpenAPI 表面 | 无需身份验证即可访问安全读取/摄取工具           |
+| `needsApproval` | `false`      | `true` → 特工**暂停**；人类必须批准特定的呼叫                  | 间接副作用（发送电子邮件、为卡充值、删除）      |
 
 这些是独立的：`agentTool` 控制模型的视图，`toolCallable` 仅控制扩展 iframe，`publicAgent` 添加选择加入的公共界面（公共 Web 路由绝不意味着公开工具暴露），而 `needsApproval` 在调用后控制执行 - 请参阅下面的 [Human-in-the-loop approval](#needs-approval)。
 
@@ -259,24 +259,24 @@ export default defineAction({
 
 `ActionRunContext` 字段：
 
-| 字段         | 类型                    | 注释                                                                                                                                                           |
+| 字段          | 类型                    | 注释                                                                                                                                                            |
 | ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
 | `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | 如何调用操作（见下文）。                                                                                                                         |
-| `send`        | `(event) => void`       | 可选。向客户端发出 SSE 事件。仅存在于代理工具循环内部（`caller: "tool"`）； `undefined` 其他地方。                                   |
-| `attachments` | `AgentChatAttachment[]` | 当前代理提交的文件、图像和粘贴的文本块。仅当`caller: "tool"`时才填充； `undefined` 在所有其他表面上。           |
+| `caller`      | `ActionCaller`          | 如何调用操作（见下文）。                                                                                                                                        |
+| `send`        | `(event) => void`       | 可选。向客户端发出 SSE 事件。仅存在于代理工具循环内部（`caller: "tool"`）； `undefined` 其他地方。                                                              |
+| `attachments` | `AgentChatAttachment[]` | 当前代理提交的文件、图像和粘贴的文本块。仅当`caller: "tool"`时才填充； `undefined` 在所有其他表面上。                                                           |
 
 `caller` 是并集 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`：
 
-| `caller`     | 设置当...                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `"tool"`     | 应用内代理循环、子代理/代理团队或 A2A 请求（A2A 驱动相同的代理循环，因此其工具调用为 `"tool"`）。 |
-| `"frontend"` | 通过 `useActionMutation` / `useActionQuery` / `callAction` 的浏览器调用（用 `X-Agent-Native-Frontend: 1` 标头标记）。      |
-| `"http"`     | 没有前端标记的裸编程 `POST` / `GET` 到 `/_agent-native/actions/<name>`。                                   |
-| `"cli"`      | `pnpm action <name>`（CLI 跑步者）。                                                                                               |
-| `"mcp"`      | MCP `tools/call` 端点上的外部代理。                                                                                |
-| `"a2a"`      | 保留用于将来的直接 A2A 操作调度。今天 A2A 运行在代理循环中，因此这些调用是 `"tool"`。                |
+| `caller`     | 设置当...                                                                                                             |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`     | 应用内代理循环、子代理/代理团队或 A2A 请求（A2A 驱动相同的代理循环，因此其工具调用为 `"tool"`）。                     |
+| `"frontend"` | 通过 `useActionMutation` / `useActionQuery` / `callAction` 的浏览器调用（用 `X-Agent-Native-Frontend: 1` 标头标记）。 |
+| `"http"`     | 没有前端标记的裸编程 `POST` / `GET` 到 `/_agent-native/actions/<name>`。                                              |
+| `"cli"`      | `pnpm action <name>`（CLI 跑步者）。                                                                                  |
+| `"mcp"`      | MCP `tools/call` 端点上的外部代理。                                                                                   |
+| `"a2a"`      | 保留用于将来的直接 A2A 操作调度。今天 A2A 运行在代理循环中，因此这些调用是 `"tool"`。                                 |
 
 `run` 保持向后兼容：现有的 1 参数处理程序和仅解构 `{ send }` 的处理程序继续保持不变。
 
@@ -390,7 +390,7 @@ const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
 Actions 可以返回应用内聊天呈现的结构化小部件数据
 本地。这是可重用表格、图表、设置的第一方聊天路径
-摘要和见解卡；使用 [MCP Apps](/docs/mcp-apps) 进行内联 UI 
+摘要和见解卡；使用 [MCP Apps](/docs/mcp-apps) 进行内联 UI
 外部 MCP 主机。
 
 ```ts
@@ -564,14 +564,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## 实用函数 {#utility-functions}
 
-| 功能                | 退货   | 描述                                           |
-| ----------------------- | --------- | ----------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | 从项目根目录（或自定义路径）加载`.env`。       |
-| `camelCaseArgs(args)`   | `Record`  | 将短横线大小写键转换为驼峰式大小写。                 |
-| `isValidPath(p)`        | `boolean` | 验证相对路径（无遍历，无绝对）。 |
-| `isValidProjectPath(p)` | `boolean` | 验证项目段（例如 `my-project`）。          |
-| `ensureDir(dir)`        | `void`    | `mkdir -p` 助手。                                    |
-| `fail(message)`         | `never`   | 打印到stderr和`exit(1)`。                        |
+| 功能                    | 退货      | 描述                                     |
+| ----------------------- | --------- | ---------------------------------------- |
+| `loadEnv(path?)`        | `void`    | 从项目根目录（或自定义路径）加载`.env`。 |
+| `camelCaseArgs(args)`   | `Record`  | 将短横线大小写键转换为驼峰式大小写。     |
+| `isValidPath(p)`        | `boolean` | 验证相对路径（无遍历，无绝对）。         |
+| `isValidProjectPath(p)` | `boolean` | 验证项目段（例如 `my-project`）。        |
+| `ensureDir(dir)`        | `void`    | `mkdir -p` 助手。                        |
+| `fail(message)`         | `never`   | 打印到stderr和`exit(1)`。                |
 
 ## 下一步是什么
 

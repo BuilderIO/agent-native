@@ -5,7 +5,7 @@ description: "Eine dauerhafte, nur anhängbare Aufzeichnung darüber, wer welche
 
 # Audit-Protokoll
 
-Jede agentennative App erhält sofort ein Audit-Protokoll: eine dauerhafte, vollständige, zugriffsbezogene, nur anhängbare Aufzeichnung darüber, wer welche App-Daten wann, von wo und – wenn es der Agent war – in welcher Ausführung geändert hat.** Die Erfassung erfolgt automatisch an der Aktionsstelle; Sie schreiben keinen Code dafür.
+Jede agentennative App erhält sofort ein Audit-Protokoll: eine dauerhafte, vollständige, zugriffsbezogene, nur anhängbare Aufzeichnung darüber, wer welche App-Daten wann, von wo und – wenn es der Agent war – in welcher Ausführung geändert hat.\*\* Die Erfassung erfolgt automatisch an der Aktionsstelle; Sie schreiben keinen Code dafür.
 
 Da der Agent Daten in Ihrem Namen ändern kann, lautet die Hauptfrage, die ein Audit-Protokoll hier beantwortet, nicht nur „Wer hat diesen Datensatz bearbeitet?“ – sondern **„War das ich oder der Agent und wer hat das verursacht?“** Kein anderes System im Framework kann das beantworten.
 
@@ -13,11 +13,11 @@ Da der Agent Daten in Ihrem Namen ändern kann, lautet die Hauptfrage, die ein A
 
 Drei Systeme zeichnen aus drei verschiedenen Gründen auf, „was passiert ist“. Wählen Sie die Frage aus, die Sie stellen:
 
-| System                                   | Die Frage, die es beantwortet                                | Treue                         | Zielgruppe                      |
-| ---------------------------------------- | ------------------------------------------------------ | -------------------------------- | ----------------------------- |
-| **Audit-Protokoll** (diese Seite)                | „Wer hat diesen Datensatz wann geändert und war es der Agent?“ | **Vollständig, langlebig, umfassend**    | Benutzer, Administrator, der Agent selbst |
-| **[Observability](/docs/observability)** | „Warum hat der Agent das getan und was hat es gekostet?“     | Gesamte Spannentelemetrie           | Entwickler                     |
-| **[Tracking](/docs/tracking)**           | „Wie verwenden die Leute das Produkt?“                    | Fire-and-Forget zu externem SaaS | PM / Wachstum                   |
+| System                                   | Die Frage, die es beantwortet                                  | Treue                                 | Zielgruppe                                |
+| ---------------------------------------- | -------------------------------------------------------------- | ------------------------------------- | ----------------------------------------- |
+| **Audit-Protokoll** (diese Seite)        | „Wer hat diesen Datensatz wann geändert und war es der Agent?“ | **Vollständig, langlebig, umfassend** | Benutzer, Administrator, der Agent selbst |
+| **[Observability](/docs/observability)** | „Warum hat der Agent das getan und was hat es gekostet?“       | Gesamte Spannentelemetrie             | Entwickler                                |
+| **[Tracking](/docs/tracking)**           | „Wie verwenden die Leute das Produkt?“                         | Fire-and-Forget zu externem SaaS      | PM / Wachstum                             |
 
 Ein Prüfprotokoll, das als Stichprobe erstellt oder an einen Analyseanbieter gesendet wird, ist nutzlos – der springende Punkt ist, dass es vollständig, lokal und abfragbar ist. Es handelt sich also um ein eigenes Subsystem, nicht um einen Modus der anderen beiden.
 
@@ -63,13 +63,13 @@ Alles in `audit` ist optional. Der minimale nützliche Zusatz ist `target: () =>
 
 ### Tuning-Aufnahme {#tuning}
 
-| Option               | Effekt                                                          |
-| -------------------- | --------------------------------------------------------------- |
+| Option               | Effekt                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
 | `audit.target`       | Beschriften Sie das Ereignis mit der Ressource und dem Bereich, den es seinem Besitzer vorliest. |
-| `audit.summary`      | Eine kurze, für Menschen lesbare Zeile für das Ereignis.                      |
-| `audit.onRead`       | Überprüfen Sie einen vertraulichen **Lesevorgang** (geheimer Zugriff, Massenexport).        |
-| `audit.enabled`      | `true` erzwingt die Erfassung; `false` verzichtet auf eine laute Mutation.    |
-| `audit.recordInputs` | `false` überspringt die Erfassung der (bereits redigierten) Argumente.       |
+| `audit.summary`      | Eine kurze, für Menschen lesbare Zeile für das Ereignis.                                         |
+| `audit.onRead`       | Überprüfen Sie einen vertraulichen **Lesevorgang** (geheimer Zugriff, Massenexport).             |
+| `audit.enabled`      | `true` erzwingt die Erfassung; `false` verzichtet auf eine laute Mutation.                       |
+| `audit.recordInputs` | `false` überspringt die Erfassung der (bereits redigierten) Argumente.                           |
 
 ## Die Spur lesen {#reading}
 

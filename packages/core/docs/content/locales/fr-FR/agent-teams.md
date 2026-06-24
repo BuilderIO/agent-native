@@ -54,13 +54,13 @@ Le framework donne à l'agent principal un outil `agent-teams`. Lorsque le modè
 
 L'ensemble complet d'actions `agent-teams` est :
 
-| Action        | Objectif                              |
-| ------------- | ------------------------------------ |
-| `spawn`       | Démarrer une nouvelle tâche de sous-agent           |
+| Action        | Objectif                                                     |
+| ------------- | ------------------------------------------------------------ |
+| `spawn`       | Démarrer une nouvelle tâche de sous-agent                    |
 | `status`      | Vérifier la progression d'un sous-agent en cours d'exécution |
-| `read-result` | Obtenir le résultat d'un sous-agent terminé    |
-| `send`        | Envoyer un message à un sous-agent en cours d'exécution          |
-| `list`        | Voir toutes les tâches de l'utilisateur actuel   |
+| `read-result` | Obtenir le résultat d'un sous-agent terminé                  |
+| `send`        | Envoyer un message à un sous-agent en cours d'exécution      |
+| `list`        | Voir toutes les tâches de l'utilisateur actuel               |
 
 ### 3. Apparition programmatique {#programmatic-spawn}
 
@@ -151,11 +151,11 @@ L'application est ambiante : chaque sous-agent s'exécute à l'intérieur d'un 
 
 Remplacez la valeur par défaut au moment du déploiement avec `AGENT_NATIVE_MAX_SUBAGENT_DEPTH` :
 
-| Valeur           | Effet                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| _(non défini)_       | Capuchon par défaut de `2`.                                                                                                                   |
-| `0`             | **Aucun sous-agent ne peut être généré** : l'agent de niveau supérieur fait tout le travail.                                                                 |
-| `1`…`16`        | Autant de niveaux de délégation.                                                                                                       |
+| Valeur           | Effet                                                                                                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(non défini)_   | Capuchon par défaut de `2`.                                                                                                                                                  |
+| `0`              | **Aucun sous-agent ne peut être généré** : l'agent de niveau supérieur fait tout le travail.                                                                                 |
+| `1`…`16`         | Autant de niveaux de délégation.                                                                                                                                             |
 | invalide / `>16` | Une valeur non entière/négative/NaN revient à `2` ; tout ce qui se trouve au-dessus de `16` est lié à `16` afin qu'une faute de frappe ne puisse jamais désactiver la garde. |
 
 ```bash

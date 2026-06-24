@@ -139,17 +139,17 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 
 Los identificadores de proveedor iniciales son:
 
-| Proveedor       | Capacidades                   | Usos comunes                    |
-| -------------- | ------------------------------ | ------------------------------ |
-| `slack`        | buscar, importar, mensajes       | cerebro, despacho, análisis     |
-| `github`       | buscar, importar, codificar, documentos     | cerebro, análisis, despacho     |
-| `notion`       | buscar, importar, documentos           | cerebro, contenido, despacho       |
-| `gmail`        | buscar, importar, mensajes       | correo, cerebro, despacho          |
-| `google_drive` | buscar, importar, documentos           | cerebro, contenido, diapositivas         |
-| `hubspot`      | buscar, importar, crm            | análisis, cerebro, correo         |
-| `granola`      | buscar, importar, reuniones, documentos | cerebro, calendario, despacho      |
-| `clips`        | buscar, importar, reuniones       | cerebro, clips, vídeos           |
-| `generic`      | buscar, importar, documentos           | webhooks personalizado y entrega de archivos |
+| Proveedor      | Capacidades                             | Usos comunes                                 |
+| -------------- | --------------------------------------- | -------------------------------------------- |
+| `slack`        | buscar, importar, mensajes              | cerebro, despacho, análisis                  |
+| `github`       | buscar, importar, codificar, documentos | cerebro, análisis, despacho                  |
+| `notion`       | buscar, importar, documentos            | cerebro, contenido, despacho                 |
+| `gmail`        | buscar, importar, mensajes              | correo, cerebro, despacho                    |
+| `google_drive` | buscar, importar, documentos            | cerebro, contenido, diapositivas             |
+| `hubspot`      | buscar, importar, crm                   | análisis, cerebro, correo                    |
+| `granola`      | buscar, importar, reuniones, documentos | cerebro, calendario, despacho                |
+| `clips`        | buscar, importar, reuniones             | cerebro, clips, vídeos                       |
+| `generic`      | buscar, importar, documentos            | webhooks personalizado y entrega de archivos |
 
 Las claves de credenciales son solo nombres, como `SLACK_BOT_TOKEN` o `GITHUB_TOKEN`. Los metadatos del proveedor nunca deben incluir valores de credenciales reales.
 

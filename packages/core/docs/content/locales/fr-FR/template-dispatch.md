@@ -66,7 +66,7 @@ Au quotidien, Dispatch est l'endroit où les administrateurs et les opérationne
 - **Exposer un connecteur MCP.** Ajouter
   `https://dispatch.agent-native.com/_agent-native/mcp` dans Claude, ChatGPT,
   Codex, Cursor ou un autre hôte MCP, puis choisissez les applications d'espace de travail qui
-   peut être atteint depuis la page **Agents** de Dispatch. Utiliser une application directe URL
+  peut être atteint depuis la page **Agents** de Dispatch. Utiliser une application directe URL
   uniquement lorsque cet hôte doit être isolé sur une seule application.
 - **Gérer les automatisations.** La vue Automatisations affiche l'état activé, la dernière exécution,
   prochaine exécution et dernière erreur des planifications `jobs/*.md` sous-jacentes, et permettons

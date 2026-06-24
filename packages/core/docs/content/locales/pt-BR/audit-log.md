@@ -13,11 +13,11 @@ Como o agente pode alterar dados em seu nome, a pergunta principal que um regist
 
 Três sistemas registram “o que aconteceu”, por três razões diferentes. Escolha pela pergunta que você está fazendo:
 
-| Sistema                                   | A pergunta que ele responde                                | Fidelidade                         | Público                      |
-| ---------------------------------------- | ------------------------------------------------------ | -------------------------------- | ----------------------------- |
-| **Registro de auditoria** (esta página)                | "Quem alterou este registro, quando e foi o agente?" | **Completo, durável, com escopo**    | Usuário, administrador, o próprio agente |
-| **[Observability](/docs/observability)** | "Por que o agente fez isso e quanto custou?"     | Telemetria de intervalo amostrado           | Desenvolvedor                     |
-| **[Tracking](/docs/tracking)**           | "Como as pessoas estão usando o produto?"                    | Dispare e esqueça para SaaS externo | PM / crescimento                   |
+| Sistema                                  | A pergunta que ele responde                          | Fidelidade                          | Público                                  |
+| ---------------------------------------- | ---------------------------------------------------- | ----------------------------------- | ---------------------------------------- |
+| **Registro de auditoria** (esta página)  | "Quem alterou este registro, quando e foi o agente?" | **Completo, durável, com escopo**   | Usuário, administrador, o próprio agente |
+| **[Observability](/docs/observability)** | "Por que o agente fez isso e quanto custou?"         | Telemetria de intervalo amostrado   | Desenvolvedor                            |
+| **[Tracking](/docs/tracking)**           | "Como as pessoas estão usando o produto?"            | Dispare e esqueça para SaaS externo | PM / crescimento                         |
 
 Um registro de auditoria que é amostrado ou enviado para um provedor de análise é inútil — o ponto principal é que ele seja completo, local e consultável. Portanto, é um subsistema próprio, não um modo dos outros dois.
 
@@ -63,13 +63,13 @@ Tudo em `audit` é opcional. A adição mínima útil é `target: () => ({ type,
 
 ### Captura de ajuste {#tuning}
 
-| Opção               | Efeito                                                          |
-| -------------------- | --------------------------------------------------------------- |
+| Opção                | Efeito                                                                       |
+| -------------------- | ---------------------------------------------------------------------------- |
 | `audit.target`       | Rotule o evento com o recurso e as leituras do escopo para seu proprietário. |
-| `audit.summary`      | Uma linha curta e legível para o evento.                      |
-| `audit.onRead`       | Audite uma **leitura** confidencial (acesso secreto, exportação em massa).        |
-| `audit.enabled`      | `true` força captura; `false` desativa uma mutação barulhenta.    |
-| `audit.recordInputs` | `false` ignora a captura dos argumentos (já redigidos).       |
+| `audit.summary`      | Uma linha curta e legível para o evento.                                     |
+| `audit.onRead`       | Audite uma **leitura** confidencial (acesso secreto, exportação em massa).   |
+| `audit.enabled`      | `true` força captura; `false` desativa uma mutação barulhenta.               |
+| `audit.recordInputs` | `false` ignora a captura dos argumentos (já redigidos).                      |
 
 ## Lendo a trilha {#reading}
 

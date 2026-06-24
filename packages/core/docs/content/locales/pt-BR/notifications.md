@@ -27,20 +27,20 @@ await notify(
 
 ## Gravidades {#severities}
 
-| Gravidade   | Usar para                                 |
-| ---------- | --------------------------------------- |
+| Gravidade  | Usar para                              |
+| ---------- | -------------------------------------- |
 | `info`     | Confirmações, marcos de progresso, FYI |
-| `warning`  | Algo que o usuário deve ver em breve  |
-| `critical` | Requer atenção imediata               |
+| `warning`  | Algo que o usuário deve ver em breve   |
+| `critical` | Requer atenção imediata                |
 
 A gravidade orienta o estilo do selo no menu suspenso e é transmitida aos canais para que eles possam diversificar com urgência.
 
 ## Canais integrados {#channels}
 
-| Canal   | Entrega                                                  | Requer                                            |
-| --------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `inbox`   | Persiste na tabela `notifications`; toca a campainha UI | Sempre ligado — parte do primitivo.                  |
-| `webhook` | POST JSON para um URL configurado                             | `NOTIFICATIONS_WEBHOOK_URL` env var definida na inicialização. |
+| Canal     | Entrega                                                 | Requer                                                         |
+| --------- | ------------------------------------------------------- | -------------------------------------------------------------- |
+| `inbox`   | Persiste na tabela `notifications`; toca a campainha UI | Sempre ligado — parte do primitivo.                            |
+| `webhook` | POST JSON para um URL configurado                       | `NOTIFICATIONS_WEBHOOK_URL` env var definida na inicialização. |
 
 O canal webhook resolve referências `${keys.NAME}` em URL e `NOTIFICATIONS_WEBHOOK_AUTH` em relação ao [secrets](/docs/security) ad-hoc do proprietário, de forma que o valor bruto nunca entre no contexto do agente. As listas de permissões URL por chave são aplicadas – a mesma regra que a ferramenta de automações `web-request` usa.
 
@@ -147,7 +147,7 @@ interface NotificationMeta {
 
 Montado em `/_agent-native/notifications/*` pelo plugin core-routes. Todas as rotas têm como escopo o e-mail da sessão autenticada.
 
-| Método   | Caminho                                                |
+| Método   | Caminho                                             |
 | -------- | --------------------------------------------------- |
 | `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
 | `GET`    | `/_agent-native/notifications/count`                |
@@ -194,10 +194,10 @@ Passe `browserNotifications` para também disparar pop-ups do sistema `new Notif
 
 Uma única ferramenta `manage-notifications` é registrada em cada modelo. O parâmetro `action` seleciona a operação:
 
-| Ação | Parâmetros                                                                    | Propósito                                                         |
-| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Ação   | Parâmetros                                                                          | Propósito                                                                      |
+| ------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `send` | `severity` (obrigatório), `title` (obrigatório), `body`, `metadataJson`, `channels` | Enviar uma notificação para a caixa de entrada do usuário e canais cadastrados |
-| `list` | `unreadOnly`, `limit` (máx. 200, padrão 20)                                   | Listar notificações recentes por contexto                           |
+| `list` | `unreadOnly`, `limit` (máx. 200, padrão 20)                                         | Listar notificações recentes por contexto                                      |
 
 Automações (veja [Automations](/docs/automations)) podem chamar `manage-notifications` com `action=send` em seu corpo — este é o padrão canônico para transformar um evento externo em um alerta visível ao usuário.
 

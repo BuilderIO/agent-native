@@ -158,17 +158,17 @@ partage.
 
 Dans le bac à sable iframe, chaque extension dispose de ces assistants sur `window` :
 
-| Aide                                           | Objectif                                                   | Exemple                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Appelez l'un des actions du modèle hôte                   | `appAction('list-emails', { view: 'inbox' })`             |
+| Aide                                             | Objectif                                                                         | Exemple                                                   |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Appelez l'un des actions du modèle hôte                                          | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Appeler les points de terminaison du framework autorisés sous `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Lecture à partir de SQL (portée automatiquement sur l'utilisateur)                   | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Écrire dans SQL                                              | `dbExec('INSERT INTO ...')`                               |
-| `extensionFetch(url, options)`                   | Atteignez les API externes via un proxy sécurisé avec des secrets     | `extensionFetch('https://api.github.com/user')`           |
-| `extensionData.set(collection, id, data, opts?)` | Conserver les données par extension (portée utilisateur/organisation)           | `extensionData.set('notes', id, { text: '...' })`         |
-| `extensionData.list(collection, opts?)`          | Liste des éléments persistants                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Obtenir un seul objet                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Supprimer un élément persistant                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `dbQuery(sql, args)`                             | Lecture à partir de SQL (portée automatiquement sur l'utilisateur)               | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Écrire dans SQL                                                                  | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | Atteignez les API externes via un proxy sécurisé avec des secrets                | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | Conserver les données par extension (portée utilisateur/organisation)            | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | Liste des éléments persistants                                                   | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | Obtenir un seul objet                                                            | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Supprimer un élément persistant                                                  | `extensionData.remove('notes', 'note-1')`                 |
 
 Trois règles empiriques :
 
@@ -211,12 +211,12 @@ Mais le cas d'utilisation le plus proche de QBO est différent : l'utilisateur 
 
 Un emplacement est une zone de widget nommée fournie par un modèle :
 
-| Modèle      | Exemple d'emplacement                   | Où il apparaît                            |
-| ------------- | ------------------------------ | -------------------------------------------- |
-| **Courrier**      | `mail.contact-sidebar.bottom`  | Sous les coordonnées sur chaque fil de discussion |
-| **Analyses** | `analytics.dashboard.tiles`    | À côté des panneaux intégrés du tableau de bord    |
-| **Calendrier**  | `calendar.event-detail.bottom` | Sous l'événement ouvert                         |
-| **Extraits**     | `clips.right-panel.tabs`       | Un nouvel onglet dans le panneau de révision des clips           |
+| Modèle         | Exemple d'emplacement          | Où il apparaît                                         |
+| -------------- | ------------------------------ | ------------------------------------------------------ |
+| **Courrier**   | `mail.contact-sidebar.bottom`  | Sous les coordonnées sur chaque fil de discussion      |
+| **Analyses**   | `analytics.dashboard.tiles`    | À côté des panneaux intégrés du tableau de bord        |
+| **Calendrier** | `calendar.event-detail.bottom` | Sous l'événement ouvert                                |
+| **Extraits**   | `clips.right-panel.tabs`       | Un nouvel onglet dans le panneau de révision des clips |
 
 Lorsqu'une extension est **installée dans un emplacement**, l'hôte envoie le contexte pertinent (l'adresse e-mail du contact, l'identifiant du tableau de bord, l'identifiant de l'événement) dans l'iframe. L'extension lit `window.slotContext` pour savoir ce que l'utilisateur regarde.
 
@@ -315,14 +315,14 @@ Les extensions partagées ont leurs propres URL et se connectent à la même bo�
 
 Le framework permet à l'agent de modifier directement le code source de l'application : composants, itinéraires, styles. Alors, quand devriez-vous plutôt demander une extension ?
 
-|                       | Extension                                         | Modification du code de l'application                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Créé par**        | Agent (ou utilisateur) au moment de l'exécution                        | Agent modifiant les fichiers sources           |
-| **Stocké dans**         | La base de données                                      | Le dépôt git                   |
-| **Nécessite une build**  | Non                                                | Oui                                  |
-| **Nécessite un déploiement** | Non                                                | Oui                                  |
-| **Portée**             | Un utilisateur (ou partagé avec l'organisation)                     | Le produit dans son intégralité, chaque utilisateur       |
-| **Idéal pour**          | Widgets personnels, KPI personnalisés, utilitaires par équipe | Fonctionnalités de base fournies à tous les utilisateurs |
+|                              | Extension                                                     | Modification du code de l'application                    |
+| ---------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
+| **Créé par**                 | Agent (ou utilisateur) au moment de l'exécution               | Agent modifiant les fichiers sources                     |
+| **Stocké dans**              | La base de données                                            | Le dépôt git                                             |
+| **Nécessite une build**      | Non                                                           | Oui                                                      |
+| **Nécessite un déploiement** | Non                                                           | Oui                                                      |
+| **Portée**                   | Un utilisateur (ou partagé avec l'organisation)               | Le produit dans son intégralité, chaque utilisateur      |
+| **Idéal pour**               | Widgets personnels, KPI personnalisés, utilitaires par équipe | Fonctionnalités de base fournies à tous les utilisateurs |
 
 Règle générale : **si c'est pour un utilisateur ou une équipe, c'est une extension.** Si chaque utilisateur du modèle doit l'obtenir, expédiez-le comme une véritable fonctionnalité.
 

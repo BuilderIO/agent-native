@@ -385,16 +385,16 @@ La plantilla local es útil cuando estás desarrollando planes, probando la pers
 
 El esquema vive en `templates/plan/server/db/schema.ts`. Tablas principales:
 
-| Tabla              | Qué contiene                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabla              | Qué contiene                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plans`            | Cada plan o resumen: `title`, `brief`, `kind` (plan/resumen), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, estadísticas de uso, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Secciones ordenadas dentro de un plan: `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
-| `plan_comments`    | Comentarios encadenados: `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
-| `plan_events`      | Registro de auditoría de eventos humanos/agentes en un plan                                                                                                                                               |
-| `plan_versions`    | Instantáneas de un momento dado para el historial de versiones                                                                                                                                             |
-| `plan_shares`      | Concesiones de acciones por capital (espectador/editor/administrador)                                                                                                                                    |
-| `plan_guest_mints` | Registros de límite de tarifa para emisión de sesión de invitado                                                                                                                                           |
-| `plan_assets`      | Recursos de imágenes en línea almacenados como base64 (respaldo cuando no hay proveedor de carga)                                                                                                                 |
+| `plan_sections`    | Secciones ordenadas dentro de un plan: `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                |
+| `plan_comments`    | Comentarios encadenados: `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                               |
+| `plan_events`      | Registro de auditoría de eventos humanos/agentes en un plan                                                                                                                                       |
+| `plan_versions`    | Instantáneas de un momento dado para el historial de versiones                                                                                                                                    |
+| `plan_shares`      | Concesiones de acciones por capital (espectador/editor/administrador)                                                                                                                             |
+| `plan_guest_mints` | Registros de límite de tarifa para emisión de sesión de invitado                                                                                                                                  |
+| `plan_assets`      | Recursos de imágenes en línea almacenados como base64 (respaldo cuando no hay proveedor de carga)                                                                                                 |
 
 ```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
 {
@@ -643,7 +643,7 @@ Token refresh failures can strand active reviewer sessions.
 ```
 
 El registro del servidor hace que esta fuente sea importable/exportable, y el cliente
- hace que se represente en `PlanBlockView`. Si el bloque debe ser generado por
+hace que se represente en `PlanBlockView`. Si el bloque debe ser generado por
 agentes, mantengan precisos a `label`, `description`, `placement` y `empty`; esos
 los campos fluyen hacia el vocabulario del bloque en vivo.
 
@@ -678,55 +678,55 @@ puede suscribirse a ellos; no se necesita un código de integración personaliza
 
 Se activa cuando se crea un nuevo plan visual o resumen.
 
-| Campo       | Tipo                  | Descripción                              |
-| ----------- | --------------------- | ---------------------------------------- |
-| `planId`    | cadena                | Identificador de plan único                   |
-| `title`     | cadena                | Título del plan                               |
-| `kind`      | `"plan"` \| `"recap"` | Ya sea un plan o un resumen        |
-| `status`    | cadena                | Estado inicial (por ejemplo, `"review"`)         |
+| Campo       | Tipo                  | Descripción                                                  |
+| ----------- | --------------------- | ------------------------------------------------------------ |
+| `planId`    | cadena                | Identificador de plan único                                  |
+| `title`     | cadena                | Título del plan                                              |
+| `kind`      | `"plan"` \| `"recap"` | Ya sea un plan o un resumen                                  |
+| `status`    | cadena                | Estado inicial (por ejemplo, `"review"`)                     |
 | `path`      | cadena                | Ruta relativa a la aplicación (por ejemplo, `/plans/plan-…`) |
-| `createdBy` | cadena                | Siempre `"agent"` para la creación del plan       |
+| `createdBy` | cadena                | Siempre `"agent"` para la creación del plan                  |
 
 #### `plan.commented`
 
 Se activa cuando se agregan uno o más comentarios a un plan.
 
-| Campo              | Tipo                             | Descripción                                                 |
-| ------------------ | -------------------------------- | ----------------------------------------------------------- |
-| `planId`           | cadena                           | Identificador del plan                                             |
-| `title`            | cadena                           | Título del plan                                                  |
-| `kind`             | `"plan"` \| `"recap"`            | Planificar o recapitular                                               |
-| `commentIds`       | cadena[]                         | ID de los nuevos comentarios                                     |
-| `commentCount`     | número                           | Número de comentarios nuevos en este lote                        |
+| Campo              | Tipo                             | Descripción                                                             |
+| ------------------ | -------------------------------- | ----------------------------------------------------------------------- |
+| `planId`           | cadena                           | Identificador del plan                                                  |
+| `title`            | cadena                           | Título del plan                                                         |
+| `kind`             | `"plan"` \| `"recap"`            | Planificar o recapitular                                                |
+| `commentIds`       | cadena[]                         | ID de los nuevos comentarios                                            |
+| `commentCount`     | número                           | Número de comentarios nuevos en este lote                               |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Objetivo dominante: `"agent"` si algún comentario se dirige a un agente |
-| `excerpt`          | cadena                           | Primeros 200 caracteres del primer comentario                   |
-| `author`           | cadena \| nulo                   | Correo electrónico del comentarista, si se conoce                            |
+| `excerpt`          | cadena                           | Primeros 200 caracteres del primer comentario                           |
+| `author`           | cadena \| nulo                   | Correo electrónico del comentarista, si se conoce                       |
 | `path`             | cadena                           | Ruta relativa a la aplicación                                           |
 
 #### `plan.published`
 
 Se activa cuando un plan local se publica (o se vuelve a publicar) en un URL alojado y compartible.
 
-| Campo                 | Tipo                  | Descripción                        |
-| --------------------- | --------------------- | ---------------------------------- |
-| `planId`              | cadena                | Identificador del plan local              |
-| `title`               | cadena                | Título del plan                         |
-| `kind`                | `"plan"` \| `"recap"` | Planificar o recapitular                      |
-| `hostedPlanId`        | cadena                | Identificador del plan alojado             |
+| Campo                 | Tipo                  | Descripción                           |
+| --------------------- | --------------------- | ------------------------------------- |
+| `planId`              | cadena                | Identificador del plan local          |
+| `title`               | cadena                | Título del plan                       |
+| `kind`                | `"plan"` \| `"recap"` | Planificar o recapitular              |
+| `hostedPlanId`        | cadena                | Identificador del plan alojado        |
 | `url`                 | cadena                | URL público completo del plan alojado |
-| `requestedVisibility` | cadena                | `"public"`, `"private"`, etc.      |
+| `requestedVisibility` | cadena                | `"public"`, `"private"`, etc.         |
 
 #### `plan.status.changed`
 
 Se activa cuando cambia el estado de un plan (por ejemplo, `review` → `approved`).
 
-| Campo       | Tipo                  | Descripción                        |
-| ----------- | --------------------- | ---------------------------------- |
-| `planId`    | cadena                | Identificador del plan                    |
-| `title`     | cadena                | Título del plan                         |
-| `kind`      | `"plan"` \| `"recap"` | Planificar o recapitular                      |
-| `oldStatus` | cadena \| nulo        | Estado anterior                    |
-| `newStatus` | cadena                | Nuevo estado                         |
+| Campo       | Tipo                  | Descripción                                    |
+| ----------- | --------------------- | ---------------------------------------------- |
+| `planId`    | cadena                | Identificador del plan                         |
+| `title`     | cadena                | Título del plan                                |
+| `kind`      | `"plan"` \| `"recap"` | Planificar o recapitular                       |
+| `oldStatus` | cadena \| nulo        | Estado anterior                                |
+| `newStatus` | cadena                | Nuevo estado                                   |
 | `changedBy` | cadena \| nulo        | Correo electrónico de la persona que lo cambió |
 | `path`      | cadena                | Ruta relativa a la aplicación                  |
 

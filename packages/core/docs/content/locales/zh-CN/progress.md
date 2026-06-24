@@ -34,12 +34,12 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ## 生命周期 {#lifecycle}
 
-| 状态      | 过渡                  |
-| ----------- | --------------------------- |
+| 状态        | 过渡                      |
+| ----------- | ------------------------- |
 | `running`   | 初始 — 由 `startRun` 设置 |
-| `succeeded` | 快乐路径终端         |
-| `failed`    | 错误终端              |
-| `cancelled` | 用户中断            |
+| `succeeded` | 快乐路径终端              |
+| `failed`    | 错误终端                  |
+| `cancelled` | 用户中断                  |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 通过 core-routes 插件安装在 `/_agent-native/runs/*`。 **在 HTTP 上只读** — 写入通过代理工具进行，因为代理是规范写入者。所有路由都是所有者范围内的。
 
-| 方法   | 路径                              |
+| 方法     | 路径                              |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ export function HeaderBar() {
 
 每个模板中都会注册一个 `manage-progress` 工具。 `action`参数选择操作：
 
-| 行动     | 目的                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | 在长任务的顶部调用。返回一个 runId。                |
-| `update`   | 在任务期间定期调用 `percent` 和/或 `step`。 |
-| `complete` | 终端 — `succeeded`、`failed`、`cancelled` 之一。           |
-| `list`     | 检查最近的运行（按 `active=true` 过滤）。                  |
+| 行动       | 目的                                             |
+| ---------- | ------------------------------------------------ |
+| `start`    | 在长任务的顶部调用。返回一个 runId。             |
+| `update`   | 在任务期间定期调用 `percent` 和/或 `step`。      |
+| `complete` | 终端 — `succeeded`、`failed`、`cancelled` 之一。 |
+| `list`     | 检查最近的运行（按 `active=true` 过滤）。        |
 
 ### 何时开始跑步 {#when-to-start}
 
@@ -168,7 +168,7 @@ export function HeaderBar() {
 
 [event bus](/docs/automations#event-bus) 上发出两个事件：
 
-| 活动                  | 有效负载                            |
+| 活动                   | 有效负载                           |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

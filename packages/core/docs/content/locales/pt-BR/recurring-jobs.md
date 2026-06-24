@@ -31,17 +31,17 @@ Os trabalhos ficam no [workspace](/docs/workspace) em `jobs/<name>.md` — apena
 
 ## Princípio {#frontmatter}
 
-| Campo        | Tipo                          | Padrão      | Descrição                                                                                            |
-| ------------ | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `schedule`   | expressão cron               | _(obrigatório)_ | Cron padrão de 5 campos. `"0 7 * * *"` = todos os dias às 07h00; `"0 */4 * * *"` = a cada 4 horas.            |
-| `enabled`    | booleano                       | `true`       | Mude para `false` para pausar sem excluir o trabalho.                                                     |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
-| `createdBy`  | e-mail                         | _(automático)_     | Preenchido quando o trabalho é criado por meio do espaço de trabalho UI ou pelo agente.                            |
-| `orgId`      | string                        | _(automático)_     | Escopo da organização; herdado da organização ativa do criador.                                                    |
-| `lastRun`    | Carimbo de data e hora ISO                 | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                               |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(gerenciado)_  | Resultado mais recente.                                                                                        |
-| `lastError`  | string                        | _(gerenciado)_  | Mensagem de erro se a última execução falhou.                                                                  |
-| `nextRun`    | Carimbo de data e hora ISO                 | _(gerenciado)_  | Calculado a partir de `schedule`; usado pelo agendador para decidir quando disparar em seguida.                           |
+| Campo        | Tipo                          | Padrão          | Descrição                                                                                                                          |
+| ------------ | ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | expressão cron                | _(obrigatório)_ | Cron padrão de 5 campos. `"0 7 * * *"` = todos os dias às 07h00; `"0 */4 * * *"` = a cada 4 horas.                                 |
+| `enabled`    | booleano                      | `true`          | Mude para `false` para pausar sem excluir o trabalho.                                                                              |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
+| `createdBy`  | e-mail                        | _(automático)_  | Preenchido quando o trabalho é criado por meio do espaço de trabalho UI ou pelo agente.                                            |
+| `orgId`      | string                        | _(automático)_  | Escopo da organização; herdado da organização ativa do criador.                                                                    |
+| `lastRun`    | Carimbo de data e hora ISO    | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                                                         |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(gerenciado)_  | Resultado mais recente.                                                                                                            |
+| `lastError`  | string                        | _(gerenciado)_  | Mensagem de erro se a última execução falhou.                                                                                      |
+| `nextRun`    | Carimbo de data e hora ISO    | _(gerenciado)_  | Calculado a partir de `schedule`; usado pelo agendador para decidir quando disparar em seguida.                                    |
 
 Os campos `last*` e `nextRun` são gravados pelo agendador. Você pode lê-los para ver o histórico, mas não os edite manualmente: a próxima execução será substituída.
 
@@ -49,15 +49,15 @@ Os campos `last*` e `nextRun` são gravados pelo agendador. Você pode lê-los p
 
 Cron padrão de 5 campos (minuto, hora, dia do mês, mês, dia da semana):
 
-| Cron           | Significado                  |
-| -------------- | ------------------------ |
-| `*/5 * * * *`  | A cada 5 minutos          |
-| `0 * * * *`    | De hora em hora   |
-| `0 */4 * * *`  | A cada 4 horas            |
-| `0 7 * * *`    | Todos os dias às 07:00       |
-| `0 9 * * 1`    | Toda segunda-feira às 09:00    |
-| `0 17 * * 1-5` | Dias úteis às 17h        |
-| `0 0 1 * *`    | Primeiro dia de cada mês |
+| Cron           | Significado                 |
+| -------------- | --------------------------- |
+| `*/5 * * * *`  | A cada 5 minutos            |
+| `0 * * * *`    | De hora em hora             |
+| `0 */4 * * *`  | A cada 4 horas              |
+| `0 7 * * *`    | Todos os dias às 07:00      |
+| `0 9 * * 1`    | Toda segunda-feira às 09:00 |
+| `0 17 * * 1-5` | Dias úteis às 17h           |
+| `0 0 1 * *`    | Primeiro dia de cada mês    |
 
 A estrutura inclui utilitários cron (`isValidCron()` e `describeCron()`) para validar e renderizar strings cron, usados internamente pelas camadas de recurso e agendador.
 
@@ -116,12 +116,12 @@ O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`
 
 Uma única ferramenta `manage-jobs` é registrada em cada modelo. O parâmetro `action` seleciona a operação:
 
-| Ação   | Parâmetros                                                        | Propósito                                                      |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (obrigatório); `scope`, `runAs`   | Crie um novo trabalho recorrente                                   |
-| `list`   | `scope` (`personal`, `shared` ou todos)                            | Liste todos os trabalhos com status (agendado, ativado, última/próxima execução) |
-| `update` | `name` (obrigatório); `schedule`, `instructions`, `enabled`, `runAs` | Editar um trabalho existente                                         |
-| `delete` | `name` (obrigatório)                                                 | Exclua um trabalho — sempre confirme primeiro com o usuário            |
+| Ação     | Parâmetros                                                           | Propósito                                                                        |
+| -------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `create` | `name`, `schedule`, `instructions` (obrigatório); `scope`, `runAs`   | Crie um novo trabalho recorrente                                                 |
+| `list`   | `scope` (`personal`, `shared` ou todos)                              | Liste todos os trabalhos com status (agendado, ativado, última/próxima execução) |
+| `update` | `name` (obrigatório); `schedule`, `instructions`, `enabled`, `runAs` | Editar um trabalho existente                                                     |
+| `delete` | `name` (obrigatório)                                                 | Exclua um trabalho — sempre confirme primeiro com o usuário                      |
 
 **Escopo pessoal versus escopo compartilhado.** Cada trabalho reside no escopo pessoal (é executado como e é visível apenas para o criador) ou no escopo compartilhado/organizacional (é executado em nome do criador, mas é visível para os membros da organização). Os parâmetros `scope` e `runAs` controlam isso no momento da criação. Os administradores da organização podem atualizar ou excluir qualquer trabalho compartilhado; membros não administradores só podem gerenciar os seus próprios.
 

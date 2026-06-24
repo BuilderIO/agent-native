@@ -65,26 +65,26 @@ Si seleccionas texto y presionas Cmd+I, esa selección viaja con tu siguiente me
 
 ## Atajos de teclado
 
-| Clave       | Acción                      |
-| --------- | --------------------------- |
-| `J`       | Siguiente correo electrónico                  |
-| `K`       | Correo electrónico anterior              |
-| `Up/Down` | Igual que J/K                 |
-| `Enter`   | Abrir correo electrónico enfocado          |
-| `E`       | Archivar correo electrónico o hilo     |
-| `D`       | Correo electrónico o hilo basura       |
-| `S`       | Destacar o quitar estrella              |
-| `R`       | Responder                       |
-| `U`       | Alternar lectura/no lectura          |
-| `C`       | Redactar nuevo correo electrónico           |
-| `/`       | Enfocar la barra de búsqueda            |
-| `Cmd+K`   | Abrir paleta de comandos        |
-| `G I`     | Ir a la bandeja de entrada                 |
-| `G S`     | Ir a Destacados               |
-| `G T`     | Ir a Enviados                  |
-| `G D`     | Ir a Borradores                |
-| `G A`     | Ir a Archivo               |
-| `Esc`     | Cerrar hilo/borrar búsqueda |
+| Clave     | Acción                             |
+| --------- | ---------------------------------- |
+| `J`       | Siguiente correo electrónico       |
+| `K`       | Correo electrónico anterior        |
+| `Up/Down` | Igual que J/K                      |
+| `Enter`   | Abrir correo electrónico enfocado  |
+| `E`       | Archivar correo electrónico o hilo |
+| `D`       | Correo electrónico o hilo basura   |
+| `S`       | Destacar o quitar estrella         |
+| `R`       | Responder                          |
+| `U`       | Alternar lectura/no lectura        |
+| `C`       | Redactar nuevo correo electrónico  |
+| `/`       | Enfocar la barra de búsqueda       |
+| `Cmd+K`   | Abrir paleta de comandos           |
+| `G I`     | Ir a la bandeja de entrada         |
+| `G S`     | Ir a Destacados                    |
+| `G T`     | Ir a Enviados                      |
+| `G D`     | Ir a Borradores                    |
+| `G A`     | Ir a Archivo                       |
+| `Esc`     | Cerrar hilo/borrar búsqueda        |
 
 ## Para desarrolladores
 
@@ -142,17 +142,17 @@ Los tokens se almacenan en la tabla `oauth_tokens` SQL y se actualizan automáti
 
 Cuando se conecta una cuenta de Google, el correo electrónico se encuentra en Gmail: la aplicación está en la parte superior. Cuando no hay ninguna cuenta conectada, los correos electrónicos se guardan en el almacén de configuración de SQL en `getSetting("local-emails")` (vacío de forma predeterminada).
 
-| Tienda / Mesa                 | Qué contiene                                                  |
-| ----------------------------- | -------------------------------------------------------------- |
-| `getSetting("local-emails")`  | Reserva de correo electrónico local cuando no hay ninguna cuenta de Google conectada       |
-| `getSetting("labels")`        | Etiquetas de sistema y usuario, con recuentos de no leídos                     |
-| `getSetting("mail-settings")` | Perfil de usuario, preferencias de seguimiento, firma, alias         |
-| `getSetting("aliases")`       | Alias de correo electrónico                                                  |
-| Tabla `queued_email_drafts`   | Borradores solicitados por compañeros de equipo en espera de revisión/envío del propietario           |
-| Tabla `email_tracking`        | Eventos de píxeles abiertos para mensajes enviados                            |
-| Tabla `email_link_tracking`   | Eventos de clic en enlace para mensajes enviados                            |
-| Tabla `application_state`     | Entradas `navigation`, `navigate`, `compose-{id}` (efímeras)   |
-| Tabla `oauth_tokens`          | Tokens de Google OAuth (proveedor `"google"`, una fila por cuenta) |
+| Tienda / Mesa                 | Qué contiene                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `getSetting("local-emails")`  | Reserva de correo electrónico local cuando no hay ninguna cuenta de Google conectada        |
+| `getSetting("labels")`        | Etiquetas de sistema y usuario, con recuentos de no leídos                                  |
+| `getSetting("mail-settings")` | Perfil de usuario, preferencias de seguimiento, firma, alias                                |
+| `getSetting("aliases")`       | Alias de correo electrónico                                                                 |
+| Tabla `queued_email_drafts`   | Borradores solicitados por compañeros de equipo en espera de revisión/envío del propietario |
+| Tabla `email_tracking`        | Eventos de píxeles abiertos para mensajes enviados                                          |
+| Tabla `email_link_tracking`   | Eventos de clic en enlace para mensajes enviados                                            |
+| Tabla `application_state`     | Entradas `navigation`, `navigate`, `compose-{id}` (efímeras)                                |
+| Tabla `oauth_tokens`          | Tokens de Google OAuth (proveedor `"google"`, una fila por cuenta)                          |
 
 Los correos electrónicos que fluyen a través del API tienen la forma `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 

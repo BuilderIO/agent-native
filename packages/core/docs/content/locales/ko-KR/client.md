@@ -42,7 +42,7 @@ await callAction("archive-lead", { leadId });
 
 ## sendToAgentChat(옵션) {#sendtoagentchat}
 
- UI 상호 작용에서 AI 작업을 위임하는 일반적인 방법인 postMessage를 통해 에이전트 채팅에 메시지를 보냅니다. 숨겨진 모델 컨텍스트의 경우 `context`를 전달하고 즉시 전송하려면 `submit: true`를 전달하거나 사용자가 먼저 검토하는 초안을 미리 채우려면 `submit: false`를 전달하세요.
+UI 상호 작용에서 AI 작업을 위임하는 일반적인 방법인 postMessage를 통해 에이전트 채팅에 메시지를 보냅니다. 숨겨진 모델 컨텍스트의 경우 `context`를 전달하고 즉시 전송하려면 `submit: true`를 전달하거나 사용자가 먼저 검토하는 초안을 미리 채우려면 `submit: false`를 전달하세요.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client";
@@ -95,17 +95,17 @@ const tabId = sendToAgentChat({
 
 ### 에이전트채팅메시지 {#agentchatmessage}
 
-| 옵션                | 유형        | 설명                                                                |
-| --------------------- | ----------- | -------------------------------------------------------------------------- |
-| `message`             | `string`    | 채팅에 전송된 시각적 메시지                                        |
-| `context`             | `string?`   | 숨겨진 컨텍스트가 추가되었습니다(채팅 UI에는 표시되지 않음)                             |
-| `submit`              | `boolean?`  | true = 자동 제출, false = 미리 채우기만                                   |
-| `newTab`              | `boolean?`  | 이 메시지에 대해 별도의 채팅 스레드를 생성하세요                              |
+| 옵션                  | 유형        | 설명                                                                                 |
+| --------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `message`             | `string`    | 채팅에 전송된 시각적 메시지                                                          |
+| `context`             | `string?`   | 숨겨진 컨텍스트가 추가되었습니다(채팅 UI에는 표시되지 않음)                          |
+| `submit`              | `boolean?`  | true = 자동 제출, false = 미리 채우기만                                              |
+| `newTab`              | `boolean?`  | 이 메시지에 대해 별도의 채팅 스레드를 생성하세요                                     |
 | `background`          | `boolean?`  | `newTab`를 사용하면 탭에 초점을 맞추지 않고 실행하고 `RunsTray`에 실행을 표시합니다. |
-| `openSidebar`         | `boolean?`  | 사이드바를 열지 않고 제출/미리 채우려면 false로 설정                    |
-| `projectSlug`         | `string?`   | 구조화된 컨텍스트를 위한 선택적 프로젝트 슬러그                               |
-| `preset`              | `string?`   | 다운스트림 소비자를 위한 선택적 사전 설정 이름                              |
-| `referenceImagePaths` | `string[]?` | 선택적 참조 이미지 경로                                             |
+| `openSidebar`         | `boolean?`  | 사이드바를 열지 않고 제출/미리 채우려면 false로 설정                                 |
+| `projectSlug`         | `string?`   | 구조화된 컨텍스트를 위한 선택적 프로젝트 슬러그                                      |
+| `preset`              | `string?`   | 다운스트림 소비자를 위한 선택적 사전 설정 이름                                       |
+| `referenceImagePaths` | `string[]?` | 선택적 참조 이미지 경로                                                              |
 
 ## 에이전트 채팅 컨텍스트 상태(고급) {#agent-chat-context-state}
 
@@ -118,14 +118,14 @@ const tabId = sendToAgentChat({
 "검토를 위해 이 초안을 미리 작성하세요" 흐름. `context`와 함께 `sendToAgentChat()` 사용
 그리고 `submit`도 있습니다.
 
-| API                               | 다음 경우에 사용                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `useAgentChatContext()`           | React 구성요소에는 라이브 스테이지 컨텍스트 목록이 필요합니다                   |
-| `setAgentChatContextItem(item)`   | 명령형 코드는 하나의 키 컨텍스트 항목을 준비하거나 대체해야 합니다.         |
-| `listAgentChatContext()`          | React가 아닌 코드에는 단계적 컨텍스트의 일회성 스냅샷이 필요합니다.             |
-| `removeAgentChatContextItem(key)` | UI는 안정적인 `key`에 의해 하나의 단계적 컨텍스트 항목을 제거해야 합니다.           |
+| API                               | 다음 경우에 사용                                                           |
+| --------------------------------- | -------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | React 구성요소에는 라이브 스테이지 컨텍스트 목록이 필요합니다              |
+| `setAgentChatContextItem(item)`   | 명령형 코드는 하나의 키 컨텍스트 항목을 준비하거나 대체해야 합니다.        |
+| `listAgentChatContext()`          | React가 아닌 코드에는 단계적 컨텍스트의 일회성 스냅샷이 필요합니다.        |
+| `removeAgentChatContextItem(key)` | UI는 안정적인 `key`에 의해 하나의 단계적 컨텍스트 항목을 제거해야 합니다.  |
 | `clearAgentChatContext()`         | UI는 보기 또는 모드 재설정 후와 같이 모든 단계적 컨텍스트를 지워야 합니다. |
-| `refreshAgentChatContext()`       | 명령형 코드는 최신 지속 컨텍스트 스냅샷을 다시 읽어야 합니다.   |
+| `refreshAgentChatContext()`       | 명령형 코드는 최신 지속 컨텍스트 스냅샷을 다시 읽어야 합니다.              |
 
 `useAgentChatContext()`는 `{ items, set, remove, clear, refresh }`를 반환합니다.
 
@@ -181,11 +181,11 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 
 ### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
-| 옵션        | 유형       | 설명                                            |
-| ------------- | ---------- | ------------------------------------------------------ |
-| `key`         | `string`   | 기존 너겟을 대체하는 데 사용되는 안정적인 식별자   |
-| `title`       | `string`   | 작곡기 칩에 표시되는 짧은 라벨                 |
-| `context`     | `string`   | 다음 제출 메시지에 숨겨진 컨텍스트가 포함됨 |
+| 옵션          | 유형       | 설명                                                           |
+| ------------- | ---------- | -------------------------------------------------------------- |
+| `key`         | `string`   | 기존 너겟을 대체하는 데 사용되는 안정적인 식별자               |
+| `title`       | `string`   | 작곡기 칩에 표시되는 짧은 라벨                                 |
+| `context`     | `string`   | 다음 제출 메시지에 숨겨진 컨텍스트가 포함됨                    |
 | `openSidebar` | `boolean?` | 기본값은 true입니다. false를 스테이지 컨텍스트에 자동으로 전달 |
 
 ## askUserQuestion(opts) {#ask-user-question}
@@ -200,7 +200,7 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 그쪽으로 가지를 치세요.
 
 UI가 실행하기 전에 정확히 하나의 작은 결정(2~4개 옵션)이 필요할 때 사용하세요.
-사용자 정의 모달을 구축하는 대신 에이전트 작업을 시작합니다. 
+사용자 정의 모달을 구축하는 대신 에이전트 작업을 시작합니다.
 자유형 세부정보를 위한 작성기 및 다중 필드 입력을 위한 양식/팝오버
 
 ```tsx
@@ -231,8 +231,8 @@ option. The promise resolves with the selected `value` (or `value[]` when
 마운트됩니다(모든 템플릿에 있음).
 
 에이전트는 `ask-question` 도구를 통해 동일한 UI에 도달합니다.
-에이전트는 _it_이 실제 포크에 도달하면 컨텍스트에서 해결할 수 없는지 묻습니다. 사용
-`askUserQuestion()` _UI_가 선택 항목에 대한 조치를 취해야 할 때
+에이전트는 *it*이 실제 포크에 도달하면 컨텍스트에서 해결할 수 없는지 묻습니다. 사용
+`askUserQuestion()` *UI*가 선택 항목에 대한 조치를 취해야 할 때
 
 ## MCP 앱 호스트 브리지 {#mcp-app-host-bridge}
 
@@ -328,17 +328,17 @@ function App() {
 
 ### 옵션 {#usedbsync-options}
 
-| 옵션             | 유형               | 설명                                                                            |
+| 옵션               | 유형               | 설명                                                                                   |
 | ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | 캐시 무효화를 위한 React 쿼리 클라이언트                                              |
-| `queryKeys`        | `string[]?`        | 더 이상 사용되지 않으며 무시됩니다. 기존 통화 사이트용으로 유지됨                                        |
-| `pollUrl`          | `string?`          | 폴링 끝점 URL. 기본값: `"/_agent-native/poll"`                                    |
+| `queryClient`      | `QueryClient?`     | 캐시 무효화를 위한 React 쿼리 클라이언트                                               |
+| `queryKeys`        | `string[]?`        | 더 이상 사용되지 않으며 무시됩니다. 기존 통화 사이트용으로 유지됨                      |
+| `pollUrl`          | `string?`          | 폴링 끝점 URL. 기본값: `"/_agent-native/poll"`                                         |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | 폴링 간격(ms) 기본값: `2000`                                                |
-| `fallbackInterval` | `number?`          | SSE를 사용할 수 없는 경우 대체 폴링 간격입니다. 기본값: `15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | 브라우저 탭이 숨겨져 있으면 폴링을 일시 중지합니다. 기본값: `true`                          |
-| `ignoreSource`     | `string?`          | 탭이 자체 쓰기에서 다시 가져오지 않도록 무시할 탭별 요청 소스         |
-| `onEvent`          | `(data) => void`   | SSE/폴링이 변경 이벤트를 수신할 때 선택적 콜백                             |
+| `interval`         | `number?`          | 폴링 간격(ms) 기본값: `2000`                                                           |
+| `fallbackInterval` | `number?`          | SSE를 사용할 수 없는 경우 대체 폴링 간격입니다. 기본값: `15000`                        |
+| `pauseWhenHidden`  | `boolean?`         | 브라우저 탭이 숨겨져 있으면 폴링을 일시 중지합니다. 기본값: `true`                     |
+| `ignoreSource`     | `string?`          | 탭이 자체 쓰기에서 다시 가져오지 않도록 무시할 탭별 요청 소스                          |
+| `onEvent`          | `(data) => void`   | SSE/폴링이 변경 이벤트를 수신할 때 선택적 콜백                                         |
 
 일반 CRUD의 경우 `useActionQuery` 및 `useActionMutation`를 선호합니다. actions를 변형하면 `source: "action"`가 방출되고 해당 후크는 자동으로 다시 가져옵니다.
 

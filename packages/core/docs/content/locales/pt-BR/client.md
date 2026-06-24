@@ -95,17 +95,17 @@ precisa correlacionar o status de acompanhamento ou criar um link direto para a 
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Opção                | Tipo        | Descrição                                                                |
-| --------------------- | ----------- | -------------------------------------------------------------------------- |
-| `message`             | `string`    | O prompt visível enviado para o chat                                        |
-| `context`             | `string?`   | Contexto oculto anexado (não mostrado no chat UI)                             |
-| `submit`              | `boolean?`  | true = envio automático, false = somente preenchimento prévio                                   |
-| `newTab`              | `boolean?`  | Crie um tópico de bate-papo separado para este prompt                              |
+| Opção                 | Tipo        | Descrição                                                               |
+| --------------------- | ----------- | ----------------------------------------------------------------------- |
+| `message`             | `string`    | O prompt visível enviado para o chat                                    |
+| `context`             | `string?`   | Contexto oculto anexado (não mostrado no chat UI)                       |
+| `submit`              | `boolean?`  | true = envio automático, false = somente preenchimento prévio           |
+| `newTab`              | `boolean?`  | Crie um tópico de bate-papo separado para este prompt                   |
 | `background`          | `boolean?`  | Com `newTab`, execute sem focar a aba e mostre a execução em `RunsTray` |
-| `openSidebar`         | `boolean?`  | Defina false para enviar/preencher sem abrir a barra lateral                    |
-| `projectSlug`         | `string?`   | Slug de projeto opcional para contexto estruturado                               |
-| `preset`              | `string?`   | Nome predefinido opcional para consumidores downstream                              |
-| `referenceImagePaths` | `string[]?` | Caminhos de imagem de referência opcionais                                             |
+| `openSidebar`         | `boolean?`  | Defina false para enviar/preencher sem abrir a barra lateral            |
+| `projectSlug`         | `string?`   | Slug de projeto opcional para contexto estruturado                      |
+| `preset`              | `string?`   | Nome predefinido opcional para consumidores downstream                  |
+| `referenceImagePaths` | `string[]?` | Caminhos de imagem de referência opcionais                              |
 
 ## Estado do contexto do chat do agente (avançado) {#agent-chat-context-state}
 
@@ -118,14 +118,14 @@ Não procure esses ajudantes para simplesmente "enviar isto para o agente" ou
 "preencher este rascunho para revisão". Use `sendToAgentChat()` com `context`
 e `submit` para esses.
 
-| API                               | Usar quando                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `useAgentChatContext()`           | Um componente React precisa da lista de contexto preparada ao vivo                   |
-| `setAgentChatContextItem(item)`   | O código imperativo deve preparar ou substituir um item de contexto digitado         |
-| `listAgentChatContext()`          | O código não React precisa de um instantâneo único do contexto preparado             |
-| `removeAgentChatContextItem(key)` | UI deve remover um item de contexto preparado por seu `key` estável           |
+| API                               | Usar quando                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | Um componente React precisa da lista de contexto preparada ao vivo                          |
+| `setAgentChatContextItem(item)`   | O código imperativo deve preparar ou substituir um item de contexto digitado                |
+| `listAgentChatContext()`          | O código não React precisa de um instantâneo único do contexto preparado                    |
+| `removeAgentChatContextItem(key)` | UI deve remover um item de contexto preparado por seu `key` estável                         |
 | `clearAgentChatContext()`         | UI deve limpar todo o contexto preparado, como após uma visualização ou redefinição de modo |
-| `refreshAgentChatContext()`       | O código imperativo deve reler o instantâneo de contexto persistido mais recente   |
+| `refreshAgentChatContext()`       | O código imperativo deve reler o instantâneo de contexto persistido mais recente            |
 
 `useAgentChatContext()` retorna `{ items, set, remove, clear, refresh }`.
 
@@ -181,11 +181,11 @@ itens atualmente preparados uma vez. `clearAgentChatContext()` é intencionalmen
 
 ### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
-| Opção        | Tipo       | Descrição                                            |
-| ------------- | ---------- | ------------------------------------------------------ |
-| `key`         | `string`   | Identificador estável usado para substituir um nugget existente   |
-| `title`       | `string`   | Etiqueta abreviada mostrada no chip do compositor                 |
-| `context`     | `string`   | Contexto oculto incluído no próximo prompt enviado |
+| Opção         | Tipo       | Descrição                                                                   |
+| ------------- | ---------- | --------------------------------------------------------------------------- |
+| `key`         | `string`   | Identificador estável usado para substituir um nugget existente             |
+| `title`       | `string`   | Etiqueta abreviada mostrada no chip do compositor                           |
+| `context`     | `string`   | Contexto oculto incluído no próximo prompt enviado                          |
 | `openSidebar` | `boolean?` | O padrão é verdadeiro; passe false para preparar o contexto silenciosamente |
 
 ## askUserQuestion(opções) {#ask-user-question}
@@ -328,17 +328,17 @@ function App() {
 
 ### Opções {#usedbsync-options}
 
-| Opção             | Tipo               | Descrição                                                                            |
-| ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | Cliente de consulta React para invalidação de cache                                              |
-| `queryKeys`        | `string[]?`        | Obsoleto e ignorado; mantido para sites de chamada antigos                                        |
-| `pollUrl`          | `string?`          | Poll endpoint URL. Padrão: `"/_agent-native/poll"`                                    |
-| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | Intervalo de pesquisa em ms. Padrão: `2000`                                                |
-| `fallbackInterval` | `number?`          | Intervalo de pesquisa de fallback quando SSE não está disponível. Padrão: `15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | Pausar a pesquisa quando a guia do navegador estiver oculta. Padrão: `true`                          |
-| `ignoreSource`     | `string?`          | Origem de solicitação por guia a ser ignorada para que uma guia não seja recuperada de suas próprias gravações         |
-| `onEvent`          | `(data) => void`   | Retorno de chamada opcional quando SSE/polling recebe um evento de alteração                             |
+| Opção              | Tipo               | Descrição                                                                                                      |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `queryClient`      | `QueryClient?`     | Cliente de consulta React para invalidação de cache                                                            |
+| `queryKeys`        | `string[]?`        | Obsoleto e ignorado; mantido para sites de chamada antigos                                                     |
+| `pollUrl`          | `string?`          | Poll endpoint URL. Padrão: `"/_agent-native/poll"`                                                             |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                         |
+| `interval`         | `number?`          | Intervalo de pesquisa em ms. Padrão: `2000`                                                                    |
+| `fallbackInterval` | `number?`          | Intervalo de pesquisa de fallback quando SSE não está disponível. Padrão: `15000`                              |
+| `pauseWhenHidden`  | `boolean?`         | Pausar a pesquisa quando a guia do navegador estiver oculta. Padrão: `true`                                    |
+| `ignoreSource`     | `string?`          | Origem de solicitação por guia a ser ignorada para que uma guia não seja recuperada de suas próprias gravações |
+| `onEvent`          | `(data) => void`   | Retorno de chamada opcional quando SSE/polling recebe um evento de alteração                                   |
 
 Para CRUD normal, prefira `useActionQuery` e `useActionMutation`; actions mutante emite `source: "action"` e esses ganchos são buscados novamente automaticamente.
 

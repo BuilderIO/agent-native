@@ -396,7 +396,7 @@ npx @agent-native/core@latest create my-app --template github:user/repo
 
 ### Testar alterações de estrutura não publicadas {#test-unpublished-framework-changes}
 
-Quando você está trabalhando dentro do framework monorepo e precisa de um 
+Quando você está trabalhando dentro do framework monorepo e precisa de um
 workspace para usar pacotes não publicados ou alterações de modelo, execute create com o
 sinalizador de pacote local:
 

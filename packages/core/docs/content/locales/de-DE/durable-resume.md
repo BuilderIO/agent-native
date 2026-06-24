@@ -6,8 +6,8 @@ description: "Wenn die Ausführung eines gehosteten Agenten unterbrochen und for
 # Dauerhafter Lebenslauf
 
 > **Für wen ist das gedacht:** Jeder, der verstehen möchte, wie das Framework funktioniert
->-Wiederherstellung vermeidet doppelte Nebenwirkungen. Dies ist ein eingebautes Verhalten – es gibt
->nichts zu verkabeln.
+> -Wiederherstellung vermeidet doppelte Nebenwirkungen. Dies ist ein eingebautes Verhalten – es gibt
+> nichts zu verkabeln.
 
 Gehostete Agentenausführungen werden unterbrochen: Eine serverlose Funktion erreicht mitten im Stream ihr hartes Timeout, ein Gateway trennt die Verbindung nach 45 Sekunden, ein Socket hängt sich auf, die Plattform startet einen Kaltstart. Das Framework stellt diese bereits wieder her, indem es das Konversationspräfix speichert und den LLM-Aufruf erneut ausführt („Weiter an der Stelle, an der Sie aufgehört haben“). Aber die Wiederherstellung allein hat einen scharfen Vorteil: Wenn der unterbrochene Versuch **bereits eine E-Mail gesendet oder ein Ticket erstellt hat**, könnte ein naiver Lebenslauf es noch einmal tun.
 

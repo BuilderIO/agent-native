@@ -5,7 +5,7 @@ description: "在一个单一存储库中托管许多代理本机应用程序，
 
 # 多应用工作区
 
-> **哪个工作区文档？** 此页面涵盖 **部署形状** - 一个单一存储库、许多应用程序、共享身份验证和统一部署。对于工作空间_是什么_（自定义层：`AGENTS.md`、`LEARNINGS.md`、个人内存、skills、自定义代理），请参阅 [Workspace](/docs/workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
+> **哪个工作区文档？** 此页面涵盖 **部署形状** - 一个单一存储库、许多应用程序、共享身份验证和统一部署。对于工作空间*是什么*（自定义层：`AGENTS.md`、`LEARNINGS.md`、个人内存、skills、自定义代理），请参阅 [Workspace](/docs/workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
 
 当对内部工具进行振动编码需要一个下午时，您不会停下来。一个团队最终得到了一个 CRM、一个支持收件箱、一个仪表板、一个操作控制台——十个小应用程序，每个应用程序都是独立搭建的。这很好，直到您需要更改所有内容为止。
 
@@ -17,19 +17,19 @@ description: "在一个单一存储库中托管许多代理本机应用程序，
 
 您组织中的每个应用都应同意的任何内容都可以存在于 `packages/shared` 中：
 
-| 共享的东西                  | 它居住的地方                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| 验证/SSO覆盖           | 从 `src/server/index.ts` 导出 `authPlugin`                                |
-| 组织/RBAC规则              | 更好的身份验证组织，可选地由 `authPlugin` 包装            |
-| 代理聊天覆盖           | 从 `src/server/index.ts` 导出 `agentChatPlugin`                           |
-| 企业代理说明 | `AGENTS.md`                                                                   |
-| 特工skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
-| 共享代理actions          | `actions/*.ts`                                                                |
-| 共享React组件       | 从`src/client/index.ts`导出                                             |
-| 设计代币/品牌         | 添加共享的 CSS 文件并从每个应用导入                             |
-| 共享 API 凭证        | 更喜欢框架范围的凭据；仅当需要命名空间时才添加助手 |
+| 共享的东西      | 它居住的地方                                       |
+| --------------- | -------------------------------------------------- |
+| 验证/SSO覆盖    | 从 `src/server/index.ts` 导出 `authPlugin`         |
+| 组织/RBAC规则   | 更好的身份验证组织，可选地由 `authPlugin` 包装     |
+| 代理聊天覆盖    | 从 `src/server/index.ts` 导出 `agentChatPlugin`    |
+| 企业代理说明    | `AGENTS.md`                                        |
+| 特工skills      | `.agents/skills/<skill-name>/SKILL.md`             |
+| 共享代理actions | `actions/*.ts`                                     |
+| 共享React组件   | 从`src/client/index.ts`导出                        |
+| 设计代币/品牌   | 添加共享的 CSS 文件并从每个应用导入                |
+| 共享 API 凭证   | 更喜欢框架范围的凭据；仅当需要命名空间时才添加助手 |
 
-每个单独的应用程序都变成_只是一组屏幕_ — 路线、仪表板、视图、特定于域的 actions。框架默认值涵盖其余部分，直到您添加真正的工作区自定义。
+每个单独的应用程序都变成*只是一组屏幕* — 路线、仪表板、视图、特定于域的 actions。框架默认值涵盖其余部分，直到您添加真正的工作区自定义。
 
 当您的应用想要使用另一个第一方应用时，同样的边界也适用。需要电子邮件、日历、分析和公司内存上下文的新工作区仪表板应使用现有的邮件、日历、分析和大脑应用程序作为通过链接或 A2A 连接的邻居。它不应该克隆这些模板，创建嵌套它们的包装应用程序，或者在其内部搭建子应用程序只是为了访问其数据或代理。仅当您明确想要自定义该应用程序时，才分叉或搭建副本。
 
@@ -124,13 +124,13 @@ pnpm dev
 
 当一个应用需要不同的东西时，删除本地文件：
 
-| 要覆盖的内容             | 要在应用程序内创建的文件                       |
-| ----------------------------- | --------------------------------------------------- |
-| 身份验证插件                   | `apps/<name>/server/plugins/auth.ts`                |
-| 代理聊天插件             | `apps/<name>/server/plugins/agent-chat.ts`          |
-| 特定技能              | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`  |
-| 特定操作             | `apps/<name>/actions/<action-name>.ts`              |
-| 其他代理说明 | `apps/<name>/AGENTS.md`（与工作区一合并） |
+| 要覆盖的内容 | 要在应用程序内创建的文件                           |
+| ------------ | -------------------------------------------------- |
+| 身份验证插件 | `apps/<name>/server/plugins/auth.ts`               |
+| 代理聊天插件 | `apps/<name>/server/plugins/agent-chat.ts`         |
+| 特定技能     | `apps/<name>/.agents/skills/<skill-name>/SKILL.md` |
+| 特定操作     | `apps/<name>/actions/<action-name>.ts`             |
+| 其他代理说明 | `apps/<name>/AGENTS.md`（与工作区一合并）          |
 
 无需接线，无需配置。创建文件并接管。
 
@@ -232,7 +232,7 @@ npx @agent-native/core@latest deploy
 }
 ```
 
-同源**才是真正的回报所在：
+同源\*\*才是真正的回报所在：
 
 - **共享登录会话。** Better Auth 在顶点域上设置其 cookie，因此登录任何应用程序都会登录到每个应用程序。没有跨域SSO舞蹈。
 - **零配置跨应用程序 A2A。** `@mail` 标记 `@calendar` 成为同源获取 - 兄弟之间没有 CORS，没有 JWT 签名。外部A2A仍沿用至今的JWT。

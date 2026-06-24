@@ -119,15 +119,15 @@ defineAction({
 Skills und actions ergänzen sich. Eine Fertigkeit ist eine Anleitung, die der Agent liest; ein
 Aktion ist Code, den der Agent ausführen kann.
 
-| Bedarf                                                                   | Verwenden                                |
-| ---------------------------------------------------------------------- | ---------------------------------- |
-| Der Agent muss einen Arbeitsablauf, eine Richtlinie, eine Checkliste oder eine Rubrik befolgen     | **Fähigkeit**                          |
-| Der Agent benötigt Beispiele, Referenzmaterial oder domänenspezifische Regeln | **Fähigkeit**                          |
-| Der Agent muss App-Daten lesen oder schreiben                              | **Aktion**                         |
-| Der Agent muss einen externen API anrufen oder eine Genehmigung durchführen         | **Aktion**                         |
-| Der Agent ruft den richtigen Vorgang auf, aber auf die falsche Weise               | Verbessere die **Fähigkeit**              |
-| Der Agent kann den Vorgang nicht zuverlässig aufrufen                         | Verbessern Sie die **Aktion**             |
-| Der Agent wählt das falsche Tool                                       | Verbessern Sie die **Aktionsbeschreibung** |
+| Bedarf                                                                                         | Verwenden                                  |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Der Agent muss einen Arbeitsablauf, eine Richtlinie, eine Checkliste oder eine Rubrik befolgen | **Fähigkeit**                              |
+| Der Agent benötigt Beispiele, Referenzmaterial oder domänenspezifische Regeln                  | **Fähigkeit**                              |
+| Der Agent muss App-Daten lesen oder schreiben                                                  | **Aktion**                                 |
+| Der Agent muss einen externen API anrufen oder eine Genehmigung durchführen                    | **Aktion**                                 |
+| Der Agent ruft den richtigen Vorgang auf, aber auf die falsche Weise                           | Verbessere die **Fähigkeit**               |
+| Der Agent kann den Vorgang nicht zuverlässig aufrufen                                          | Verbessern Sie die **Aktion**              |
+| Der Agent wählt das falsche Tool                                                               | Verbessern Sie die **Aktionsbeschreibung** |
 
 Die meisten echten Funktionen nutzen beides: Der Skill erklärt, wie man die Aufgabe angeht, und
 Die Aktion stellt die typisierte Operation bereit. Zum Beispiel ein `invoice-review`-Skill
@@ -148,16 +148,16 @@ Fügen Sie diese als Grundregeln in `AGENTS.md` ein, damit sie in jeder Runde ge
 
 Jede Anleitung, die Sie verfassen, landet auf einer von vier Oberflächen. Wenn Sie wissen, welche Oberfläche verwendet werden soll, vermeiden Sie Duplikate und falsch platzierte Details:
 
-| Oberfläche                     | Wer schreibt es             | Wenn es geladen ist                                       | Was dorthin gehört                                          |
-| --------------------------- | ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
-| `AGENTS.md`-Anweisungen    | Sie (Entwickler)           | Jede Runde als Orientierung                             | Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index |
-| Skills (`SKILL.md`)         | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen  |
-| Aktionsbeschreibungen (Tools) | Sie (Entwickler)           | Jede Runde, wie die Werkzeugliste                           | Was die Aktion bewirkt, was sie zurückgibt, Parametersemantik  |
-| `application_state`-Kontext | Ihr UI-Code (zur Laufzeit) | Jede Runde, als Live-App-Status                          | Aktuelle Navigation, Auswahl, fokussiertes Objekt, URL          |
+| Oberfläche                    | Wer schreibt es            | Wenn es geladen ist                                                      | Was dorthin gehört                                                       |
+| ----------------------------- | -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `AGENTS.md`-Anweisungen       | Sie (Entwickler)           | Jede Runde als Orientierung                                              | Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index           |
+| Skills (`SKILL.md`)           | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
+| Aktionsbeschreibungen (Tools) | Sie (Entwickler)           | Jede Runde, wie die Werkzeugliste                                        | Was die Aktion bewirkt, was sie zurückgibt, Parametersemantik            |
+| `application_state`-Kontext   | Ihr UI-Code (zur Laufzeit) | Jede Runde, als Live-App-Status                                          | Aktuelle Navigation, Auswahl, fokussiertes Objekt, URL                   |
 
 **Schnelldiagnose:**
 
--  „Der Agent fragt ständig, auf welchen Datensatz er reagieren soll, auch wenn einer geöffnet ist“ → Fix: Schreiben Sie die aktuelle Element-ID von Ihrem UI in `application_state` (`navigation`-Schlüssel). Das ist eine `application_state`-Lücke, keine Qualifikationslücke.
+- „Der Agent fragt ständig, auf welchen Datensatz er reagieren soll, auch wenn einer geöffnet ist“ → Fix: Schreiben Sie die aktuelle Element-ID von Ihrem UI in `application_state` (`navigation`-Schlüssel). Das ist eine `application_state`-Lücke, keine Qualifikationslücke.
 - „Der Agent ruft die falsche Aktion auf oder missbraucht einen Parameter“ → Fix: `description` und `.describe()` der Aktion für den Parameter verbessern. Dabei handelt es sich um eine Korrektur der Toolbeschreibung, nicht um eine Fertigkeit.
 
 ## Was gehört wohin {#what-goes-where}

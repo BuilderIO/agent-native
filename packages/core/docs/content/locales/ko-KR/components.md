@@ -5,7 +5,7 @@ description: "사용자 지정 에이전트 UI, 채팅 필드, 대화 렌더링,
 
 # 구성요소 API
 
-Agent-Native는 전체 사이드바를 제공하지만 사이드바는 계약이 아닙니다. 
+Agent-Native는 전체 사이드바를 제공하지만 사이드바는 계약이 아닙니다.
 계약은 런타임입니다: 채팅 스트리밍, 스레드 상태, actions, 컨텍스트
 첨부 파일, 모델 선택, 실행 및 SQL 지원 동기화. 주식을 활용하세요
 가능한 경우 구성요소를 선택하고 맞춤형 제품 UI가 필요할 경우 레이어를 드롭다운하세요.
@@ -34,24 +34,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ## 에이전트 및 채팅 UI {#agent-chat-ui}
 
-| API                                  | 가져오기 경로                                   | 다음 경우에 사용                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 또는 `/client/chat` | 앱 주변에 완전한 사이드바가 필요합니다.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 또는 `/client/chat` | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` 또는 `/client/chat` | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다.                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 또는 `/client/chat` | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client` 또는 `/client/chat` | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 또는 `/client/chat` | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 또는 `/client/chat` | 정규화된 채팅 이벤트를 스트리밍하는 BYO 에이전트 엔드포인트가 있습니다.                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 또는 `/client/chat` | OpenAI 상담원 SDK 스트림이 있고 그 주변에 표준 채팅 UI가 있기를 원합니다.                    |
+| API                                  | 가져오기 경로                                   | 다음 경우에 사용                                                                   |
+| ------------------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` 또는 `/client/chat` | 앱 주변에 완전한 사이드바가 필요합니다.                                            |
+| `<AgentToggleButton>`                | `@agent-native/core/client` 또는 `/client/chat` | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                          |
+| `<AgentPanel>`                       | `@agent-native/core/client` 또는 `/client/chat` | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다. |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` 또는 `/client/chat` | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                      |
+| `<AssistantChat>`                    | `@agent-native/core/client` 또는 `/client/chat` | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다.             |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 또는 `/client/chat` | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                        |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 또는 `/client/chat` | 정규화된 채팅 이벤트를 스트리밍하는 BYO 에이전트 엔드포인트가 있습니다.            |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 또는 `/client/chat` | OpenAI 상담원 SDK 스트림이 있고 그 주변에 표준 채팅 UI가 있기를 원합니다.          |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 또는 `/client/chat` | OpenAI 응답 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` 또는 `/client/chat` | AG-UI 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` 또는 `/client/chat` | Claude 에이전트 SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 또는 `/client/chat` | Vercel AI SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                         |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 또는 `/client/chat` | `AgentChatRuntime`를 어시스턴트 UI에 직접 적용해야 합니다.                              |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` 또는 `/client/chat` | 저수준 보조 UI 어댑터로 내장된 Agent-Native SSE 전송이 필요합니다.            |
-| `useChatThreads()`                   | `@agent-native/core/client` 또는 `/client/chat` | 맞춤 스레드 목록, 기록 선택기 또는 범위 지정 채팅 UI가 필요합니다.                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 또는 `/client/chat` | 제품 작업은 상담원 채팅에서 직접 수행해야 합니다.                                             |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` 또는 `/client/chat` | AG-UI 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                     |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` 또는 `/client/chat` | Claude 에이전트 SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.              |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 또는 `/client/chat` | Vercel AI SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                    |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 또는 `/client/chat` | `AgentChatRuntime`를 어시스턴트 UI에 직접 적용해야 합니다.                         |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` 또는 `/client/chat` | 저수준 보조 UI 어댑터로 내장된 Agent-Native SSE 전송이 필요합니다.                 |
+| `useChatThreads()`                   | `@agent-native/core/client` 또는 `/client/chat` | 맞춤 스레드 목록, 기록 선택기 또는 범위 지정 채팅 UI가 필요합니다.                 |
+| `sendToAgentChat()`                  | `@agent-native/core/client` 또는 `/client/chat` | 제품 작업은 상담원 채팅에서 직접 수행해야 합니다.                                  |
 
 `AgentChatRuntime`는 표준 채팅 셸에 대한 BYO 에이전트 계약입니다. 패스
 외부 에이전트가 전원을 공급해야 하는 경우 `runtime`에서 `<AssistantChat>`까지
@@ -105,13 +105,13 @@ BYOD(Bring-Your-Own) 에이전트 엔드포인트의 경우 다음 중 하나를
 동일한 채팅이 필요한 경우 `@agent-native/core/client/composer`를 사용하세요
 사용자 정의 UI 내부 사이드바에서 사용되는 필드
 
-| API                               | 다음 경우에 사용                                                                                                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API                               | 다음 경우에 사용                                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `<PromptComposer>`                | 첨부 파일, 슬래시 명령, 참조, 붙여넣은 텍스트 처리, 초안 지속성, 음성 입력 및 제출 의미 체계가 포함된 제출 준비가 완료된 채팅 필드가 필요합니다. |
-| `<AgentComposerFrame>`            | 사용자 정의 작성기 본체 주변에 표준 시각적 셸이 필요합니다.                                                                                                   |
-| `<TiptapComposer>`                | 최하위 리치채팅 필드가 필요합니다. Assistant-ui `ThreadPrimitive.Root` / 작곡가 런타임 내에서 렌더링되어야 합니다.                                    |
-| `buildPromptComposerSubmission()` | 자신의 제출 핸들러를 호출하기 전에 동일한 첨부 파일과 붙여넣은 텍스트 정규화가 필요합니다.                                                                  |
-| `formatPromptWithAttachments()`   | 숨겨진 첨부 파일 메타데이터를 프롬프트 문자열로 렌더링해야 합니다.                                                                                                 |
+| `<AgentComposerFrame>`            | 사용자 정의 작성기 본체 주변에 표준 시각적 셸이 필요합니다.                                                                                      |
+| `<TiptapComposer>`                | 최하위 리치채팅 필드가 필요합니다. Assistant-ui `ThreadPrimitive.Root` / 작곡가 런타임 내에서 렌더링되어야 합니다.                               |
+| `buildPromptComposerSubmission()` | 자신의 제출 핸들러를 호출하기 전에 동일한 첨부 파일과 붙여넣은 텍스트 정규화가 필요합니다.                                                       |
+| `formatPromptWithAttachments()`   | 숨겨진 첨부 파일 메타데이터를 프롬프트 문자열로 렌더링해야 합니다.                                                                               |
 
 대부분의 사용자 정의 UI는 `PromptComposer`로 시작해야 합니다:
 
@@ -134,12 +134,12 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 대본 스타일 렌더링에 `@agent-native/core/client/conversation` 사용
 전체 에이전트 런타임 외부
 
-| API                                             | 다음 경우에 사용                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| `<AgentConversation>`                           | 정규화된 에이전트 메시지 목록을 렌더링합니다.                      |
-| `<AgentConversationMessageView>`                | 정규화된 메시지 하나를 렌더링합니다.                                   |
-| `normalizeCodeAgentTranscriptForConversation()` | 코드 에이전트 기록 이벤트를 대화 메시지로 변환합니다. |
-| `useNearBottomAutoscroll()`                     | 스트리밍하는 동안 맞춤 스크립트를 하단에 고정해 두세요.   |
+| API                                             | 다음 경우에 사용                                        |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `<AgentConversation>`                           | 정규화된 에이전트 메시지 목록을 렌더링합니다.           |
+| `<AgentConversationMessageView>`                | 정규화된 메시지 하나를 렌더링합니다.                    |
+| `normalizeCodeAgentTranscriptForConversation()` | 코드 에이전트 기록 이벤트를 대화 메시지로 변환합니다.   |
+| `useNearBottomAutoscroll()`                     | 스트리밍하는 동안 맞춤 스크립트를 하단에 고정해 두세요. |
 
 이 레이어는 의도적으로 데이터 우선입니다. 메시지의 출처를 소유하고
 렌더러는 일관된 마크다운, 첨부 파일, 공지, 아티팩트 및
@@ -153,13 +153,13 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 `@agent-native/core/client/chat` 및 루트 클라이언트 항목에서. 참조
 작업 결과 계약에 대한 [Native Chat UI](/docs/native-chat-ui)
 
-| API                              | 다음 경우에 사용                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | 기본 채팅에서 행과 열을 렌더링하는 작업 결과를 원합니다.                    |
-| `DataChartWidget`                | 기본 채팅에서 작은 막대, 선 또는 영역 차트 출력을 원합니다.                        |
+| API                              | 다음 경우에 사용                                                                          |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `DataTableWidget`                | 기본 채팅에서 행과 열을 렌더링하는 작업 결과를 원합니다.                                  |
+| `DataChartWidget`                | 기본 채팅에서 작은 막대, 선 또는 영역 차트 출력을 원합니다.                               |
 | `DataWidgetResult`               | `"data-table"`, `"data-chart"` 또는 `"data-insights"`에 대해 입력된 결과 모양을 원합니다. |
-| `registerActionChatRenderer()`   | 정확한 `chatUI.renderer`에 의해 선택된 작업 선언 렌더러가 필요합니다.               |
-| `registerToolRenderer()`         | 핵심 도구가 아닌 결과를 얻으려면 제품별 기본 렌더러가 필요합니다.                 |
+| `registerActionChatRenderer()`   | 정확한 `chatUI.renderer`에 의해 선택된 작업 선언 렌더러가 필요합니다.                     |
+| `registerToolRenderer()`         | 핵심 도구가 아닌 결과를 얻으려면 제품별 기본 렌더러가 필요합니다.                         |
 | `registerReservedToolRenderer()` | 프레임워크 코드에는 템플릿 렌더러보다 먼저 승리하는 예약된 렌더러가 필요합니다.           |
 
 ## 실시간 공동작업 및 참여 {#collab-presence}
@@ -167,16 +167,16 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 Liveblocks 스타일의 존재감을 위해 `@agent-native/core/client/collab`를 사용하고
 협업 문서 후크.
 
-| API                                                 | 다음 경우에 사용                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `useCollaborativeDoc()`                             | 서식 있는 텍스트 편집기 또는 사용자 정의 Yjs 표면을 `/_agent-native/collab`에 바인딩합니다.                   |
-| `usePresence()`                                     | 임의 인식 필드 게시 및 렌더링: 커서, 선택, 뷰포트, 모드.         |
-| `<PresenceBar>`                                     | 활동적인 인간 및 에이전트 협력자를 표시합니다.                                                  |
-| `<LiveCursorOverlay>`                               | 위치가 지정된 컨테이너 위에 원격 커서 라벨을 렌더링합니다.                                    |
-| `<RemoteSelectionRings>`                            | DOM 요소에 대한 원격 선택 윤곽선을 렌더링합니다.                                         |
-| `useFollowUser()`                                   | 다른 참가자의 뷰포트 또는 선택을 따릅니다.                                         |
+| API                                                 | 다음 경우에 사용                                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc()`                             | 서식 있는 텍스트 편집기 또는 사용자 정의 Yjs 표면을 `/_agent-native/collab`에 바인딩합니다.       |
+| `usePresence()`                                     | 임의 인식 필드 게시 및 렌더링: 커서, 선택, 뷰포트, 모드.                                          |
+| `<PresenceBar>`                                     | 활동적인 인간 및 에이전트 협력자를 표시합니다.                                                    |
+| `<LiveCursorOverlay>`                               | 위치가 지정된 컨테이너 위에 원격 커서 라벨을 렌더링합니다.                                        |
+| `<RemoteSelectionRings>`                            | DOM 요소에 대한 원격 선택 윤곽선을 렌더링합니다.                                                  |
+| `useFollowUser()`                                   | 다른 참가자의 뷰포트 또는 선택을 따릅니다.                                                        |
 | `useCollaborativeMap()` / `useCollaborativeArray()` | 서식 있는 텍스트 본문 공동 작업이 적합하지 않은 경우 구조화된 Y.Map/Y.Array 상태를 실험해 보세요. |
-| `dedupeCollabUsersByEmail()`                        | 동일한 사용자에 대해 중복 탭 없이 맞춤 아바타 스택을 구축하세요.                       |
+| `dedupeCollabUsersByEmail()`                        | 동일한 사용자에 대해 중복 탭 없이 맞춤 아바타 스택을 구축하세요.                                  |
 
 ```an-diagram title="Presence: humans and the agent share one awareness layer" summary="useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."
 {
@@ -202,16 +202,16 @@ import {
 계획, 콘텐츠, 리소스 및 공동 작업 문서에서 사용되는 표면
 경험.
 
-| API                              | 다음 경우에 사용                                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `<SharedRichEditor>`             | 마크다운 직렬화, 선택적 Yjs 및 앱 추가 기능을 갖춘 구성 가능한 최신 편집기가 필요합니다. |
-| `<RichMarkdownEditor>`           | 공유 리치 에디터에 대해 이전 버전과 호환되는 별칭이 필요합니다.                                  |
-| `createSharedEditorExtensions()` | 자신만의 Tiptap 편집기를 구축하고 있지만 프레임워크 스키마와 마크다운 방언이 필요합니다.         |
-| `<SlashCommandMenu>`             | 맞춤형 Tiptap 표면을 위해서는 공유 슬래시 명령 UI가 필요합니다.                                    |
-| `<BubbleToolbar>`                | 마크, 링크 및 사용자 정의 인라인 actions를 위한 공유 선택 도구 모음이 필요합니다.                   |
-| `createRegistryBlockNode()`      | 리치 에디터 내에 레지스트리 지원 블록 노드가 필요합니다.                                           |
-| `uploadEditorImage()`            | 편집기의 공유 이미지 블록 뒤에 프레임워크 이미지 업로드 작업이 필요합니다.                   |
-| `useCollabReconcile()`           | 마크다운을 저장된 상태로 유지하면서 사용자 정의 편집기 표면을 Yjs 문서에 바인딩하고 있습니다.       |
+| API                              | 다음 경우에 사용                                                                              |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | 마크다운 직렬화, 선택적 Yjs 및 앱 추가 기능을 갖춘 구성 가능한 최신 편집기가 필요합니다.      |
+| `<RichMarkdownEditor>`           | 공유 리치 에디터에 대해 이전 버전과 호환되는 별칭이 필요합니다.                               |
+| `createSharedEditorExtensions()` | 자신만의 Tiptap 편집기를 구축하고 있지만 프레임워크 스키마와 마크다운 방언이 필요합니다.      |
+| `<SlashCommandMenu>`             | 맞춤형 Tiptap 표면을 위해서는 공유 슬래시 명령 UI가 필요합니다.                               |
+| `<BubbleToolbar>`                | 마크, 링크 및 사용자 정의 인라인 actions를 위한 공유 선택 도구 모음이 필요합니다.             |
+| `createRegistryBlockNode()`      | 리치 에디터 내에 레지스트리 지원 블록 노드가 필요합니다.                                      |
+| `uploadEditorImage()`            | 편집기의 공유 이미지 블록 뒤에 프레임워크 이미지 업로드 작업이 필요합니다.                    |
+| `useCollabReconcile()`           | 마크다운을 저장된 상태로 유지하면서 사용자 정의 편집기 표면을 Yjs 문서에 바인딩하고 있습니다. |
 
 기본 제어 편집기는 마크다운 인과 마크다운 아웃입니다:
 
@@ -259,15 +259,15 @@ const collab = useCollaborativeDoc({
 동일한 내용을 노출하고 싶을 때 `@agent-native/core/client/resources`를 사용하세요
 상담원 패널의 작업 공간 탭을 지원하는 작업 공간 리소스 모델
 
-| API                                                                   | 다음 경우에 사용                                                                |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `<ResourcesPanel>`                                                    | 전체 작업공간 탭을 페이지, 서랍 또는 사용자 정의 패널로 원합니다. |
-| `<ResourceTree>`                                                      | 프레임워크 데이터를 중심으로 자체 리소스 브라우저를 렌더링하고 싶습니다.     |
-| `<ResourceEditor>`                                                    | 선택한 리소스에 대한 프레임워크 편집기를 원합니다.                  |
-| `useResourceTree()`                                                   | 개인, 공유 또는 작업 공간 리소스에 대한 범위 트리가 필요합니다.    |
-| `useResource()`                                                       | 선택한 리소스 하나에 대한 콘텐츠와 메타데이터가 필요합니다.            |
-| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | 리소스 수명주기에 대한 맞춤 제어가 필요합니다.                 |
-| `useUploadResource()`                                                 | 프레임워크 리소스 저장소에 파일을 업로드해야 합니다.                 |
+| API                                                                   | 다음 경우에 사용                                                         |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `<ResourcesPanel>`                                                    | 전체 작업공간 탭을 페이지, 서랍 또는 사용자 정의 패널로 원합니다.        |
+| `<ResourceTree>`                                                      | 프레임워크 데이터를 중심으로 자체 리소스 브라우저를 렌더링하고 싶습니다. |
+| `<ResourceEditor>`                                                    | 선택한 리소스에 대한 프레임워크 편집기를 원합니다.                       |
+| `useResourceTree()`                                                   | 개인, 공유 또는 작업 공간 리소스에 대한 범위 트리가 필요합니다.          |
+| `useResource()`                                                       | 선택한 리소스 하나에 대한 콘텐츠와 메타데이터가 필요합니다.              |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | 리소스 수명주기에 대한 맞춤 제어가 필요합니다.                           |
+| `useUploadResource()`                                                 | 프레임워크 리소스 저장소에 파일을 업로드해야 합니다.                     |
 
 전체 패널에는 소품이 필요하지 않습니다:
 
@@ -322,15 +322,15 @@ function WorkspaceResources() {
 
 ## 기타 공개 UI {#other-ui}
 
-| 지역          | APIs                                                   | 가져오기 경로                               |
-| ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| 공유       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
-| 알림 | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| 진행상황      | `<RunsTray>`, 진행 후크 및 유형                 | `@agent-native/core/client/progress`      |
-| 온보딩    | `useOnboarding()`, 온보딩 패널 후크              | `@agent-native/core/client/onboarding`    |
-| 관측성 | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
-| 자원     | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크   | `@agent-native/core/client/resources`     |
-| 리치 에디터   | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/core/client/editor`        |
+| 지역        | APIs                                                  | 가져오기 경로                             |
+| ----------- | ----------------------------------------------------- | ----------------------------------------- |
+| 공유        | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
+| 알림        | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
+| 진행상황    | `<RunsTray>`, 진행 후크 및 유형                       | `@agent-native/core/client/progress`      |
+| 온보딩      | `useOnboarding()`, 온보딩 패널 후크                   | `@agent-native/core/client/onboarding`    |
+| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
+| 자원        | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크     | `@agent-native/core/client/resources`     |
+| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크     | `@agent-native/core/client/editor`        |
 
 ## 일회성 텍스트 완성 {#one-off-text-completion}
 

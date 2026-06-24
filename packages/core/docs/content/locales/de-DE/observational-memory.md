@@ -13,11 +13,11 @@ OM ist völlig automatisch und inhaberabhängig. **Kurze Threads sind davon nich
 
 OM stellt einen langen Thread mit drei Schichten dar, vom am meisten destillierten zum aktuellsten:
 
-| Stufe                    | Was es ist                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| **Reflexionen**         | Höchste Ebene, komprimiert aus dem Beobachtungsprotokoll, sobald es groß wird. Die lange Zusammenfassung.      |
-| **Beobachtungen**        | Dichte, datierte Einträge, die eine Reihe von Rohnachrichten zu einer kompakten Aufzeichnung dessen zusammenfassen, was passiert ist.  |
-| **Neueste Rohnachrichten** | Die letzten N Runden werden **wörtlich** beibehalten – nie gefaltet –, sodass der Agent immer den neuesten Kontext sieht. |
+| Stufe                      | Was es ist                                                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Reflexionen**            | Höchste Ebene, komprimiert aus dem Beobachtungsprotokoll, sobald es groß wird. Die lange Zusammenfassung.                             |
+| **Beobachtungen**          | Dichte, datierte Einträge, die eine Reihe von Rohnachrichten zu einer kompakten Aufzeichnung dessen zusammenfassen, was passiert ist. |
+| **Neueste Rohnachrichten** | Die letzten N Runden werden **wörtlich** beibehalten – nie gefaltet –, sodass der Agent immer den neuesten Kontext sieht.             |
 
 ```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
 {
@@ -50,11 +50,11 @@ OM-Daten befinden sich in der eigenen SQL-Datenbank der App und sind auf den Bes
 
 Standardeinstellungen sind konservativ. Ein Bediener kann die Komprimierung zum Zeitpunkt der Bereitstellung mit `AGENT_NATIVE_OM_*`-Umgebungsvariablen wählen (keine erneute Bereitstellung des App-Codes erforderlich); Bei einem ungültigen oder fehlenden Wert wird immer auf den genannten Standardwert zurückgegriffen.
 
-| Umgebungsvariable                                       | Standard | Was es steuert                                                                       |
-| --------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000` | Token für unbeobachtete Nachrichten, die den Beobachter dazu veranlassen, sie zu einer Beobachtung zusammenzufassen. |
-| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000` | Beobachtungsprotokolltoken, die den Reflektor dazu veranlassen, sich zu einer Reflexion zu verdichten.       |
-| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`    | Wie viele der aktuellsten Nachrichten bleiben wörtlich (werden nie zu einer Beobachtung zusammengefasst). |
+| Umgebungsvariable                             | Standard | Was es steuert                                                                                                       |
+| --------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000`  | Token für unbeobachtete Nachrichten, die den Beobachter dazu veranlassen, sie zu einer Beobachtung zusammenzufassen. |
+| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000`  | Beobachtungsprotokolltoken, die den Reflektor dazu veranlassen, sich zu einer Reflexion zu verdichten.               |
+| `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`     | Wie viele der aktuellsten Nachrichten bleiben wörtlich (werden nie zu einer Beobachtung zusammengefasst).            |
 
 Die Ausgabeobergrenzen für Observer und Reflector (4000/2000 Token) verhindern, dass ein einziger Verdichtungsdurchgang das Budget sprengt. Sie sind im Code über `resolveObservationalMemoryConfig({ ... })` einstellbar, aber nicht umgebungsexponiert.
 

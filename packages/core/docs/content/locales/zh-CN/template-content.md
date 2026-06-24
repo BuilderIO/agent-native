@@ -86,7 +86,7 @@ Native Desktop，并将当前文档树导出为Markdown/MDX
 通过普通文件actions选择文件。将其用于回购优先文档，
 由 MDX 驱动的博客、资源库或黑曜石风格的个人内容
 组件；当您需要托管协作时切换回数据库模式并且
-SQL 支持的共享。请参阅 [Local File Mode](/docs/local-file-mode) 
+SQL 支持的共享。请参阅 [Local File Mode](/docs/local-file-mode)
 独立存储库布局、配置、自定义 MDX 组件、本地
 `extensions/`小部件、安全生产指南。
 

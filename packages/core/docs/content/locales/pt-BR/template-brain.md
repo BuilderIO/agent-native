@@ -140,17 +140,17 @@ navegação e seleção.
 
 O esquema do cérebro reside em `templates/brain/server/db/schema.ts`. Oito tabelas:
 
-| Tabela                    | O que ele contém                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brain_sources`          | Configuração do conector — provedor, canais/repos permitidos, cursores de sincronização, postura de revisão, `ingest_token_hash`, `status`, `last_synced_at`        |
-| `brain_source_shares`    | Concessões de compartilhamento por origem (visualizador/editor/administrador)                                                                                              |
-| `brain_raw_captures`     | Transcrições, exportações de canal, notas e importações de webhook com chave de desduplicação `external_id`, `content_hash`, tipo e status de destilação          |
-| `brain_knowledge`        | Entradas atômicas destiladas — tipo (decisão/fato/processo/…), tópico, entidades, citações de evidências, confiança, `publish_tier`, links de substituição |
-| `brain_knowledge_shares` | Concessões de compartilhamento por conhecimento                                                                                                                     |
-| `brain_proposals`        | Itens de revisão pendentes — proposta de criação/atualização/arquivamento com evidências e notas do revisor                                                         |
-| `brain_proposal_shares`  | Concessões de ações por proposta                                                                                                                      |
-| `brain_sync_runs`        | Registro de auditoria de sincronização — provedor, status, estatísticas JSON, erro, carimbos de data/hora de início/término                                                                     |
-| `brain_ingest_queue`     | Fila de destilação em segundo plano — operação, status, prioridade, contagem de novas tentativas, `run_after`                                                          |
+| Tabela                   | O que ele contém                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `brain_sources`          | Configuração do conector — provedor, canais/repos permitidos, cursores de sincronização, postura de revisão, `ingest_token_hash`, `status`, `last_synced_at` |
+| `brain_source_shares`    | Concessões de compartilhamento por origem (visualizador/editor/administrador)                                                                                |
+| `brain_raw_captures`     | Transcrições, exportações de canal, notas e importações de webhook com chave de desduplicação `external_id`, `content_hash`, tipo e status de destilação     |
+| `brain_knowledge`        | Entradas atômicas destiladas — tipo (decisão/fato/processo/…), tópico, entidades, citações de evidências, confiança, `publish_tier`, links de substituição   |
+| `brain_knowledge_shares` | Concessões de compartilhamento por conhecimento                                                                                                              |
+| `brain_proposals`        | Itens de revisão pendentes — proposta de criação/atualização/arquivamento com evidências e notas do revisor                                                  |
+| `brain_proposal_shares`  | Concessões de ações por proposta                                                                                                                             |
+| `brain_sync_runs`        | Registro de auditoria de sincronização — provedor, status, estatísticas JSON, erro, carimbos de data/hora de início/término                                  |
+| `brain_ingest_queue`     | Fila de destilação em segundo plano — operação, status, prioridade, contagem de novas tentativas, `run_after`                                                |
 
 ```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {

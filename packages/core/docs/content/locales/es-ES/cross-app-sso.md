@@ -64,14 +64,14 @@ El flujo es una autorización estándar → token firmado → redireccionamiento
 
 3. **Dispatch → Aplicación (token de identidad firmado).** Dispatch valida `redirect_uri` contra una lista de permitidos estricta y redirecciona 302 al `redirect_uri` de la aplicación que lleva una identidad de corta duración **`A2A_SECRET` firmada por JWT**. Los reclamos del token son intencionalmente mínimos:
 
-   | Reclamación        | Significado                                                  |
-   | ------------ | -------------------------------------------------------- |
-   | `sub`        | Identificación de usuario estable en la autoridad de identidad                 |
-   | `email`      | El correo electrónico **verificado** del usuario: la única clave para unirse        |
-   | `name`       | Nombre para mostrar (no autorizado, solo para UI)            |
-   | `org_domain` | Dominio de espacio de trabajo/organización, cuando esté presente                       |
-   | `scope`      | Siempre `"identity"`: este token solo autoriza el inicio de sesión |
-   | `exp`        | **≤ 2 minutos** desde el problema                               |
+   | Reclamación  | Significado                                                                  |
+   | ------------ | ---------------------------------------------------------------------------- |
+   | `sub`        | Identificación de usuario estable en la autoridad de identidad               |
+   | `email`      | El correo electrónico **verificado** del usuario: la única clave para unirse |
+   | `name`       | Nombre para mostrar (no autorizado, solo para UI)                            |
+   | `org_domain` | Dominio de espacio de trabajo/organización, cuando esté presente             |
+   | `scope`      | Siempre `"identity"`: este token solo autoriza el inicio de sesión           |
+   | `exp`        | **≤ 2 minutos** desde el problema                                            |
 
 4. **La aplicación verifica los enlaces JIT por correo electrónico.** La aplicación verifica la firma del token con su propio `A2A_SECRET`, verifica `scope: "identity"` y `exp` y luego realiza **enlace justo a tiempo estrictamente mediante correo electrónico verificado**:
    - Si existe un usuario local con ese correo electrónico → reutilícelo sin cambios.
@@ -158,7 +158,7 @@ Deje el entorno de todas las demás aplicaciones sin configurar. Vuelva a implem
 
 **3. Verificar el canario (lista de verificación).**
 
-- Cerrar sesión** en la aplicación.
+- Cerrar sesión\*\* en la aplicación.
 - La pantalla de inicio de sesión ahora muestra **"Iniciar sesión con Agent-Native"**. Haz clic en él.
 - Se le dirigirá a **Dispatch** y completará su inicio de sesión (o pasará directamente si ya inició sesión allí).
 - Se le redirige **de nuevo a la aplicación, inicia sesión** y es la **misma cuenta preexistente** (mismo correo electrónico) que tenía antes, no una nueva.

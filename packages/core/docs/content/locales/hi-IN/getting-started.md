@@ -158,10 +158,10 @@ export default function ChatRoute() {
 
 - **`app/routes/_index.tsx`** — चैट पेज। सुझाव बदलें, रिक्त
   स्थिति, और लेआउट.
-- **`app/root.tsx`** - ऐप शेल। 
+- **`app/root.tsx`** - ऐप शेल।
   एजेंट.
 - एजेंट को `<AgentSidebar>` के साथ किसी भी स्क्रीन पर छोड़ें, उस पर हाथ से काम करें
-  `sendToAgentChat()` के साथ बटन, या सीधे 
+  `sendToAgentChat()` के साथ बटन, या सीधे
   `useActionMutation()`.
 
 पूर्ण घटक सेट के लिए [Drop-in Agent](/docs/drop-in-agent) देखें, और

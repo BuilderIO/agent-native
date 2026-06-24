@@ -18,7 +18,7 @@ superfície de revisão com rich text, diagramas, wireframes, orientações de c
 e árvores de arquivos, anotações, comentários e links compartilháveis.
 
 Tudo se resume a dois comandos. `/visual-plan` cria um plano **antes** do agente
- escreve código. `/visual-recap` transforma uma mudança que **já** aconteceu — um PR,
+escreve código. `/visual-recap` transforma uma mudança que **já** aconteceu — um PR,
 commit, branch ou git diff — em uma revisão visual de código de alta altitude. Ambos abertos
 a mesma superfície de revisão, para que você possa anotar, comentar e enviar feedback ao
 agente da mesma maneira.
@@ -62,7 +62,7 @@ Se você estiver usando um host baseado em bate-papo que aceita conectores MCP d
 (em vez de um cliente configurado com CLI), conecte o conector de Planos hospedado em
 `https://plan.agent-native.com/_agent-native/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
 
-A autenticação é um login único do navegador durante a configuração — isso é intencional e é 
+A autenticação é um login único do navegador durante a configuração — isso é intencional e é
 é o que permite ao agente persistir e compartilhar os planos que gera. O que a autenticação
 a etapa depende do seu cliente:
 
@@ -338,7 +338,7 @@ o menu de ação do plano.
 A exclusão permanente remove os registros do banco de dados do aplicativo Plan e os ativos apoiados por SQL
 bytes/referências. Se uma implantação usar um provedor de upload externo, provedor
 a retenção de objetos segue o ciclo de vida desse provedor porque o upload compartilhado
- atualmente não expõe a exclusão de objetos. Modo de privacidade de arquivos locais
+atualmente não expõe a exclusão de objetos. Modo de privacidade de arquivos locais
 mantém a fonte na pasta MDX local; excluir dados hospedados não
 toque nos arquivos locais.
 
@@ -385,16 +385,16 @@ O modelo local é útil quando você está desenvolvendo os próprios Planos, te
 
 O esquema reside em `templates/plan/server/db/schema.ts`. Tabelas principais:
 
-| Tabela              | O que ele contém                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plans`            |  Cada plano ou recapitulação — `title`, `brief`, `kind` (plano/recapitulação), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, estatísticas de uso, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Seções ordenadas dentro de um plano — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
-| `plan_comments`    | Comentários encadeados — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
-| `plan_events`      | Registro de auditoria de eventos de agente/humanos em um plano                                                                                                                                               |
-| `plan_versions`    | Snapshots pontuais do histórico de versões                                                                                                                                             |
-| `plan_shares`      | Concessões de compartilhamento por principal (visualizador/editor/administrador)                                                                                                                                    |
-| `plan_guest_mints` | Registros de limite de taxa para emissão de sessão de convidado                                                                                                                                           |
-| `plan_assets`      | Recursos de imagem in-line armazenados como base64 (substituição quando não há provedor de upload)                                                                                                                 |
+| Tabela             | O que ele contém                                                                                                                                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Cada plano ou recapitulação — `title`, `brief`, `kind` (plano/recapitulação), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, estatísticas de uso, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Seções ordenadas dentro de um plano — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                                 |
+| `plan_comments`    | Comentários encadeados — `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                               |
+| `plan_events`      | Registro de auditoria de eventos de agente/humanos em um plano                                                                                                                                                    |
+| `plan_versions`    | Snapshots pontuais do histórico de versões                                                                                                                                                                        |
+| `plan_shares`      | Concessões de compartilhamento por principal (visualizador/editor/administrador)                                                                                                                                  |
+| `plan_guest_mints` | Registros de limite de taxa para emissão de sessão de convidado                                                                                                                                                   |
+| `plan_assets`      | Recursos de imagem in-line armazenados como base64 (substituição quando não há provedor de upload)                                                                                                                |
 
 ```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
 {
@@ -643,7 +643,7 @@ Token refresh failures can strand active reviewer sessions.
 ```
 
 O registro do servidor torna esta fonte importável/exportável e o cliente
- faz com que ele seja renderizado em `PlanBlockView`. Se o bloco deve ser gerado por
+faz com que ele seja renderizado em `PlanBlockView`. Se o bloco deve ser gerado por
 agentes, mantenham `label`, `description`, `placement` e `empty` precisos; aqueles
 os campos fluem para o vocabulário do bloco ativo.
 
@@ -678,57 +678,57 @@ pode assiná-los, sem necessidade de código de integração personalizado.
 
 É acionado quando um novo plano visual ou recapitulação é criado.
 
-| Campo       | Tipo                  | Descrição                              |
-| ----------- | --------------------- | ---------------------------------------- |
-| `planId`    | string                | Identificador exclusivo do plano                   |
-| `title`     | string                | Título do plano                               |
-| `kind`      | `"plan"` \| `"recap"` | Seja um plano ou uma recapitulação        |
-| `status`    | string                | Status inicial (por exemplo, `"review"`)         |
+| Campo       | Tipo                  | Descrição                                                     |
+| ----------- | --------------------- | ------------------------------------------------------------- |
+| `planId`    | string                | Identificador exclusivo do plano                              |
+| `title`     | string                | Título do plano                                               |
+| `kind`      | `"plan"` \| `"recap"` | Seja um plano ou uma recapitulação                            |
+| `status`    | string                | Status inicial (por exemplo, `"review"`)                      |
 | `path`      | string                | Caminho relativo ao aplicativo (por exemplo, `/plans/plan-…`) |
-| `createdBy` | string                | Sempre `"agent"` para criação do plano       |
+| `createdBy` | string                | Sempre `"agent"` para criação do plano                        |
 
 #### `plan.commented`
 
 É acionado quando um ou mais comentários são adicionados a um plano.
 
-| Campo              | Tipo                             | Descrição                                                 |
-| ------------------ | -------------------------------- | ----------------------------------------------------------- |
-| `planId`           | string                           | Identificador do plano                                             |
-| `title`            | string                           | Título do plano                                                  |
-| `kind`             | `"plan"` \| `"recap"`            | Planejar ou recapitular                                               |
-| `commentIds`       | string[]                         | IDs dos novos comentários                                     |
-| `commentCount`     | número                           | Número de novos comentários neste lote                        |
+| Campo              | Tipo                             | Descrição                                                                  |
+| ------------------ | -------------------------------- | -------------------------------------------------------------------------- |
+| `planId`           | string                           | Identificador do plano                                                     |
+| `title`            | string                           | Título do plano                                                            |
+| `kind`             | `"plan"` \| `"recap"`            | Planejar ou recapitular                                                    |
+| `commentIds`       | string[]                         | IDs dos novos comentários                                                  |
+| `commentCount`     | número                           | Número de novos comentários neste lote                                     |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Alvo dominante — `"agent"` se algum comentário for direcionado a um agente |
-| `excerpt`          | string                           | Primeiros 200 caracteres do primeiro comentário                   |
-| `author`           | string\| nulo                   | E-mail do comentarista, se conhecido                            |
-| `path`             | string                           | Caminho relativo ao aplicativo                                           |
+| `excerpt`          | string                           | Primeiros 200 caracteres do primeiro comentário                            |
+| `author`           | string\| nulo                    | E-mail do comentarista, se conhecido                                       |
+| `path`             | string                           | Caminho relativo ao aplicativo                                             |
 
 #### `plan.published`
 
 É acionado quando um plano local é publicado (ou republicado) em um URL hospedado e compartilhável.
 
-| Campo                 | Tipo                  | Descrição                        |
-| --------------------- | --------------------- | ---------------------------------- |
-| `planId`              | string                | Identificador do plano local              |
+| Campo                 | Tipo                  | Descrição                               |
+| --------------------- | --------------------- | --------------------------------------- |
+| `planId`              | string                | Identificador do plano local            |
 | `title`               | string                | Título do plano                         |
-| `kind`                | `"plan"` \| `"recap"` | Planejar ou recapitular                      |
-| `hostedPlanId`        | string                | Identificador do plano hospedado             |
+| `kind`                | `"plan"` \| `"recap"` | Planejar ou recapitular                 |
+| `hostedPlanId`        | string                | Identificador do plano hospedado        |
 | `url`                 | string                | URL público completo do plano hospedado |
-| `requestedVisibility` | string                | `"public"`, `"private"`, etc.      |
+| `requestedVisibility` | string                | `"public"`, `"private"`, etc.           |
 
 #### `plan.status.changed`
 
 É acionado quando o status de um plano muda (por exemplo, `review` → `approved`).
 
-| Campo       | Tipo                  | Descrição                        |
-| ----------- | --------------------- | ---------------------------------- |
-| `planId`    | string                | Identificador do plano                    |
-| `title`     | string                | Título do plano                         |
-| `kind`      | `"plan"` \| `"recap"` | Planejar ou recapitular                      |
-| `oldStatus` | string \| nulo        | Status anterior                    |
-| `newStatus` | string                | Novo status                         |
-| `changedBy` | sequência \| nulo        | E-mail da pessoa que alterou |
-| `path`      | string                | Caminho relativo ao aplicativo                  |
+| Campo       | Tipo                  | Descrição                      |
+| ----------- | --------------------- | ------------------------------ |
+| `planId`    | string                | Identificador do plano         |
+| `title`     | string                | Título do plano                |
+| `kind`      | `"plan"` \| `"recap"` | Planejar ou recapitular        |
+| `oldStatus` | string \| nulo        | Status anterior                |
+| `newStatus` | string                | Novo status                    |
+| `changedBy` | sequência \| nulo     | E-mail da pessoa que alterou   |
+| `path`      | string                | Caminho relativo ao aplicativo |
 
 ### Receitas de automação {#automation-recipes}
 

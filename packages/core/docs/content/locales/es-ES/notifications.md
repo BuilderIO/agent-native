@@ -27,20 +27,20 @@ await notify(
 
 ## Severidades {#severities}
 
-| Severidad   | Usar para                                 |
-| ---------- | --------------------------------------- |
-| `info`     | Confirmaciones, hitos de progreso, FYI |
-| `warning`  | Algo que el usuario debería mirar pronto  |
-| `critical` | Necesita atención inmediata               |
+| Severidad  | Usar para                                |
+| ---------- | ---------------------------------------- |
+| `info`     | Confirmaciones, hitos de progreso, FYI   |
+| `warning`  | Algo que el usuario debería mirar pronto |
+| `critical` | Necesita atención inmediata              |
 
 La gravedad determina el estilo de la insignia en el menú desplegable y se transmite a los canales para que puedan bifurcarse según la urgencia.
 
 ## Canales integrados {#channels}
 
-| Canal   | Entrega                                                  | Requiere                                            |
-| --------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `inbox`   | Persiste en la tabla `notifications`; acciona la campana UI | Siempre activo: parte de la primitiva.                  |
-| `webhook` | POST JSON a un URL configurado                             | Var entorno `NOTIFICATIONS_WEBHOOK_URL` configurada al inicio. |
+| Canal     | Entrega                                                     | Requiere                                                       |
+| --------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
+| `inbox`   | Persiste en la tabla `notifications`; acciona la campana UI | Siempre activo: parte de la primitiva.                         |
+| `webhook` | POST JSON a un URL configurado                              | Var entorno `NOTIFICATIONS_WEBHOOK_URL` configurada al inicio. |
 
 El canal de webhook resuelve las referencias de `${keys.NAME}` tanto en URL como en `NOTIFICATIONS_WEBHOOK_AUTH` contra el [secrets](/docs/security) ad-hoc del propietario, por lo que el valor sin procesar nunca ingresa al contexto del agente. Se aplican listas de permitidos URL por clave: la misma regla que utiliza la herramienta de automatizaciones `web-request`.
 
@@ -194,10 +194,10 @@ Pase `browserNotifications` para activar también las ventanas emergentes `new N
 
 En cada plantilla se registra una única herramienta `manage-notifications`. El parámetro `action` selecciona la operación:
 
-| Acción | Parámetros                                                                    | Propósito                                                         |
-| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Acción | Parámetros                                                                          | Propósito                                                                               |
+| ------ | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `send` | `severity` (obligatorio), `title` (obligatorio), `body`, `metadataJson`, `channels` | Enviar una notificación a la bandeja de entrada del usuario y a los canales registrados |
-| `list` | `unreadOnly`, `limit` (máximo 200, predeterminado 20)                                   | Enumerar notificaciones recientes para contextualizar                           |
+| `list` | `unreadOnly`, `limit` (máximo 200, predeterminado 20)                               | Enumerar notificaciones recientes para contextualizar                                   |
 
 Las automatizaciones (ver [Automations](/docs/automations)) pueden llamar a `manage-notifications` con `action=send` en su cuerpo; este es el patrón canónico para convertir un evento externo en una alerta visible para el usuario.
 

@@ -188,27 +188,27 @@ Las tablas de recursos compartidos del marco (`deck_shares`, `design_system_shar
 
 #### mazos
 
-| Columna       | Tipo | Notas                                                     |
-| ------------ | ---- | --------------------------------------------------------- |
-| `id`         | texto | Clave principal, p.e. `deck-1712345-abc`                      |
-| `title`      | texto | Título del mazo                                                |
+| Columna      | Tipo  | Notas                                                     |
+| ------------ | ----- | --------------------------------------------------------- |
+| `id`         | texto | Clave principal, p.e. `deck-1712345-abc`                  |
+| `title`      | texto | Título del mazo                                           |
 | `data`       | texto | Blob JSON: `{ title, slides: [{ id, content, layout }] }` |
-| `created_at` | texto | Marca de tiempo                                                 |
-| `updated_at` | texto | Marca de tiempo                                                 |
+| `created_at` | texto | Marca de tiempo                                           |
+| `updated_at` | texto | Marca de tiempo                                           |
 
 Cada mazo también lleva el estándar `ownableColumns` (propietario, visibilidad, token compartido) por lo que encaja en el modelo de uso compartido del marco.
 
 #### comentarios_diapositivas
 
-| Columna                        | Notas                                  |
-| ----------------------------- | -------------------------------------- |
-| `id`                          | Clave principal                            |
-| `deck_id`                     | Plato principal                            |
-| `slide_id`                    | Deslice el comentario sigue activo             |
-| `thread_id`, `parent_id`      | Enhebrado                              |
+| Columna                       | Notas                                              |
+| ----------------------------- | -------------------------------------------------- |
+| `id`                          | Clave principal                                    |
+| `deck_id`                     | Plato principal                                    |
+| `slide_id`                    | Deslice el comentario sigue activo                 |
+| `thread_id`, `parent_id`      | Enhebrado                                          |
 | `content`, `quoted_text`      | Cuerpo del comentario y extracto de texto opcional |
-| `author_email`, `author_name` | Autor                                 |
-| `resolved`                    | Bandera booleana                           |
+| `author_email`, `author_name` | Autor                                              |
+| `resolved`                    | Bandera booleana                                   |
 
 #### cubierta_compartida
 

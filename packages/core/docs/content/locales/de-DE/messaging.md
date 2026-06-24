@@ -11,7 +11,7 @@ Verbinden Sie Ihren Agenten mit Slack, E-Mail, Telegram oder WhatsApp, damit Sie
 
 ## Was Sie tun können {#what-you-can-do}
 
-- **Schicken Sie Ihrem Agenten eine E-Mail an eine Adresse wie `agent@yourcompany.com` – er antwortet im Thread, genau wie ein Kollege.
+- \*\*Schicken Sie Ihrem Agenten eine E-Mail an eine Adresse wie `agent@yourcompany.com` – er antwortet im Thread, genau wie ein Kollege.
 - **Kontaktieren Sie Ihren Agenten** in einem Thread – er liest mit und springt ein, wenn Sie danach fragen.
 - **DM dem Agenten auf Slack** oder `@mention` ihm in einem beliebigen Kanal.
 - **Schreiben Sie dem Agenten von Ihrem Telefon aus eine Nachricht per Telegram oder WhatsApp**.
@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Umgebungsvariablen {#env-vars}
 
-| Plattform | Erforderlich                                                                     | Optional                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| Telegramm | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| E-Mail    | `EMAIL_AGENT_ADDRESS`, plus eines von `RESEND_API_KEY` oder `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| Plattform | Erforderlich                                                                   | Optional                                              |
+| --------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Slack     | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                      | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Telegramm | `TELEGRAM_BOT_TOKEN`                                                           | —                                                     |
+| E-Mail    | `EMAIL_AGENT_ADDRESS`, plus eines von `RESEND_API_KEY` oder `SENDGRID_API_KEY` | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp  | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`   | —                                                     |
 
 Alle Anmeldeinformationen befinden sich in Umgebungsvariablen – niemals in der Datenbank, niemals im Quellcode. Verwenden Sie die Seitenleisteneinstellungen UI oder das Env-Panel Ihres Hosting-Anbieters.
 

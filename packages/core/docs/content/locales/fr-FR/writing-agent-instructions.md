@@ -74,7 +74,7 @@ description: >-
 ---
 ```
 
--  Dirigez avec la fonctionnalité, puis ajoutez une clause explicite ** "Utiliser quand…" **. 
+- Dirigez avec la fonctionnalité, puis ajoutez une clause explicite ** "Utiliser quand…" **.
 - Soyez légèrement insistant : un déclenchement excessif bat une compétence qui ne se charge jamais.
 - Gardez-le sous environ 40 mots ; il est chargé dans le contexte à chaque conversation.
 
@@ -119,15 +119,15 @@ defineAction({
 Skills et actions sont complémentaires. Une compétence est un guide que l'agent lit ; un
 l'action est le code que l'agent peut exécuter.
 
-| Besoin                                                                   | Utiliser                                |
-| ---------------------------------------------------------------------- | ---------------------------------- |
-| L'agent doit suivre un workflow, une politique, une liste de contrôle ou une rubrique     | **Compétence**                          |
-| L'agent a besoin d'exemples, de documents de référence ou de règles spécifiques au domaine | **Compétence**                          |
-| L'agent doit lire ou écrire les données de l'application                              | **Action**                         |
-| L'agent doit appeler un API externe ou effectuer une approbation         | **Action**                         |
-| L'agent appelle la bonne opération mais de la mauvaise manière               | Améliorer la **compétence**              |
-| L'agent ne peut pas appeler l'opération de manière fiable                         | Améliorer l'**action**             |
-| L'agent choisit le mauvais outil                                       | Améliorer la **description de l'action** |
+| Besoin                                                                                     | Utiliser                                 |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| L'agent doit suivre un workflow, une politique, une liste de contrôle ou une rubrique      | **Compétence**                           |
+| L'agent a besoin d'exemples, de documents de référence ou de règles spécifiques au domaine | **Compétence**                           |
+| L'agent doit lire ou écrire les données de l'application                                   | **Action**                               |
+| L'agent doit appeler un API externe ou effectuer une approbation                           | **Action**                               |
+| L'agent appelle la bonne opération mais de la mauvaise manière                             | Améliorer la **compétence**              |
+| L'agent ne peut pas appeler l'opération de manière fiable                                  | Améliorer l'**action**                   |
+| L'agent choisit le mauvais outil                                                           | Améliorer la **description de l'action** |
 
 La plupart des fonctionnalités réelles utilisent les deux : la compétence explique comment aborder la tâche, et
 l'action fournit l'opération typée. Par exemple, une compétence `invoice-review`
@@ -148,12 +148,12 @@ Mettez-les comme règles de base dans `AGENTS.md` afin qu'elles s'appliquent à 
 
 Chaque élément de guidage que vous créez atterrit sur l'une des quatre surfaces. Savoir quelle surface utiliser évite les duplications et les détails égarés :
 
-| Surface                     | Qui l'écrit             | Quand il est chargé                                       | Ce qui y appartient                                          |
-| --------------------------- | ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
-| Instructions `AGENTS.md`    | Vous (développeur)           | Chaque tour, comme orientation                             | Objectif, règles de base, clés d'état, index d'action, index skills |
-| Skills (`SKILL.md`)         | Vous (développeur)           | Sur demande lorsque l'agent décide que la compétence est pertinente | Comment procéder étape par étape pour un modèle spécifique, listes de choses à faire/à ne pas faire  |
-| Descriptions des actions (outils) | Vous (développeur)           | À chaque tour, comme la liste des outils                           | Ce que fait l'action, ce qu'elle renvoie, sémantique des paramètres  |
-| Contexte `application_state` | Votre code UI (au moment de l'exécution) | À chaque tour, selon l'état de l'application en direct                          | Navigation actuelle, sélection, objet sélectionné, URL          |
+| Surface                           | Qui l'écrit                              | Quand il est chargé                                                 | Ce qui y appartient                                                                                 |
+| --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Instructions `AGENTS.md`          | Vous (développeur)                       | Chaque tour, comme orientation                                      | Objectif, règles de base, clés d'état, index d'action, index skills                                 |
+| Skills (`SKILL.md`)               | Vous (développeur)                       | Sur demande lorsque l'agent décide que la compétence est pertinente | Comment procéder étape par étape pour un modèle spécifique, listes de choses à faire/à ne pas faire |
+| Descriptions des actions (outils) | Vous (développeur)                       | À chaque tour, comme la liste des outils                            | Ce que fait l'action, ce qu'elle renvoie, sémantique des paramètres                                 |
+| Contexte `application_state`      | Votre code UI (au moment de l'exécution) | À chaque tour, selon l'état de l'application en direct              | Navigation actuelle, sélection, objet sélectionné, URL                                              |
 
 **Diagnostic rapide :**
 

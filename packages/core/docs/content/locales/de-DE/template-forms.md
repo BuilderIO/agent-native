@@ -86,11 +86,11 @@ Wählen Sie bei der Einrichtung des Arbeitsbereichs Formulare und andere gewüns
 
 Alle Daten leben in SQL über Drizzle ORM. Schema: `templates/forms/server/db/schema.ts`. Formulare enthalten den Standard `ownableColumns` und eine passende Framework-Freigabentabelle, sodass sie in das Freigabemodell pro Benutzer/pro Organisation passen.
 
-| Tabelle         | Was es enthält                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabelle       | Was es enthält                                                                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `forms`       | Eine Formulardefinition – `title`, `description`, eindeutiges `slug`, `fields` (JSON-Array von `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`) und ein vorläufig gelöschter `deleted_at` |
-| `responses`   | Eine Einreichung pro Zeile – `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip` und `submitter_email`                                                                                    |
-| `form_shares` | Framework teilt Tabellenzuordnungsprinzipale (Benutzer oder Organisationen) zu Rollen (Betrachter, Bearbeiter, Administrator) pro Formular                                                                                                            |
+| `responses`   | Eine Einreichung pro Zeile – `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip` und `submitter_email`                                                                                                      |
+| `form_shares` | Framework teilt Tabellenzuordnungsprinzipale (Benutzer oder Organisationen) zu Rollen (Betrachter, Bearbeiter, Administrator) pro Formular                                                                                           |
 
 Die Formen `fields` und `settings` JSON sind in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`) definiert. Besitzerprivate Einstellungen wie Integrations-Webhooks URLs und zulässige Ursprünge werden entfernt, bevor Daten über `toPublicFormSettings` die öffentliche Füllseite erreichen.
 

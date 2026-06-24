@@ -75,11 +75,11 @@ quadros. Alguns bate-papos na Web somente de texto leem a transcrição, mas nã
 por conta própria; lá, faça upload de um quadro-chave ou abra o clipe em um formato compatível com imagem
 agente.
 
-| Ponto final                                          | O que os agentes recebem                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Metadados do clipe, status da transcrição, capítulos, CTAs, frames recomendados e links para a transcrição/frame APIs   |
+| Ponto final                                       | O que os agentes recebem                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Metadados do clipe, status da transcrição, capítulos, CTAs, frames recomendados e links para a transcrição/frame APIs                             |
 | `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcrição com carimbo de data e hora com `startMs`, `endMs`, carimbos de data e hora legíveis, texto e rótulos de origem opcionais |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Um quadro JPEG extraído do vídeo em um carimbo de data/hora do vídeo original                                           |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Um quadro JPEG extraído do vídeo em um carimbo de data/hora do vídeo original                                                                     |
 
 Os endpoints seguem as mesmas regras de público/senha/expiração da página de compartilhamento.
 Clipes protegidos por senha exigem a senha uma vez; retorno de respostas bem-sucedidas
@@ -312,22 +312,22 @@ Todos os dados residem em SQL via Drizzle ORM. Esquema: `templates/clips/server/
 }
 ```
 
-| Tabela                                           | O que ele contém                                                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordings`                                    | O recurso principal — título, vídeo URL/formato/tamanho, duração, miniaturas, status, `edits_json` não destrutivo, `chapters_json`, privacidade (senha, expiração) e alternância de player |
-| `recording_transcripts`                         | Transcrição por gravação: `segments_json` (`{startMs,endMs,text}`), `full_text`, idioma e status                                                                         |
-| `recording_tags`                                | Tags de formato livre em uma gravação                                                                                                                                                 |
-| `recording_ctas`                                | Botões de call to action (rótulo, URL, cor, posicionamento) sobrepostos em uma gravação                                                                                                 |
-| `recording_comments`                            | Comentários encadeados com carimbo de data e hora, mapa de reação de emoji e sinalização resolvida                                                                                                      |
-| `recording_reactions`                           | Emoji reactions fixado no carimbo de data/hora de um vídeo (permitido espectadores anônimos)                                                                                                       |
-| `recording_viewers` / `recording_events`        | Ver análises: tempo de exibição e conclusão por espectador, além de eventos granulares (visualização-início, progresso da exibição, busca, pausa, cta-clique, reação)                                     |
-| `clips_meetings`                                | Reuniões ad-hoc ou de origem do calendário — cronograma/períodos reais, plataforma, notas do usuário, AI `summary_md`, `bullets_json`, `action_items_json` e o link para seu `recording_id`   |
-| `meeting_participants` / `meeting_action_items` | Participantes e itens de ação extraídos para uma reunião                                                                                                                            |
-| `calendar_accounts` / `calendar_events`         | Contas de calendário conectadas (tokens OAuth ativos em `app_secrets`, mencionados apenas aqui) e instantâneos de eventos sincronizados                                                             |
-| `clips_dictations`                              | Histórico de ditado push-to-talk — `full_text` bruto, `cleaned_text` opcional, fonte (`fn-hold`, etc.) e aplicativo de destino                                                           |
-| `clips_vocabulary`                              | Correções de vocabulário pessoal (termo → substituição preferida) que influenciam ditados futuros                                                                                    |
-| `spaces` / `space_members` / `folders`          | Organização da biblioteca — espaços (contêineres com escopo de tópico), seus membros e pastas aninhadas                                                                                  |
-| `organization_settings`                         | Arquivo secundário de clipes por organização: cor da marca, logotipo, visibilidade padrão                                                                                                                  |
+| Tabela                                          | O que ele contém                                                                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | O recurso principal — título, vídeo URL/formato/tamanho, duração, miniaturas, status, `edits_json` não destrutivo, `chapters_json`, privacidade (senha, expiração) e alternância de player  |
+| `recording_transcripts`                         | Transcrição por gravação: `segments_json` (`{startMs,endMs,text}`), `full_text`, idioma e status                                                                                            |
+| `recording_tags`                                | Tags de formato livre em uma gravação                                                                                                                                                       |
+| `recording_ctas`                                | Botões de call to action (rótulo, URL, cor, posicionamento) sobrepostos em uma gravação                                                                                                     |
+| `recording_comments`                            | Comentários encadeados com carimbo de data e hora, mapa de reação de emoji e sinalização resolvida                                                                                          |
+| `recording_reactions`                           | Emoji reactions fixado no carimbo de data/hora de um vídeo (permitido espectadores anônimos)                                                                                                |
+| `recording_viewers` / `recording_events`        | Ver análises: tempo de exibição e conclusão por espectador, além de eventos granulares (visualização-início, progresso da exibição, busca, pausa, cta-clique, reação)                       |
+| `clips_meetings`                                | Reuniões ad-hoc ou de origem do calendário — cronograma/períodos reais, plataforma, notas do usuário, AI `summary_md`, `bullets_json`, `action_items_json` e o link para seu `recording_id` |
+| `meeting_participants` / `meeting_action_items` | Participantes e itens de ação extraídos para uma reunião                                                                                                                                    |
+| `calendar_accounts` / `calendar_events`         | Contas de calendário conectadas (tokens OAuth ativos em `app_secrets`, mencionados apenas aqui) e instantâneos de eventos sincronizados                                                     |
+| `clips_dictations`                              | Histórico de ditado push-to-talk — `full_text` bruto, `cleaned_text` opcional, fonte (`fn-hold`, etc.) e aplicativo de destino                                                              |
+| `clips_vocabulary`                              | Correções de vocabulário pessoal (termo → substituição preferida) que influenciam ditados futuros                                                                                           |
+| `spaces` / `space_members` / `folders`          | Organização da biblioteca — espaços (contêineres com escopo de tópico), seus membros e pastas aninhadas                                                                                     |
+| `organization_settings`                         | Arquivo secundário de clipes por organização: cor da marca, logotipo, visibilidade padrão                                                                                                   |
 
 Gravações e transcrições são tabelas intencionalmente separadas para que as visualizações da biblioteca e da transcrição possam ser renderizadas rapidamente. As reuniões são compostas com gravações em vez de mídia duplicada: uma reunião é proprietária da gravação que captura, mas a linha `recordings` continua sendo a fonte da verdade para o vídeo e a transcrição por segmento.
 

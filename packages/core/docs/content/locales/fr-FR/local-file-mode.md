@@ -37,10 +37,10 @@ hébergement de production sans accès au système de fichiers local.
 
 Il existe deux modes de source de vérité :
 
-| Mode            | Source de vérité                            | Idéal pour                                                                 |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
-| Mode base de données   | Lignes SQL jusqu'à Drizzle                   | Applications hébergées, collaboration, partage, commentaires, historique des versions           |
-| Mode fichier local | Fichiers Repo déclarés par `agent-native.json` | Workflows locaux/de développement, révision de Git, modifications de l'agent de codage, contenu natif du fichier |
+| Mode                 | Source de vérité                               | Idéal pour                                                                                                       |
+| -------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Mode base de données | Lignes SQL jusqu'à Drizzle                     | Applications hébergées, collaboration, partage, commentaires, historique des versions                            |
+| Mode fichier local   | Fichiers Repo déclarés par `agent-native.json` | Workflows locaux/de développement, révision de Git, modifications de l'agent de codage, contenu natif du fichier |
 
 Le UI et l'agent actions doivent conserver la même forme dans les deux modes. Un contenu
 l'éditeur édite toujours les documents ; la différence est de savoir si ces documents résolvent
@@ -391,10 +391,10 @@ les dossiers sont des conventions superposées au même contrat d'artefact local
 
 Le contenu comporte deux flux de travail de fichiers différents :
 
-| Flux de travail                     | Que se passe-t-il                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Flux de travail                   | Que se passe-t-il                                                                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Export/importation `/local-files` | Le mode base de données reste la source de vérité. Les fichiers constituent une surface de synchronisation explicite que vous exportez, modifiez, prévisualisez et importez. |
-| Mode fichier local              | Les fichiers sont la source de la vérité. La barre latérale de contenu et l'éditeur fonctionnent directement sur les fichiers locaux.                       |
+| Mode fichier local                | Les fichiers sont la source de la vérité. La barre latérale de contenu et l'éditeur fonctionnent directement sur les fichiers locaux.                                        |
 
 Utilisez l'exportation/importation lorsque vous souhaitez examiner occasionnellement des fichiers dans un espace de travail hébergé.
 Utilisez le mode fichier local lorsque le dépôt lui-même est l'espace de travail.

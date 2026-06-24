@@ -62,7 +62,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
   URL في متصفح Chromium.
 - **تم كتابة URL المقدم إلى `plans/<slug>/.plan-url`** (تجاوز بـ
   `--url-file`). يمكن للوكيل ذو الخلفية أو بدون رأس قراءة هذا الملف بدلاً من
-   إلغاء stdout `serve` طويل الأمد. تعامل معه كملف رمزي محلي و
+  إلغاء stdout `serve` طويل الأمد. تعامل معه كملف رمزي محلي و
   لا ترتكبها.
 - **التحقق بدون مراقبة** في حالة عدم توفر متصفح:
   يبدأ `npx @agent-native/core@latest plan local verify --dir plans/<slug>`

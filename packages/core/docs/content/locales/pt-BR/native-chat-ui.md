@@ -34,10 +34,10 @@ O caminho nativo tem duas partes explícitas:
 Os renderizadores de dados integrados usam um resultado JSON simples com `widget` mais o
 carga útil correspondente:
 
-| Widget            | Carga necessária             | Renderiza como                                      |
-| ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | Uma tabela de dados nativa e reutilizável                   |
-| `"data-chart"`    | `chartSeries`                | Um gráfico nativo de barras, linhas ou áreas               |
+| Widget            | Carga necessária           | Renderiza como                                              |
+| ----------------- | -------------------------- | ----------------------------------------------------------- |
+| `"data-table"`    | `table`                    | Uma tabela de dados nativa e reutilizável                   |
+| `"data-chart"`    | `chartSeries`              | Um gráfico nativo de barras, linhas ou áreas                |
 | `"data-insights"` | `table` e/ou `chartSeries` | Um cartão de insights combinado com saída de gráfico/tabela |
 
 O servidor actions deve importar os auxiliares e esquemas seguros para o servidor de

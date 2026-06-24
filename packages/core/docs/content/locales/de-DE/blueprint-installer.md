@@ -33,18 +33,18 @@ agent-native add --list                   # list available kinds and blueprints
 ```
 
 - Ein bloßer **Name** löst eine kuratierte Blaupause von `blueprints/<kind>/<name>.md` auf.
-- Ein **URL** anstelle eines Namens gibt einen generischen _Forschungs-und-Integrations-Plan für diese Art aus, mit eingebettetem URL als Forschungsstartpunkt (ein URL ist ein Forschungssamen, kein bekanntes Rezept).
+- Ein **URL** anstelle eines Namens gibt einen generischen \_Forschungs-und-Integrations-Plan für diese Art aus, mit eingebettetem URL als Forschungsstartpunkt (ein URL ist ein Forschungssamen, kein bekanntes Rezept).
 - Der Blueprint geht an **stdout**; Die Diagnose geht an stderr, sodass `… | claude` immer nur den Bauplan erhält.
 
 ## Gesäte Blaupausen {#seeded}
 
 `agent-native add --list` zeigt, was im Lieferumfang enthalten ist:
 
-| Freundlich       | Name      | Was es einrichtet                                                                    |
-| ---------- | --------- | ---------------------------------------------------------------------------------- |
-| `provider` | `stripe`  | Verbinden Sie einen Anbieter mit dem `provider-api`-Substrat (Katalog/Dokumente/Anfrage-Trio). |
-| `channel`  | `discord` | Implementieren Sie einen eingehenden Webhook-Kanal `PlatformAdapter` und registrieren Sie ihn.             |
-| `sandbox`  | `docker`  | Implementieren Sie den `SandboxAdapter`-Seam, um `run-code` in einem Docker-Container auszuführen.       |
+| Freundlich | Name      | Was es einrichtet                                                                                                 |
+| ---------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `provider` | `stripe`  | Verbinden Sie einen Anbieter mit dem `provider-api`-Substrat (Katalog/Dokumente/Anfrage-Trio).                    |
+| `channel`  | `discord` | Implementieren Sie einen eingehenden Webhook-Kanal `PlatformAdapter` und registrieren Sie ihn.                    |
+| `sandbox`  | `docker`  | Implementieren Sie den `SandboxAdapter`-Seam, um `run-code` in einem Docker-Container auszuführen.                |
 | `action`   | `crud`    | Fügen Sie ein einzelnes `defineAction` mit mehreren Oberflächen und einem Zod-Schema hinzu (ein `update` über N). |
 
 Jeder Blueprint ist in sich geschlossen: Der Codierungsagent, der ihn liest, erhält die Dateien zum Anfassen, die Framework-Regeln zum Einhalten (actions sind die einzige Quelle der Wahrheit, niemals Geheimnisse fest codieren, besitzbare Daten erfassen, einen Änderungssatz für die `packages/*`-Quelle hinzufügen) und einen konkreten Abschnitt **Überprüfen**.

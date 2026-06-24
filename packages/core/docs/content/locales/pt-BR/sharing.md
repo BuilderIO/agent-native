@@ -19,11 +19,11 @@ Isso também significa que o agente nunca precisará aprender um novo modelo de 
 
 A visibilidade grosseira reside no próprio recurso; subsídios detalhados ficam em uma tabela de ações complementares.
 
-| Visibilidade | Quem pode ver                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| `private`  | Proprietário + pessoas explicitamente concedidas. **Padrão para cada novo recurso.**                              |
-| `org`      | Proprietário + concessões explícitas + qualquer pessoa na mesma organização (somente leitura).                              |
-| `public`   | Proprietário + concessões explícitas + qualquer pessoa com o link (somente leitura). Não aparece nas listas/pesquisas de outras pessoas. |
+| Visibilidade | Quem pode ver                                                                                                                            |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `private`    | Proprietário + pessoas explicitamente concedidas. **Padrão para cada novo recurso.**                                                     |
+| `org`        | Proprietário + concessões explícitas + qualquer pessoa na mesma organização (somente leitura).                                           |
+| `public`     | Proprietário + concessões explícitas + qualquer pessoa com o link (somente leitura). Não aparece nas listas/pesquisas de outras pessoas. |
 
 `public` é um nível deliberadamente silencioso: um recurso público pode ser acessado por link direto, mas **não** aparece nas barras laterais, listas ou pesquisas de outros usuários. Isso mantém “público para compartilhar o URL” separado de “público para descoberta entre usuários”. Galerias e catálogos de modelos que realmente desejam a descoberta entre usuários optam explicitamente.
 
@@ -96,12 +96,12 @@ Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lad
 
 A estrutura monta automaticamente esses actions em cada modelo — o agente os chama como ferramentas e o UI os chama por meio de `useActionQuery` / `useActionMutation`:
 
-| Ação                    | O que faz                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Ação                      | O que faz                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `share-resource`          | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
-| `unshare-resource`        | Revogar o acesso de um usuário ou organização.                                                               |
-| `list-resource-shares`    | Mostrar a visibilidade atual e todas as concessões explícitas.                                              |
-| `set-resource-visibility` | Mude para `private`, `org` ou `public`.                                                       |
+| `unshare-resource`        | Revogar o acesso de um usuário ou organização.                                                                           |
+| `list-resource-shares`    | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
+| `set-resource-visibility` | Mude para `private`, `org` ou `public`.                                                                                  |
 
 Diga ao agente "compartilhe este design com a equipe de marketing como editores" e ele chamará `share-resource` no mesmo endpoint que UI usa. O resultado aparece na caixa de diálogo de compartilhamento na próxima renderização.
 

@@ -35,16 +35,16 @@ Si haces bien esos dos, el resto serán los valores predeterminados. El [Product
 
 La arquitectura del marco evita vulnerabilidades comunes cuando se utilizan los patrones estándar:
 
-| Vulnerabilidad   | Protección del marco                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| Inyección SQL   | Consultas parametrizadas en `db-query`/`db-exec` y Drizzle ORM          |
-| XSS             | React escapa automáticamente de JSX; TipTap desinfecta el texto enriquecido                     |
-| Fugas de datos      | Alcance a nivel de SQL mediante vistas temporales (`owner_email`, `org_id`)        |
-| Omisión de autenticación     | Auth Guard protege automáticamente todos los puntos finales `defineAction`                  |
-| Inyección de entrada | Validación del esquema Zod en `defineAction`                                |
-| CSRF            | Galletas `SameSite=lax` + `httpOnly`                                    |
-| Exposición secreta | `.env` gitignorado; credenciales y bóveda cifradas en reposo (AES-256-GCM) |
-| SSRF            | `ssrfSafeFetch` bloquea destinos internos/metadatos + reenlace de redirección  |
+| Vulnerabilidad           | Protección del marco                                                          |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| Inyección SQL            | Consultas parametrizadas en `db-query`/`db-exec` y Drizzle ORM                |
+| XSS                      | React escapa automáticamente de JSX; TipTap desinfecta el texto enriquecido   |
+| Fugas de datos           | Alcance a nivel de SQL mediante vistas temporales (`owner_email`, `org_id`)   |
+| Omisión de autenticación | Auth Guard protege automáticamente todos los puntos finales `defineAction`    |
+| Inyección de entrada     | Validación del esquema Zod en `defineAction`                                  |
+| CSRF                     | Galletas `SameSite=lax` + `httpOnly`                                          |
+| Exposición secreta       | `.env` gitignorado; credenciales y bóveda cifradas en reposo (AES-256-GCM)    |
+| SSRF                     | `ssrfSafeFetch` bloquea destinos internos/metadatos + reenlace de redirección |
 
 ## Validación de entrada {#input-validation}
 
@@ -225,13 +225,13 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Gestión de secretos {#secrets}
 
-| Tipo secreto                        | Dónde almacenar                                             |
-| ---------------------------------- | ---------------------------------------------------------- |
-| Claves de nivel de implementación (una por aplicación)    | Archivo `.env` (gitignorado, solo del lado del servidor)                 |
-| Claves API por usuario/por organización        | `saveCredential` / `resolveCredential` (cifrado en reposo) |
-| Secretos registrados (bóveda de la barra lateral) | Bóveda `app_secrets` (cifrada en reposo)                    |
-| Tokens OAuth (Google, GitHub)      | Tienda `oauth_tokens` a través de `saveOAuthTokens()`               |
-| Fichas de sesión                     | Automático (Better Auth se encarga de esto)                       |
+| Tipo secreto                                           | Dónde almacenar                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------- |
+| Claves de nivel de implementación (una por aplicación) | Archivo `.env` (gitignorado, solo del lado del servidor)   |
+| Claves API por usuario/por organización                | `saveCredential` / `resolveCredential` (cifrado en reposo) |
+| Secretos registrados (bóveda de la barra lateral)      | Bóveda `app_secrets` (cifrada en reposo)                   |
+| Tokens OAuth (Google, GitHub)                          | Tienda `oauth_tokens` a través de `saveOAuthTokens()`      |
+| Fichas de sesión                                       | Automático (Better Auth se encarga de esto)                |
 
 Las credenciales por usuario/por organización y la bóveda están cifradas en reposo con AES-256-GCM, codificadas por `SECRETS_ENCRYPTION_KEY` (recurriendo a `BETTER_AUTH_SECRET`); la producción se niega a comenzar sin uno. Para cifrar cualquier fila de credenciales de texto sin formato preexistente, ejecute `pnpm action db-migrate-encrypt-credentials` (idempotente, no destructivo).
 

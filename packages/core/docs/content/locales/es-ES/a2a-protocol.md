@@ -112,12 +112,12 @@ Cuando se establece `A2A_SECRET` (la ruta recomendada), la tarjeta anuncia un
 
 Todos los métodos se llaman a través de `POST /_agent-native/a2a` con formato JSON-RPC 2.0:
 
-| Método           | Descripción                                                                                                           | Parámetros clave                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Método           | Descripción                                                                                                                                       | Parámetros clave              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `message/send`   | Envíe un mensaje y espere a que se complete la tarea. Pase `async: true` para regresar inmediatamente al estado `working` y realizar la encuesta. | `message, contextId?, async?` |
-| `message/stream` | Enviar un mensaje, recibir actualizaciones de tareas SSE                                                                              | `message, contextId?`         |
-| `tasks/get`      | Obtener una tarea por ID: se utiliza para sondear una tarea asincrónica hasta su finalización                                                         | `id`                          |
-| `tasks/cancel`   | Cancelar una tarea en ejecución                                                                                                 | `id`                          |
+| `message/stream` | Enviar un mensaje, recibir actualizaciones de tareas SSE                                                                                          | `message, contextId?`         |
+| `tasks/get`      | Obtener una tarea por ID: se utiliza para sondear una tarea asincrónica hasta su finalización                                                     | `id`                          |
+| `tasks/cancel`   | Cancelar una tarea en ejecución                                                                                                                   | `id`                          |
 
 ```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
 {
@@ -260,13 +260,13 @@ Cada mensaje crea una tarea que pasa por estos estados:
 
 `input-required` no es terminal: el controlador está esperando más información de la persona que llama y la tarea puede regresar a `working` una vez que llega esa entrada.
 
-| Estado            | Significado                                        |
-| ---------------- | ---------------------------------------------- |
-| `submitted`      | Tarea creada, en cola para procesamiento            |
-| `working`        | El controlador está procesando el mensaje              |
-| `completed`      | El controlador finalizó exitosamente                  |
-| `failed`         | El controlador arrojó un error                         |
-| `canceled`       | La tarea se canceló mediante tareas/cancelar             |
+| Estado           | Significado                                                     |
+| ---------------- | --------------------------------------------------------------- |
+| `submitted`      | Tarea creada, en cola para procesamiento                        |
+| `working`        | El controlador está procesando el mensaje                       |
+| `completed`      | El controlador finalizó exitosamente                            |
+| `failed`         | El controlador arrojó un error                                  |
+| `canceled`       | La tarea se canceló mediante tareas/cancelar                    |
 | `input-required` | El controlador necesita más información de la persona que llama |
 
 Las tareas persisten en la tabla `a2a_tasks` SQL y se pueden recuperar más tarde a través de `tasks/get`.

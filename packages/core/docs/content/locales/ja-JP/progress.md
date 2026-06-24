@@ -34,12 +34,12 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ## ライフサイクル {#lifecycle}
 
-| ステータス      | 移行                  |
-| ----------- | --------------------------- |
+| ステータス  | 移行                             |
+| ----------- | -------------------------------- |
 | `running`   | 初期値 — `startRun` によって設定 |
-| `succeeded` | ハッピーパスターミナル         |
-| `failed`    | エラー端子              |
-| `cancelled` | ユーザーが中断しました            |
+| `succeeded` | ハッピーパスターミナル           |
+| `failed`    | エラー端子                       |
+| `cancelled` | ユーザーが中断しました           |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 core-routes プラグインによって `/_agent-native/runs/*` にマウントされます。 **HTTP では読み取り専用** — エージェントが正規のライターであるため、書き込みはエージェント ツールを経由します。すべてのルートは所有者スコープです。
 
-| メソッド   | パス                              |
+| メソッド | パス                              |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ export function HeaderBar() {
 
 すべてのテンプレートに 1 つの `manage-progress` ツールが登録されます。 `action` パラメータは操作を選択します:
 
-| アクション     | 目的                                                         |
-| ---------- | --------------------------------------------------------------- |
+| アクション | 目的                                                               |
+| ---------- | ------------------------------------------------------------------ |
 | `start`    | 長いタスクの先頭で呼び出します。 runId を返します。                |
 | `update`   | タスク中に `percent` および/または `step` を定期的に呼び出します。 |
-| `complete` | ターミナル — `succeeded`、`failed`、`cancelled` のいずれか。           |
-| `list`     | 最近の実行を検査します (`active=true` でフィルタリングします)。                  |
+| `complete` | ターミナル — `succeeded`、`failed`、`cancelled` のいずれか。       |
+| `list`     | 最近の実行を検査します (`active=true` でフィルタリングします)。    |
 
 ### いつランニングを開始するか {#when-to-start}
 
@@ -168,7 +168,7 @@ export function HeaderBar() {
 
 [event bus](/docs/automations#event-bus) で 2 つのイベントが発行されます:
 
-| イベント                  | ペイロード                            |
+| イベント               | ペイロード                         |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

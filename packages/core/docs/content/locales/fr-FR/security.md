@@ -35,16 +35,16 @@ Réussissez ces deux éléments et le reste est par défaut. Le [Production Chec
 
 L'architecture du framework évite les vulnérabilités courantes lorsque vous utilisez les modèles standard :
 
-| Vulnérabilité   | Protection du cadre                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| Injection SQL   | Requêtes paramétrées dans `db-query`/`db-exec` et Drizzle ORM          |
-| XSS             | React échappe automatiquement à JSX ; TipTap nettoie le texte enrichi                     |
-| Fuites de données      | Portée au niveau SQL via des vues temporaires (`owner_email`, `org_id`)        |
-| Contournement d'authentification     | Auth Guard protège automatiquement tous les points de terminaison `defineAction`                  |
-| Injection d'entrée | Validation du schéma Zod dans `defineAction`                                |
-| CSRF            | Cookies `SameSite=lax` + `httpOnly`                                    |
-| Exposition secrète | `.env` gitignoré ; informations d'identification et coffre-fort chiffrés au repos (AES-256-GCM) |
-| SSRF            | `ssrfSafeFetch` bloque les cibles internes/métadonnées + redirection de liaison  |
+| Vulnérabilité                    | Protection du cadre                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Injection SQL                    | Requêtes paramétrées dans `db-query`/`db-exec` et Drizzle ORM                                   |
+| XSS                              | React échappe automatiquement à JSX ; TipTap nettoie le texte enrichi                           |
+| Fuites de données                | Portée au niveau SQL via des vues temporaires (`owner_email`, `org_id`)                         |
+| Contournement d'authentification | Auth Guard protège automatiquement tous les points de terminaison `defineAction`                |
+| Injection d'entrée               | Validation du schéma Zod dans `defineAction`                                                    |
+| CSRF                             | Cookies `SameSite=lax` + `httpOnly`                                                             |
+| Exposition secrète               | `.env` gitignoré ; informations d'identification et coffre-fort chiffrés au repos (AES-256-GCM) |
+| SSRF                             | `ssrfSafeFetch` bloque les cibles internes/métadonnées + redirection de liaison                 |
 
 ## Validation des entrées {#input-validation}
 
@@ -225,13 +225,13 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Gestion des secrets {#secrets}
 
-| Type secret                        | Où stocker                                             |
-| ---------------------------------- | ---------------------------------------------------------- |
-| Clés de niveau de déploiement (une par application)    | Fichier `.env` (gitignored, côté serveur uniquement)                 |
-| Clés API par utilisateur/par organisation        | `saveCredential` / `resolveCredential` (chiffré au repos) |
-| Secrets enregistrés (coffre-fort de la barre latérale) | Coffre-fort `app_secrets` (chiffré au repos)                    |
-| Jetons OAuth (Google, GitHub)      | Magasin `oauth_tokens` via `saveOAuthTokens()`               |
-| Jetons de session                     | Automatique (une meilleure authentification gère cela)                       |
+| Type secret                                            | Où stocker                                                |
+| ------------------------------------------------------ | --------------------------------------------------------- |
+| Clés de niveau de déploiement (une par application)    | Fichier `.env` (gitignored, côté serveur uniquement)      |
+| Clés API par utilisateur/par organisation              | `saveCredential` / `resolveCredential` (chiffré au repos) |
+| Secrets enregistrés (coffre-fort de la barre latérale) | Coffre-fort `app_secrets` (chiffré au repos)              |
+| Jetons OAuth (Google, GitHub)                          | Magasin `oauth_tokens` via `saveOAuthTokens()`            |
+| Jetons de session                                      | Automatique (une meilleure authentification gère cela)    |
 
 Les informations d'identification par utilisateur/par organisation et le coffre-fort sont chiffrés au repos avec AES-256-GCM, saisis par `SECRETS_ENCRYPTION_KEY` (en revenant à `BETTER_AUTH_SECRET`) ; la production refuse de démarrer sans un. Pour chiffrer toutes les lignes d'informations d'identification en texte brut préexistantes, exécutez `pnpm action db-migrate-encrypt-credentials` (idempotent, non destructif).
 

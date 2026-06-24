@@ -13,13 +13,13 @@ solicitud.
 La forma útil de elegir no es primero mediante el protocolo. Elige la superficie del producto
 lo que quieras, entonces usa la primitiva coincidente.
 
-| Superficie                       | Úselo cuando                                                                                                 | Empezar con                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Agente sin cabeza**            | El código, los trabajos, los scripts, otra aplicación u otro agente deben llamar al trabajo directamente.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Chat enriquecido en Agent-Native** | Quiere un chat independiente o integrado respaldado por el bucle de agente integrado.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| Superficie                           | Úselo cuando                                                                                                                                   | Empezar con                                                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Agente sin cabeza**                | El código, los trabajos, los scripts, otra aplicación u otro agente deben llamar al trabajo directamente.                                      | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
+| **Chat enriquecido en Agent-Native** | Quiere un chat independiente o integrado respaldado por el bucle de agente integrado.                                                          | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
 | **Chat enriquecido con tu agente**   | Creaste el agente en otro lugar y quieres el compositor, la transcripción, las tarjetas de herramientas y los widgets nativos de Agent-Native. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **Sidecar integrado**          | Ya tienes una aplicación SaaS y quieres un agente junto a ella con contexto de página y comandos de host.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **Solicitud completa**          | Los seres humanos y los agentes deben compartir pantallas, datos, navegación y colaboración duraderos.                        | Plantillas, estado actions, estado SQL, conocimiento del contexto                                            |
+| **Sidecar integrado**                | Ya tienes una aplicación SaaS y quieres un agente junto a ella con contexto de página y comandos de host.                                      | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
+| **Solicitud completa**               | Los seres humanos y los agentes deben compartir pantallas, datos, navegación y colaboración duraderos.                                         | Plantillas, estado actions, estado SQL, conocimiento del contexto                           |
 
 Esas son etapas, no productos separados. Un flujo de trabajo puede comenzar sin cabeza
 agente con una acción, aparece en el chat como una tabla o gráfico y luego se convierte en
@@ -374,13 +374,13 @@ quiero una forma de producto completa.
 
 ## Cómo elegir {#how-to-choose}
 
-| Si estás pensando...                                          | Elegir                    |
-| --------------------------------------------------------------- | ------------------------- |
-| "Solo necesito una herramienta o un flujo de trabajo que se pueda llamar".                      | Agente sin cabeza            |
+| Si estás pensando...                                                        | Elegir                           |
+| --------------------------------------------------------------------------- | -------------------------------- |
+| "Solo necesito una herramienta o un flujo de trabajo que se pueda llamar".  | Agente sin cabeza                |
 | "Quiero el agente del framework, pero el chat debería ser el UI principal." | Chat enriquecido en Agent-Native |
-| "Ya tengo un agente; necesito un chat pulido UI para ello."    | Chat enriquecido con tu agente   |
-| "Ya tengo una aplicación SaaS; agregue un agente al lado."            | Sidecar integrado          |
-| "El agente y UI deben evolucionar juntos como producto."       | Solicitud completa          |
+| "Ya tengo un agente; necesito un chat pulido UI para ello."                 | Chat enriquecido con tu agente   |
+| "Ya tengo una aplicación SaaS; agregue un agente al lado."                  | Sidecar integrado                |
+| "El agente y UI deben evolucionar juntos como producto."                    | Solicitud completa               |
 
 Mantenga el contrato pequeño: defina operaciones duraderas como actions, devuelva explícito
 resultados del widget cuando el chat necesita UI enriquecido y agrega pantallas completas solo cuando los usuarios

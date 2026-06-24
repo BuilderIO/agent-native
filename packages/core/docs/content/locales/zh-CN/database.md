@@ -43,7 +43,7 @@ DATABASE_AUTH_TOKEN=your-token
 
 ## Builder.io托管数据库 {#builder-managed}
 
-_计划（尚不可用）：_连接到 Builder.io 时，您的应用将能够使用自动配置的托管数据库，无需连接字符串。
+*计划（尚不可用）：*连接到 Builder.io 时，您的应用将能够使用自动配置的托管数据库，无需连接字符串。
 
 ## 数据库客户端所在的位置 {#db-client}
 
@@ -79,13 +79,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| 帮手    | 目的                                                         |
-| --------- | --------------------------------------------------------------- |
-| `table`   | 定义一个表——委托给`pgTable`或`sqliteTable`        |
-| `text`    | 文本栏，支持`{ enum: [...] }`                         |
-| `integer` | 整数列，`{ mode: "boolean" }` 映射到 Postgres 布尔值  |
+| 帮手      | 目的                                                          |
+| --------- | ------------------------------------------------------------- |
+| `table`   | 定义一个表——委托给`pgTable`或`sqliteTable`                    |
+| `text`    | 文本栏，支持`{ enum: [...] }`                                 |
+| `integer` | 整数列，`{ mode: "boolean" }` 映射到 Postgres 布尔值          |
 | `real`    | 浮动列 - SQLite 上的 `real`、Postgres 上的 `double precision` |
-| `now`     | `.default(now())` 与方言无关的当前时间戳        |
+| `now`     | `.default(now())` 与方言无关的当前时间戳                      |
 
 上面的 `tasks` 表在每个后端定义了相同的列：
 
@@ -177,7 +177,7 @@ await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
 
 ## 环境变量 {#environment-variables}
 
-| 变量              | 目的                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| 变量                  | 目的                                                       |
+| --------------------- | ---------------------------------------------------------- |
 | `DATABASE_URL`        | 持久化SQL连接字符串（未设置=本地SQLite，仅对本地开发持久） |
-| `DATABASE_AUTH_TOKEN` | 需要单独令牌的提供商的身份验证令牌，例如 Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | 需要单独令牌的提供商的身份验证令牌，例如 Turso/libSQL      |

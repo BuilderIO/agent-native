@@ -188,27 +188,27 @@ Les tables de partages du framework (`deck_shares`, `design_system_shares`) mapp
 
 #### ponts
 
-| Colonne       | Tapez | Remarques                                                     |
-| ------------ | ---- | --------------------------------------------------------- |
-| `id`         | texte | Clé primaire, par ex. `deck-1712345-abc`                      |
-| `title`      | texte | Titre du deck                                                |
+| Colonne      | Tapez | Remarques                                                   |
+| ------------ | ----- | ----------------------------------------------------------- |
+| `id`         | texte | Clé primaire, par ex. `deck-1712345-abc`                    |
+| `title`      | texte | Titre du deck                                               |
 | `data`       | texte | Objet JSON : `{ title, slides: [{ id, content, layout }] }` |
-| `created_at` | texte | Horodatage                                                 |
-| `updated_at` | texte | Horodatage                                                 |
+| `created_at` | texte | Horodatage                                                  |
+| `updated_at` | texte | Horodatage                                                  |
 
 Chaque deck porte également le standard `ownableColumns` (propriétaire, visibilité, jeton de partage) afin qu'il s'intègre dans le modèle de partage du framework.
 
 #### slide_comments
 
-| Colonne                        | Remarques                                  |
-| ----------------------------- | -------------------------------------- |
-| `id`                          | Clé primaire                            |
-| `deck_id`                     | Deck parent                            |
+| Colonne                       | Remarques                                           |
+| ----------------------------- | --------------------------------------------------- |
+| `id`                          | Clé primaire                                        |
+| `deck_id`                     | Deck parent                                         |
 | `slide_id`                    | Faites glisser le commentaire en direct             |
-| `thread_id`, `parent_id`      | Enfilage                              |
+| `thread_id`, `parent_id`      | Enfilage                                            |
 | `content`, `quoted_text`      | Corps du commentaire et extrait de texte facultatif |
-| `author_email`, `author_name` | Auteur                                 |
-| `resolved`                    | Drapeau booléen                           |
+| `author_email`, `author_name` | Auteur                                              |
+| `resolved`                    | Drapeau booléen                                     |
 
 #### deck_shares
 

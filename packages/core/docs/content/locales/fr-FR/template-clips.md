@@ -72,14 +72,14 @@ ce qui s'est passé dans l'enregistrement.
 Tout agent pouvant récupérer une image URL dans sa vision — ChatGPT, Code Claude,
 Agents connectés au curseur, à Codex et à MCP : lit la transcription et voit le
 images. Quelques discussions Web en texte uniquement lisent la transcription mais n'extraient pas d'images encadrées
- de leur propre chef ; là-bas, téléchargez une image clé ou ouvrez le clip dans un fichier compatible avec les images
+de leur propre chef ; là-bas, téléchargez une image clé ou ouvrez le clip dans un fichier compatible avec les images
 agent.
 
-| Point de terminaison                                          | Ce que les agents obtiennent                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, cadres recommandés et liens vers les API de la transcription/du cadre   |
-| `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, horodatages lisibles, texte et étiquettes de source facultatives |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo avec un horodatage de la vidéo d'origine                                           |
+| Point de terminaison                              | Ce que les agents obtiennent                                                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, cadres recommandés et liens vers les API de la transcription/du cadre |
+| `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, horodatages lisibles, texte et étiquettes de source facultatives          |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo avec un horodatage de la vidéo d'origine                                                           |
 
 Les points de terminaison suivent les mêmes règles de public/mot de passe/expiration que la page de partage.
 Les clips protégés par mot de passe nécessitent le mot de passe une seule fois ; les réponses positives reviennent
@@ -218,7 +218,7 @@ application de barre d'état lors de votre déploiement.
 
 5. **Activez l'extension Chrome après la publication.** Conserver
    `VITE_CLIPS_CHROME_EXTENSION_ENABLED` désactivé jusqu'à la liste du Chrome Web Store
-   est approuvé. Ensuite, définissez-le sur `1` pour révéler l'option de journal du navigateur à côté du 
+   est approuvé. Ensuite, définissez-le sur `1` pour révéler l'option de journal du navigateur à côté du
    invites de l'application de bureau. La liste par défaut URL est
    `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`;
    définissez `VITE_CLIPS_CHROME_EXTENSION_URL` uniquement si votre déploiement utilise un
@@ -312,22 +312,22 @@ Toutes les données résident dans SQL via Drizzle ORM. Schéma : `templates/cl
 }
 ```
 
-| Tableau                                           | Ce qu'il contient                                                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `recordings`                                    | La ressource principale : titre, vidéo URL/format/taille, durée, miniatures, statut, `edits_json` non destructifs, `chapters_json`, confidentialité (mot de passe, expiration) et bascules du lecteur |
-| `recording_transcripts`                         | Transcription par enregistrement : `segments_json` (`{startMs,endMs,text}`), `full_text`, langue et statut                                                                         |
-| `recording_tags`                                | Balises de forme libre sur un enregistrement                                                                                                                                                 |
-| `recording_ctas`                                | Boutons d'appel à l'action (libellé, URL, couleur, emplacement) superposés sur un enregistrement                                                                                                 |
-| `recording_comments`                            | Commentaires filés et horodatés avec carte de réaction emoji et indicateur résolu                                                                                                      |
-| `recording_reactions`                           | Emoji reactions épinglé sur un horodatage vidéo (les spectateurs anonymes sont autorisés)                                                                                                       |
-| `recording_viewers` / `recording_events`        | Afficher les analyses : durée et fin de visionnage par téléspectateur, ainsi que des événements granulaires (début de visualisation, progression de la visualisation, recherche, pause, cta-clic, réaction)                                     |
-| `clips_meetings`                                | Réunions basées sur un calendrier ou ponctuelles : durées planifiées/réelles, plate-forme, notes d'utilisateur, IA `summary_md`, `bullets_json`, `action_items_json` et lien vers son `recording_id`   |
-| `meeting_participants` / `meeting_action_items` | Participants et éléments d'action extraits pour une réunion                                                                                                                            |
-| `calendar_accounts` / `calendar_events`         | Comptes de calendrier connectés (les jetons OAuth sont présents dans `app_secrets`, référencés uniquement ici) et instantanés d'événements synchronisés                                                             |
-| `clips_dictations`                              | Historique des dictées Push-to-talk : `full_text` brut, `cleaned_text` en option, source (`fn-hold`, etc.) et application cible                                                           |
-| `clips_vocabulary`                              | Corrections de vocabulaire personnel (terme → remplacement préféré) qui biaisent les futures dictées                                                                                    |
-| `spaces` / `space_members` / `folders`          | Organisation de la bibliothèque : espaces (conteneurs thématiques), leurs membres et dossiers emboîtables                                                                                  |
-| `organization_settings`                         | Sidecar Clips par organisation : couleur de la marque, logo, visibilité par défaut                                                                                                                  |
+| Tableau                                         | Ce qu'il contient                                                                                                                                                                                           |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | La ressource principale : titre, vidéo URL/format/taille, durée, miniatures, statut, `edits_json` non destructifs, `chapters_json`, confidentialité (mot de passe, expiration) et bascules du lecteur       |
+| `recording_transcripts`                         | Transcription par enregistrement : `segments_json` (`{startMs,endMs,text}`), `full_text`, langue et statut                                                                                                  |
+| `recording_tags`                                | Balises de forme libre sur un enregistrement                                                                                                                                                                |
+| `recording_ctas`                                | Boutons d'appel à l'action (libellé, URL, couleur, emplacement) superposés sur un enregistrement                                                                                                            |
+| `recording_comments`                            | Commentaires filés et horodatés avec carte de réaction emoji et indicateur résolu                                                                                                                           |
+| `recording_reactions`                           | Emoji reactions épinglé sur un horodatage vidéo (les spectateurs anonymes sont autorisés)                                                                                                                   |
+| `recording_viewers` / `recording_events`        | Afficher les analyses : durée et fin de visionnage par téléspectateur, ainsi que des événements granulaires (début de visualisation, progression de la visualisation, recherche, pause, cta-clic, réaction) |
+| `clips_meetings`                                | Réunions basées sur un calendrier ou ponctuelles : durées planifiées/réelles, plate-forme, notes d'utilisateur, IA `summary_md`, `bullets_json`, `action_items_json` et lien vers son `recording_id`        |
+| `meeting_participants` / `meeting_action_items` | Participants et éléments d'action extraits pour une réunion                                                                                                                                                 |
+| `calendar_accounts` / `calendar_events`         | Comptes de calendrier connectés (les jetons OAuth sont présents dans `app_secrets`, référencés uniquement ici) et instantanés d'événements synchronisés                                                     |
+| `clips_dictations`                              | Historique des dictées Push-to-talk : `full_text` brut, `cleaned_text` en option, source (`fn-hold`, etc.) et application cible                                                                             |
+| `clips_vocabulary`                              | Corrections de vocabulaire personnel (terme → remplacement préféré) qui biaisent les futures dictées                                                                                                        |
+| `spaces` / `space_members` / `folders`          | Organisation de la bibliothèque : espaces (conteneurs thématiques), leurs membres et dossiers emboîtables                                                                                                   |
+| `organization_settings`                         | Sidecar Clips par organisation : couleur de la marque, logo, visibilité par défaut                                                                                                                          |
 
 Les enregistrements et les transcriptions sont intentionnellement des tableaux séparés afin que les vues de la bibliothèque et des transcriptions puissent chacune s'afficher rapidement. Les réunions sont composées à partir d'enregistrements plutôt que de duplication de médias : une réunion est propriétaire de l'enregistrement qu'elle capture, mais la ligne `recordings` reste la source de vérité pour la vidéo et la transcription par segment.
 

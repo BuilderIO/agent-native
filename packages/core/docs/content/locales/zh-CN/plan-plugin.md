@@ -50,7 +50,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 这将启动一个小型本地主机桥并针对本地打开计划 UI
 文件夹。 （`plan local preview` 运行本地 Plan 开发服务器路由，并且
 `plan local preview --out preview.html` 是一个传统的逃生舱口，写入
-独立静态 HTML 文件。 `plan serve` 被接受作为 
+独立静态 HTML 文件。 `plan serve` 被接受作为
 `plan local serve`.)
 
 一些值得了解的本地文件模式陷阱：
@@ -62,7 +62,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
   Chromium 浏览器中的 URL。
 - **服务的URL被写入`plans/<slug>/.plan-url`**（用
   `--url-file`)。后台或无头代理可以读取该文件，而不是
-   抓取长时间运行的 `serve` 标准输出。将其视为本地令牌文件并且
+  抓取长时间运行的 `serve` 标准输出。将其视为本地令牌文件并且
   不要提交。
 - **当没有可用浏览器时进行无头验证**：
   `npx @agent-native/core@latest plan local verify --dir plans/<slug>`开始
@@ -181,7 +181,7 @@ codex mcp login plan   # OAuth in the browser
 
 如果您想要公开列表，可选的可发现性：
 
-- **Claude 代码**有一个社区市场，您可以_可选_提交到列表（提交加上自动审核）。 Anthropic 管理的官方市场由 Anthropic 自行决定列出 — 没有开放的自助应用程序。两者都不需要使用上面的安装命令。
+- **Claude 代码**有一个社区市场，您可以*可选*提交到列表（提交加上自动审核）。 Anthropic 管理的官方市场由 Anthropic 自行决定列出 — 没有开放的自助应用程序。两者都不需要使用上面的安装命令。
 - **Codex** 有一个 OpenAI 策划的插件目录（一个封闭的允许列表，作为合作伙伴而不是自助提交）。自托管 git 市场和 CLI 路线无需提交即可工作。
 
 简而言之：将其作为自托管/公共 git 市场发布，用户直接安装；仅当您希望将其列出以供发现时才提交到精选目录。

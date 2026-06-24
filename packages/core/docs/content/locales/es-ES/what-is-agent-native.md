@@ -117,12 +117,12 @@ Consulte [Workspace](/docs/workspace) para conocer el concepto completo.
 
 ## Qué lo hace diferente {#what-makes-it-different}
 
-| Enfoque                               | Descripción                                                                                                                            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Aplicaciones tradicionales con IA integrada** | La IA es una idea de último momento. Limitado a autocompletar, resúmenes o una barra lateral de chat que en realidad no puede hacer nada en la aplicación.           |
-| **Interfaces puras de chat/agente**       | Poderoso pero inaccesible. Sin paneles, sin flujos de trabajo, sin persistencia. Los que no son desarrolladores no pueden utilizarlos de forma eficaz.                     |
-| **Código Claude / Codex para SaaS**       | Excelente para desarrolladores en sus propias máquinas. No se traduce en SaaS multiinquilino: una base de código por usuario en un dev-box no escala.       |
-| **Aplicaciones nativas del agente**                  | El agente es un ciudadano de primera clase. Comparte la misma base de datos, el mismo estado y puede hacer todo lo que puede hacer el UI, y viceversa. |
+| Enfoque                                         | Descripción                                                                                                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Aplicaciones tradicionales con IA integrada** | La IA es una idea de último momento. Limitado a autocompletar, resúmenes o una barra lateral de chat que en realidad no puede hacer nada en la aplicación. |
+| **Interfaces puras de chat/agente**             | Poderoso pero inaccesible. Sin paneles, sin flujos de trabajo, sin persistencia. Los que no son desarrolladores no pueden utilizarlos de forma eficaz.     |
+| **Código Claude / Codex para SaaS**             | Excelente para desarrolladores en sus propias máquinas. No se traduce en SaaS multiinquilino: una base de código por usuario en un dev-box no escala.      |
+| **Aplicaciones nativas del agente**             | El agente es un ciudadano de primera clase. Comparte la misma base de datos, el mismo estado y puede hacer todo lo que puede hacer el UI, y viceversa.     |
 
 ## Desarrollo de todo el equipo {#whole-team-development}
 

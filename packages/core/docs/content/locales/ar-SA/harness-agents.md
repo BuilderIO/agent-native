@@ -18,7 +18,7 @@ search: "وكلاء تسخير AgentHarness ai-sdk رمز HarnessAgent Claude Co
 يمكن إيقافه مؤقتًا واستئنافه.
 
 يختلف هذا عن وكيل الدردشة المدمج وعن إحضار الدردشة الخاصة بك
- وقت التشغيل. الوكيل المدمج و`AgentEngine` مخصصان لنموذج واحد ذهابًا وإيابًا
+وقت التشغيل. الوكيل المدمج و`AgentEngine` مخصصان لنموذج واحد ذهابًا وإيابًا
 أسفل `runAgentLoop`. الحزام ليس مزود `AgentEngine` - فهو يقوم بتشغيل
 حلقة خاصة بها من البداية إلى النهاية، لذا فإن Agent-Native يقودها كجلسة، وليس كجلسة واحدة
 استدعاء النموذج.
@@ -32,15 +32,15 @@ search: "وكلاء تسخير AgentHarness ai-sdk رمز HarnessAgent Claude Co
 
 ## ما هو مستند البرمجة الذي أريده؟ {#which-doc}
 
-| تريد...                                                               | استخدام                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| تشغيل Claude Code / Codex / Pi **كوكيل**، باستخدام الحلقة + الأدوات الخاصة بهم | **وكلاء الاستفادة** (هذه الصفحة)               |
-| عرض نمط Claude/Codex **مساحة عمل الترميز UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| تريد...                                                                        | استخدام                                      |
+| ------------------------------------------------------------------------------ | -------------------------------------------- |
+| تشغيل Claude Code / Codex / Pi **كوكيل**، باستخدام الحلقة + الأدوات الخاصة بهم | **وكلاء الاستفادة** (هذه الصفحة)             |
+| عرض نمط Claude/Codex **مساحة عمل الترميز UI**                                  | [Agent-Native Code UI](/docs/code-agents-ui) |
 | قم بتبديل الواجهة الخلفية التي تقوم بتشغيل **أداة `run-code`**                 | [Adapters](/docs/sandbox-adapters)           |
-| قم بلف أداة CLI (`gh`، `ffmpeg`) ليتصل بها الوكيل                     | [Adapters](/docs/sandbox-adapters)           |
+| قم بلف أداة CLI (`gh`، `ffmpeg`) ليتصل بها الوكيل                              | [Adapters](/docs/sandbox-adapters)           |
 
 الأسطح المجاورة: ضع الوكيل الذي أنشأته في مكان آخر خلف دردشة Agent-Native
-UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع 
+UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع
 مكالمة مضيف MCP خارجية إلى تطبيقك عبر [External Agents](/docs/external-agents)؛
 يتم تشغيل الخلفية/الوكيل الفرعي باستخدام [Custom Agents & Teams](/docs/agent-teams).
 
@@ -49,14 +49,14 @@ UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع
 يسجل `registerBuiltinAgentHarnesses()` ثلاثة محولات مدعومة بـ AI SDK
 `HarnessAgent`:
 
-| الاسم                         | وقت التشغيل     | وضع الحماية | الموافقات |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | رمز Claude | نعم     | نعم       |
-| `ai-sdk-harness:codex`       | Codex       | نعم     | لا        |
-| `ai-sdk-harness:pi`          | باي          | لا      | نعم       |
+| الاسم                        | وقت التشغيل | وضع الحماية | الموافقات |
+| ---------------------------- | ----------- | ----------- | --------- |
+| `ai-sdk-harness:claude-code` | رمز Claude  | نعم         | نعم       |
+| `ai-sdk-harness:codex`       | Codex       | نعم         | لا        |
+| `ai-sdk-harness:pi`          | باي         | لا          | نعم       |
 
 حزم وقت التشغيل الخاصة بها هي **تبعيات نظير اختيارية** ويتم تحميلها ببطء، لذا
-التطبيق الذي لا يستخدم أداة التثبيت مطلقًا لا يدفع ثمنه. يحمل كل محول 
+التطبيق الذي لا يستخدم أداة التثبيت مطلقًا لا يدفع ثمنه. يحمل كل محول
 تلميح `installPackage` (على سبيل المثال `@ai-sdk/harness@canary
 @ai-sdk/harness-codex@canary`); `resolveAgentHarness` يُجري تثبيتًا واضحًا
 خطأ إذا كانت الحزم مفقودة، و`isAgentHarnessPackageInstalled(entry)`
@@ -69,21 +69,21 @@ UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع
 
 يمكن أن يعمل Agent-Native كعميل [ACP](https://agentclientprotocol.com) (العميل
 البروتوكول) **العميل** وقيادة وكيل الترميز المحلي — Gemini CLI، Claude Code،
-أو أي وكيل متوافق مع ACP — من خلال نفس الركيزة. يعمل الوكيل باعتباره 
+أو أي وكيل متوافق مع ACP — من خلال نفس الركيزة. يعمل الوكيل باعتباره
 عملية فرعية محلية تتحدث JSON-RPC مفصولة بسطر جديد عبر stdio؛ محرر ACP
 ↔ نموذج الوكيل هو هذا الشكل بالضبط.
 
-تم تحديد نطاق هذا المحول لـ **الترميز المحلي**. ترث العملية الفرعية 
+تم تحديد نطاق هذا المحول لـ **الترميز المحلي**. ترث العملية الفرعية
 البيئة الأصلية، لذلك يقوم الوكيل بإعادة استخدام أي معلومات تسجيل دخول CLI محلية لديه بالفعل
-(على سبيل المثال، مصادقة `gemini` أو `claude` في الدليل الرئيسي للمستخدم). إنها ليست 
+(على سبيل المثال، مصادقة `gemini` أو `claude` في الدليل الرئيسي للمستخدم). إنها ليست
 نقل مستضاف أو في وضع الحماية، وهو ليس وسيلة نقل للدردشة/A2A - بالنسبة لهؤلاء،
 راجع [Agent Surfaces](/docs/agent-surfaces).
 
-| الاسم              | الأمر الافتراضي                                | قابل للاستئناف\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(توريد `command`/`args` عبر التكوين)_         | نعم         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | نعم         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | نعم         |
+| الاسم             | الأمر الافتراضي                                | قابل للاستئناف\* |
+| ----------------- | ---------------------------------------------- | ---------------- |
+| `acp`             | _(توريد `command`/`args` عبر التكوين)_         | نعم              |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | نعم              |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | نعم              |
 
 \*تعمل السيرة الذاتية عندما يعلن الوكيل عن قدرة `loadSession` و
 سيتدهور إلى جلسة جديدة.
@@ -108,7 +108,7 @@ const custom = resolveAgentHarness("acp", {
 
 يعد نقل البروتوكول (`@zed-industries/agent-client-protocol`) اختياريًا
 يتم تحميل التبعيات ببطء من خلال تلميح `installPackage`، تمامًا مثل AI SDK
- يسخر. الوكيل الثنائي نفسه (`@google/gemini-cli`،
+يسخر. الوكيل الثنائي نفسه (`@google/gemini-cli`،
 `@zed-industries/claude-code-acp`,...) هو CLI خارجي منفصل؛ الإعدادات المسبقة
 قم بتشغيله من خلال `npx` وسيظل الأمر/الوسائط قابلة للتجاوز لأن الوكيل ACP
 لا تزال إشارات الإدخال تتطور.
@@ -240,18 +240,18 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 
 يجلب الحزام أدواته الأصلية (القراءة، والتحرير، والكتابة، والصدفة، وما إلى ذلك)، وهكذا
 لا يمكنك **إعادة عرض تحرير الملفات كأدوات مضيفة. قم بتمرير **ضيق فقط،
-المجموعة المقصودة** من Agent-Native actions حتى `createSession.tools` عندما
+المجموعة المقصودة\*\* من Agent-Native actions حتى `createSession.tools` عندما
 تريد أن يصل الحزام إلى عمليات تطبيق معينة - واحتفظ بـ `defineAction`
 المصادقة وسياق الطلب والمهلات والاقتطاع وبيانات التعريف للقراءة فقط سليمة عندما
 أنت تفعل ذلك.
 
 يحدد `permissionMode` ما قد يفعله الحزام دون موافقة:
 
-| الوضع          | المعنى                                            |
-| ------------- | -------------------------------------------------- |
+| الوضع         | المعنى                                                               |
+| ------------- | -------------------------------------------------------------------- |
 | `allow-reads` | افتراضي. تشغيل القراءات؛ التعديلات ومطالبة actions المحفوفة بالمخاطر |
-| `allow-edits` | تشغيل عمليات القراءة والتحرير؛ موجه actions الخطير الآخر    |
-| `allow-all`   | لا توجد بوابة موافقة                                 |
+| `allow-edits` | تشغيل عمليات القراءة والتحرير؛ موجه actions الخطير الآخر             |
+| `allow-all`   | لا توجد بوابة موافقة                                                 |
 
 عندما يتوقف الحزام مؤقتًا للموافقة عليه، فإنه يصدر حدث `approval-request` و
 تم وضع علامة `idle` على الجلسة مع تسجيل الموافقة المعلقة، لذا يمكن لـ UI
@@ -265,7 +265,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 `agentHarnessEventToAgentChatEvents`. The event union covers `text-delta`,
 `thinking-delta`، `activity`، `tool-start`، `tool-done` (والتي يمكنها حمل
 حمولة `mcpApp` للأدوات الأصلية)، `approval-request`، `file-change`،
-`compaction`، و`usage`، و`error`، و`done`. لأن نتائج الأداة تتدفق عبر 
+`compaction`، و`usage`، و`error`، و`done`. لأن نتائج الأداة تتدفق عبر
 نفس الترجمة، ولا تزال الأدوات الأصلية التي تم الإعلان عنها عن إجراء تعرض - راجع
 [Native Chat UI](/docs/native-chat-ui).
 

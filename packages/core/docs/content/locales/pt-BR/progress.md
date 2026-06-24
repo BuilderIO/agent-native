@@ -34,12 +34,12 @@ Preocupação separada de [notifications](/docs/notifications): as notificaçõe
 
 ## O ciclo de vida {#lifecycle}
 
-| Status      | Transição                  |
-| ----------- | --------------------------- |
+| Status      | Transição                         |
+| ----------- | --------------------------------- |
 | `running`   | Inicial — definido por `startRun` |
 | `succeeded` | Terminal de caminho feliz         |
-| `failed`    | Erro no terminal              |
-| `cancelled` | Usuário interrompido            |
+| `failed`    | Erro no terminal                  |
+| `cancelled` | Usuário interrompido              |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 Montado em `/_agent-native/runs/*` pelo plugin core-routes. **Somente leitura em HTTP** — as gravações passam pelas ferramentas do agente, pois o agente é o gravador canônico. Todas as rotas têm escopo do proprietário.
 
-| Método   | Caminho                              |
+| Método   | Caminho                           |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ Widget de cabeçalho embutido – monte-o próximo ao sino de notificações. Mo
 
 Uma única ferramenta `manage-progress` é registrada em cada modelo. O parâmetro `action` seleciona a operação:
 
-| Ação     | Propósito                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | Chame no início de uma tarefa longa. Retorna um runId.                |
+| Ação       | Propósito                                                        |
+| ---------- | ---------------------------------------------------------------- |
+| `start`    | Chame no início de uma tarefa longa. Retorna um runId.           |
 | `update`   | Chame periodicamente durante a tarefa com `percent` e/ou `step`. |
-| `complete` | Terminal — um dos `succeeded`, `failed`, `cancelled`.           |
-| `list`     | Inspecione execuções recentes (filtre por `active=true`).                  |
+| `complete` | Terminal — um dos `succeeded`, `failed`, `cancelled`.            |
+| `list`     | Inspecione execuções recentes (filtre por `active=true`).        |
 
 ### Quando iniciar uma corrida {#when-to-start}
 
@@ -168,7 +168,7 @@ Uma única ferramenta `manage-progress` é registrada em cada modelo. O parâmet
 
 Dois eventos emitidos no [event bus](/docs/automations#event-bus):
 
-| Evento                  | Carga útil                            |
+| Evento                 | Carga útil                         |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

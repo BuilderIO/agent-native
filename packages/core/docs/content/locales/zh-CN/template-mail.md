@@ -65,26 +65,26 @@ description: "代理驱动的电子邮件客户端。连接您的 Gmail，客服
 
 ## 键盘快捷键
 
-| 钥匙       | 行动                      |
-| --------- | --------------------------- |
-| `J`       | 下一封电子邮件                  |
-| `K`       | 上一封电子邮件              |
-| `Up/Down` | 与J/K相同                 |
-| `Enter`   | 打开重点电子邮件          |
-| `E`       | 存档电子邮件或线程     |
-| `D`       | 将电子邮件或线程放入垃圾箱       |
-| `S`       | 加星标或取消加星标              |
+| 钥匙      | 行动                       |
+| --------- | -------------------------- |
+| `J`       | 下一封电子邮件             |
+| `K`       | 上一封电子邮件             |
+| `Up/Down` | 与J/K相同                  |
+| `Enter`   | 打开重点电子邮件           |
+| `E`       | 存档电子邮件或线程         |
+| `D`       | 将电子邮件或线程放入垃圾箱 |
+| `S`       | 加星标或取消加星标         |
 | `R`       | 回复                       |
-| `U`       | 切换已读/未读          |
-| `C`       | 撰写新电子邮件           |
-| `/`       | 焦点搜索栏            |
-| `Cmd+K`   | 打开命令面板        |
+| `U`       | 切换已读/未读              |
+| `C`       | 撰写新电子邮件             |
+| `/`       | 焦点搜索栏                 |
+| `Cmd+K`   | 打开命令面板               |
 | `G I`     | 转到收件箱                 |
 | `G S`     | 转到已加星标               |
-| `G T`     | 转到已发送                  |
-| `G D`     | 转到草稿                |
-| `G A`     | 转到存档               |
-| `Esc`     | 关闭线程/清除搜索 |
+| `G T`     | 转到已发送                 |
+| `G D`     | 转到草稿                   |
+| `G A`     | 转到存档                   |
+| `Esc`     | 关闭线程/清除搜索          |
 
 ## 对于开发者
 
@@ -142,17 +142,17 @@ npx @agent-native/core@latest add-app
 
 连接 Google 帐户后，电子邮件位于 Gmail 中 — 该应用程序是顶部视图。当没有连接帐户时，电子邮件位于 `getSetting("local-emails")` 下的 SQL 设置存储中（默认为空）。
 
-| 商店/餐桌                 | 它包含什么                                                  |
-| ----------------------------- | -------------------------------------------------------------- |
-| `getSetting("local-emails")`  | 未连接 Google 帐户时本地电子邮件回退       |
-| `getSetting("labels")`        | 系统和用户标签，以及未读计数                     |
-| `getSetting("mail-settings")` | 用户个人资料、跟踪偏好、签名、别名         |
-| `getSetting("aliases")`       | 电子邮件别名                                                  |
-| `queued_email_drafts`表   | 队友请求的草稿正在等待所有者审核/发送           |
-| `email_tracking`表        | 发送消息的开放像素事件                            |
-| `email_link_tracking`表   | 已发送消息的链接单击事件                            |
-| `application_state`表     | `navigation`、`navigate`、`compose-{id}` 条目（临时）   |
-| `oauth_tokens`表          | Google OAuth 令牌（提供商 `"google"`，每个帐户一行） |
+| 商店/餐桌                     | 它包含什么                                            |
+| ----------------------------- | ----------------------------------------------------- |
+| `getSetting("local-emails")`  | 未连接 Google 帐户时本地电子邮件回退                  |
+| `getSetting("labels")`        | 系统和用户标签，以及未读计数                          |
+| `getSetting("mail-settings")` | 用户个人资料、跟踪偏好、签名、别名                    |
+| `getSetting("aliases")`       | 电子邮件别名                                          |
+| `queued_email_drafts`表       | 队友请求的草稿正在等待所有者审核/发送                 |
+| `email_tracking`表            | 发送消息的开放像素事件                                |
+| `email_link_tracking`表       | 已发送消息的链接单击事件                              |
+| `application_state`表         | `navigation`、`navigate`、`compose-{id}` 条目（临时） |
+| `oauth_tokens`表              | Google OAuth 令牌（提供商 `"google"`，每个帐户一行）  |
 
 流经 API 的电子邮件的形状为 `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`。
 

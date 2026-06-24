@@ -92,13 +92,13 @@ complemento de servidor.
 
 Todas las rutas se encuentran bajo `/_agent-native/onboarding/`:
 
-| Ruta                                               | Propósito                           |
-| --------------------------------------------------- | --------------------------------- |
+| Ruta                                                | Propósito                                 |
+| --------------------------------------------------- | ----------------------------------------- |
 | `GET /_agent-native/onboarding/steps`               | Enumerar pasos con estado de finalización |
-| `POST /_agent-native/onboarding/steps/:id/complete` | Marcar paso como completo (anular)     |
-| `POST /_agent-native/onboarding/dismiss`            | Cerrar el banner de incorporación     |
-| `POST /_agent-native/onboarding/reopen`             | Despido claro (volver a mostrar panel)   |
-| `GET /_agent-native/onboarding/dismissed`           | Leer despido + bandera completa |
+| `POST /_agent-native/onboarding/steps/:id/complete` | Marcar paso como completo (anular)        |
+| `POST /_agent-native/onboarding/dismiss`            | Cerrar el banner de incorporación         |
+| `POST /_agent-native/onboarding/reopen`             | Despido claro (volver a mostrar panel)    |
+| `GET /_agent-native/onboarding/dismissed`           | Leer despido + bandera completa           |
 
 ```an-api title="List onboarding steps"
 {
@@ -164,12 +164,12 @@ Consulte la documentación de [Workspace Connections](/docs/workspace-connection
 
 ### Tipos de métodos
 
-| Amable               | Carga útil                                               | Usar para                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | Enviar usuario a una página de documentos o flujo OAuth   |
-| `form`             | `{ fields, writeScope? }`                             | Recopilar variables de entorno (claves, secretos, URL)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | Enviar un mensaje al chat del agente para manejar |
+| Amable             | Carga útil                                            | Usar para                                               |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | Enviar usuario a una página de documentos o flujo OAuth |
+| `form`             | `{ fields, writeScope? }`                             | Recopilar variables de entorno (claves, secretos, URL)  |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                  |
+| `agent-task`       | `{ prompt }`                                          | Enviar un mensaje al chat del agente para manejar       |
 
 La bandera `primary: true` marca un método como el gran CTA para su paso.
 Utilice `badge: "soon"` más `disabled: true` cuando una ruta de configuración deba ser visible
@@ -177,12 +177,12 @@ antes de que esté disponible.
 
 ### Escaleras integradas
 
-| Identificación         | Obligatorio | Descripción                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | sí      | Conexión Builder o clave de proveedor LLM          |
-| `database` | no       | Base de datos predeterminada o cualquier SQL `DATABASE_URL`        |
-| `auth`     | no       | Cuentas integradas, OAuth opcional o token de acceso |
-| `email`    | no       | Reenviar o SendGrid para correo electrónico transaccional        |
+| Identificación | Obligatorio | Descripción                                                 |
+| -------------- | ----------- | ----------------------------------------------------------- |
+| `llm`          | sí          | Conexión Builder o clave de proveedor LLM                   |
+| `database`     | no          | Base de datos predeterminada o cualquier SQL `DATABASE_URL` |
+| `auth`         | no          | Cuentas integradas, OAuth opcional o token de acceso        |
+| `email`        | no          | Reenviar o SendGrid para correo electrónico transaccional   |
 
 Cualquiera de estos puede anularse volviendo a registrarse con el mismo `id` después del
 carga predeterminada.

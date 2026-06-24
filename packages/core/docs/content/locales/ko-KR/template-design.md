@@ -77,13 +77,13 @@ pnpm dev
 
 모든 데이터는 Drizzle ORM를 통해 SQL에 있습니다. 스키마: `templates/design/server/db/schema.ts`. 디자인 및 디자인 시스템은 표준 `ownableColumns`와 일치하는 프레임워크 공유 테이블을 전달하므로 사용자별/조직별 공유 모델에 속합니다.
 
-| 테이블                                    | 무엇을 담고 있는지                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 테이블                                   | 무엇을 담고 있는지                                                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `designs`                                | 디자인 프로젝트 — `title`, `description`, `project_type` (`prototype` / `other`), `data` JSON blob 및 선택적 `design_system_id` 링크 |
-| `design_files`                           | 디자인에 속하는 개별 파일(기본적으로 `filename`, `content`, `file_type`는 `html`로 설정됨)                                                 |
-| `design_versions`                        | 이력 및 롤백을 위한 선택적 `label`가 있는 설계의 특정 시점 `snapshot`                                                         |
-| `design_systems`                         | 재사용 가능한 브랜드 토큰 — `data`(색상/타이포그래피/간격), `assets`, `custom_instructions` 및 `is_default` 플래그                            |
-| `design_shares` / `design_system_shares` | 프레임워크는 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                                      |
+| `design_files`                           | 디자인에 속하는 개별 파일(기본적으로 `filename`, `content`, `file_type`는 `html`로 설정됨)                                           |
+| `design_versions`                        | 이력 및 롤백을 위한 선택적 `label`가 있는 설계의 특정 시점 `snapshot`                                                                |
+| `design_systems`                         | 재사용 가능한 브랜드 토큰 — `data`(색상/타이포그래피/간격), `assets`, `custom_instructions` 및 `is_default` 플래그                   |
+| `design_shares` / `design_system_shares` | 프레임워크는 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                     |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

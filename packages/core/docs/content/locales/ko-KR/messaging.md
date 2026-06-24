@@ -151,11 +151,14 @@ Slack 앱에는 하나의 이벤트 API 요청 URL가 있습니다. 동일한 Sl
    ````텍스트
    MX yourcompany.com → mx.sendgrid.net(우선순위 10)
    ```
+   ````
 3. **설정 → 인바운드 구문 분석**을 열고 **호스트 추가 및 URL**를 클릭한 후 대상을 다음으로 설정하세요.
 
    ````텍스트
    https://your-app.example.com/_agent-native/integrations/email/webhook
    ```
+
+   ````
 
 4. 환경 변수 설정:
    - `EMAIL_AGENT_ADDRESS` — 에이전트가 받는 주소
@@ -309,12 +312,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### 환경변수 {#env-vars}
 
-| 플랫폼 | 필수                                                                     | 선택사항                                              |
+| 플랫폼   | 필수                                                                         | 선택사항                                              |
 | -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
 | Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
 | 텔레그램 | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| 이메일    | `EMAIL_AGENT_ADDRESS`와 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY` 중 하나    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| 왓츠앱 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| 이메일   | `EMAIL_AGENT_ADDRESS`와 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY` 중 하나     | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| 왓츠앱   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
 모든 자격 증명은 환경 변수에 있습니다. 절대 데이터베이스나 소스 코드가 아닙니다. 사이드바 설정 UI 또는 호스팅 제공업체의 환경 패널을 사용하세요.
 

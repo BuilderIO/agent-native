@@ -7,7 +7,7 @@ description: "Serverseitige Analysen mit austauschbaren Anbietern – PostHog, M
 
 Eine Funktion, mehrere Ziele. Rufen Sie `track()` von jedem serverseitigen Code aus auf – actions, Plugins, Serverrouten – und das Ereignis wird an jeden registrierten Analyseanbieter verteilt. Keine SDK-Abhängigkeiten, keine clientseitigen Skripte, keine Blockierung. Derselbe `track()` ist auch in [browser/app code](#client) verfügbar und leitet an dieselben Anbieter.
 
-Das ist _Produkt_-Analyse – die Ereignisse Ihrer App, die an PostHog/Mixpanel/Amplitude fließen. Informationen zu _Agentenqualitätsmetriken (Ablaufverfolgungen, Kosten, Bewertungen, Feedback), die in Ihrer eigenen Datenbank gespeichert sind, finden Sie unter [Observability](/docs/observability).
+Das ist _Produkt_-Analyse – die Ereignisse Ihrer App, die an PostHog/Mixpanel/Amplitude fließen. Informationen zu \_Agentenqualitätsmetriken (Ablaufverfolgungen, Kosten, Bewertungen, Feedback), die in Ihrer eigenen Datenbank gespeichert sind, finden Sie unter [Observability](/docs/observability).
 
 ```ts
 import { track } from "@agent-native/core/tracking";
@@ -30,12 +30,12 @@ track(
 
 Legen Sie eine Umgebungsvariable fest und der Anbieter registriert sich automatisch beim Serverstart. Keine Codeänderungen erforderlich.
 
-| Anbieter  | Umgebungsvariablen                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
+| Anbieter  | Umgebungsvariablen                                                                                              |
+| --------- | --------------------------------------------------------------------------------------------------------------- |
 | PostHog   | `POSTHOG_API_KEY` (erforderlich), `POSTHOG_HOST` (optional, Standardeinstellung ist `https://us.i.posthog.com`) |
-| Mixpanel  | `MIXPANEL_TOKEN`                                                                                |
-| Amplitude | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL` (erforderlich), `TRACKING_WEBHOOK_AUTH` (optionaler `Authorization`-Header)    |
+| Mixpanel  | `MIXPANEL_TOKEN`                                                                                                |
+| Amplitude | `AMPLITUDE_API_KEY`                                                                                             |
+| Webhook   | `TRACKING_WEBHOOK_URL` (erforderlich), `TRACKING_WEBHOOK_AUTH` (optionaler `Authorization`-Header)              |
 
 Mehrere Anbieter können gleichzeitig aktiv sein. Jede Veranstaltung geht an alle.
 

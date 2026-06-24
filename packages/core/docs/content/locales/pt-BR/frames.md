@@ -6,8 +6,8 @@ description: "O quadro de desenvolvimento local, o painel do agente incorporado 
 # Quadros
 
 Todo aplicativo nativo do agente é executado com um agente de IA próximo ao aplicativo UI. Um **quadro** é
-o wrapper que hospeda ambos: ele mostra seu aplicativo e dá ao agente um local para 
- converse, execute e (no desenvolvimento) edite o código. Existem três frames, compartilhando um tempo de execução:
+o wrapper que hospeda ambos: ele mostra seu aplicativo e dá ao agente um local para
+converse, execute e (no desenvolvimento) edite o código. Existem três frames, compartilhando um tempo de execução:
 
 - **Painel de agente incorporado** — fornecido em todos os aplicativos do `@agent-native/core`.
   Esta é a barra lateral que seu aplicativo renderiza, em desenvolvimento e em produção.
@@ -84,13 +84,13 @@ Os CLIs suportados vêm do registro CLI principal
 para gerar — o servidor PTY valida o comando solicitado no registro
 lista de permissões para evitar injeção:
 
-| CLI         | Comando    | Instalar pacote             |
-| ----------- | ---------- | --------------------------- |
+| CLI           | Comando    | Instalar pacote             |
+| ------------- | ---------- | --------------------------- |
 | Código Claude | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io  | `builder`  | (integrado)                  |
-| Codex       | `codex`    | `@openai/codex`             |
-| Gêmeos CLI  | `gemini`   | `@google/gemini-cli`        |
-| OpenCode    | `opencode` | `opencode-ai`               |
+| Builder.io    | `builder`  | (integrado)                 |
+| Codex         | `codex`    | `@openai/codex`             |
+| Gêmeos CLI    | `gemini`   | `@google/gemini-cli`        |
+| OpenCode      | `opencode` | `opencode-ai`               |
 
 Se o CLI selecionado não for encontrado em `PATH`, o terminal volta a executá-lo
 através de `npx --yes <install-package>@latest` (onde existe um pacote de instalação). O

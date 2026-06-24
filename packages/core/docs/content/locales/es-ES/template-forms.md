@@ -86,11 +86,11 @@ Elija formularios y cualquier otra plantilla que desee durante la configuración
 
 Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/forms/server/db/schema.ts`. Los formularios llevan el estándar `ownableColumns` y una tabla de recursos compartidos de marco coincidente, por lo que encajan en el modelo de uso compartido por usuario/por organización.
 
-| Tabla         | Qué contiene                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabla         | Qué contiene                                                                                                                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `forms`       | Una definición de formulario: `title`, `description`, `slug` único, `fields` (matriz JSON de `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`), y una eliminación temporal de `deleted_at` |
-| `responses`   | Un envío por fila: `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, `ip` y `submitter_email` opcionales                                                                                    |
-| `form_shares` | El marco comparte la tabla que asigna principales (usuarios u organizaciones) a roles (espectador, editor, administrador) por formulario                                                                                                            |
+| `responses`   | Un envío por fila: `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, `ip` y `submitter_email` opcionales                                                                                                                |
+| `form_shares` | El marco comparte la tabla que asigna principales (usuarios u organizaciones) a roles (espectador, editor, administrador) por formulario                                                                                             |
 
 Las formas `fields` y `settings` JSON están definidas en `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Las configuraciones privadas del propietario, como el webhook de integración URL y los orígenes permitidos, se eliminan antes de que los datos lleguen a la página de llenado público a través de `toPublicFormSettings`.
 

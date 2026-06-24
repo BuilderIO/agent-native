@@ -17,19 +17,19 @@ Le modèle **espace de travail multi-applications** est la façon dont l'agent n
 
 Tout ce sur quoi toutes les applications de votre organisation devraient s'entendre peut être intégré dans `packages/shared` :
 
-| Objet partagé                  | Où il habite                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| Remplacement d'authentification / SSO           | Exporter `authPlugin` depuis `src/server/index.ts`                                |
-| Règles d'organisation/RBAC              | Meilleures organisations d'authentification, éventuellement encapsulées par ce `authPlugin`            |
-| Remplacement du chat de l'agent           | Exporter `agentChatPlugin` depuis `src/server/index.ts`                           |
-| Instructions pour les agents d'entreprise | `AGENTS.md`                                                                   |
-| Agent skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
-| Agent partagé actions          | `actions/*.ts`                                                                |
-| Composants React partagés       | Exporter depuis `src/client/index.ts`                                             |
-| Jetons de conception / marque         | Ajoutez un fichier CSS partagé et importez-le depuis chaque application                             |
-| Identifiants API partagés        |  Préférer les informations d'identification à l'échelle du framework ; ajoutez des assistants uniquement si vous avez besoin d'un espace de noms |
+| Objet partagé                             | Où il habite                                                                                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remplacement d'authentification / SSO     | Exporter `authPlugin` depuis `src/server/index.ts`                                                                                              |
+| Règles d'organisation/RBAC                | Meilleures organisations d'authentification, éventuellement encapsulées par ce `authPlugin`                                                     |
+| Remplacement du chat de l'agent           | Exporter `agentChatPlugin` depuis `src/server/index.ts`                                                                                         |
+| Instructions pour les agents d'entreprise | `AGENTS.md`                                                                                                                                     |
+| Agent skills                              | `.agents/skills/<skill-name>/SKILL.md`                                                                                                          |
+| Agent partagé actions                     | `actions/*.ts`                                                                                                                                  |
+| Composants React partagés                 | Exporter depuis `src/client/index.ts`                                                                                                           |
+| Jetons de conception / marque             | Ajoutez un fichier CSS partagé et importez-le depuis chaque application                                                                         |
+| Identifiants API partagés                 | Préférer les informations d'identification à l'échelle du framework ; ajoutez des assistants uniquement si vous avez besoin d'un espace de noms |
 
-Chaque application individuelle devient _juste un ensemble d'écrans_ : itinéraires, tableaux de bord, vues, actions spécifiques au domaine. Les valeurs par défaut du framework couvrent le reste jusqu'à ce que vous ajoutiez une véritable personnalisation de l'espace de travail.
+Chaque application individuelle devient *juste un ensemble d'écrans* : itinéraires, tableaux de bord, vues, actions spécifiques au domaine. Les valeurs par défaut du framework couvrent le reste jusqu'à ce que vous ajoutiez une véritable personnalisation de l'espace de travail.
 
 Cette même limite s'applique lorsque votre application souhaite utiliser une autre application propriétaire. Un nouveau tableau de bord d'espace de travail nécessitant un contexte de messagerie, de calendrier, d'analyse et de mémoire d'entreprise doit utiliser les applications Mail, Calendrier, Analytics et Brain existantes comme voisins connectés via des liens ou A2A. Il ne doit pas cloner ces modèles, créer une application wrapper qui les imbrique ou échafauder des applications enfants en lui-même simplement pour accéder à leurs données ou à leurs agents. Créez ou créez une copie uniquement lorsque vous souhaitez explicitement personnaliser cette application.
 
@@ -124,12 +124,12 @@ La fusion s'effectue par nom de fichier. Si une application fournit un fichier l
 
 Lorsqu'une application a besoin de quelque chose de différent, déposez un fichier local :
 
-| Élément à remplacer             | Fichier à créer dans l'application                       |
-| ----------------------------- | --------------------------------------------------- |
-| Plugin d'authentification                   | `apps/<name>/server/plugins/auth.ts`                |
-| Plugin de chat d'agent             | `apps/<name>/server/plugins/agent-chat.ts`          |
-| Une compétence spécifique              | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`  |
-| Une action spécifique             | `apps/<name>/actions/<action-name>.ts`              |
+| Élément à remplacer                          | Fichier à créer dans l'application                            |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| Plugin d'authentification                    | `apps/<name>/server/plugins/auth.ts`                          |
+| Plugin de chat d'agent                       | `apps/<name>/server/plugins/agent-chat.ts`                    |
+| Une compétence spécifique                    | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`            |
+| Une action spécifique                        | `apps/<name>/actions/<action-name>.ts`                        |
 | Instructions supplémentaires pour les agents | `apps/<name>/AGENTS.md` (fusionne avec l'espace de travail 1) |
 
 Pas de câblage, pas de configuration. Créez le fichier et il prend le relais.

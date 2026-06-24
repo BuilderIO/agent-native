@@ -158,17 +158,17 @@ Teilen.
 
 Innerhalb der Iframe-Sandbox verfügt jede Erweiterung über diese Helfer auf `window`:
 
-| Helfer                                           | Zweck                                                   | Beispiel                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Rufen Sie einen beliebigen actions der Host-Vorlage auf                   | `appAction('list-emails', { view: 'inbox' })`             |
-| `appFetch(path, options)`                        | Zulässige Framework-Endpunkte unter `/_agent-native/*` aufrufen | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Lesen aus SQL (automatisch auf den Benutzer beschränkt)                   | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | In SQL schreiben                                              | `dbExec('INSERT INTO ...')`                               |
-| `extensionFetch(url, options)`                   | Treffen Sie externe APIs über einen sicheren Proxy mit Geheimnissen     | `extensionFetch('https://api.github.com/user')`           |
-| `extensionData.set(collection, id, data, opts?)` | Daten pro Erweiterung beibehalten (Benutzer-/Organisationsbereich)           | `extensionData.set('notes', id, { text: '...' })`         |
+| Helfer                                           | Zweck                                                               | Beispiel                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Rufen Sie einen beliebigen actions der Host-Vorlage auf             | `appAction('list-emails', { view: 'inbox' })`             |
+| `appFetch(path, options)`                        | Zulässige Framework-Endpunkte unter `/_agent-native/*` aufrufen     | `appFetch('/_agent-native/application-state/navigation')` |
+| `dbQuery(sql, args)`                             | Lesen aus SQL (automatisch auf den Benutzer beschränkt)             | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | In SQL schreiben                                                    | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | Treffen Sie externe APIs über einen sicheren Proxy mit Geheimnissen | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | Daten pro Erweiterung beibehalten (Benutzer-/Organisationsbereich)  | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Persistente Elemente auflisten                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Einen einzelnen Artikel erhalten                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Ein persistentes Element löschen                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `extensionData.get(collection, id, opts?)`       | Einen einzelnen Artikel erhalten                                    | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Ein persistentes Element löschen                                    | `extensionData.remove('notes', 'note-1')`                 |
 
 Drei Faustregeln:
 
@@ -211,12 +211,12 @@ Aber der QBO-typischste Anwendungsfall ist anders: Der Benutzer möchte, dass se
 
 Ein Slot ist ein benannter Widget-Bereich, den eine Vorlage enthält:
 
-| Vorlage      | Beispielslot                   | Wo es angezeigt wird                            |
-| ------------- | ------------------------------ | -------------------------------------------- |
-| **Mail**      | `mail.contact-sidebar.bottom`  | Unter den Kontaktinformationen in jedem E-Mail-Thread |
-| **Analysen** | `analytics.dashboard.tiles`    | Neben den integrierten Panels des Dashboards    |
-| **Kalender**  | `calendar.event-detail.bottom` | Unterhalb der offenen Veranstaltung                         |
-| **Clips**     | `clips.right-panel.tabs`       | Eine neue Registerkarte im Clip-Überprüfungsfenster           |
+| Vorlage      | Beispielslot                   | Wo es angezeigt wird                                  |
+| ------------ | ------------------------------ | ----------------------------------------------------- |
+| **Mail**     | `mail.contact-sidebar.bottom`  | Unter den Kontaktinformationen in jedem E-Mail-Thread |
+| **Analysen** | `analytics.dashboard.tiles`    | Neben den integrierten Panels des Dashboards          |
+| **Kalender** | `calendar.event-detail.bottom` | Unterhalb der offenen Veranstaltung                   |
+| **Clips**    | `clips.right-panel.tabs`       | Eine neue Registerkarte im Clip-Überprüfungsfenster   |
 
 Wenn eine Erweiterung **in einem Steckplatz installiert** wird, schiebt der Host den relevanten Kontext – die E-Mail-Adresse des Kontakts, die Dashboard-ID, die Ereignis-ID – in den Iframe. Die Erweiterung lautet `window.slotContext`, um zu wissen, was der Benutzer sieht.
 
@@ -315,14 +315,14 @@ Freigegebene Erweiterungen haben ihre eigenen URLs und werden in denselben Freig
 
 Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Komponenten, Routen, Stile. Wann sollten Sie stattdessen zu einer Erweiterung greifen?
 
-|                       | Erweiterung                                         | App-Code bearbeiten                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Erstellt von**        | Agent (oder Benutzer) zur Laufzeit                        | Agent bearbeitet Quelldateien           |
-| **Gespeichert in**         | Die Datenbank                                      | Das Git-Repository                   |
-| **Erfordert einen Build**  | Nein                                                | Ja                                  |
-| **Erfordert eine Bereitstellung** | Nein                                                | Ja                                  |
-| **Umfang**             | Ein Benutzer (oder mit der Organisation geteilt)                     | Das gesamte Produkt, jeder Benutzer       |
-| **Am besten für**          | Persönliche Widgets, benutzerdefinierte KPIs, teamspezifische Dienstprogramme | Kernfunktionen, die allen Benutzern zur Verfügung stehen |
+|                                   | Erweiterung                                                                   | App-Code bearbeiten                                      |
+| --------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Erstellt von**                  | Agent (oder Benutzer) zur Laufzeit                                            | Agent bearbeitet Quelldateien                            |
+| **Gespeichert in**                | Die Datenbank                                                                 | Das Git-Repository                                       |
+| **Erfordert einen Build**         | Nein                                                                          | Ja                                                       |
+| **Erfordert eine Bereitstellung** | Nein                                                                          | Ja                                                       |
+| **Umfang**                        | Ein Benutzer (oder mit der Organisation geteilt)                              | Das gesamte Produkt, jeder Benutzer                      |
+| **Am besten für**                 | Persönliche Widgets, benutzerdefinierte KPIs, teamspezifische Dienstprogramme | Kernfunktionen, die allen Benutzern zur Verfügung stehen |
 
 Faustregel: **Wenn es für einen Benutzer oder ein Team ist, handelt es sich um eine Erweiterung.** Wenn jeder Benutzer der Vorlage sie erhalten soll, liefern Sie sie als echtes Feature aus.
 

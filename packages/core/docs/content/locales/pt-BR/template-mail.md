@@ -65,24 +65,24 @@ Se você selecionar o texto e pressionar Cmd+I, essa seleção acompanha sua pr�
 
 ## Atalhos de teclado
 
-| Chave       | Ação                      |
-| --------- | --------------------------- |
-| `J`       | Próximo e-mail                  |
-| `K`       | E-mail anterior              |
-| `Up/Down` | Igual a J/K                 |
-| `Enter`   | Abrir e-mail focado          |
-| `E`       | Arquivar e-mail ou conversa     |
-| `D`       | Lixo de e-mail ou conversa       |
-| `S`       | Marque ou desmarque              |
-| `R`       | Responder                       |
-| `U`       | Alternar leitura/não lida          |
-| `C`       | Escrever novo e-mail           |
-| `/`       | Barra de pesquisa em foco            |
-| `Cmd+K`   | Abrir paleta de comandos        |
-| `G I`     | Acessar a Caixa de entrada                 |
-| `G S`     | Vá para Com estrela               |
-| `G T`     | Vá para Enviados                  |
-| `G D`     | Acessar Rascunhos                |
+| Chave     | Ação                          |
+| --------- | ----------------------------- |
+| `J`       | Próximo e-mail                |
+| `K`       | E-mail anterior               |
+| `Up/Down` | Igual a J/K                   |
+| `Enter`   | Abrir e-mail focado           |
+| `E`       | Arquivar e-mail ou conversa   |
+| `D`       | Lixo de e-mail ou conversa    |
+| `S`       | Marque ou desmarque           |
+| `R`       | Responder                     |
+| `U`       | Alternar leitura/não lida     |
+| `C`       | Escrever novo e-mail          |
+| `/`       | Barra de pesquisa em foco     |
+| `Cmd+K`   | Abrir paleta de comandos      |
+| `G I`     | Acessar a Caixa de entrada    |
+| `G S`     | Vá para Com estrela           |
+| `G T`     | Vá para Enviados              |
+| `G D`     | Acessar Rascunhos             |
 | `G A`     | Ir para Arquivo               |
 | `Esc`     | Fechar tópico/limpar pesquisa |
 
@@ -142,17 +142,17 @@ Os tokens são armazenados na tabela `oauth_tokens` SQL e atualizados automatica
 
 Quando uma conta do Google está conectada, o e-mail fica em Gmail — o aplicativo é uma visualização superior. Quando nenhuma conta está conectada, os e-mails ficam no armazenamento de configurações SQL em `getSetting("local-emails")` (vazio por padrão).
 
-| Loja / Mesa                 | O que ele contém                                                  |
-| ----------------------------- | -------------------------------------------------------------- |
-| `getSetting("local-emails")`  | E-mail substituto local quando nenhuma conta do Google está conectada       |
-| `getSetting("labels")`        | Rótulos do sistema e do usuário, com contagens não lidas                     |
-| `getSetting("mail-settings")` | Perfil do usuário, preferências de rastreamento, assinatura, aliases         |
-| `getSetting("aliases")`       | Alias de e-mail                                                  |
-| Tabela `queued_email_drafts`   | Rascunhos solicitados por colegas de equipe aguardando análise/envio do proprietário           |
-| Tabela `email_tracking`        | Eventos de pixel aberto para mensagens enviadas                            |
-| Tabela `email_link_tracking`   | Eventos de clique em link para mensagens enviadas                            |
-| Tabela `application_state`     | Entradas `navigation`, `navigate`, `compose-{id}` (efêmeras)   |
-| Tabela `oauth_tokens`          | Tokens Google OAuth (provedor `"google"`, uma linha por conta) |
+| Loja / Mesa                   | O que ele contém                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| `getSetting("local-emails")`  | E-mail substituto local quando nenhuma conta do Google está conectada                |
+| `getSetting("labels")`        | Rótulos do sistema e do usuário, com contagens não lidas                             |
+| `getSetting("mail-settings")` | Perfil do usuário, preferências de rastreamento, assinatura, aliases                 |
+| `getSetting("aliases")`       | Alias de e-mail                                                                      |
+| Tabela `queued_email_drafts`  | Rascunhos solicitados por colegas de equipe aguardando análise/envio do proprietário |
+| Tabela `email_tracking`       | Eventos de pixel aberto para mensagens enviadas                                      |
+| Tabela `email_link_tracking`  | Eventos de clique em link para mensagens enviadas                                    |
+| Tabela `application_state`    | Entradas `navigation`, `navigate`, `compose-{id}` (efêmeras)                         |
+| Tabela `oauth_tokens`         | Tokens Google OAuth (provedor `"google"`, uma linha por conta)                       |
 
 Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 

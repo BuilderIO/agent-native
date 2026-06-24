@@ -70,7 +70,7 @@ npx @agent-native/core@latest create my-agent --headless
 
 - `actions/hello.ts` は、エージェントが呼び出すことができるスターター動作です。交換するか、
   その横に actions を追加します。
-- `app/routes/_index.tsx` は、フルページのチャット サーフェスをレンダリングします。 
+- `app/routes/_index.tsx` は、フルページのチャット サーフェスをレンダリングします。
   ここに提案、空の状態、コンポーザー、または周囲のレイアウトを入力します。
 - `AGENTS.md` は、組み込みエージェントにこのアプリ内での動作方法を指示します。
 

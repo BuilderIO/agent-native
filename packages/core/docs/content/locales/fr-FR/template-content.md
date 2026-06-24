@@ -144,7 +144,7 @@ le fichier et l'éditeur normal enregistre d'abord le fichier. SQL est ensuite m
 Couche de cache/historique pour le document existant UI, le panneau de recherche et de version, pas
 comme source de vérité. Le menu de la page en haut à droite expose le chemin de la source locale :
 Le chemin relatif est toujours disponible, le chemin absolu est disponible dans le vrai fichier local
- et le bureau Agent Native, et Révéler dans le Finder sont disponibles via le
+et le bureau Agent Native, et Révéler dans le Finder sont disponibles via le
 mode pont de bureau ou fichier local basé sur un serveur.
 
 La route de synchronisation groupée appelle :

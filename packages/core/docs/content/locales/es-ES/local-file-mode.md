@@ -37,9 +37,9 @@ alojamiento de producción sin acceso al sistema de archivos local.
 
 Hay dos modos de fuente de verdad:
 
-| Modo            | Fuente de la verdad                            | Mejor para                                                                 |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
-| Modo de base de datos   | Filas SQL hasta Drizzle                   | Aplicaciones alojadas, colaboración, uso compartido, comentarios, historial de versiones           |
+| Modo                  | Fuente de la verdad                                        | Mejor para                                                                                                                   |
+| --------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Modo de base de datos | Filas SQL hasta Drizzle                                    | Aplicaciones alojadas, colaboración, uso compartido, comentarios, historial de versiones                                     |
 | Modo de archivo local | Archivos de repositorio declarados por `agent-native.json` | Flujos de trabajo locales/de desarrollo, revisión de Git, ediciones del agente de codificación, contenido nativo de archivos |
 
 El UI y el agente actions deben mantener la misma forma en ambos modos. Un contenido
@@ -113,7 +113,7 @@ La habilidad instalada indica a los agentes de codificación que utilicen Conten
 (`list-documents`, `get-document`, `edit-document`, `update-document`,
 `share-local-file-document` y archivo de componente actions) cuando se trata de una aplicación de contenido local
 o Agent Native Desktop Bridge los expone. Si no hay ningún puente en funcionamiento, la habilidad
- recurre a ediciones directas seguras del repositorio mientras conserva el frontmatter, las importaciones, JSX,
+recurre a ediciones directas seguras del repositorio mientras conserva el frontmatter, las importaciones, JSX,
 y desconocido MDX.
 
 ## Configuración
@@ -391,10 +391,10 @@ Las carpetas son convenciones superpuestas al mismo contrato de artefacto local.
 
 El contenido tiene dos flujos de trabajo de archivos diferentes:
 
-| Flujo de trabajo                     | Qué pasa                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Flujo de trabajo                       | Qué pasa                                                                                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Exportación/importación `/local-files` | El modo de base de datos sigue siendo la fuente de la verdad. Los archivos son una superficie de sincronización explícita que puedes exportar, editar, obtener una vista previa e importar. |
-| Modo de archivo local              | Los archivos son la fuente de la verdad. La barra lateral de contenido y el editor funcionan directamente en archivos locales.                       |
+| Modo de archivo local                  | Los archivos son la fuente de la verdad. La barra lateral de contenido y el editor funcionan directamente en archivos locales.                                                              |
 
 Utilice exportar/importar cuando desee revisar archivos ocasionalmente en un espacio de trabajo alojado.
 Utilice el modo de archivo local cuando el repositorio en sí sea el espacio de trabajo.

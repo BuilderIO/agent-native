@@ -13,22 +13,22 @@ description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包
 
 每一个都是您今天可以使用的真实应用程序，以及您自己版本的启动板。
 
-| 模板                                  | 它是什么                                                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 模板                                      | 它是什么                                                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | [**Chat**](/docs/template-chat)           | 最小的聊天优先应用程序，具有持久线程、actions、身份验证以及通往自定义 UI 或您自己的后端的干净路径。 |
-| [**Mail**](/docs/template-mail)           | 特工本地超人。收件箱、标签、人工智能分类、键盘优先、通过代理起草和发送。      |
-| [**Calendar**](/docs/template-calendar)   | 本地代理 Google Calendar。活动、同步、公共预订链接、代理驱动的调度。                  |
-| [**Content**](/docs/template-content)     | MDX 的开源黑曜石。本地Markdown/MDX、Tiptap编辑器、Notion同步、实时多用户协作。     |
-| [**Brain**](/docs/template-brain)         | 干净的公司聊天由引用的机构记忆、批准的来源、审查门和引文支持。        |
-| [**Assets**](/docs/template-assets)       | 用于品牌库、上传、参考和品牌图像/视频生成的数字资产管理器。           |
-| [**Slides**](/docs/template-slides)       | 代理原生 Google 幻灯片。基于React的套牌由代理直接生成和编辑。                       |
-| [**Video**](/docs/template-videos)        | Remotion 上的程序化动态图形和产品演示视频。                                              |
-| [**Analytics**](/docs/template-analytics) | 代理本机振幅/混合面板。连接数据源、提示图表、固定到仪表板。                |
-| [**Clips**](/docs/template-clips)         | 异步屏幕+摄像头录制，包含转录、章节和 AI 摘要。                                |
-| [**Design**](/docs/template-design)       | Agent 原生 HTML 原型工作室，用于交互式 Alpine/Tailwind 设计。                                  |
-| [**Forms**](/docs/template-forms)         | 代理原生 Typeform。构建、共享、收集提交内容并将其路由到 Slack、表格、webhooks 或 Discord。 |
-| [**Plan**](/docs/template-plan)           | 带有图表、线框图和注释的视觉计划和公关概述。                                         |
-| [**Dispatch**](/docs/template-dispatch)   | 工作区控制平面：共享秘密、可重用集成、Slack/Telegram、计划作业。            |
+| [**Mail**](/docs/template-mail)           | 特工本地超人。收件箱、标签、人工智能分类、键盘优先、通过代理起草和发送。                            |
+| [**Calendar**](/docs/template-calendar)   | 本地代理 Google Calendar。活动、同步、公共预订链接、代理驱动的调度。                                |
+| [**Content**](/docs/template-content)     | MDX 的开源黑曜石。本地Markdown/MDX、Tiptap编辑器、Notion同步、实时多用户协作。                      |
+| [**Brain**](/docs/template-brain)         | 干净的公司聊天由引用的机构记忆、批准的来源、审查门和引文支持。                                      |
+| [**Assets**](/docs/template-assets)       | 用于品牌库、上传、参考和品牌图像/视频生成的数字资产管理器。                                         |
+| [**Slides**](/docs/template-slides)       | 代理原生 Google 幻灯片。基于React的套牌由代理直接生成和编辑。                                       |
+| [**Video**](/docs/template-videos)        | Remotion 上的程序化动态图形和产品演示视频。                                                         |
+| [**Analytics**](/docs/template-analytics) | 代理本机振幅/混合面板。连接数据源、提示图表、固定到仪表板。                                         |
+| [**Clips**](/docs/template-clips)         | 异步屏幕+摄像头录制，包含转录、章节和 AI 摘要。                                                     |
+| [**Design**](/docs/template-design)       | Agent 原生 HTML 原型工作室，用于交互式 Alpine/Tailwind 设计。                                       |
+| [**Forms**](/docs/template-forms)         | 代理原生 Typeform。构建、共享、收集提交内容并将其路由到 Slack、表格、webhooks 或 Discord。          |
+| [**Plan**](/docs/template-plan)           | 带有图表、线框图和注释的视觉计划和公关概述。                                                        |
+| [**Dispatch**](/docs/template-dispatch)   | 工作区控制平面：共享秘密、可重用集成、Slack/Telegram、计划作业。                                    |
 
 不需要域模板？当您想要一个用户可以立即交谈的基本应用程序时，请使用 [Chat](/docs/template-chat)，或者使用 [Pure-Agent Apps](/docs/pure-agent-apps) 首先开始操作。
 

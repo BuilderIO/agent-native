@@ -34,12 +34,12 @@ Separates Problem von [notifications](/docs/notifications): Benachrichtigungen w
 
 ## Der Lebenszyklus {#lifecycle}
 
-| Status      | Übergang                  |
-| ----------- | --------------------------- |
+| Status      | Übergang                                 |
+| ----------- | ---------------------------------------- |
 | `running`   | Anfänglich – festgelegt durch `startRun` |
-| `succeeded` | Happy-Path-Terminal         |
-| `failed`    | Fehlerterminal              |
-| `cancelled` | Benutzer unterbrochen            |
+| `succeeded` | Happy-Path-Terminal                      |
+| `failed`    | Fehlerterminal                           |
+| `cancelled` | Benutzer unterbrochen                    |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -105,9 +105,9 @@ await deleteRun("run-id", "steve@builder.io");
 
 ## HTTP API {#http}
 
- Wird durch das Core-Routes-Plugin bei `/_agent-native/runs/*` gemountet. **Schreibgeschützt über HTTP** – Schreibvorgänge durchlaufen die Agent-Tools, da der Agent der kanonische Autor ist. Alle Routen unterliegen dem Eigentümerbereich.
+Wird durch das Core-Routes-Plugin bei `/_agent-native/runs/*` gemountet. **Schreibgeschützt über HTTP** – Schreibvorgänge durchlaufen die Agent-Tools, da der Agent der kanonische Autor ist. Alle Routen unterliegen dem Eigentümerbereich.
 
-| Methode   | Pfad                              |
+| Methode  | Pfad                              |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ Inline-Header-Widget – montieren Sie es neben der Benachrichtigungsglocke. Zei
 
 In jeder Vorlage ist ein einzelnes `manage-progress`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion     | Zweck                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | Anruf am Anfang einer langen Aufgabe. Gibt eine runId zurück.                |
+| Aktion     | Zweck                                                                       |
+| ---------- | --------------------------------------------------------------------------- |
+| `start`    | Anruf am Anfang einer langen Aufgabe. Gibt eine runId zurück.               |
 | `update`   | Rufen Sie während der Aufgabe regelmäßig mit `percent` und/oder `step` auf. |
-| `complete` | Terminal – eines von `succeeded`, `failed`, `cancelled`.           |
-| `list`     | Inspizieren Sie die letzten Ausführungen (Filter nach `active=true`).                  |
+| `complete` | Terminal – eines von `succeeded`, `failed`, `cancelled`.                    |
+| `list`     | Inspizieren Sie die letzten Ausführungen (Filter nach `active=true`).       |
 
 ### Wann soll ein Lauf gestartet werden? {#when-to-start}
 
@@ -168,7 +168,7 @@ In jeder Vorlage ist ein einzelnes `manage-progress`-Tool registriert. Der Param
 
 Zwei Ereignisse werden auf dem [event bus](/docs/automations#event-bus) ausgegeben:
 
-| Ereignis                  | Nutzlast                            |
+| Ereignis               | Nutzlast                           |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |

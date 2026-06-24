@@ -84,12 +84,12 @@ Les CLI pris en charge proviennent du registre principal CLI
 pour apparaître — le serveur PTY valide la commande demandée par rapport au registre
 liste blanche pour empêcher l'injection :
 
-| CLI         | Commande    | Installer le package             |
+| CLI         | Commande   | Installer le package        |
 | ----------- | ---------- | --------------------------- |
 | Code Claude | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io  | `builder`  | (intégré)                  |
+| Builder.io  | `builder`  | (intégré)                   |
 | Codex       | `codex`    | `@openai/codex`             |
-| Gémeaux CLI  | `gemini`   | `@google/gemini-cli`        |
+| Gémeaux CLI | `gemini`   | `@google/gemini-cli`        |
 | OpenCode    | `opencode` | `opencode-ai`               |
 
 Si le CLI sélectionné n'est pas trouvé sur `PATH`, le terminal recommence à l'exécuter

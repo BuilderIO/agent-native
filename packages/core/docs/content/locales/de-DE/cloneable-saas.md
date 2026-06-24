@@ -13,22 +13,22 @@ Die meisten „Vorlagen“ geben Ihnen ein leeres Gerüst und eine lange TODO-Li
 
 Jede davon ist eine echte App, die Sie heute verwenden können, und die Startrampe für Ihre eigene Version davon.
 
-| Vorlage                                  | Was es ist                                                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Vorlage                                   | Was es ist                                                                                                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**Chat**](/docs/template-chat)           | Minimale Chat-First-App mit dauerhaften Threads, actions, Authentifizierung und einem sauberen Pfad zum benutzerdefinierten UI oder Ihrem eigenen Backend. |
-| [**Mail**](/docs/template-mail)           | Ein aus Agenten stammender Übermensch. Posteingang, Beschriftungen, KI-Selektion, Tastatureingabe, Entwürfe und Versendungen über den Agenten.      |
-| [**Calendar**](/docs/template-calendar)   | Ein agentennativer Google Calendar. Ereignisse, Synchronisierung, öffentliche Buchungslinks, agentengesteuerte Planung.                  |
-| [**Content**](/docs/template-content)     | Open-Source-Obsidian für MDX. Lokaler Markdown/MDX, Tiptap-Editor, Notion-Synchronisierung, Zusammenarbeit mit mehreren Benutzern in Echtzeit.     |
-| [**Brain**](/docs/template-brain)         | Sauberer Unternehmenschat, gestützt durch zitiertes institutionelles Gedächtnis, genehmigte Quellen, Überprüfungstore und Zitate.        |
-| [**Assets**](/docs/template-assets)       | Digital Asset Manager für Markenbibliotheken, Uploads, Referenzen und die Erstellung von markenbezogenen Bildern/Videos.           |
-| [**Slides**](/docs/template-slides)       | Eine agentennative Google Slides. React-basierte Decks, die der Agent direkt generiert und bearbeitet.                       |
-| [**Video**](/docs/template-videos)        | Programmatische Bewegungsgrafiken und Produktdemovideos zu Remotion.                                              |
-| [**Analytics**](/docs/template-analytics) | Ein agentennatives Amplitude/Mixpanel. Datenquellen verbinden, Diagramme anfordern, an Dashboards anpinnen.                |
-| [**Clips**](/docs/template-clips)         | Asynchrone Bildschirm- und Kameraaufzeichnung mit Transkription, Kapiteln und KI-Zusammenfassungen.                                |
-| [**Design**](/docs/template-design)       | Agent-natives HTML-Prototyping-Studio für interaktive Alpine/Tailwind-Designs.                                  |
-| [**Forms**](/docs/template-forms)         | Ein agentennatives Typformular. Erstellen, teilen, sammeln und leiten Sie Einsendungen an Slack, Sheets, webhooks oder Discord weiter. |
-| [**Plan**](/docs/template-plan)           | Visuelle Pläne und PR-Zusammenfassungen mit Diagrammen, Wireframes und Anmerkungen.                                         |
-| [**Dispatch**](/docs/template-dispatch)   | Die Workspace-Steuerungsebene: gemeinsame Geheimnisse, wiederverwendbare Integrationen, Slack/Telegram, geplante Jobs.            |
+| [**Mail**](/docs/template-mail)           | Ein aus Agenten stammender Übermensch. Posteingang, Beschriftungen, KI-Selektion, Tastatureingabe, Entwürfe und Versendungen über den Agenten.             |
+| [**Calendar**](/docs/template-calendar)   | Ein agentennativer Google Calendar. Ereignisse, Synchronisierung, öffentliche Buchungslinks, agentengesteuerte Planung.                                    |
+| [**Content**](/docs/template-content)     | Open-Source-Obsidian für MDX. Lokaler Markdown/MDX, Tiptap-Editor, Notion-Synchronisierung, Zusammenarbeit mit mehreren Benutzern in Echtzeit.             |
+| [**Brain**](/docs/template-brain)         | Sauberer Unternehmenschat, gestützt durch zitiertes institutionelles Gedächtnis, genehmigte Quellen, Überprüfungstore und Zitate.                          |
+| [**Assets**](/docs/template-assets)       | Digital Asset Manager für Markenbibliotheken, Uploads, Referenzen und die Erstellung von markenbezogenen Bildern/Videos.                                   |
+| [**Slides**](/docs/template-slides)       | Eine agentennative Google Slides. React-basierte Decks, die der Agent direkt generiert und bearbeitet.                                                     |
+| [**Video**](/docs/template-videos)        | Programmatische Bewegungsgrafiken und Produktdemovideos zu Remotion.                                                                                       |
+| [**Analytics**](/docs/template-analytics) | Ein agentennatives Amplitude/Mixpanel. Datenquellen verbinden, Diagramme anfordern, an Dashboards anpinnen.                                                |
+| [**Clips**](/docs/template-clips)         | Asynchrone Bildschirm- und Kameraaufzeichnung mit Transkription, Kapiteln und KI-Zusammenfassungen.                                                        |
+| [**Design**](/docs/template-design)       | Agent-natives HTML-Prototyping-Studio für interaktive Alpine/Tailwind-Designs.                                                                             |
+| [**Forms**](/docs/template-forms)         | Ein agentennatives Typformular. Erstellen, teilen, sammeln und leiten Sie Einsendungen an Slack, Sheets, webhooks oder Discord weiter.                     |
+| [**Plan**](/docs/template-plan)           | Visuelle Pläne und PR-Zusammenfassungen mit Diagrammen, Wireframes und Anmerkungen.                                                                        |
+| [**Dispatch**](/docs/template-dispatch)   | Die Workspace-Steuerungsebene: gemeinsame Geheimnisse, wiederverwendbare Integrationen, Slack/Telegram, geplante Jobs.                                     |
 
 Sie möchten keine Domain-Vorlage? Verwenden Sie [Chat](/docs/template-chat), wenn Sie eine einfache App wünschen, mit der Benutzer sofort sprechen können, oder beginnen Sie mit [Pure-Agent Apps](/docs/pure-agent-apps) zuerst mit der Aktion.
 

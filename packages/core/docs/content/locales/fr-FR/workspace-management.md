@@ -103,14 +103,14 @@ Ajoutez ensuite l'action [actions/labeler](https://github.com/actions/labeler) �
 
 ## Consignes relatives à l'examen des relations publiques
 
-| Modifier le type                       | Qui évalue                           | À surveiller                                                         |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
-| **Application uniquement** (`templates/<app>/`) | Propriétaire de l'équipe de l'application                       | Excellence du domaine, schémas d'action                                        |
-| **Cadre** (`packages/core/`)  | Équipe de plate-forme + une équipe d'application concernée | Modifications révolutionnaires, performances, compatibilité ascendante                           |
-| **Migrations de schéma**             | Équipe plateforme + ingénieur senior       | Sécurité des données, agnosticisme dialectal (SQLite + Postgres)                      |
-| **Actions**                       | Équipe propriétaire                           | Actions sont tous deux des points de terminaison des outils d'agent AND HTTP – examen sous les deux angles |
-| **Inter-application A2A**                 | Les deux équipes d'application                        | Si vous modifiez une interface A2A, les appelants doivent le savoir                  |
-| **Répartir le coffre-fort/les ressources**      | Équipe Plateforme                         | Accès secret, portée d'octroi, qui obtient quoi                                 |
+| Modifier le type                                | Qui évalue                                                 | À surveiller                                                                                               |
+| ----------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Application uniquement** (`templates/<app>/`) | Propriétaire de l'équipe de l'application                  | Excellence du domaine, schémas d'action                                                                    |
+| **Cadre** (`packages/core/`)                    | Équipe de plate-forme + une équipe d'application concernée | Modifications révolutionnaires, performances, compatibilité ascendante                                     |
+| **Migrations de schéma**                        | Équipe plateforme + ingénieur senior                       | Sécurité des données, agnosticisme dialectal (SQLite + Postgres)                                           |
+| **Actions**                                     | Équipe propriétaire                                        | Actions sont tous deux des points de terminaison des outils d'agent AND HTTP – examen sous les deux angles |
+| **Inter-application A2A**                       | Les deux équipes d'application                             | Si vous modifiez une interface A2A, les appelants doivent le savoir                                        |
+| **Répartir le coffre-fort/les ressources**      | Équipe Plateforme                                          | Accès secret, portée d'octroi, qui obtient quoi                                                            |
 
 ### Travail d'agent simultané
 
@@ -132,16 +132,16 @@ Lors de l'examen des PR dans cet environnement :
 
 L'application [Dispatch](/docs/dispatch) est le plan de contrôle d'exécution de l'espace de travail. Il complète la gouvernance au niveau Git avec la gouvernance d'exécution :
 
-| Inquiétudes                         | Git / GitHub                  | Expédition                                                     |
-| ------------------------------- | ----------------------------- | ------------------------------------------------------------ |
-| Qui peut modifier le code             | CODEOWNERS, protection des branches | —                                                            |
-| Qui peut accéder aux secrets          | —                             | Règle de Vault, subventions, workflow de demande                       |
-| Quelles instructions suivent les agents | —                             | Ressources de l'espace de travail global (AGENTS.md, instructions, skills) |
-| Quels agents sont partagés         | —                             | Profils d'agent Workspace                                     |
-| Inventaire d'intégration           | —                             | Catalogue de connexions et d'intégrations Workspace               |
-| Approbation des modifications d'exécution         | —                             | Flux d'approbation d'envoi                                       |
-| Piste d'audit                     | `git log` / `git blame`       | Audit du coffre-fort + journaux d'audit de répartition                            |
-| Messagerie et routage             | —                             | Slack / Intégration Telegram                                 |
+| Inquiétudes                               | Git / GitHub                        | Expédition                                                                 |
+| ----------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| Qui peut modifier le code                 | CODEOWNERS, protection des branches | —                                                                          |
+| Qui peut accéder aux secrets              | —                                   | Règle de Vault, subventions, workflow de demande                           |
+| Quelles instructions suivent les agents   | —                                   | Ressources de l'espace de travail global (AGENTS.md, instructions, skills) |
+| Quels agents sont partagés                | —                                   | Profils d'agent Workspace                                                  |
+| Inventaire d'intégration                  | —                                   | Catalogue de connexions et d'intégrations Workspace                        |
+| Approbation des modifications d'exécution | —                                   | Flux d'approbation d'envoi                                                 |
+| Piste d'audit                             | `git log` / `git blame`             | Audit du coffre-fort + journaux d'audit de répartition                     |
+| Messagerie et routage                     | —                                   | Slack / Intégration Telegram                                               |
 
 **Git gère la gouvernance du code. Dispatch gère la gouvernance d'exécution.** N'essayez pas de répliquer les workflows git dans Dispatch ou vice versa.
 

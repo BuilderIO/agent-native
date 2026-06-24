@@ -11,12 +11,12 @@ Os aplicativos nativos do agente usam o **React Router v7** com roteamento basea
 
 ### Arquivo → Mapeamento URL
 
-| Arquivo                  | URL                | Notas                                  |
-| --------------------- | ------------------ | -------------------------------------- |
-| `_index.tsx`          | `/`                | Rota de índice                            |
-| `settings.tsx`        | `/settings`        | Página simples                            |
-| `inbox.$threadId.tsx` | `/inbox/:threadId` | Ponto = `/`, `$` = parâmetro dinâmico         |
-| `_app.tsx`            | (sem segmento URL)   | Layout sem caminho — prefixo com `_`      |
+| Arquivo               | URL                | Notas                                        |
+| --------------------- | ------------------ | -------------------------------------------- |
+| `_index.tsx`          | `/`                | Rota de índice                               |
+| `settings.tsx`        | `/settings`        | Página simples                               |
+| `inbox.$threadId.tsx` | `/inbox/:threadId` | Ponto = `/`, `$` = parâmetro dinâmico        |
+| `_app.tsx`            | (sem segmento URL) | Layout sem caminho — prefixo com `_`         |
 | `inbox/route.tsx`     | `/inbox`           | Formulário de pasta — `route.tsx` é o índice |
 
 Prefixe um segmento com `$` para um parâmetro dinâmico. Prefixe com `_` para torná-la uma rota de layout sem caminho (sem segmento URL). Os modelos usam `flatRoutes()` — o arquivo de notação de ponto acima é o principal; o formato de pasta aninhada `inbox/route.tsx` também funciona.

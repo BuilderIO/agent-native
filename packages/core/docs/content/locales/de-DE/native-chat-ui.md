@@ -34,10 +34,10 @@ Der native Pfad besteht aus zwei expliziten Teilen:
 Die integrierten Datenrenderer verwenden ein einfaches JSON-Ergebnis mit `widget` plus
 passende Nutzlast:
 
-| Widget            | Erforderliche Nutzlast             | Wird gerendert als                                      |
-| ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | Eine native, wiederverwendbare Datentabelle                   |
-| `"data-chart"`    | `chartSeries`                | Ein natives Balken-, Linien- oder Flächendiagramm               |
+| Widget            | Erforderliche Nutzlast         | Wird gerendert als                                           |
+| ----------------- | ------------------------------ | ------------------------------------------------------------ |
+| `"data-table"`    | `table`                        | Eine native, wiederverwendbare Datentabelle                  |
+| `"data-chart"`    | `chartSeries`                  | Ein natives Balken-, Linien- oder Flächendiagramm            |
 | `"data-insights"` | `table` und/oder `chartSeries` | Eine kombinierte Insight-Karte mit Diagramm-/Tabellenausgabe |
 
 Server actions sollte die serversicheren Helfer und Schemata importieren von
@@ -105,7 +105,7 @@ export default defineAction({
 ```
 
 Wenn ein Benutzer nach einem Diagramm, einer Grafik, einer Tabelle, einem Trend oder einem kompakten Bericht fragt, app-Agents
- sollte eine Aktion bevorzugen, die einen dieser nativen Renderer deklariert. Das Finale
+sollte eine Aktion bevorzugen, die einen dieser nativen Renderer deklariert. Das Finale
 Assistententext sollte kurz bleiben und das Widget die Daten übertragen lassen; nicht kopieren
 dieselben Zeilen in eine Markdown-Tabelle einfügen, es sei denn, der Benutzer fragt ausdrücklich nach einem Text
 exportieren.

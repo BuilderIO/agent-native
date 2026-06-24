@@ -92,13 +92,13 @@ Server-Plugin.
 
 Alle Routen live unter `/_agent-native/onboarding/`:
 
-| Route                                               | Zweck                           |
-| --------------------------------------------------- | --------------------------------- |
-| `GET /_agent-native/onboarding/steps`               | Schritte mit Abschlussstatus auflisten |
-| `POST /_agent-native/onboarding/steps/:id/complete` | Schritt als abgeschlossen markieren (überschreiben)     |
-| `POST /_agent-native/onboarding/dismiss`            | Onboarding-Banner schließen     |
-| `POST /_agent-native/onboarding/reopen`             | Eindeutige Entlassung (Panel erneut zeigen)   |
-| `GET /_agent-native/onboarding/dismissed`           | Entlassung + AllComplete-Flag lesen |
+| Route                                               | Zweck                                               |
+| --------------------------------------------------- | --------------------------------------------------- |
+| `GET /_agent-native/onboarding/steps`               | Schritte mit Abschlussstatus auflisten              |
+| `POST /_agent-native/onboarding/steps/:id/complete` | Schritt als abgeschlossen markieren (überschreiben) |
+| `POST /_agent-native/onboarding/dismiss`            | Onboarding-Banner schließen                         |
+| `POST /_agent-native/onboarding/reopen`             | Eindeutige Entlassung (Panel erneut zeigen)         |
+| `GET /_agent-native/onboarding/dismissed`           | Entlassung + AllComplete-Flag lesen                 |
 
 ```an-api title="List onboarding steps"
 {
@@ -164,12 +164,12 @@ Eine vollständige Liste der Verbindungsanbieter-Katalogmethoden finden Sie in d
 
 ### Methodenarten
 
-| Freundlich               | Nutzlast                                               | Verwenden für                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | Benutzer zu einem OAuth-Flow oder einer Dokumentenseite weiterleiten   |
-| `form`             | `{ fields, writeScope? }`                             | Env-Variablen sammeln (Schlüssel, Geheimnisse, URLs)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | Senden Sie eine Aufforderung an den Agenten-Chat zur Bearbeitung |
+| Freundlich         | Nutzlast                                              | Verwenden für                                                        |
+| ------------------ | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | Benutzer zu einem OAuth-Flow oder einer Dokumentenseite weiterleiten |
+| `form`             | `{ fields, writeScope? }`                             | Env-Variablen sammeln (Schlüssel, Geheimnisse, URLs)                 |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                               |
+| `agent-task`       | `{ prompt }`                                          | Senden Sie eine Aufforderung an den Agenten-Chat zur Bearbeitung     |
 
 Das `primary: true`-Flag markiert eine Methode als das große CTA für ihren Schritt.
 Verwenden Sie `badge: "soon"` plus `disabled: true`, wenn ein Setup-Pfad sichtbar sein soll
@@ -177,12 +177,12 @@ bevor es verfügbar ist.
 
 ### Eingebaute Schritte
 
-| ID         | Erforderlich | Beschreibung                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | Ja      | Builder-Verbindung oder ein Provider-LLM-Schlüssel          |
-| `database` | nein       | Standarddatenbank oder eine beliebige SQL `DATABASE_URL`        |
-| `auth`     | nein       | Eingebaute Konten, optional OAuth oder Zugriffstoken |
-| `email`    | nein       | Erneut senden oder SendGrid für Transaktions-E-Mails        |
+| ID         | Erforderlich | Beschreibung                                             |
+| ---------- | ------------ | -------------------------------------------------------- |
+| `llm`      | Ja           | Builder-Verbindung oder ein Provider-LLM-Schlüssel       |
+| `database` | nein         | Standarddatenbank oder eine beliebige SQL `DATABASE_URL` |
+| `auth`     | nein         | Eingebaute Konten, optional OAuth oder Zugriffstoken     |
+| `email`    | nein         | Erneut senden oder SendGrid für Transaktions-E-Mails     |
 
 Any of these can be overridden by re-registering with the same `id` after the
 Standardlast.

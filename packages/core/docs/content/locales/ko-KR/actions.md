@@ -106,7 +106,7 @@ actions 정도이며 작업 자체에 필요한 전제 조건은 아닙니다.
 
 ### 반환 값 검증 {#output-schema}
 
-`schema`는 _입력_을 검증합니다. 작업이 **반환**하는 내용도 확인하려면 `outputSchema`(모든 표준 스키마 호환 스키마 — Zod, Valibot, ArkType, `schema`와 동일한 표면)를 전달하세요. 프레임워크는 `run()`가 해결한 _이후_ 결과를 검증하고 입력 검증으로 구성합니다. 입력은 `run` 이전에 검증되고 출력은 이후에 검증됩니다.
+`schema`는 *입력*을 검증합니다. 작업이 **반환**하는 내용도 확인하려면 `outputSchema`(모든 표준 스키마 호환 스키마 — Zod, Valibot, ArkType, `schema`와 동일한 표면)를 전달하세요. 프레임워크는 `run()`가 해결한 _이후_ 결과를 검증하고 입력 검증으로 구성합니다. 입력은 `run` 이전에 검증되고 출력은 이후에 검증됩니다.
 
 ```ts
 export default defineAction({
@@ -125,11 +125,11 @@ export default defineAction({
 
 `outputErrorStrategy`는 불일치 시 발생하는 상황을 제어합니다.
 
-| 전략     | 불일치 시 동작                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
+| 전략         | 불일치 시 동작                                                                                        |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **기본값.** `console.warn` 문제가 발생하고 변경되지 않은 **원래** 결과를 반환합니다. 깨지지 않습니다. |
-| `"strict"`   | 확실한 오류를 던져서 버그가 있는 동작이 크게 드러나도록 합니다.                                             |
-| `"fallback"` | 잘못된 결과 대신 제공된 `outputFallback` 값을 반환합니다.                         |
+| `"strict"`   | 확실한 오류를 던져서 버그가 있는 동작이 크게 드러나도록 합니다.                                       |
+| `"fallback"` | 잘못된 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                             |
 
 성공하면 **검증된** 값이 반환되므로 `outputSchema`에 정의된 강제 또는 기본값이 적용됩니다(입력 경로 미러링). `outputSchema`가 제공되지 않으면 동작은 바이트 단위로 변경되지 않습니다. 즉, 래핑이 없습니다. 이는 Mastra/Flue 구조화된 출력에서 차용되었으며 작업 레이어에서 종속성 없이 유지됩니다.
 
@@ -188,12 +188,12 @@ export default defineAction({
 
 4개의 플래그는 _누가_ 작업을 호출할 수 있는지를 제어합니다. 모두 기본값은 허용 값이므로 특정 표면을 조이기 위해 하나만 설정하면 됩니다. 이 표는 한눈에 볼 수 있는 요약입니다. 하위 섹션에는 각각 필요한 세부정보가 추가됩니다.
 
-| 깃발            | 기본값       | 제한적인 값 → 통화할 수 있는 사람                                      | 일반적인 사용                                                     |
-| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → UI, HTTP, CLI 전용 — **모델에서 숨겨짐**, MCP 및 A2A      | 도구 슬롯을 소비해서는 안 되는 UI 전용 / 프로그래밍 방식 actions |
-| `toolCallable`  | `true`        | `false` → 샌드박스 확장 iframe 브리지(403)를 **제외** 모든 것 | 인증 인접 작업(계정 삭제, 조직 멤버십/역할 변경) |
-| `publicAgent`   | 해제(비공개) | `{ expose: true }` → **공개** MCP/A2A/OpenAPI 표면에 작업 추가 | 인증 없이 접근 가능한 안전한 읽기/수집 도구         |
-| `needsApproval` | `false`       | `true` → 에이전트 **일시 중지**; 사람이 특정 통화를 승인해야 합니다       | 결과적인 부작용(이메일 보내기, 카드 청구, 삭제)  |
+| 깃발            | 기본값       | 제한적인 값 → 통화할 수 있는 사람                                   | 일반적인 사용                                                    |
+| --------------- | ------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `agentTool`     | `true`       | `false` → UI, HTTP, CLI 전용 — **모델에서 숨겨짐**, MCP 및 A2A      | 도구 슬롯을 소비해서는 안 되는 UI 전용 / 프로그래밍 방식 actions |
+| `toolCallable`  | `true`       | `false` → 샌드박스 확장 iframe 브리지(403)를 **제외** 모든 것       | 인증 인접 작업(계정 삭제, 조직 멤버십/역할 변경)                 |
+| `publicAgent`   | 해제(비공개) | `{ expose: true }` → **공개** MCP/A2A/OpenAPI 표면에 작업 추가      | 인증 없이 접근 가능한 안전한 읽기/수집 도구                      |
+| `needsApproval` | `false`      | `true` → 에이전트 **일시 중지**; 사람이 특정 통화를 승인해야 합니다 | 결과적인 부작용(이메일 보내기, 카드 청구, 삭제)                  |
 
 These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), and `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below.
 
@@ -259,24 +259,24 @@ export default defineAction({
 
 `ActionRunContext` 필드:
 
-| 필드         | 유형                    | 참고                                                                                                                                                           |
+| 필드          | 유형                    | 참고                                                                                                                                                            |
 | ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
 | `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | 작업이 호출된 방법(아래 참조).                                                                                                                         |
-| `send`        | `(event) => void`       | 선택사항. 클라이언트에 SSE 이벤트를 내보냅니다. 에이전트 도구 루프(`caller: "tool"`) 내부에만 존재합니다. `undefined` 다른 곳.                                   |
-| `attachments` | `AgentChatAttachment[]` | 현재 에이전트 차례에 제출된 파일, 이미지 및 붙여넣은 텍스트 블록입니다. `caller: "tool"`인 경우에만 채워집니다. 다른 모든 표면에는 `undefined`가 있습니다.           |
+| `caller`      | `ActionCaller`          | 작업이 호출된 방법(아래 참조).                                                                                                                                  |
+| `send`        | `(event) => void`       | 선택사항. 클라이언트에 SSE 이벤트를 내보냅니다. 에이전트 도구 루프(`caller: "tool"`) 내부에만 존재합니다. `undefined` 다른 곳.                                  |
+| `attachments` | `AgentChatAttachment[]` | 현재 에이전트 차례에 제출된 파일, 이미지 및 붙여넣은 텍스트 블록입니다. `caller: "tool"`인 경우에만 채워집니다. 다른 모든 표면에는 `undefined`가 있습니다.      |
 
 `caller`는 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"` 조합입니다:
 
-| `caller`     | 설정 시기…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `caller`     | 설정 시기…                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `"tool"`     | 인앱 에이전트 루프, 하위 에이전트/에이전트 팀 또는 A2A 요청(A2A는 동일한 에이전트 루프를 구동하므로 도구 호출은 `"tool"`입니다.) |
 | `"frontend"` | `useActionMutation` / `useActionQuery` / `callAction`를 통한 브라우저 호출(`X-Agent-Native-Frontend: 1` 헤더 태그가 지정됨)      |
-| `"http"`     | 프런트엔드 마커가 없는 순수 프로그래밍 방식의 `POST` / `GET` ~ `/_agent-native/actions/<name>`.                                   |
-| `"cli"`      | `pnpm action <name>`(CLI 러너).                                                                                               |
+| `"http"`     | 프런트엔드 마커가 없는 순수 프로그래밍 방식의 `POST` / `GET` ~ `/_agent-native/actions/<name>`.                                  |
+| `"cli"`      | `pnpm action <name>`(CLI 러너).                                                                                                  |
 | `"mcp"`      | MCP `tools/call` 엔드포인트를 통한 외부 에이전트.                                                                                |
-| `"a2a"`      | 향후 직접 A2A 액션 파견을 위해 예약되었습니다. 현재 A2A는 상담원 루프를 통해 실행되므로 해당 호출은 `"tool"`입니다.                |
+| `"a2a"`      | 향후 직접 A2A 액션 파견을 위해 예약되었습니다. 현재 A2A는 상담원 루프를 통해 실행되므로 해당 호출은 `"tool"`입니다.              |
 
 `run`는 이전 버전과의 호환성을 유지합니다. 기존의 1개 인수 핸들러와 `{ send }`만 분해하는 핸들러는 변경 없이 계속 작동합니다.
 
@@ -390,7 +390,7 @@ const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
 Actions는 인앱 채팅이 렌더링하는 구조화된 위젯 데이터를 반환할 수 있습니다.
 기본적으로. 재사용 가능한 테이블, 차트, 설정을 위한 자사 채팅 경로입니다.
-summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in 
+summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
 외부 MCP 호스트.
 
 ```ts
@@ -564,14 +564,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## 유틸리티 기능 {#utility-functions}
 
-| 기능                | 반품   | 설명                                           |
-| ----------------------- | --------- | ----------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | 프로젝트 루트(또는 사용자 정의 경로)에서 `.env`를 로드합니다.       |
-| `camelCaseArgs(args)`   | `Record`  | 케밥 케이스 키를 camelCase로 변환하세요.                 |
-| `isValidPath(p)`        | `boolean` | 상대 경로를 검증합니다(순회 없음, 절대 없음). |
-| `isValidProjectPath(p)` | `boolean` | 프로젝트 슬러그를 검증합니다(예: `my-project`).          |
-| `ensureDir(dir)`        | `void`    | `mkdir -p` 도우미.                                    |
-| `fail(message)`         | `never`   | stderr 및 `exit(1)`로 인쇄하세요.                        |
+| 기능                    | 반품      | 설명                                                          |
+| ----------------------- | --------- | ------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | 프로젝트 루트(또는 사용자 정의 경로)에서 `.env`를 로드합니다. |
+| `camelCaseArgs(args)`   | `Record`  | 케밥 케이스 키를 camelCase로 변환하세요.                      |
+| `isValidPath(p)`        | `boolean` | 상대 경로를 검증합니다(순회 없음, 절대 없음).                 |
+| `isValidProjectPath(p)` | `boolean` | 프로젝트 슬러그를 검증합니다(예: `my-project`).               |
+| `ensureDir(dir)`        | `void`    | `mkdir -p` 도우미.                                            |
+| `fail(message)`         | `never`   | stderr 및 `exit(1)`로 인쇄하세요.                             |
 
 ## 다음 단계
 

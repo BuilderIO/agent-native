@@ -24,25 +24,25 @@ Die Frontmatter `name` und `description` jedes Skills werden immer in den skills
 
 Dies sind die skills, die mit der **Standardvorlage** gebündelt sind. Der genaue Satz, der in einer bestimmten App verfügbar ist, hängt von der Vorlage ab, aus der Sie das Gerüst erstellt haben. Überprüfen Sie im `.agents/skills/`-Verzeichnis dieser Vorlage, was tatsächlich enthalten ist.
 
-| Fähigkeit                  | Wann zu verwenden                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `storing-data`         | Datenmodelle hinzufügen, Konfiguration oder Status lesen/schreiben                |
-| `real-time-sync`       | Verdrahtungsabfragesynchronisierung, Debugging UI wird nicht aktualisiert                     |
-| `delegate-to-agent`    | KI-Arbeit von UI oder actions an den Agenten delegieren                 |
-| `actions`              | Agent actions wird erstellt oder ausgeführt                                  |
-| `self-modifying-code`  | App-Quelle, Komponenten oder Stile bearbeiten                          |
-| `create-skill`         | Neues skills für den Agenten hinzufügen                                    |
-| `capture-learnings`    | Korrekturen und Muster aufzeichnen                                 |
-| `frontend-design`      | Erstellen oder Gestalten beliebiger Web-Elemente, Komponenten oder Seiten               |
-| `adding-a-feature`     | Die Checkliste für vier Bereiche: UI, actions, skills, App-Status            |
+| Fähigkeit              | Wann zu verwenden                                                           |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `storing-data`         | Datenmodelle hinzufügen, Konfiguration oder Status lesen/schreiben          |
+| `real-time-sync`       | Verdrahtungsabfragesynchronisierung, Debugging UI wird nicht aktualisiert   |
+| `delegate-to-agent`    | KI-Arbeit von UI oder actions an den Agenten delegieren                     |
+| `actions`              | Agent actions wird erstellt oder ausgeführt                                 |
+| `self-modifying-code`  | App-Quelle, Komponenten oder Stile bearbeiten                               |
+| `create-skill`         | Neues skills für den Agenten hinzufügen                                     |
+| `capture-learnings`    | Korrekturen und Muster aufzeichnen                                          |
+| `frontend-design`      | Erstellen oder Gestalten beliebiger Web-Elemente, Komponenten oder Seiten   |
+| `adding-a-feature`     | Die Checkliste für vier Bereiche: UI, actions, skills, App-Status           |
 | `internationalization` | Aktualisieren lokalisierter UI-Kopie, Sprachkataloge und RTL-sicherer Stile |
-| `shadcn-ui`            | Verwendung von shadcn/ui-Grundelementen und -Komponenten                          |
-| `security`             | Authentifizierung, Zugriffskontrolle und Geheimverwaltung                          |
-| `real-time-collab`     | Gemeinsame Bearbeitung durch mehrere Benutzer                                   |
-| `agent-engines`        | Austauschen oder Konfigurieren der zugrunde liegenden Agent-Engine                |
-| `notifications`        | In-App- und Push-Benachrichtigungsmuster                              |
-| `progress`             | Verfolgen und Anzeigen des Fortschritts von Hintergrundaufgaben                    |
-| `inline-embeds`        | Einbetten von Apps oder Iframes in den Agenten-Chat                    |
+| `shadcn-ui`            | Verwendung von shadcn/ui-Grundelementen und -Komponenten                    |
+| `security`             | Authentifizierung, Zugriffskontrolle und Geheimverwaltung                   |
+| `real-time-collab`     | Gemeinsame Bearbeitung durch mehrere Benutzer                               |
+| `agent-engines`        | Austauschen oder Konfigurieren der zugrunde liegenden Agent-Engine          |
+| `notifications`        | In-App- und Push-Benachrichtigungsmuster                                    |
+| `progress`             | Verfolgen und Anzeigen des Fortschritts von Hintergrundaufgaben             |
+| `inline-embeds`        | Einbetten von Apps oder Iframes in den Agenten-Chat                         |
 
 `context-awareness` und `a2a-protocol` sind skills auf Framework-Ebene, die im `.agents/skills/`-Verzeichnis im Repo-Stammverzeichnis verfügbar sind. Sehen Sie sich die `.agents/skills/` jeder Vorlage an, um zu erfahren, was sie übernimmt.
 
@@ -104,11 +104,11 @@ Speichern Sie die Datei unter `.agents/skills/my-skill/SKILL.md`. Der Verzeichni
 
 Ein optionales `scope`-Frontmatter-Feld steuert, für welchen Agenten ein Skill bestimmt ist:
 
-| `scope`   | Vom Laufzeitagenten geladen? | Verwenden für                                                                         |
-| --------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `scope`   | Vom Laufzeitagenten geladen? | Verwenden für                                                                                            |
+| --------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `both`    | Ja (Standard)                | Skills nützlich für den In-App-Agenten. Dies ist die Standardeinstellung, wenn `scope` weggelassen wird. |
-| `runtime` | Ja                          | Skills nur für den In-App-Laufzeitagenten gedacht.                                 |
-| `dev`     | Nein                           | Skills ist nur für den Kodierungsagenten des Menschen gedacht (z. B. Claude-Code).              |
+| `runtime` | Ja                           | Skills nur für den In-App-Laufzeitagenten gedacht.                                                       |
+| `dev`     | Nein                         | Skills ist nur für den Kodierungsagenten des Menschen gedacht (z. B. Claude-Code).                       |
 
 ```markdown
 ---
@@ -189,11 +189,11 @@ Jeder app-gestützte Skill beginnt mit `agent-native.app-skill.json` im App-Stam
 
 Skill-Sichtbarkeit steuert, was versendet wird:
 
-| Sichtbarkeit | Bedeutung                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `internal` | Wird vom eigenen Agenten der App verwendet und nicht auf Marktplätze exportiert.      |
-| `exported` | Auf Marktplätze exportiert, aber von der App intern nicht benötigt. |
-| `both`     | Intern verwendet und exportiert.                                   |
+| Sichtbarkeit | Bedeutung                                                                        |
+| ------------ | -------------------------------------------------------------------------------- |
+| `internal`   | Wird vom eigenen Agenten der App verwendet und nicht auf Marktplätze exportiert. |
+| `exported`   | Auf Marktplätze exportiert, aber von der App intern nicht benötigt.              |
+| `both`       | Intern verwendet und exportiert.                                                 |
 
 Hosted ist der Standardinstallationspfad. Der lokale Start dient explizit der Anpassung,
 Offline-Arbeit oder datenschutzrelevante Nutzung.
@@ -235,7 +235,7 @@ Der Vercel Labs `skills`-Adapter ist ein tragbares `skills/<name>/SKILL.md`-Pake
 für `npx skills@latest add ...`, aber der rohe `skills` CLI installiert nur Anweisungen.
 Es führt keine Repo-definierten Postinstallationsskripte aus und registriert keine MCP-Konnektoren.
 Behalten Sie Agent Native CLI als Standarddokumentpfad für lokale Agenten bei, da dies der Fall ist
- registriert auch den MCP-Anschluss. `BuilderIO/agent-native` ist ein echter GitHub
+registriert auch den MCP-Anschluss. `BuilderIO/agent-native` ist ein echter GitHub
 Repository-Quelle für Vercel/open Skills CLI; `skills.sh` ist eine Entdeckung und
 Bestenlistenverzeichnis, kein Paket-Namespace im npm-Stil.
 

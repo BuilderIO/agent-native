@@ -17,17 +17,17 @@ El patrón **espacio de trabajo de aplicaciones múltiples** es la forma en que 
 
 Cualquier cosa que todas las aplicaciones de su organización deban acordar puede residir en `packages/shared`:
 
-| Cosa compartida                  | Dónde vive                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| Anulación de autenticación/SSO           | Exportar `authPlugin` desde `src/server/index.ts`                                |
-| Reglas de la organización/RBAC              | Mejores organizaciones de autenticación, opcionalmente envueltas por ese `authPlugin`            |
-| Anulación del chat del agente           | Exportar `agentChatPlugin` desde `src/server/index.ts`                           |
-| Instrucciones del agente empresarial | `AGENTS.md`                                                                   |
-| Agente skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
-| Agente compartido actions          | `actions/*.ts`                                                                |
-| Componentes React compartidos       | Exportar desde `src/client/index.ts`                                             |
-| Fichas de diseño/marca         | Agregue un archivo CSS compartido e impórtelo desde cada aplicación                             |
-| Credenciales API compartidas        | Prefiere credenciales con ámbito de marco; agregue ayudantes solo si necesita espacio de nombres |
+| Cosa compartida                      | Dónde vive                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Anulación de autenticación/SSO       | Exportar `authPlugin` desde `src/server/index.ts`                                                |
+| Reglas de la organización/RBAC       | Mejores organizaciones de autenticación, opcionalmente envueltas por ese `authPlugin`            |
+| Anulación del chat del agente        | Exportar `agentChatPlugin` desde `src/server/index.ts`                                           |
+| Instrucciones del agente empresarial | `AGENTS.md`                                                                                      |
+| Agente skills                        | `.agents/skills/<skill-name>/SKILL.md`                                                           |
+| Agente compartido actions            | `actions/*.ts`                                                                                   |
+| Componentes React compartidos        | Exportar desde `src/client/index.ts`                                                             |
+| Fichas de diseño/marca               | Agregue un archivo CSS compartido e impórtelo desde cada aplicación                              |
+| Credenciales API compartidas         | Prefiere credenciales con ámbito de marco; agregue ayudantes solo si necesita espacio de nombres |
 
 Cada aplicación individual se convierte en _solo un conjunto de pantallas_: rutas, paneles, vistas, actions específicos del dominio. Los valores predeterminados del marco cubren el resto hasta que agregues una personalización real del espacio de trabajo.
 
@@ -124,12 +124,12 @@ La fusión se realiza por nombre de archivo. Si una aplicación proporciona un a
 
 Cuando una aplicación necesita algo diferente, suelta un archivo local:
 
-| Cosa a anular             | Archivo para crear dentro de la aplicación                       |
-| ----------------------------- | --------------------------------------------------- |
-| Complemento de autenticación                   | `apps/<name>/server/plugins/auth.ts`                |
-| Complemento de chat de agente             | `apps/<name>/server/plugins/agent-chat.ts`          |
-| Una habilidad específica              | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`  |
-| Una acción específica             | `apps/<name>/actions/<action-name>.ts`              |
+| Cosa a anular                            | Archivo para crear dentro de la aplicación                         |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| Complemento de autenticación             | `apps/<name>/server/plugins/auth.ts`                               |
+| Complemento de chat de agente            | `apps/<name>/server/plugins/agent-chat.ts`                         |
+| Una habilidad específica                 | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`                 |
+| Una acción específica                    | `apps/<name>/actions/<action-name>.ts`                             |
 | Instrucciones adicionales para el agente | `apps/<name>/AGENTS.md` (se fusiona con el espacio de trabajo uno) |
 
 Sin cableado, sin configuración. Cree el archivo y se hará cargo.

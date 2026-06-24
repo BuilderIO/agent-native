@@ -34,30 +34,30 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ## एजेंट और चैट UI {#agent-chat-ui}
 
-| API                                  | आयात पथ                                   | कब उपयोग करें                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` या `/client/chat` | आप अपने ऐप के चारों ओर संपूर्ण साइडबार चाहते हैं।                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` या `/client/chat` | आप साइडबार के लिए अपना स्वयं का हेडर बटन प्रस्तुत करते हैं।                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` या `/client/chat` | आप पूरा पैनल अपने लेआउट, रूट, डायलॉग या साइड कॉलम में चाहते हैं।                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` या `/client/chat` | आप साइडबार रैपर के बिना पैनल या पेज मोड में चैट करना चाहते हैं।                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client` या `/client/chat` | आप मानक वार्तालाप और कंपोज़र रनटाइम को बनाए रखते हुए आसपास के क्रोम का स्वामी बनना चाहते हैं। |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` या `/client/chat` | आप `AgentPanel` क्रोम के बिना फ्रेमवर्क के थ्रेड टैब चाहते हैं।                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` या `/client/chat` | आपके पास एक BYO एजेंट एंडपॉइंट है जो सामान्यीकृत चैट इवेंट को स्ट्रीम करता है।                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI एजेंट SDK स्ट्रीम है और आप इसके आसपास मानक चैट UI चाहते हैं।                    |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI रिस्पॉन्स इवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` या `/client/chat` | आपके पास एक AG-UI ईवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` या `/client/chat` | आपके पास एक Claude एजेंट SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` या `/client/chat` | आपके पास Vercel AI SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                         |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` या `/client/chat` | आपको स्वयं एक `AgentChatRuntime` को Assistant-ui में अनुकूलित करना होगा।                              |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` या `/client/chat` | आपको निम्न-स्तरीय सहायक-यूआई एडाप्टर के रूप में अंतर्निहित Agent-Native SSE ट्रांसपोर्ट की आवश्यकता है।            |
+| API                                  | आयात पथ                                       | कब उपयोग करें                                                                                           |
+| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` या `/client/chat` | आप अपने ऐप के चारों ओर संपूर्ण साइडबार चाहते हैं।                                                       |
+| `<AgentToggleButton>`                | `@agent-native/core/client` या `/client/chat` | आप साइडबार के लिए अपना स्वयं का हेडर बटन प्रस्तुत करते हैं।                                             |
+| `<AgentPanel>`                       | `@agent-native/core/client` या `/client/chat` | आप पूरा पैनल अपने लेआउट, रूट, डायलॉग या साइड कॉलम में चाहते हैं।                                        |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` या `/client/chat` | आप साइडबार रैपर के बिना पैनल या पेज मोड में चैट करना चाहते हैं।                                         |
+| `<AssistantChat>`                    | `@agent-native/core/client` या `/client/chat` | आप मानक वार्तालाप और कंपोज़र रनटाइम को बनाए रखते हुए आसपास के क्रोम का स्वामी बनना चाहते हैं।           |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` या `/client/chat` | आप `AgentPanel` क्रोम के बिना फ्रेमवर्क के थ्रेड टैब चाहते हैं।                                         |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` या `/client/chat` | आपके पास एक BYO एजेंट एंडपॉइंट है जो सामान्यीकृत चैट इवेंट को स्ट्रीम करता है।                          |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI एजेंट SDK स्ट्रीम है और आप इसके आसपास मानक चैट UI चाहते हैं।                         |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI रिस्पॉन्स इवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।          |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` या `/client/chat` | आपके पास एक AG-UI ईवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                     |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` या `/client/chat` | आपके पास एक Claude एजेंट SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` या `/client/chat` | आपके पास Vercel AI SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                      |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` या `/client/chat` | आपको स्वयं एक `AgentChatRuntime` को Assistant-ui में अनुकूलित करना होगा।                                |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` या `/client/chat` | आपको निम्न-स्तरीय सहायक-यूआई एडाप्टर के रूप में अंतर्निहित Agent-Native SSE ट्रांसपोर्ट की आवश्यकता है। |
 | `useChatThreads()`                   | `@agent-native/core/client` या `/client/chat` | आपको एक कस्टम थ्रेड सूची, इतिहास पिकर, या स्कोप्ड चैट UI की आवश्यकता है।                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` या `/client/chat` | उत्पाद कार्रवाई का काम एजेंट चैट के हाथ में होना चाहिए।                                             |
+| `sendToAgentChat()`                  | `@agent-native/core/client` या `/client/chat` | उत्पाद कार्रवाई का काम एजेंट चैट के हाथ में होना चाहिए।                                                 |
 
 `AgentChatRuntime` मानक चैट शेल के लिए BYO-एजेंट अनुबंध है। उत्तीर्ण
 `runtime` से `<AssistantChat>` जब किसी बाहरी एजेंट को पावर देनी चाहिए
 बातचीत जबकि Agent-Native कंपोजर, ट्रांसक्रिप्ट, टूल कार्ड और रखता है
 देशी विजेट प्रतिपादन। उपरोक्त कनेक्टर API सतह हैं; रनटाइम
-अनुबंध और घटना के आकार 
+अनुबंध और घटना के आकार
 [Native Chat UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
 यदि आप हेडलेस एजेंटों, रिच चैट, एम्बेडेड साइडकार और
 पूर्ण ऐप आकार, [Agent Surfaces](/docs/agent-surfaces) देखें।
@@ -105,13 +105,13 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 जब आपको वही चैट करने की आवश्यकता हो तो `@agent-native/core/client/composer` का उपयोग करें
 कस्टम UI के अंदर साइडबार द्वारा उपयोग किया जाने वाला फ़ील्ड।
 
-| API                               | कब उपयोग करें                                                                                                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API                               | कब उपयोग करें                                                                                                                                               |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | आपको अटैचमेंट, स्लैश कमांड, संदर्भ, पेस्ट-टेक्स्ट हैंडलिंग, ड्राफ्ट दृढ़ता, वॉयस इनपुट और सबमिशन सिमेंटिक्स के साथ रेडी-टू-सबमिट चैट फ़ील्ड की आवश्यकता है। |
-| `<AgentComposerFrame>`            | आप कस्टम कंपोज़र बॉडी के चारों ओर मानक विज़ुअल शेल चाहते हैं।                                                                                                   |
-| `<TiptapComposer>`                | आपको निम्नतम-स्तरीय रिच चैट फ़ील्ड की आवश्यकता है। इसे Assistant-ui `ThreadPrimitive.Root` / कंपोज़र रनटाइम के अंदर प्रस्तुत किया जाना चाहिए।                                    |
-| `buildPromptComposerSubmission()` | आपको अपने स्वयं के सबमिट हैंडलर को कॉल करने से पहले समान अनुलग्नक और पेस्ट-टेक्स्ट सामान्यीकरण की आवश्यकता है।                                                                  |
-| `formatPromptWithAttachments()`   | आपको छिपे हुए अनुलग्नक मेटाडेटा को एक प्रॉम्प्ट स्ट्रिंग में प्रस्तुत करना होगा।                                                                                                 |
+| `<AgentComposerFrame>`            | आप कस्टम कंपोज़र बॉडी के चारों ओर मानक विज़ुअल शेल चाहते हैं।                                                                                               |
+| `<TiptapComposer>`                | आपको निम्नतम-स्तरीय रिच चैट फ़ील्ड की आवश्यकता है। इसे Assistant-ui `ThreadPrimitive.Root` / कंपोज़र रनटाइम के अंदर प्रस्तुत किया जाना चाहिए।               |
+| `buildPromptComposerSubmission()` | आपको अपने स्वयं के सबमिट हैंडलर को कॉल करने से पहले समान अनुलग्नक और पेस्ट-टेक्स्ट सामान्यीकरण की आवश्यकता है।                                              |
+| `formatPromptWithAttachments()`   | आपको छिपे हुए अनुलग्नक मेटाडेटा को एक प्रॉम्प्ट स्ट्रिंग में प्रस्तुत करना होगा।                                                                            |
 
 अधिकांश कस्टम UIs को `PromptComposer` से शुरू होना चाहिए:
 
@@ -134,12 +134,12 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 प्रतिलेख-शैली प्रतिपादन के लिए `@agent-native/core/client/conversation` का उपयोग करें
 पूर्ण एजेंट रनटाइम के बाहर।
 
-| API                                             | कब उपयोग करें                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| `<AgentConversation>`                           | सामान्यीकृत एजेंट संदेशों की एक सूची प्रस्तुत करें।                      |
-| `<AgentConversationMessageView>`                | एक सामान्यीकृत संदेश प्रस्तुत करें।                                   |
-| `normalizeCodeAgentTranscriptForConversation()` | कोड-एजेंट ट्रांस्क्रिप्ट ईवेंट को वार्तालाप संदेशों में बदलें। |
-| `useNearBottomAutoscroll()`                     | स्ट्रीमिंग के दौरान एक कस्टम ट्रांसक्रिप्ट को नीचे पिन करके रखें।   |
+| API                                             | कब उपयोग करें                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------- |
+| `<AgentConversation>`                           | सामान्यीकृत एजेंट संदेशों की एक सूची प्रस्तुत करें।               |
+| `<AgentConversationMessageView>`                | एक सामान्यीकृत संदेश प्रस्तुत करें।                               |
+| `normalizeCodeAgentTranscriptForConversation()` | कोड-एजेंट ट्रांस्क्रिप्ट ईवेंट को वार्तालाप संदेशों में बदलें।    |
+| `useNearBottomAutoscroll()`                     | स्ट्रीमिंग के दौरान एक कस्टम ट्रांसक्रिप्ट को नीचे पिन करके रखें। |
 
 यह परत जानबूझकर डेटा-प्रथम है: आपके पास यह है कि संदेश कहां से आते हैं, और
 रेंडरर के पास लगातार मार्कडाउन, अटैचमेंट, नोटिस, कलाकृतियां और
@@ -153,30 +153,30 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 `@agent-native/core/client/chat` और रूट क्लाइंट प्रविष्टि से। देखें
 कार्रवाई परिणाम अनुबंध के लिए [Native Chat UI](/docs/native-chat-ui)।
 
-| API                              | कब उपयोग करें                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | आप मूल चैट में पंक्तियों और स्तंभों को प्रस्तुत करने के लिए एक क्रिया परिणाम चाहते हैं।                    |
-| `DataChartWidget`                | आप मूल चैट में कॉम्पैक्ट बार, लाइन या एरिया चार्ट आउटपुट चाहते हैं।                        |
+| API                              | कब उपयोग करें                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `DataTableWidget`                | आप मूल चैट में पंक्तियों और स्तंभों को प्रस्तुत करने के लिए एक क्रिया परिणाम चाहते हैं।                |
+| `DataChartWidget`                | आप मूल चैट में कॉम्पैक्ट बार, लाइन या एरिया चार्ट आउटपुट चाहते हैं।                                    |
 | `DataWidgetResult`               | आप `"data-table"`, `"data-chart"`, या `"data-insights"` के लिए एक टाइप किया हुआ परिणाम आकार चाहते हैं। |
-| `registerActionChatRenderer()`   | आपको सटीक `chatUI.renderer` द्वारा चयनित एक एक्शन-घोषित रेंडरर की आवश्यकता है।               |
-| `registerToolRenderer()`         | आपको गैर-कोर टूल परिणाम के लिए उत्पाद-विशिष्ट मूल रेंडरर की आवश्यकता है।                 |
-| `registerReservedToolRenderer()` | फ्रेमवर्क कोड को एक आरक्षित रेंडरर की आवश्यकता होती है जो टेम्पलेट रेंडरर्स से पहले जीतता है।           |
+| `registerActionChatRenderer()`   | आपको सटीक `chatUI.renderer` द्वारा चयनित एक एक्शन-घोषित रेंडरर की आवश्यकता है।                         |
+| `registerToolRenderer()`         | आपको गैर-कोर टूल परिणाम के लिए उत्पाद-विशिष्ट मूल रेंडरर की आवश्यकता है।                               |
+| `registerReservedToolRenderer()` | फ्रेमवर्क कोड को एक आरक्षित रेंडरर की आवश्यकता होती है जो टेम्पलेट रेंडरर्स से पहले जीतता है।          |
 
 ## रियलटाइम सहयोग और उपस्थिति {#collab-presence}
 
 लाइवब्लॉक-शैली की उपस्थिति के लिए `@agent-native/core/client/collab` का उपयोग करें और
 सहयोगी दस्तावेज़ हुक.
 
-| API                                                 | कब उपयोग करें                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `useCollaborativeDoc()`                             | एक रिच टेक्स्ट एडिटर या कस्टम Yjs सतह को `/_agent-native/collab` से बांधें।                   |
-| `usePresence()`                                     |  मनमाने ढंग से जागरूकता फ़ील्ड प्रकाशित और प्रस्तुत करें: कर्सर, चयन, व्यूपोर्ट, मोड।          |
-| `<PresenceBar>`                                     | सक्रिय मानव और एजेंट सहयोगी दिखाएं।                                                  |
+| API                                                 | कब उपयोग करें                                                                          |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc()`                             | एक रिच टेक्स्ट एडिटर या कस्टम Yjs सतह को `/_agent-native/collab` से बांधें।            |
+| `usePresence()`                                     | मनमाने ढंग से जागरूकता फ़ील्ड प्रकाशित और प्रस्तुत करें: कर्सर, चयन, व्यूपोर्ट, मोड।   |
+| `<PresenceBar>`                                     | सक्रिय मानव और एजेंट सहयोगी दिखाएं।                                                    |
 | `<LiveCursorOverlay>`                               | एक स्थित कंटेनर पर दूरस्थ कर्सर लेबल प्रस्तुत करें।                                    |
-| `<RemoteSelectionRings>`                            | DOM तत्वों पर दूरस्थ चयन रूपरेखा प्रस्तुत करें।                                         |
-| `useFollowUser()`                                   | किसी अन्य प्रतिभागी के व्यूपोर्ट या चयन का अनुसरण करें।                                         |
+| `<RemoteSelectionRings>`                            | DOM तत्वों पर दूरस्थ चयन रूपरेखा प्रस्तुत करें।                                        |
+| `useFollowUser()`                                   | किसी अन्य प्रतिभागी के व्यूपोर्ट या चयन का अनुसरण करें।                                |
 | `useCollaborativeMap()` / `useCollaborativeArray()` | रिच-टेक्स्ट बॉडी कोलाब गलत फिट होने पर संरचित Y.Map/Y.Array स्थिति के साथ प्रयोग करें। |
-| `dedupeCollabUsersByEmail()`                        | एक ही उपयोगकर्ता के लिए डुप्लिकेट टैब के बिना एक कस्टम अवतार स्टैक बनाएं।                       |
+| `dedupeCollabUsersByEmail()`                        | एक ही उपयोगकर्ता के लिए डुप्लिकेट टैब के बिना एक कस्टम अवतार स्टैक बनाएं।              |
 
 ```an-diagram title="Presence: humans and the agent share one awareness layer" summary="useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."
 {
@@ -202,16 +202,16 @@ import {
 योजनाओं, सामग्री, संसाधनों और सहयोगी दस्तावेज़ द्वारा उपयोग की जाने वाली सतह
 अनुभव.
 
-| API                              | कब उपयोग करें                                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| API                              | कब उपयोग करें                                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `<SharedRichEditor>`             | आपको मार्कडाउन क्रमांकन, वैकल्पिक Yjs और ऐप एक्स्ट्रा के साथ वर्तमान, कॉन्फ़िगर करने योग्य संपादक की आवश्यकता है। |
-| `<RichMarkdownEditor>`           | आपको साझा रिच संपादक के लिए बैकवर्ड-संगत उपनाम की आवश्यकता है।                                  |
-| `createSharedEditorExtensions()` | आप अपना खुद का टिपटैप संपादक बना रहे हैं लेकिन फ्रेमवर्क स्कीमा और मार्कडाउन बोलियाँ चाहते हैं।         |
-| `<SlashCommandMenu>`             | कस्टम टिपटैप सतह के लिए आपको साझा स्लैश-कमांड UI की आवश्यकता है।                                    |
-| `<BubbleToolbar>`                | आपको निशान, लिंक और कस्टम इनलाइन actions के लिए साझा चयन टूलबार की आवश्यकता है।                   |
+| `<RichMarkdownEditor>`           | आपको साझा रिच संपादक के लिए बैकवर्ड-संगत उपनाम की आवश्यकता है।                                                    |
+| `createSharedEditorExtensions()` | आप अपना खुद का टिपटैप संपादक बना रहे हैं लेकिन फ्रेमवर्क स्कीमा और मार्कडाउन बोलियाँ चाहते हैं।                   |
+| `<SlashCommandMenu>`             | कस्टम टिपटैप सतह के लिए आपको साझा स्लैश-कमांड UI की आवश्यकता है।                                                  |
+| `<BubbleToolbar>`                | आपको निशान, लिंक और कस्टम इनलाइन actions के लिए साझा चयन टूलबार की आवश्यकता है।                                   |
 | `createRegistryBlockNode()`      | आपको एक रिच एडिटर के अंदर रजिस्ट्री-समर्थित ब्लॉक नोड्स की आवश्यकता है।                                           |
-| `uploadEditorImage()`            | आप संपादक के साझा छवि ब्लॉक के पीछे फ्रेमवर्क अपलोड-छवि कार्रवाई चाहते हैं।                   |
-| `useCollabReconcile()`           | आप मार्कडाउन को सहेजे गए राज्य के रूप में संरक्षित करते हुए एक कस्टम संपादक सतह को Yjs दस्तावेज़ से जोड़ रहे हैं।       |
+| `uploadEditorImage()`            | आप संपादक के साझा छवि ब्लॉक के पीछे फ्रेमवर्क अपलोड-छवि कार्रवाई चाहते हैं।                                       |
+| `useCollabReconcile()`           | आप मार्कडाउन को सहेजे गए राज्य के रूप में संरक्षित करते हुए एक कस्टम संपादक सतह को Yjs दस्तावेज़ से जोड़ रहे हैं। |
 
 बुनियादी नियंत्रित संपादक केवल मार्कडाउन इन और मार्कडाउन आउट है:
 
@@ -259,15 +259,15 @@ const collab = useCollaborativeDoc({
 जब आप इसे उजागर करना चाहते हैं तो `@agent-native/core/client/resources` का उपयोग करें
 कार्यस्थान संसाधन मॉडल जो एजेंट पैनल के कार्यक्षेत्र टैब को शक्ति प्रदान करता है।
 
-| API                                                                   | कब उपयोग करें                                                                |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `<ResourcesPanel>`                                                    | आप संपूर्ण वर्कस्पेस टैब को एक पेज, ड्रॉअर या कस्टम पैनल के रूप में चाहते हैं। |
-| `<ResourceTree>`                                                      | आप फ्रेमवर्क डेटा के आसपास अपना खुद का संसाधन ब्राउज़र प्रस्तुत करना चाहते हैं।     |
-| `<ResourceEditor>`                                                    | आप चयनित संसाधन के लिए फ़्रेमवर्क संपादक चाहते हैं।                  |
-| `useResourceTree()`                                                   | आपको व्यक्तिगत, साझा, या कार्यक्षेत्र संसाधनों के लिए एक स्कोप्ड ट्री की आवश्यकता है।    |
-| `useResource()`                                                       | आपको एक चयनित संसाधन के लिए सामग्री और मेटाडेटा की आवश्यकता है।            |
-| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | आपको संसाधन जीवनचक्र के आसपास कस्टम नियंत्रण की आवश्यकता है।                 |
-| `useUploadResource()`                                                 | आपको फ़्रेमवर्क संसाधन स्टोर में फ़ाइल अपलोड करने की आवश्यकता है।                 |
+| API                                                                   | कब उपयोग करें                                                                         |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `<ResourcesPanel>`                                                    | आप संपूर्ण वर्कस्पेस टैब को एक पेज, ड्रॉअर या कस्टम पैनल के रूप में चाहते हैं।        |
+| `<ResourceTree>`                                                      | आप फ्रेमवर्क डेटा के आसपास अपना खुद का संसाधन ब्राउज़र प्रस्तुत करना चाहते हैं।       |
+| `<ResourceEditor>`                                                    | आप चयनित संसाधन के लिए फ़्रेमवर्क संपादक चाहते हैं।                                   |
+| `useResourceTree()`                                                   | आपको व्यक्तिगत, साझा, या कार्यक्षेत्र संसाधनों के लिए एक स्कोप्ड ट्री की आवश्यकता है। |
+| `useResource()`                                                       | आपको एक चयनित संसाधन के लिए सामग्री और मेटाडेटा की आवश्यकता है।                       |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | आपको संसाधन जीवनचक्र के आसपास कस्टम नियंत्रण की आवश्यकता है।                          |
+| `useUploadResource()`                                                 | आपको फ़्रेमवर्क संसाधन स्टोर में फ़ाइल अपलोड करने की आवश्यकता है।                     |
 
 संपूर्ण पैनल को किसी प्रॉप्स की आवश्यकता नहीं है:
 
@@ -322,15 +322,15 @@ function WorkspaceResources() {
 
 ## अन्य सार्वजनिक UI {#other-ui}
 
-| क्षेत्र          | APIs                                                   | आयात पथ                               |
-| ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| साझा करना       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
-| सूचनाएं | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| प्रगति      | `<RunsTray>`, प्रगति हुक और प्रकार                 | `@agent-native/core/client/progress`      |
-| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक              | `@agent-native/core/client/onboarding`    |
-| अवलोकनशीलता | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
-| संसाधन     | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक   | `@agent-native/core/client/resources`     |
-| समृद्ध संपादक   | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक | `@agent-native/core/client/editor`        |
+| क्षेत्र       | APIs                                                  | आयात पथ                                   |
+| ------------- | ----------------------------------------------------- | ----------------------------------------- |
+| साझा करना     | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
+| सूचनाएं       | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
+| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार                    | `@agent-native/core/client/progress`      |
+| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक                | `@agent-native/core/client/onboarding`    |
+| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
+| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक      | `@agent-native/core/client/resources`     |
+| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक      | `@agent-native/core/client/editor`        |
 
 ## एकमुश्त पाठ समापन {#one-off-text-completion}
 

@@ -140,20 +140,20 @@ Slack, HubSpot, Notion, और GitHub जैसे पुन: प्रयोज
 
 क्रेडेंशियल्स को फ्रेमवर्क की सेटिंग्स/एनवी परत के माध्यम से संग्रहीत किया जाता है - गिट में कोई रहस्य नहीं है। उत्पादन के लिए आवश्यक है:
 
-| वेरिएबल                                 | उद्देश्य                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | लगातार SQL कनेक्शन URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | प्रामाणिक                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | पसंदीदा Google साइन-इन क्लाइंट (OAuth 2.0)             |
+| वेरिएबल                                  | उद्देश्य                                           |
+| ---------------------------------------- | -------------------------------------------------- |
+| `DATABASE_URL`                           | लगातार SQL कनेक्शन URL                             |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | प्रामाणिक                                          |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | पसंदीदा Google साइन-इन क्लाइंट (OAuth 2.0)         |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | विरासत साइन-इन फ़ॉलबैक / Google API एकीकरण क्लाइंट |
-| `BIGQUERY_PROJECT_ID`                    | बिगक्वेरी प्रोजेक्ट                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery सेवा-खाता JSON                           |
-| `ANTHROPIC_API_KEY`                      | एजेंट चैट                                              |
+| `BIGQUERY_PROJECT_ID`                    | बिगक्वेरी प्रोजेक्ट                                |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery सेवा-खाता JSON                            |
+| `ANTHROPIC_API_KEY`                      | एजेंट चैट                                          |
 
 प्रदाता-विशिष्ट कुंजियाँ (HubSpot, जिरा, गोंग, पाइलॉन, आदि) डेटा स्रोत पृष्ठ पर प्रत्येक स्रोत के वॉकथ्रू में प्रलेखित हैं। यदि आप कोई नई क्रिया जोड़ते हैं जिसके लिए API कुंजी की आवश्यकता होती है, तो यह टेम्पलेट के ऑनबोर्डिंग पंजीकरण के माध्यम से उस पृष्ठ पर एक नए स्रोत के रूप में दिखाई देता है।
 
 ध्यान दें: Google साइन-इन के लिए BigQuery OAuth क्रेडेंशियल **अलग** है
-BigQuery सेवा खाते JSON से क्रेडेंशियल। 
+BigQuery सेवा खाते JSON से क्रेडेंशियल।
 GCP कंसोल → APIs और सेवाएँ → क्रेडेंशियल्स → OAuth क्लाइंट आईडी, और पसंद करें
 `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` env नाम तो यह
 कम-स्कोप लॉगिन क्लाइंट Google API एकीकरण क्लाइंट से अलग रहता है।

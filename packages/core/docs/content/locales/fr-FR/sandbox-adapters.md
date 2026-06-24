@@ -23,11 +23,11 @@ ne s'exécute pas sur les environnements d'exécution Edge/Worker – voir [Ed
 
 ## Quel document de codage je veux ? {#which-doc}
 
-| Vous voulez…                                                               | Utiliser                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                 | **Adaptateurs Sandbox** (cette page)             |
-| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                     | **Adaptateurs CLI** (cette page)                 |
-| Afficher un **espace de travail de codage de style Claude-Code/Codex** UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Vous voulez…                                                                             | Utiliser                                     |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                        | **Adaptateurs Sandbox** (cette page)         |
+| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                        | **Adaptateurs CLI** (cette page)             |
+| Afficher un **espace de travail de codage de style Claude-Code/Codex** UI\*\*            | [Agent-Native Code UI](/docs/code-agents-ui) |
 | Exécutez Claude Code / Codex / Pi **en tant qu'agent**, avec leur propre boucle + outils | [Harness Agents](/docs/harness-agents)       |
 
 # Adaptateurs Sandbox

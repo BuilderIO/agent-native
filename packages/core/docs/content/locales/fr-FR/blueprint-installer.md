@@ -40,12 +40,12 @@ agent-native add --list                   # list available kinds and blueprints
 
 `agent-native add --list` montre ce qui est livré dans la boîte :
 
-| Gentil       | Nom      | Ce qu'il configure                                                                    |
-| ---------- | --------- | ---------------------------------------------------------------------------------- |
-| `provider` | `stripe`  | Câbler un fournisseur dans le substrat `provider-api` (catalogue / docs / request trio). |
-| `channel`  | `discord` | Implémentez un canal de webhook entrant `PlatformAdapter` et enregistrez-le.             |
-| `sandbox`  | `docker`  | Implémentez la couture `SandboxAdapter` pour exécuter `run-code` dans un conteneur Docker.       |
-| `action`   | `crud`    | Ajoutez un seul `defineAction` multi-surfaces avec un schéma Zod (un `update` sur N). |
+| Gentil     | Nom       | Ce qu'il configure                                                                         |
+| ---------- | --------- | ------------------------------------------------------------------------------------------ |
+| `provider` | `stripe`  | Câbler un fournisseur dans le substrat `provider-api` (catalogue / docs / request trio).   |
+| `channel`  | `discord` | Implémentez un canal de webhook entrant `PlatformAdapter` et enregistrez-le.               |
+| `sandbox`  | `docker`  | Implémentez la couture `SandboxAdapter` pour exécuter `run-code` dans un conteneur Docker. |
+| `action`   | `crud`    | Ajoutez un seul `defineAction` multi-surfaces avec un schéma Zod (un `update` sur N).      |
 
 Chaque plan est autonome : l'agent de codage qui le lit fait toucher les fichiers, les règles du cadre à respecter (actions est la source unique de vérité, ne code jamais en dur les secrets, étend la portée des données propriétaires, ajoute un ensemble de modifications pour la source `packages/*`) et une section concrète **Vérifier**.
 

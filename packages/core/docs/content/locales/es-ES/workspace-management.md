@@ -103,14 +103,14 @@ Luego agregue la acción [actions/labeler](https://github.com/actions/labeler); 
 
 ## Pautas de revisión de relaciones públicas
 
-| Tipo de cambio                       | Quién revisa                           | A qué prestar atención                                                         |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
-| **Solo aplicación** (`templates/<app>/`) | Equipo propietario de la aplicación                       | Corrección del dominio, esquemas de acción                                        |
-| **Marco** (`packages/core/`)  | Equipo de plataforma + un equipo de aplicación afectado | Cambios importantes, rendimiento, compatibilidad con versiones anteriores                           |
-| **Migraciones de esquema**             | Equipo de plataforma + ingeniero senior       | Seguridad de datos, agnosticismo dialectal (SQLite + Postgres)                      |
-| **Actions**                       | Equipo propietario                           | Actions son herramientas de agente AND HTTP puntos finales: revisión desde ambos ángulos |
-| **A2A multiaplicación**                 | Ambos equipos de aplicaciones                        | Si cambia una interfaz A2A, las personas que llaman deben saberlo                  |
-| **Bóveda de envío/recursos**      | Equipo de plataforma                         | Acceso secreto, alcance de la concesión, quién obtiene qué                                 |
+| Tipo de cambio                           | Quién revisa                                            | A qué prestar atención                                                                   |
+| ---------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Solo aplicación** (`templates/<app>/`) | Equipo propietario de la aplicación                     | Corrección del dominio, esquemas de acción                                               |
+| **Marco** (`packages/core/`)             | Equipo de plataforma + un equipo de aplicación afectado | Cambios importantes, rendimiento, compatibilidad con versiones anteriores                |
+| **Migraciones de esquema**               | Equipo de plataforma + ingeniero senior                 | Seguridad de datos, agnosticismo dialectal (SQLite + Postgres)                           |
+| **Actions**                              | Equipo propietario                                      | Actions son herramientas de agente AND HTTP puntos finales: revisión desde ambos ángulos |
+| **A2A multiaplicación**                  | Ambos equipos de aplicaciones                           | Si cambia una interfaz A2A, las personas que llaman deben saberlo                        |
+| **Bóveda de envío/recursos**             | Equipo de plataforma                                    | Acceso secreto, alcance de la concesión, quién obtiene qué                               |
 
 ### Trabajo de agente simultáneo
 
@@ -132,16 +132,16 @@ Al revisar relaciones públicas en este entorno:
 
 La aplicación [Dispatch](/docs/dispatch) es el plano de control de tiempo de ejecución del espacio de trabajo. Complementa la gobernanza a nivel de git con la gobernanza en tiempo de ejecución:
 
-| Preocupación                         | Git/GitHub                  | Envío                                                     |
-| ------------------------------- | ----------------------------- | ------------------------------------------------------------ |
-| Quién puede cambiar el código             | CODEOWNERS, protección de rama | —                                                            |
-| Quién puede acceder a los secretos          | —                             | Política de Vault, subvenciones, flujo de trabajo de solicitudes                       |
-| Qué instrucciones siguen los agentes | —                             | Recursos globales del espacio de trabajo (AGENTS.md, instrucciones, skills) |
-| Qué agentes se comparten         | —                             | Perfiles de agentes de Workspace                                     |
-| Inventario de integración           | —                             | Catálogo de conexiones e integraciones del espacio de trabajo               |
-| Aprobación de cambio de tiempo de ejecución         | —                             | Flujo de aprobación de envío                                       |
-| Pista de auditoría                     | `git log` / `git blame`       | Auditoría de bóveda + registros de auditoría de envío                            |
-| Mensajería y enrutamiento             | —                             | Slack / Integración de Telegram                                 |
+| Preocupación                                | Git/GitHub                     | Envío                                                                       |
+| ------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| Quién puede cambiar el código               | CODEOWNERS, protección de rama | —                                                                           |
+| Quién puede acceder a los secretos          | —                              | Política de Vault, subvenciones, flujo de trabajo de solicitudes            |
+| Qué instrucciones siguen los agentes        | —                              | Recursos globales del espacio de trabajo (AGENTS.md, instrucciones, skills) |
+| Qué agentes se comparten                    | —                              | Perfiles de agentes de Workspace                                            |
+| Inventario de integración                   | —                              | Catálogo de conexiones e integraciones del espacio de trabajo               |
+| Aprobación de cambio de tiempo de ejecución | —                              | Flujo de aprobación de envío                                                |
+| Pista de auditoría                          | `git log` / `git blame`        | Auditoría de bóveda + registros de auditoría de envío                       |
+| Mensajería y enrutamiento                   | —                              | Slack / Integración de Telegram                                             |
 
 **Git maneja la gobernanza del código. Dispatch maneja la gobernanza del tiempo de ejecución.** No intente replicar flujos de trabajo de git dentro de Dispatch o viceversa.
 

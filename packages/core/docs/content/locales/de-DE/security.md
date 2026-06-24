@@ -35,16 +35,16 @@ Machen Sie diese beiden richtig und der Rest sind Standardeinstellungen. Das [Pr
 
 Die Framework-Architektur verhindert häufige Schwachstellen, wenn Sie die Standardmuster verwenden:
 
-| Sicherheitslücke   | Framework-Schutz                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| SQL-Injektion   | Parametrierte Abfragen in `db-query`/`db-exec` und Drizzle ORM          |
-| XSS             | React automatisches Escapezeichen JSX; TipTap bereinigt Rich Text                     |
-| Datenlecks      | Scoping auf SQL-Ebene über temporäre Ansichten (`owner_email`, `org_id`)        |
-| Auth-Umgehung     | Auth Guard schützt automatisch alle `defineAction`-Endpunkte                  |
-| Eingabeinjektion | Zod-Schemavalidierung in `defineAction`                                |
-| CSRF            | `SameSite=lax` + `httpOnly`-Cookies                                    |
+| Sicherheitslücke   | Framework-Schutz                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| SQL-Injektion      | Parametrierte Abfragen in `db-query`/`db-exec` und Drizzle ORM                                |
+| XSS                | React automatisches Escapezeichen JSX; TipTap bereinigt Rich Text                             |
+| Datenlecks         | Scoping auf SQL-Ebene über temporäre Ansichten (`owner_email`, `org_id`)                      |
+| Auth-Umgehung      | Auth Guard schützt automatisch alle `defineAction`-Endpunkte                                  |
+| Eingabeinjektion   | Zod-Schemavalidierung in `defineAction`                                                       |
+| CSRF               | `SameSite=lax` + `httpOnly`-Cookies                                                           |
 | Geheime Enthüllung | `.env` gitignored; Anmeldeinformationen und Tresor im Ruhezustand verschlüsselt (AES-256-GCM) |
-| SSRF            | `ssrfSafeFetch` blockiert interne Ziele/Metadatenziele + Umleitungs-Neubindung  |
+| SSRF               | `ssrfSafeFetch` blockiert interne Ziele/Metadatenziele + Umleitungs-Neubindung                |
 
 ## Eingabevalidierung {#input-validation}
 
@@ -225,13 +225,13 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Geheimnisverwaltung {#secrets}
 
-| Geheimtyp                        | Speicherort                                             |
-| ---------------------------------- | ---------------------------------------------------------- |
-| Schlüssel auf Bereitstellungsebene (einer pro App)    | `.env`-Datei (gitignored, nur serverseitig)                 |
+| Geheimtyp                                          | Speicherort                                                           |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| Schlüssel auf Bereitstellungsebene (einer pro App) | `.env`-Datei (gitignored, nur serverseitig)                           |
 | API-Schlüssel pro Benutzer/pro Organisation        | `saveCredential` / `resolveCredential` (im Ruhezustand verschlüsselt) |
-| Registrierte Geheimnisse (Sidebar-Tresor) | `app_secrets`-Tresor (im Ruhezustand verschlüsselt)                    |
-| OAuth-Tokens (Google, GitHub)      | `oauth_tokens`-Speicher über `saveOAuthTokens()`               |
-| Sitzungstoken                     | Automatisch (Better Auth erledigt dies)                       |
+| Registrierte Geheimnisse (Sidebar-Tresor)          | `app_secrets`-Tresor (im Ruhezustand verschlüsselt)                   |
+| OAuth-Tokens (Google, GitHub)                      | `oauth_tokens`-Speicher über `saveOAuthTokens()`                      |
+| Sitzungstoken                                      | Automatisch (Better Auth erledigt dies)                               |
 
 Anmeldeinformationen pro Benutzer/pro Organisation und der Tresor werden im Ruhezustand mit AES-256-GCM verschlüsselt, verschlüsselt durch `SECRETS_ENCRYPTION_KEY` (Rückfall auf `BETTER_AUTH_SECRET`); Die Produktion weigert sich, ohne sie anzufangen. Um alle bereits vorhandenen Klartext-Anmeldeinformationszeilen zu verschlüsseln, führen Sie `pnpm action db-migrate-encrypt-credentials` (idempotent, nicht destruktiv) aus.
 

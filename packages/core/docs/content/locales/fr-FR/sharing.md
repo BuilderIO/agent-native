@@ -19,10 +19,10 @@ Cela signifie également que l'agent n'a jamais besoin d'apprendre un nouveau mo
 
 La visibilité grossière réside dans la ressource elle-même ; les subventions à granularité fine se trouvent dans un tableau de partages compagnon.
 
-| Visibilité | Qui peut le voir                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| `private`  | Propriétaire + personnes explicitement accordées. **Par défaut pour chaque nouvelle ressource.**                              |
-| `org`      | Propriétaire + subventions explicites + toute personne dans la même organisation (lecture seule).                              |
+| Visibilité | Qui peut le voir                                                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `private`  | Propriétaire + personnes explicitement accordées. **Par défaut pour chaque nouvelle ressource.**                                                |
+| `org`      | Propriétaire + subventions explicites + toute personne dans la même organisation (lecture seule).                                               |
 | `public`   | Propriétaire + subventions explicites + toute personne disposant du lien (lecture seule). N'apparaît pas dans les listes/recherches des autres. |
 
 `public` est un niveau délibérément discret : une ressource publique est accessible par lien direct, mais elle n'apparaît **pas** dans les barres latérales, les listes ou la recherche des autres utilisateurs. Cela permet de séparer le « public pour le partage du URL » du « public pour la découverte entre utilisateurs ». Les galeries et les catalogues de modèles qui souhaitent réellement une découverte multi-utilisateurs s'y inscrivent explicitement.
@@ -96,12 +96,12 @@ Pour les listes, déposez un `<VisibilityBadge visibility={row.visibility} />` �
 
 Le framework monte automatiquement ces actions dans chaque modèle : l'agent les appelle en tant qu'outils et le UI les appelle via `useActionQuery` / `useActionMutation` :
 
-| Actions                    | Ce qu'il fait                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Actions                   | Ce qu'il fait                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `share-resource`          | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail. |
-| `unshare-resource`        | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                               |
-| `list-resource-shares`    | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                              |
-| `set-resource-visibility` | Passez à `private`, `org` ou `public`.                                                       |
+| `unshare-resource`        | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
+| `list-resource-shares`    | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
+| `set-resource-visibility` | Passez à `private`, `org` ou `public`.                                                                                                     |
 
 Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'éditeurs" et il appellera `share-resource` sur le même point de terminaison que celui utilisé par UI. Le résultat apparaît dans la boîte de dialogue de partage lors du prochain rendu.
 

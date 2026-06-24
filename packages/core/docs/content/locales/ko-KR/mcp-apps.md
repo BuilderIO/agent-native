@@ -7,11 +7,11 @@ description: "실제 앱 경로, 포함 브리지 및 호스트 브리지 API를
 
 **이 페이지: Claude/ChatGPT의 인라인 UI.** 호환되는 호스트 채팅 내에서 실제 앱 경로를 렌더링하는 MCP 앱 리소스 및 포함 브리지를 작성합니다. 이 페이지는 **클라이언트 지원 매트릭스**([below](#client-support))의 단일 홈이기도 합니다.
 
-| 원한다면...                                              | 읽기                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| 외부 에이전트/호스트를 앱에 연결                   | [External Agents](/docs/external-agents) |
-| 에이전트에게 더 많은 도구 제공(다른 MCP 서버 사용)       | [MCP Clients](/docs/mcp-clients)         |
-| Claude/ChatGPT에서 렌더링되는 인라인 UI 빌드               | **이 페이지** — MCP 앱                 |
+| 원한다면...                                             | 읽기                                     |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 외부 에이전트/호스트를 앱에 연결                        | [External Agents](/docs/external-agents) |
+| 에이전트에게 더 많은 도구 제공(다른 MCP 서버 사용)      | [MCP Clients](/docs/mcp-clients)         |
+| Claude/ChatGPT에서 렌더링되는 인라인 UI 빌드            | **이 페이지** — MCP 앱                   |
 | 하위 수준 MCP 서버 참조(인증, 도구, 사용자 정의 마운트) | [MCP Protocol](/docs/mcp-protocol)       |
 
 MCP 앱은 호환 호스트(Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam 및 Cursor)가 채팅에서 대화형 UI를 인라인으로 렌더링할 수 있게 해주는 공식 `io.modelcontextprotocol/ui` 확장입니다. 에이전트 기반 앱에서 모든 MCP 앱은 별도의 일반 HTML 위젯이 아닌 **실제 React 경로**입니다.
@@ -109,16 +109,16 @@ ngrok를 통해 Claude를 테스트할 때 프로덕션 빌드(`npx @agent-nativ
 
 호스트 브리지는 의도적으로 작습니다:
 
-| 모드                   | 메시지 유형                          | 사용                               |
-| ---------------------- | ------------------------------------- | ---------------------------------------- |
-| 직접 호스트 경로      | `ui/update-model-context`             | 호스트 모델의 숨겨진 컨텍스트        |
-| 직접 호스트 경로      | `ui/message`                          | 공개 사용자를 호스트로 게시   |
-| 직접 호스트 경로      | `ui/open-link`                        | 호스트를 통해 외부 또는 앱 URL 열기 |
+| 모드                  | 메시지 유형                           | 사용                                   |
+| --------------------- | ------------------------------------- | -------------------------------------- |
+| 직접 호스트 경로      | `ui/update-model-context`             | 호스트 모델의 숨겨진 컨텍스트          |
+| 직접 호스트 경로      | `ui/message`                          | 공개 사용자를 호스트로 게시            |
+| 직접 호스트 경로      | `ui/open-link`                        | 호스트를 통해 외부 또는 앱 URL 열기    |
 | 직접 호스트 경로      | `ui/request-display-mode`             | `inline`, `fullscreen` 또는 `pip` 요청 |
-| Claude 이식      | `ui/*`                                | 수화 후 동일한 직접 호스트 브리지  |
-| ChatGPT / iframe 경로 | `agentNative.mcpHostContext`          | 테마, 로캘, 호스트 플랫폼, 크기 |
-| ChatGPT / iframe 경로 | `agentNative.embeddedAppReady`        | 로드된 iframe 경로 확인          |
-| ChatGPT / iframe 경로 | `agentNative.mcpHost.*` / `.response` | 호스트 요청을 위한 래퍼 릴레이          |
+| Claude 이식           | `ui/*`                                | 수화 후 동일한 직접 호스트 브리지      |
+| ChatGPT / iframe 경로 | `agentNative.mcpHostContext`          | 테마, 로캘, 호스트 플랫폼, 크기        |
+| ChatGPT / iframe 경로 | `agentNative.embeddedAppReady`        | 로드된 iframe 경로 확인                |
+| ChatGPT / iframe 경로 | `agentNative.mcpHost.*` / `.response` | 호스트 요청을 위한 래퍼 릴레이         |
 
 삽입된 경로는 `@agent-native/core/client`에서 `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` 및 `useMcpAppHostContext()`를 사용할 수 있습니다. `sendToAgentChat()`는 자동 제출 프롬프트에 대해 전체 앱 삽입과 동일한 경로를 사용합니다.
 

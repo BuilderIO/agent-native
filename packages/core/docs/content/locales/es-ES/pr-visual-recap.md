@@ -68,10 +68,10 @@ fija su carpeta `visual-recap` comprometida, establece la variable del repositor
 
 Elija qué agente de codificación ejecuta la habilidad con la variable de repositorio `VISUAL_RECAP_AGENT`:
 
-| `VISUAL_RECAP_AGENT` | Agente codificador     | Clave API requerida    |
-| -------------------- | ---------------- | ------------------- |
+| `VISUAL_RECAP_AGENT`        | Agente codificador | Clave API requerida |
+| --------------------------- | ------------------ | ------------------- |
 | `claude` _(predeterminado)_ | Claude Código CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `codex`                     | OpenAI Codex CLI   | `OPENAI_API_KEY`    |
 
 Si la variable no está configurada, la acción utiliza `claude`.
 
@@ -91,10 +91,10 @@ Configúrelos en **Configuración → Secretos y variables → Actions** de su r
 
 ### Secretos (solo se requieren dos)
 
-| Secreto              | Propósito                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Secreto             | Propósito                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `PLAN_RECAP_TOKEN`  | Token revocable acuñado por `npx @agent-native/core@latest connect`. Autoriza la publicación del plan de resumen y la carga de la captura de pantalla. |
-| `ANTHROPIC_API_KEY` | La clave LLM para el backend predeterminado del código Claude.                                                                                   |
+| `ANTHROPIC_API_KEY` | La clave LLM para el backend predeterminado del código Claude.                                                                                         |
 
 **Equipos: utilice un token de servicio de la organización.** Un token personal está vinculado a la persona
 quién lo acuñó: si abandonan la organización o revocan sus tokens, cada repositorio lo usará
@@ -128,14 +128,14 @@ token real.
 
 ### Opcional (solo si cambia los valores predeterminados)
 
-| Secreto/variable        | Predeterminado                         | Cuando lo necesites                                                                                                                                |
-| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | Secreto. Configúrelo junto con `VISUAL_RECAP_AGENT=codex` para ejecutar el resumen con Codex.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selecciona el backend del agente de codificación (`claude` o `codex`).                                                                               |
-| `VISUAL_RECAP_MODEL`     | el valor predeterminado de cada CLI              | Variable. Fija el modelo, p.e. `gpt-5.5` para Codex, o una identificación de modelo Claude. Unset utiliza el valor predeterminado del CLI.                                    |
-| `VISUAL_RECAP_REASONING` | valor predeterminado de cada modelo            | Variable. Profundidad de razonamiento: `none`, `minimal`, `low`, `medium`, `high` o `xhigh`. Se aplica al backend Codex.                                |
-| `RECAP_CLI_VERSION`      | `latest`                        | Variable. Fija la versión `@agent-native/core` CLI que instala el flujo de trabajo, p. `1.5.0`. Ver [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Secreto. Solo cuando se aloja la aplicación Planes en un origen diferente.                                                                             |
+| Secreto/variable         | Predeterminado                      | Cuando lo necesites                                                                                                                                   |
+| ------------------------ | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                   | Secreto. Configúrelo junto con `VISUAL_RECAP_AGENT=codex` para ejecutar el resumen con Codex.                                                         |
+| `VISUAL_RECAP_AGENT`     | `claude`                            | Variable. Selecciona el backend del agente de codificación (`claude` o `codex`).                                                                      |
+| `VISUAL_RECAP_MODEL`     | el valor predeterminado de cada CLI | Variable. Fija el modelo, p.e. `gpt-5.5` para Codex, o una identificación de modelo Claude. Unset utiliza el valor predeterminado del CLI.            |
+| `VISUAL_RECAP_REASONING` | valor predeterminado de cada modelo | Variable. Profundidad de razonamiento: `none`, `minimal`, `low`, `medium`, `high` o `xhigh`. Se aplica al backend Codex.                              |
+| `RECAP_CLI_VERSION`      | `latest`                            | Variable. Fija la versión `@agent-native/core` CLI que instala el flujo de trabajo, p. `1.5.0`. Ver [Version pinning](#version-pinning-copy-variant). |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`     | Secreto. Solo cuando se aloja la aplicación Planes en un origen diferente.                                                                            |
 
 El flujo de trabajo detecta automáticamente cómo invocar su asistente CLI (fuente local dentro de este monorepo, el `@agent-native/core` publicado en otro lugar), por lo que no hay ninguna variable `RECAP_CLI` para configurar.
 
@@ -173,14 +173,14 @@ Para instalarlo, copie el archivo de [BuilderIO/agent-native](https://github.com
 
 ### Qué hace el flujo de trabajo de la bifurcación y qué hace NOT
 
-| El flujo de trabajo DOES                                                                                                      | El flujo de trabajo hace NOT                                                              |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Consulte el **repositorio base** en la **referencia de rama base**: solo código confiable                                        | Consulta o ejecuta cualquier código de la bifurcación                                        |
+| El flujo de trabajo DOES                                                                                                                               | El flujo de trabajo hace NOT                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Consulte el **repositorio base** en la **referencia de rama base**: solo código confiable                                                              | Consulta o ejecuta cualquier código de la bifurcación                                                                     |
 | Obtener la cabeza de la bifurcación como referencia remota (`git fetch origin pull/<n>/head:refs/recap/fork-head`): recuperar confirmaciones es seguro | Instale paquetes desde la bifurcación, ejecute scripts de bifurcación o evalúe el contenido de la bifurcación como código |
-| Ejecute `git diff base...refs/recap/fork-head`: diferenciación de texto puro de dos objetos ya recuperados                             | Utilice la diferencia como algo más que como entrada de texto al LLM                          |
-| Ejecute la habilidad de resumen visual y la configuración del agente del **repositorio base**                                                     | Carga cualquier habilidad o configuración desde la bifurcación                                             |
-| Pase la diferencia a través del mismo paso de escaneo secreto (cerrado por error) que los PR propios                                       | Omitir el análisis secreto                                                               |
-| Agregue una nota explícita de refuerzo del mensaje al mensaje del agente que marque el contenido diferente como no confiable                            | Otorgue al agente permisos adicionales además del agente de resumen normal           |
+| Ejecute `git diff base...refs/recap/fork-head`: diferenciación de texto puro de dos objetos ya recuperados                                             | Utilice la diferencia como algo más que como entrada de texto al LLM                                                      |
+| Ejecute la habilidad de resumen visual y la configuración del agente del **repositorio base**                                                          | Carga cualquier habilidad o configuración desde la bifurcación                                                            |
+| Pase la diferencia a través del mismo paso de escaneo secreto (cerrado por error) que los PR propios                                                   | Omitir el análisis secreto                                                                                                |
+| Agregue una nota explícita de refuerzo del mensaje al mensaje del agente que marque el contenido diferente como no confiable                           | Otorgue al agente permisos adicionales además del agente de resumen normal                                                |
 
 ### Por qué debes revisar la diferencia antes de etiquetar
 
@@ -202,14 +202,14 @@ Los dos archivos de flujo de trabajo son independientes. Para actualizaciones de
 
 El paso `gate` omite el resumen por completo cuando un RP toca cualquiera de las siguientes rutas, por lo que un RP nunca puede reescribir el flujo de trabajo, la habilidad o la configuración del agente que carga el trabajo de resumen confiable y filtrar secretos:
 
-| Patrón de ruta                               | Razón                                   |
-| ------------------------------------------ | ---------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | El flujo de trabajo en sí                      |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
-| `**/.claude/**`                            | Configuración del agente que carga el corredor          |
-| `**/CLAUDE.md`                             | Instrucciones del agente que carga el corredor      |
-| `**/AGENTS.md`                             | Instrucciones del agente que carga el corredor      |
-| `**/.mcp.json`                             | Configuración del servidor MCP que carga el ejecutor       |
+| Patrón de ruta                             | Razón                                                |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | El flujo de trabajo en sí                            |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows             |
+| `**/.claude/**`                            | Configuración del agente que carga el corredor       |
+| `**/CLAUDE.md`                             | Instrucciones del agente que carga el corredor       |
+| `**/AGENTS.md`                             | Instrucciones del agente que carga el corredor       |
+| `**/.mcp.json`                             | Configuración del servidor MCP que carga el ejecutor |
 
 En el monorepo `BuilderIO/agent-native`, el flujo de trabajo ejecuta el resumen CLI desde la fuente confiable de la rama base en lugar de la fuente principal de PR. Esto mantiene los cambios de paquetes normales, incluido `packages/core/**`, elegibles para resúmenes sin ejecutar el código CLI modificado por PR.
 
@@ -301,12 +301,12 @@ El instalador predeterminado copia el flujo de trabajo completo de ~360 líneas 
 
 En su lugar, la opción **reutilizable** escribe una persona que llama delgada de ~20 líneas. Delega a `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` vía `uses:`. Cada persona que llama selecciona automáticamente la lógica más reciente cuando se ejecuta el flujo de trabajo, sin necesidad de actualización local.
 
-|                                | Copiar (predeterminado)            | Reutilizable                       |
-| ------------------------------ | ------------------------- | ------------------------------ |
-| Tamaño del flujo de trabajo en su repositorio     | ~360 líneas                | ~20 líneas                      |
-| Recoge correcciones automáticamente   | No: vuelva a ejecutar `recap setup` | Sí                            |
-| Espacio de aire/auditabilidad total    | Sí                       | No                             |
-| Se puede fijar a una versión específica | Solo editando localmente   | Sí: configure `@v1.2.3` en `uses:` |
+|                                               | Copiar (predeterminado)             | Reutilizable                       |
+| --------------------------------------------- | ----------------------------------- | ---------------------------------- |
+| Tamaño del flujo de trabajo en su repositorio | ~360 líneas                         | ~20 líneas                         |
+| Recoge correcciones automáticamente           | No: vuelva a ejecutar `recap setup` | Sí                                 |
+| Espacio de aire/auditabilidad total           | Sí                                  | No                                 |
+| Se puede fijar a una versión específica       | Solo editando localmente            | Sí: configure `@v1.2.3` en `uses:` |
 
 ### Fragmento de la persona que llama
 

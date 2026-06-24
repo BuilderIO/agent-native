@@ -48,12 +48,12 @@ Wenn der Agent eine Gated-Aktion aufruft und dieser spezielle Aufruf **noch** ni
 
 Das `approval_required`-Event beinhaltet alles, was der Kunde braucht, um ein Angebot zu machen:
 
-| Feld         | Typ     | Notizen                                                               |
-| ------------- | -------- | ------------------------------------------------------------------- |
-| `tool`        | `string` | Der Aktionsname, den der Agent aufzurufen versuchte.                            |
-| `input`       | Objekt   | Die Argumente, die der Agent übergeben hat.                                     |
+| Feld          | Typ      | Notizen                                                                                     |
+| ------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `tool`        | `string` | Der Aktionsname, den der Agent aufzurufen versuchte.                                        |
+| `input`       | Objekt   | Die Argumente, die der Agent übergeben hat.                                                 |
 | `approvalKey` | `string` | **Stabiler Schlüssel**, der der Client zurückgibt, um _diesen genauen Anruf_ zu genehmigen. |
-| `toolCallId`  | `string` | Die modellseitige Tool-Aufruf-ID, sofern verfügbar.                        |
+| `toolCallId`  | `string` | Die modellseitige Tool-Aufruf-ID, sofern verfügbar.                                         |
 
 `approvalKey` wird deterministisch aus dem Werkzeugnamen und seiner Eingabe abgeleitet, sodass derselbe logische Aufruf immer denselben Schlüssel erzeugt. Das Modell sieht oder legt es nie fest – es handelt sich lediglich um einen Handschlag zwischen dem Framework und dem Approve-Angebot des Menschen.
 

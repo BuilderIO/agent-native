@@ -86,11 +86,11 @@ Sélectionnez les formulaires et tout autre modèle souhaité lors de la configu
 
 Toutes les données résident dans SQL via Drizzle ORM. Schéma : `templates/forms/server/db/schema.ts`. Les formulaires comportent le standard `ownableColumns` et une table de partages de structure correspondante, ils s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
 
-| Tableau         | Ce qu'il contient                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tableau       | Ce qu'il contient                                                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forms`       | Une définition de formulaire : `title`, `description`, `slug` unique, `fields` (tableau JSON de `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`) et un `deleted_at` à suppression logicielle |
-| `responses`   | Une soumission par ligne : `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, `ip` et `submitter_email` en option                                                                                    |
-| `form_shares` | Framework partage les principes de mappage de table (utilisateurs ou organisations) avec les rôles (spectateur, éditeur, administrateur) par formulaire                                                                                                            |
+| `responses`   | Une soumission par ligne : `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, `ip` et `submitter_email` en option                                                                                                           |
+| `form_shares` | Framework partage les principes de mappage de table (utilisateurs ou organisations) avec les rôles (spectateur, éditeur, administrateur) par formulaire                                                                                 |
 
 Les formes `fields` et `settings` JSON sont définies dans `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Les paramètres privés du propriétaire tels que les webhooks d'intégration URL et les origines autorisées sont supprimés avant que les données n'atteignent la page de remplissage publique via `toPublicFormSettings`.
 

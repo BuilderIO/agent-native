@@ -41,10 +41,10 @@ la surface du produit est sans tête, avec conversation d'abord ou UI complète�
 }
 ```
 
-| Bloc de base   | Utilisez-le pour                                                                                          | Chargé quand                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Instructions** | Aide stable que l'agent doit apporter dans chaque tâche : qu'est-ce que l'application, invariants, ton, index  | Chaque tour                                            |
-| **Skills**       | Comportement réutilisable : comment suivre un flux de travail, appliquer une politique, inspecter des preuves ou vérifier un résultat  | Sur demande lorsque la description de la compétence correspond à la tâche |
+| Bloc de base     | Utilisez-le pour                                                                                                                                 | Chargé quand                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Instructions** | Aide stable que l'agent doit apporter dans chaque tâche : qu'est-ce que l'application, invariants, ton, index                                    | Chaque tour                                                                     |
+| **Skills**       | Comportement réutilisable : comment suivre un flux de travail, appliquer une politique, inspecter des preuves ou vérifier un résultat            | Sur demande lorsque la description de la compétence correspond à la tâche       |
 | **Actions**      | Opérations réelles : lire ou écrire des données, appeler des API, envoyer des messages, exécuter des approbations, produire des résultats saisis | Répertorié comme outils à chaque tour ; exécuté uniquement lorsqu'il est appelé |
 
 Skills et actions fonctionnent ensemble. Une compétence apprend à l'agent comment effectuer un cours de
@@ -66,12 +66,12 @@ Six règles régissent l'architecture :
 
 Chaque fonctionnalité destinée aux utilisateurs doit mettre à jour toutes les zones applicables. Ignorer une zone applicable rompt le contrat agent-natif ; forcer un UI sur une primitive d'action uniquement est aussi une odeur.
 
-| Zone             | Description                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| **1. UI**        | Page, composant ou boîte de dialogue avec lequel l'utilisateur interagit             |
-| **2. Action**    | Action appelable par l'agent dans actions/ pour la même opération       |
-| **3. Skills**    | Mettez à jour AGENTS.md et/ou créez une compétence documentant le modèle |
-| **4. État de l'application** | État de navigation, données de l'écran d'affichage et commandes de navigation      |
+| Zone                         | Description                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| **1. UI**                    | Page, composant ou boîte de dialogue avec lequel l'utilisateur interagit      |
+| **2. Action**                | Action appelable par l'agent dans actions/ pour la même opération             |
+| **3. Skills**                | Mettez à jour AGENTS.md et/ou créez une compétence documentant le modèle      |
+| **4. État de l'application** | État de navigation, données de l'écran d'affichage et commandes de navigation |
 
 Une fonctionnalité avec uniquement UI est invisible pour l'agent. Une fonctionnalité UI complète avec uniquement actions est invisible pour l'utilisateur. Une fonctionnalité sans état d’application signifie que l’agent est aveugle à ce que fait l’utilisateur. Une opération sans tête peut légitimement commencer par une action + des instructions et ajouter UI/app-state plus tard lorsque des humains ont besoin de la parcourir, de l'approuver, de la configurer ou de la partager.
 

@@ -11,13 +11,13 @@ Agent-native Apps verwenden **React Router v7** mit dateibasiertem Routing über
 
 ### Datei → URL-Zuordnung
 
-| Datei                  | URL                | Notizen                                  |
-| --------------------- | ------------------ | -------------------------------------- |
-| `_index.tsx`          | `/`                | Indexroute                            |
-| `settings.tsx`        | `/settings`        | Einfache Seite                            |
-| `inbox.$threadId.tsx` | `/inbox/:threadId` | Punkt = `/`, `$` = dynamischer Parameter         |
-| `_app.tsx`            | (kein URL-Segment)   | Pfadloses Layout – Präfix mit `_`      |
-| `inbox/route.tsx`     | `/inbox`           | Ordnerform – `route.tsx` ist der Index |
+| Datei                 | URL                | Notizen                                  |
+| --------------------- | ------------------ | ---------------------------------------- |
+| `_index.tsx`          | `/`                | Indexroute                               |
+| `settings.tsx`        | `/settings`        | Einfache Seite                           |
+| `inbox.$threadId.tsx` | `/inbox/:threadId` | Punkt = `/`, `$` = dynamischer Parameter |
+| `_app.tsx`            | (kein URL-Segment) | Pfadloses Layout – Präfix mit `_`        |
+| `inbox/route.tsx`     | `/inbox`           | Ordnerform – `route.tsx` ist der Index   |
 
 Stellen Sie einem Segment `$` für einen dynamischen Parameter voran. Setzen Sie als Präfix `_`, um eine pfadlose Layoutroute zu erstellen (kein URL-Segment). Vorlagen verwenden `flatRoutes()` – die obige Punktnotationsdatei ist primär; Die verschachtelte Ordnerform `inbox/route.tsx` funktioniert auch.
 

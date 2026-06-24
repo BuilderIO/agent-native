@@ -42,13 +42,13 @@ export default defineEval({
 
 Une évaluation réussit uniquement lorsque **tous** les marqueurs atteignent le seuil. Champs clés `defineEval` :
 
-| Champ       | Tapez                  | Remarques                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------- |
-| `name`      | chaîne                | Obligatoire. Affiché dans le rapport.                                |
-| `input`     | `{ prompt, history }` |  `prompt` requis ; Virages `{ role, text }` préalables en option.     |
-| `scorers`   | `Scorer[]`            | Obligatoire, au moins un.                                       |
-| `threshold` | numéro `0..1`         | Barre de passe par buteur. `0.5` par défaut ; remplaçable à partir du CLI. |
-| `run`       | fonction              | Remplacement facultatif pour une configuration personnalisée (données de départ, multi-tours).   |
+| Champ       | Tapez                 | Remarques                                                                                      |
+| ----------- | --------------------- | ---------------------------------------------------------------------------------------------- |
+| `name`      | chaîne                | Obligatoire. Affiché dans le rapport.                                                          |
+| `input`     | `{ prompt, history }` | `prompt` requis ; Virages `{ role, text }` préalables en option.                               |
+| `scorers`   | `Scorer[]`            | Obligatoire, au moins un.                                                                      |
+| `threshold` | numéro `0..1`         | Barre de passe par buteur. `0.5` par défaut ; remplaçable à partir du CLI.                     |
+| `run`       | fonction              | Remplacement facultatif pour une configuration personnalisée (données de départ, multi-tours). |
 
 Le nombre d'agents remis aux marqueurs est petit et indépendant du transport :
 
@@ -67,12 +67,12 @@ interface AgentRunOutput {
 
 Importé depuis `@agent-native/core/eval` :
 
-| Buteur                   | Note                                                             | Modèle ? |
-| ------------------------ | ----------------------------------------------------------------- | ------ |
-| `exactMatch(expected)`   | `1.0` si le texte est égal à `expected` (tronqué, insensible à la casse)       | Non     |
-| `contains(needles)`      | Fraction des sous-chaînes requises présentes (donc surface des hits partiels) | Non     |
-| `usesTool(toolName)`     | `1.0` si l'agent a invoqué cet outil/action au moins une fois         | Non     |
-| `llmJudge({ criteria })` | LLM-en tant que juge a été noté selon une grille en langage naturel, → `0..1`   | Oui    |
+| Buteur                   | Note                                                                          | Modèle ? |
+| ------------------------ | ----------------------------------------------------------------------------- | -------- |
+| `exactMatch(expected)`   | `1.0` si le texte est égal à `expected` (tronqué, insensible à la casse)      | Non      |
+| `contains(needles)`      | Fraction des sous-chaînes requises présentes (donc surface des hits partiels) | Non      |
+| `usesTool(toolName)`     | `1.0` si l'agent a invoqué cet outil/action au moins une fois                 | Non      |
+| `llmJudge({ criteria })` | LLM-en tant que juge a été noté selon une grille en langage naturel, → `0..1` | Oui      |
 
 Les `exactMatch` et `contains` acceptent un `{ caseSensitive }` en option. `llmJudge` prend `{ criteria, rubric?, name?, scoreRange? }` — sa sortie est normalisée à `[0, 1]` et le modèle de jugement est celui que le coureur a résolu (jamais un fournisseur codé en dur).
 
@@ -131,11 +131,11 @@ La commande découvre `**/*.eval.ts` et `evals/*.ts` sous l'application actuelle
 
 Codes de sortie :
 
-| Code | Signification                                                         |
-| ---- | --------------------------------------------------------------- |
+| Code | Signification                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------------- |
 | `0`  | Toutes les évaluations ont réussi — _ou_ aucun fichier d'évaluation n'a été trouvé (compatible CI). |
-| `1`  | Au moins une évaluation a obtenu un score inférieur au seuil, ou la suite a commis une erreur. |
-| `2`  | Mauvais arguments (par exemple `--threshold` en dehors de `[0, 1]`).            |
+| `1`  | Au moins une évaluation a obtenu un score inférieur au seuil, ou la suite a commis une erreur.      |
+| `2`  | Mauvais arguments (par exemple `--threshold` en dehors de `[0, 1]`).                                |
 
 ### En tant que porte de déploiement CI {#ci}
 

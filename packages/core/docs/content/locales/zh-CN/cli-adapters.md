@@ -5,7 +5,7 @@ description: "通过标准适配器接口（适配器指南中介绍的两个适
 
 # CLI 适配器
 
-> **适合的位置：** CLI 适配器是 
+> **适合的位置：** CLI 适配器是
 > 框架。规范指南是 [Adapters](/docs/sandbox-adapters)，
 > 覆盖此接缝和 `run-code` 沙箱接缝 - 包括共享
 > 边缘/无服务器约束。本页是CLI端的快速参考。

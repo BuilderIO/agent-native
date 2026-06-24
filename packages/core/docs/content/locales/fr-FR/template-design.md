@@ -77,13 +77,13 @@ pnpm dev
 
 Toutes les données se trouvent dans SQL via Drizzle ORM. Schéma : `templates/design/server/db/schema.ts`. Les conceptions et les systèmes de conception portent la norme `ownableColumns` et une table de partages de framework correspondante, ils s'intègrent donc dans le modèle de partage par utilisateur/par organisation.
 
-| Tableau                                    | Ce qu'il contient                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tableau                                  | Ce qu'il contient                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | Un projet de conception : `title`, `description`, `project_type` (`prototype` / `other`), le blob `data` JSON et un lien `design_system_id` en option |
-| `design_files`                           | Fichiers individuels appartenant à une conception (`filename`, `content`, `file_type` par défaut à `html`)                                                 |
-| `design_versions`                        | `snapshot` ponctuels d'une conception avec un `label` en option, pour l'historique et la restauration                                                         |
-| `design_systems`                         | Jetons de marque réutilisables – `data` (couleurs/typographie/espacement), `assets`, `custom_instructions` et un drapeau `is_default`                            |
-| `design_shares` / `design_system_shares` | Framework partage des tables mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)                                                      |
+| `design_files`                           | Fichiers individuels appartenant à une conception (`filename`, `content`, `file_type` par défaut à `html`)                                            |
+| `design_versions`                        | `snapshot` ponctuels d'une conception avec un `label` en option, pour l'historique et la restauration                                                 |
+| `design_systems`                         | Jetons de marque réutilisables – `data` (couleurs/typographie/espacement), `assets`, `custom_instructions` et un drapeau `is_default`                 |
+| `design_shares` / `design_system_shares` | Framework partage des tables mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)                   |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

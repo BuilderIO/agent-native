@@ -40,11 +40,11 @@ agent-native add --list                   # list available kinds and blueprints
 
 `agent-native add --list` mostra o que vem na caixa:
 
-| Gentil       | Nome      | O que configura                                                                    |
-| ---------- | --------- | ---------------------------------------------------------------------------------- |
+| Gentil     | Nome      | O que configura                                                                            |
+| ---------- | --------- | ------------------------------------------------------------------------------------------ |
 | `provider` | `stripe`  | Conecte um provedor ao substrato `provider-api` (catálogo/documentos/trio de solicitação). |
-| `channel`  | `discord` | Implemente um canal webhook de entrada `PlatformAdapter` e registre-o.             |
-| `sandbox`  | `docker`  | Implemente a junção `SandboxAdapter` para executar `run-code` em um contêiner Docker.       |
+| `channel`  | `discord` | Implemente um canal webhook de entrada `PlatformAdapter` e registre-o.                     |
+| `sandbox`  | `docker`  | Implemente a junção `SandboxAdapter` para executar `run-code` em um contêiner Docker.      |
 | `action`   | `crud`    | Adicione um único `defineAction` multisuperfície com um esquema Zod (um `update` sobre N). |
 
 Cada blueprint é independente: o agente de codificação que o lê faz com que os arquivos sejam tocados, as regras da estrutura sejam respeitadas (actions são a única fonte da verdade, nunca codificam segredos, definem o escopo dos dados que podem ser adquiridos, adicionam um conjunto de alterações para a fonte `packages/*`) e uma seção concreta **Verificar**.

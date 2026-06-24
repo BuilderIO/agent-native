@@ -10,12 +10,12 @@ description: "Cree y personalice superficies de código Agent-Native con el paqu
 
 ## ¿Qué documento de codificación quiero? {#which-doc}
 
-| Quieres...                                                               | Usar                                    |
-| -------------------------------------------------------------------------- | -------------------------------------- |
-| Renderizar un código Claude/estilo Codex **espacio de trabajo de codificación UI**                   | **Agent-Native Código UI** (esta página)   |
-| Ejecute Claude Code / Codex / Pi **como agente**, con su propio bucle + herramientas | [Harness Agents](/docs/harness-agents) |
-| Cambiar el backend que ejecuta la **herramienta `run-code`**                 | [Adapters](/docs/sandbox-adapters)     |
-| Preparar una herramienta CLI (`gh`, `ffmpeg`) para que el agente la llame                     | [Adapters](/docs/sandbox-adapters)     |
+| Quieres...                                                                           | Usar                                     |
+| ------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Renderizar un código Claude/estilo Codex **espacio de trabajo de codificación UI**   | **Agent-Native Código UI** (esta página) |
+| Ejecute Claude Code / Codex / Pi **como agente**, con su propio bucle + herramientas | [Harness Agents](/docs/harness-agents)   |
+| Cambiar el backend que ejecuta la **herramienta `run-code`**                         | [Adapters](/docs/sandbox-adapters)       |
+| Preparar una herramienta CLI (`gh`, `ffmpeg`) para que el agente la llame            | [Adapters](/docs/sandbox-adapters)       |
 
 Agent-Native Code es la superficie de codificación Agent-Native: un espacio de trabajo local estilo Claude Code/Codex para sesiones de codificación, comandos de barra diagonal, migraciones, auditorías, transcripciones, controles de ejecución y seguimientos. Un comando simple `npx @agent-native/core@latest` abre este espacio de trabajo; `npx @agent-native/core@latest code` es el subcomando explícito para la misma experiencia.
 
@@ -172,10 +172,10 @@ comando y luego le indica que reanude la sesión.
 
 Los modos de ejecución hacen que la política de edición sea explícita por sesión:
 
-| Modo          | Bandera CLI | Comportamiento                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **Modo de planificación** | `--plan` | Inspeccione, planifique y explique sin escribir archivos ni ejecutar mutaciones.                                   |
-| **Modo automático** | `--auto` | Edite archivos, ejecute comprobaciones y pausar solo para operaciones de archivos, git, publicación o datos genuinamente destructivas. |
+| Modo                      | Bandera CLI | Comportamiento                                                                                                                         |
+| ------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Modo de planificación** | `--plan`    | Inspeccione, planifique y explique sin escribir archivos ni ejecutar mutaciones.                                                       |
+| **Modo automático**       | `--auto`    | Edite archivos, ejecute comprobaciones y pausar solo para operaciones de archivos, git, publicación o datos genuinamente destructivas. |
 
 El modo automático es el predeterminado para las sesiones locales del Código Agent-Native. Usar el modo Plan para
 evaluación, arquitectura, revisión o cualquier tarea donde desee una propuesta antes
@@ -229,19 +229,19 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 `CodeAgentsHost` es intencionalmente pequeño:
 
-| Método                                                | Propósito                                                |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| `listRuns(goalId?)`                                   | Enumerar sesiones para el objetivo seleccionado                    |
-| `listCodePacks?()`                                    | Lista `.agents/commands` y `.agents/skills`           |
-| `createRun(request)`                                  | Iniciar una nueva ejecución                                        |
+| Método                                                | Propósito                                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `listRuns(goalId?)`                                   | Enumerar sesiones para el objetivo seleccionado                          |
+| `listCodePacks?()`                                    | Lista `.agents/commands` y `.agents/skills`                              |
+| `createRun(request)`                                  | Iniciar una nueva ejecución                                              |
 | `subscribeTranscript?(request, callback)`             | Enviar actualizaciones de transcripción a la conversación compartida     |
-| `readTranscript(request)`                             | Eventos de transcripción de encuestas como alternativa de compatibilidad     |
-| `appendFollowUp(request)`                             | Añadir un seguimiento, ya sea dirigiendo el trabajo activo o en cola |
-| `updateRun(request)`                                  | Modo de actualización o ejecutar metadatos                            |
-| `retryRun?(request)`                                  | Reintentar la ejecución seleccionada en el lugar                        |
-| `rerunRun?(request)`                                  | Iniciar una nueva ejecución desde un mensaje anterior                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | Reanudar, aprobar, actualizar o detener                      |
-| `openTerminal?(request)`                              | Gancho de terminal nativo opcional                          |
+| `readTranscript(request)`                             | Eventos de transcripción de encuestas como alternativa de compatibilidad |
+| `appendFollowUp(request)`                             | Añadir un seguimiento, ya sea dirigiendo el trabajo activo o en cola     |
+| `updateRun(request)`                                  | Modo de actualización o ejecutar metadatos                               |
+| `retryRun?(request)`                                  | Reintentar la ejecución seleccionada en el lugar                         |
+| `rerunRun?(request)`                                  | Iniciar una nueva ejecución desde un mensaje anterior                    |
+| `controlRun(goalId, runId, command, permissionMode?)` | Reanudar, aprobar, actualizar o detener                                  |
+| `openTerminal?(request)`                              | Gancho de terminal nativo opcional                                       |
 
 Los hosts del navegador deberían devolver un elegante error `openTerminal` en lugar de intentar emular el inicio del terminal nativo.
 
@@ -395,19 +395,19 @@ Los puntos finales de retransmisión remota canónicos son:
 }
 ```
 
-| Método     | Ruta                                                    | Llamante          | Propósito                                     |
-| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
+| Método     | Ruta                                                     | Llamante             | Propósito                                                  |
+| ---------- | -------------------------------------------------------- | -------------------- | ---------------------------------------------------------- |
 | `POST`     | `/_agent-native/integrations/remote/register`            | Sesión de escritorio | Empareja un host de escritorio y devuelve un token una vez |
-| `GET`      | `/_agent-native/integrations/remote/hosts`               | Móvil/sesión  | Listar hosts emparejados                           |
-| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Móvil/sesión  | Revocar un host emparejado                        |
-| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Móvil/sesión  | Revocar un host emparejado                        |
-| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Token de escritorio   | Reclamar trabajo                                  |
-| `POST`     | `/_agent-native/integrations/remote/result`              | Token de escritorio   | Trabajo completo o fallido                       |
-| `POST`     | `/_agent-native/integrations/remote/run-events`          | Token de escritorio   | Eventos de transcripción reflejada                    |
-| `GET`      | `/_agent-native/integrations/remote/runs`                | Móvil/sesión  | Listar sesiones                               |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Móvil/sesión  | Leer resumen de la sesión                        |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Móvil/sesión  | Leer transcripción reflejada                    |
-| `POST`     | `/_agent-native/integrations/remote/push/register`       | Móvil/sesión  | Registrar Expo/token push móvil             |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | Móvil/sesión         | Listar hosts emparejados                                   |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Móvil/sesión         | Revocar un host emparejado                                 |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Móvil/sesión         | Revocar un host emparejado                                 |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Token de escritorio  | Reclamar trabajo                                           |
+| `POST`     | `/_agent-native/integrations/remote/result`              | Token de escritorio  | Trabajo completo o fallido                                 |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | Token de escritorio  | Eventos de transcripción reflejada                         |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | Móvil/sesión         | Listar sesiones                                            |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Móvil/sesión         | Leer resumen de la sesión                                  |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Móvil/sesión         | Leer transcripción reflejada                               |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | Móvil/sesión         | Registrar Expo/token push móvil                            |
 
 Telegram usa el mismo relé a través de Dispatch. Los comandos admitidos son:
 

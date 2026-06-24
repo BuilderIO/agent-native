@@ -35,16 +35,16 @@ Seis padrões resolvem isso:
 
 Use canais de contexto diferentes para trabalhos diferentes:
 
-| Camada                                     | Proprietário             | Use-o para                                                                 |
-| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| Chave de estado do aplicativo `navigation`                | UI                | Estado da rota semântica: visualização atual, registro aberto, guia ativa, IDs estáveis    |
+| Camada                                                    | Proprietário      | Use-o para                                                                                      |
+| --------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| Chave de estado do aplicativo `navigation`                | UI                | Estado da rota semântica: visualização atual, registro aberto, guia ativa, IDs estáveis         |
 | Chave de estado do aplicativo `__url__`                   | Estrutura UI      | Nome do caminho atual, string de pesquisa, hash e parâmetros de consulta URL analisados         |
-| Chave de estado do aplicativo `__set_url__`               | Agente/estrutura | Edições URL únicas de `set-search-params` e `set-url-path`             |
-| Chave de estado do aplicativo `selection`                 | UI                | Seleção semântica durável: linhas, blocos, formas, ativos, mensagens         |
-| Chave de estado do aplicativo `pending-selection-context` | UI / `AgentPanel` | Texto selecionado de uma só vez anexado ao próximo turno de bate-papo, geralmente de Cmd+I  |
-| Ação `view-screen`                      | Agente             | Transformando as chaves de estado do aplicativo em registros reais e resumos de tela        |
-| `sendToAgentChat()`                       | UI                | Transformar um clique, comando, pin de comentário ou item selecionado em um prompt de bate-papo |
-| Chave de estado do aplicativo `navigate`                  | Agente             | Pedindo ao UI para mover para outra rota ou focar outro objeto             |
+| Chave de estado do aplicativo `__set_url__`               | Agente/estrutura  | Edições URL únicas de `set-search-params` e `set-url-path`                                      |
+| Chave de estado do aplicativo `selection`                 | UI                | Seleção semântica durável: linhas, blocos, formas, ativos, mensagens                            |
+| Chave de estado do aplicativo `pending-selection-context` | UI / `AgentPanel` | Texto selecionado de uma só vez anexado ao próximo turno de bate-papo, geralmente de Cmd+I      |
+| Ação `view-screen`                                        | Agente            | Transformando as chaves de estado do aplicativo em registros reais e resumos de tela            |
+| `sendToAgentChat()`                                       | UI                | Transformar um clique, comando, pin de comentário ou item selecionado em um prompt de bate-papo |
+| Chave de estado do aplicativo `navigate`                  | Agente            | Pedindo ao UI para mover para outra rota ou focar outro objeto                                  |
 
 A versão resumida: os parâmetros de consulta URL são a fonte da verdade para filtros compartilháveis, `navigation` armazena IDs semânticos e nomes de visualização, `view-screen` transforma essas camadas de estado em dados úteis e `sendToAgentChat()` transforma a intenção UI em uma mensagem de bate-papo quando o usuário clica em um comando.
 
@@ -243,15 +243,15 @@ function askAgentAboutSelection(selection: {
 
 Use os campos deliberadamente:
 
-| Campo               | Significado                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `message`           | Texto de prompt visível mostrado no bate-papo                                                |
-| `context`           | Contexto oculto visível do modelo, não mostrado como texto de bate-papo voltado para o usuário                 |
-| `submit: true`      | Enviar imediatamente; bom para botões de comando explícitos, como "Corrigir layout"         |
-| `submit: false`     | Pré-preenchimento para revisão do usuário; bom para "Pergunte ao agente sobre isso" ou seleções ambíguas |
-| `openSidebar: true` | Tornar a resposta do agente visível mesmo se o painel estiver recolhido                  |
-| `newTab: true`      | Inicie um tópico de bate-papo separado para uma tarefa de criação maior                          |
-| `type: "code"`      | Rotear para o quadro de edição de código quando a solicitação for sobre alteração da origem do aplicativo    |
+| Campo               | Significado                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `message`           | Texto de prompt visível mostrado no bate-papo                                                             |
+| `context`           | Contexto oculto visível do modelo, não mostrado como texto de bate-papo voltado para o usuário            |
+| `submit: true`      | Enviar imediatamente; bom para botões de comando explícitos, como "Corrigir layout"                       |
+| `submit: false`     | Pré-preenchimento para revisão do usuário; bom para "Pergunte ao agente sobre isso" ou seleções ambíguas  |
+| `openSidebar: true` | Tornar a resposta do agente visível mesmo se o painel estiver recolhido                                   |
+| `newTab: true`      | Inicie um tópico de bate-papo separado para uma tarefa de criação maior                                   |
+| `type: "code"`      | Rotear para o quadro de edição de código quando a solicitação for sobre alteração da origem do aplicativo |
 
 `sendToAgentChat()` é o wrapper de navegador compatível para o caminho do bate-papo enviado, às vezes visto internamente como `agentNative.submitChat`. O aplicativo UI deve chamar o wrapper em vez de postar `agentNative.submitChat` diretamente porque o wrapper lida com barras laterais locais, roteamento Builder/Frame, roteamento de host do aplicativo MCP, IDs de guias e roteamento de solicitação de código.
 
@@ -334,9 +334,9 @@ export function useNavigationState() {
 }
 ```
 
-| Você escreve                                              | A estrutura lida com                                                                    |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `getNavigationState` — mapeie o URL para o estado semântico   | Gravações `navigation`, com escopo de guia e uma chave substituta global                               |
+| Você escreve                                                  | A estrutura lida com                                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `getNavigationState` — mapeie o URL para o estado semântico   | Gravações `navigation`, com escopo de guia e uma chave substituta global                                         |
 | `getCommandPath` — mapeia um comando `navigate` para uma rota | sondagem de comando, exclusão após leitura, proteção contra comando duplicado, marcação de origem de solicitação |
 
 `useAgentRouteState` assume o roteador React. Quando a navegação não reside no URL - uma etapa do assistente, uma seleção de tela, um shell que não é do roteador - vá para o `useSemanticNavigationState` de nível inferior: você entrega a ele um valor `state` pronto mais `navigationKeys`/`commandKeys` e um retorno de chamada `onCommand`, e ele permanece completamente agnóstico em relação ao roteador React.

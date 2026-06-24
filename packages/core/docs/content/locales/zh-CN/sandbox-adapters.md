@@ -7,7 +7,7 @@ search: "适配器沙箱适配器cli适配器运行代码SandboxAdapter CliAdapt
 # 适配器
 
 > **这是谁的：**扩展运行时的主机作者。应用程序开发人员很少
->需要这个——默认值开箱即用。
+> 需要这个——默认值开箱即用。
 
 Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 可交换接口：
@@ -23,11 +23,11 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 ## 我需要哪个编码文档？ {#which-doc}
 
-| 你想要……                                                               | 使用                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| 交换运行代理 **`run-code` 工具**的后端                 | **沙盒适配器**（本页）             |
-| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用                     | **CLI 适配器**（本页）                 |
-| 渲染 Claude-Code/Codex-style **编码工作区 UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| 你想要……                                               | 使用                                         |
+| ------------------------------------------------------ | -------------------------------------------- |
+| 交换运行代理 **`run-code` 工具**的后端                 | **沙盒适配器**（本页）                       |
+| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用            | **CLI 适配器**（本页）                       |
+| 渲染 Claude-Code/Codex-style **编码工作区 UI**         | [Agent-Native Code UI](/docs/code-agents-ui) |
 | 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | [Harness Agents](/docs/harness-agents)       |
 
 # 沙盒适配器
@@ -38,7 +38,7 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 默认后端会生成一个锁定的本地 Node 子进程。这受到托管进程的限制：在托管平台上，它共享代理循环的软执行上限（超时/继续冲击之前约 40 秒）。远程或持久适配器是超越该上限的杠杆 - 它独立于请求生命周期运行大型数据作业直至完成。
 
-保持契约范围窄意味着远程适配器继承相同的安全状态。父进程保留所有秘密的所有权：它构建沙箱模块，运行本地主机桥（它保存请求上下文并应用主机允许列表+ SSRF 防护），清理环境并格式化输出。适配器仅接收已准备好的、**非秘密**模块源加上资源限制 - 它仅负责_运行_它并捕获 stdout/stderr/exit 状态。
+保持契约范围窄意味着远程适配器继承相同的安全状态。父进程保留所有秘密的所有权：它构建沙箱模块，运行本地主机桥（它保存请求上下文并应用主机允许列表+ SSRF 防护），清理环境并格式化输出。适配器仅接收已准备好的、**非秘密**模块源加上资源限制 - 它仅负责*运行*它并捕获 stdout/stderr/exit 状态。
 
 ```an-diagram title="The parent keeps the secrets; the adapter only runs code" summary="run-code builds the module and runs the loopback bridge; the adapter receives a non-secret module + limits and returns stdout/stderr/exit."
 {

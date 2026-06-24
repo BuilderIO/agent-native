@@ -79,13 +79,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Ajudante    | Propósito                                                         |
-| --------- | --------------------------------------------------------------- |
-| `table`   | Definir uma tabela — delegar para `pgTable` ou `sqliteTable`        |
-| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                         |
-| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para Postgres booleano  |
-| `real`    | Coluna flutuante — `real` em SQLite, `double precision` em Postgres |
-| `now`     | Carimbo de data e hora atual independente de dialeto para `.default(now())`        |
+| Ajudante  | Propósito                                                                   |
+| --------- | --------------------------------------------------------------------------- |
+| `table`   | Definir uma tabela — delegar para `pgTable` ou `sqliteTable`                |
+| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                           |
+| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para Postgres booleano         |
+| `real`    | Coluna flutuante — `real` em SQLite, `double precision` em Postgres         |
+| `now`     | Carimbo de data e hora atual independente de dialeto para `.default(now())` |
 
 A tabela `tasks` acima define as mesmas colunas em cada back-end:
 
@@ -132,7 +132,7 @@ const openTasks = await db
 await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
 ```
 
-##  Escotilhas de escape SQL brutas  {#raw-sql}
+## Escotilhas de escape SQL brutas {#raw-sql}
 
 SQL bruto não é o código de aplicativo padrão API. Use-o apenas para migrações aditivas, verificações de integridade, consultas avançadas cuidadosamente revisadas que Drizzle não consegue expressar ou manutenção única. Mantenha-o parametrizado e independente de dialeto. Para carimbos de data/hora em esquemas Drizzle, prefira `.default(now())`; para a migração SQL, use `runMigrations()` para que as reescritas de compatibilidade suportadas pela estrutura e as instruções controladas por dialeto permaneçam centralizadas.
 
@@ -177,7 +177,7 @@ Em vez de enviar diretamente, as alterações de esquema devem ser aplicadas por
 
 ## Variáveis de ambiente {#environment-variables}
 
-| Variável              | Propósito                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Variável              | Propósito                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Sequência de conexão SQL persistente (não definida = SQLite local, que é durável apenas para desenvolvimento local) |
-| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                               |

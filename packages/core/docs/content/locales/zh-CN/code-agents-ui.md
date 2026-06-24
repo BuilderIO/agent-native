@@ -10,12 +10,12 @@ description: "使用共享的 UI 包、桌面主机桥和 CLI 运行存储构建
 
 ## 我需要哪个编码文档？ {#which-doc}
 
-| 你想要……                                                               | 使用                                    |
-| -------------------------------------------------------------------------- | -------------------------------------- |
-| 渲染 Claude-Code/Codex-style **编码工作区 UI**                   | **Agent-Native 代码 UI**（本页）   |
+| 你想要……                                               | 使用                                   |
+| ------------------------------------------------------ | -------------------------------------- |
+| 渲染 Claude-Code/Codex-style **编码工作区 UI**         | **Agent-Native 代码 UI**（本页）       |
 | 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | [Harness Agents](/docs/harness-agents) |
 | 交换运行代理 **`run-code` 工具**的后端                 | [Adapters](/docs/sandbox-adapters)     |
-| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用                     | [Adapters](/docs/sandbox-adapters)     |
+| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用            | [Adapters](/docs/sandbox-adapters)     |
 
 Agent-Native Code 是 Agent-Native 编码界面：本地 Claude Code/Codex 风格的工作区，用于编码会话、斜线命令、迁移、审计、转录、运行控制和后续操作。一个简单的 `npx @agent-native/core@latest` 命令可以打开这个工作区； `npx @agent-native/core@latest code` 是相同体验的显式子命令。
 
@@ -64,7 +64,7 @@ export function CodeSurface() {
 可以出现在代理团队或其他后台运行的适配器旁边，只要每个适配器的长度相同
 条目标准化为`CodeAgentRun`。当主机提供`sourceLabel`时，
 `source`或`kind`，集线器呈现一个小的源标签，例如“本地代码”
- 或运行列表和选定会话标题中的“代理团队”。省略这些字段
+或运行列表和选定会话标题中的“代理团队”。省略这些字段
 对于单源表面；空状态和基本布局保持不变。
 
 ## 桌面主机
@@ -172,9 +172,9 @@ npx @agent-native/core@latest code ui
 
 运行模式使每个会话的编辑策略变得明确：
 
-| 模式          | CLI 标志 | 行为                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **计划模式** | `--plan` | 检查、计划和解释，无需编写文件或运行突变。                                   |
+| 模式         | CLI 标志 | 行为                                                                      |
+| ------------ | -------- | ------------------------------------------------------------------------- |
+| **计划模式** | `--plan` | 检查、计划和解释，无需编写文件或运行突变。                                |
 | **自动模式** | `--auto` | 仅针对真正具有破坏性的文件、git、发布或数据操作编辑文件、运行检查和暂停。 |
 
 自动模式是本地 Agent-Native 代码会话的默认模式。使用计划模式用于
@@ -229,19 +229,19 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 `CodeAgentsHost` 故意很小：
 
-| 方法                                                | 目的                                                |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| `listRuns(goalId?)`                                   | 列出所选目标的会话                    |
-| `listCodePacks?()`                                    | 列出`.agents/commands`和`.agents/skills`           |
-| `createRun(request)`                                  | 开始新的运行                                        |
-| `subscribeTranscript?(request, callback)`             | 将记录更新推送到共享对话     |
-| `readTranscript(request)`                             | 轮询记录事件作为兼容性回退     |
-| `appendFollowUp(request)`                             | 添加后续工作，引导活动工作或排队 |
-| `updateRun(request)`                                  | 更新模式或运行元数据                            |
-| `retryRun?(request)`                                  | 就地重试所选运行                        |
+| 方法                                                  | 目的                                     |
+| ----------------------------------------------------- | ---------------------------------------- |
+| `listRuns(goalId?)`                                   | 列出所选目标的会话                       |
+| `listCodePacks?()`                                    | 列出`.agents/commands`和`.agents/skills` |
+| `createRun(request)`                                  | 开始新的运行                             |
+| `subscribeTranscript?(request, callback)`             | 将记录更新推送到共享对话                 |
+| `readTranscript(request)`                             | 轮询记录事件作为兼容性回退               |
+| `appendFollowUp(request)`                             | 添加后续工作，引导活动工作或排队         |
+| `updateRun(request)`                                  | 更新模式或运行元数据                     |
+| `retryRun?(request)`                                  | 就地重试所选运行                         |
 | `rerunRun?(request)`                                  | 从先前的提示开始新的运行                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | 恢复、批准、刷新或停止                      |
-| `openTerminal?(request)`                              | 可选的本机终端挂钩                          |
+| `controlRun(goalId, runId, command, permissionMode?)` | 恢复、批准、刷新或停止                   |
+| `openTerminal?(request)`                              | 可选的本机终端挂钩                       |
 
 浏览器主机应该返回一个正常的 `openTerminal` 错误，而不是尝试模拟本机终端启动。
 
@@ -269,7 +269,7 @@ Brain 的 Ask 路线使用 `AgentChatSurface`，该路线已得到支持
 例如`shell`、`read-file`、`write-file`、`list-files`和`search-files`
 仅兼容，不属于默认广告表面的一部分。
 
-特定于代码的 UI 属于作曲家周围，而不是分叉的聊天字段内。 
+特定于代码的 UI 属于作曲家周围，而不是分叉的聊天字段内。
 共享代码 UI 可能会添加插槽：
 
 - 自动/计划模式控件。
@@ -395,19 +395,19 @@ Agent-Native 的其余部分：
 }
 ```
 
-| 方法     | 路线                                                    | 呼叫者          | 目的                                     |
-| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
-| `POST`     | `/_agent-native/integrations/remote/register`            | 桌面会话 | 配对桌面主机并返回令牌一次 |
-| `GET`      | `/_agent-native/integrations/remote/hosts`               | 移动/会话  | 列出配对的主机                           |
-| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | 移动/会话  | 撤销配对主机                        |
-| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | 移动设备/会话  | 撤销配对主机                        |
-| `POST/GET` | `/_agent-native/integrations/remote/poll`                | 桌面令牌   | 领取工作                                  |
-| `POST`     | `/_agent-native/integrations/remote/result`              | 桌面令牌   | 完成或失败工作                       |
-| `POST`     | `/_agent-native/integrations/remote/run-events`          | 桌面令牌   | 镜像转录事件                    |
-| `GET`      | `/_agent-native/integrations/remote/runs`                | 移动设备/会话  | 列出会话                               |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | 移动设备/会话  | 阅读会议摘要                        |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | 移动设备/会话  | 读取镜像转录本                    |
-| `POST`     | `/_agent-native/integrations/remote/push/register`       | 移动设备/会话  | 注册博览会/移动推送令牌             |
+| 方法       | 路线                                                     | 呼叫者        | 目的                       |
+| ---------- | -------------------------------------------------------- | ------------- | -------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | 桌面会话      | 配对桌面主机并返回令牌一次 |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | 移动/会话     | 列出配对的主机             |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | 移动/会话     | 撤销配对主机               |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | 移动设备/会话 | 撤销配对主机               |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | 桌面令牌      | 领取工作                   |
+| `POST`     | `/_agent-native/integrations/remote/result`              | 桌面令牌      | 完成或失败工作             |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | 桌面令牌      | 镜像转录事件               |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | 移动设备/会话 | 列出会话                   |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | 移动设备/会话 | 阅读会议摘要               |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | 移动设备/会话 | 读取镜像转录本             |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | 移动设备/会话 | 注册博览会/移动推送令牌    |
 
 Telegram 通过 Dispatch 使用相同的中继。支持的命令有：
 

@@ -5,7 +5,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 # 工作区
 
-> **哪个工作区文档？** 此页面涵盖 **自定义层** — 工作区_是什么_。对于部署形状（一个单一存储库，许多应用程序），请参阅 [Multi-App Workspaces](/docs/multi-app-workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
+> **哪个工作区文档？** 此页面涵盖 **自定义层** — 工作区*是什么*。对于部署形状（一个单一存储库，许多应用程序），请参阅 [Multi-App Workspaces](/docs/multi-app-workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
 
 每个代理本机应用程序都附带一个**工作区**：使代理成为您的自定义层。它包含团队指令 (`AGENTS.md`)、共享学习内容 (`LEARNINGS.md`)、个人结构化内存 (`memory/MEMORY.md`)、代理按需拉入的 skills、自定义子代理、计划作业和连接的 MCP 服务器 — 您期望从 Claude 代码 / Codex 设置获得的一切。
 
@@ -18,14 +18,14 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 }
 ```
 
-| Claude代码/Codex              | 代理本机工作区                             |
-| -------------------------------- | -------------------------------------------------- |
-| 本地磁盘上的文件         | 共享 SQL 数据库中的行                      |
-| 每个开发人员一个代码库       | 一个代码库，多个用户                           |
-| 需要开发盒或容器     | 在任何无服务器/边缘主机上运行                   |
-| `~/.claude/` 定制    | 按用户自定义，范围为 `u:<email>:…`       |
+| Claude代码/Codex              | 代理本机工作区                          |
+| ----------------------------- | --------------------------------------- |
+| 本地磁盘上的文件              | 共享 SQL 数据库中的行                   |
+| 每个开发人员一个代码库        | 一个代码库，多个用户                    |
+| 需要开发盒或容器              | 在任何无服务器/边缘主机上运行           |
+| `~/.claude/` 定制             | 按用户自定义，范围为 `u:<email>:…`      |
 | 每个项目 `CLAUDE.md` / skills | 每个应用 `AGENTS.md` + 工作区内存资源   |
-| JSON 文件中的 MCP 配置        | JSON 中的 MCP 配置_或_设置 UI，每个范围 |
+| JSON 文件中的 MCP 配置        | JSON 中的 MCP 配置*或*设置 UI，每个范围 |
 
 相同的功能。不同的经济。请参阅 [Templates](/docs/cloneable-saas) 了解为什么这对 SaaS 很重要。
 
@@ -41,13 +41,13 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 控制代理如何使用每个资源的规范路径：
 
-| 运行时资源        | 路径                                    | 代理如何使用它                               |
-| ----------------------- | --------------------------------------- | ----------------------------------------------- |
-| 护栏说明  | `AGENTS.md`或`instructions/<slug>.md` | 在每个收到它的应用程序中加载每个回合 |
-| 全局skills           | `skills/<slug>/SKILL.md`                | 列为工作区 skills 并按需阅读   |
-| 品牌/公司资源 | `context/<slug>.md`                     | 每回合都编入索引，相关时阅读          |
-| 自定义代理配置文件   | `agents/<slug>.md`                      | 可作为可重复使用的本地代理配置文件      |
-| 共享 HTTP MCP 服务器 | `mcp-servers/<slug>.json`               | 加载到授权应用的MCP工具注册表     |
+| 运行时资源           | 路径                                  | 代理如何使用它                       |
+| -------------------- | ------------------------------------- | ------------------------------------ |
+| 护栏说明             | `AGENTS.md`或`instructions/<slug>.md` | 在每个收到它的应用程序中加载每个回合 |
+| 全局skills           | `skills/<slug>/SKILL.md`              | 列为工作区 skills 并按需阅读         |
+| 品牌/公司资源        | `context/<slug>.md`                   | 每回合都编入索引，相关时阅读         |
+| 自定义代理配置文件   | `agents/<slug>.md`                    | 可作为可重复使用的本地代理配置文件   |
+| 共享 HTTP MCP 服务器 | `mcp-servers/<slug>.json`             | 加载到授权应用的MCP工具注册表        |
 
 这些路径适用于所有三个范围 - 工作空间、组织/应用程序和个人。当同一路径存在于多个级别时，后面的范围获胜。
 
@@ -169,15 +169,15 @@ instructions/legal-review-policy.md
 
 **适合的地方。**
 
-| 表面            | 范围              | 作者                           | 阅读时间                              |
-| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
-| `AGENTS.md`        | 共享             | 根据要求提供人类/代理            | 每个回合                             |
-| `LEARNINGS.md`     | 共享             | 根据要求提供人类/代理            | 每回合（仅限共享副本）          |
-| `memory/MEMORY.md` | 个人           | 特工/人类                       | 每个回合                             |
-| `instructions/…`   | 共享             | 根据要求提供人类/代理            | 每个回合                             |
-| `skills/…`         | 共享             | 根据要求提供人类/代理            | 按需（`/slash` 命令）           |
-| `context/…`        | 共享             | 根据要求提供人类/代理            | 每回合都编入索引，相关时阅读 |
-| `mcp-servers/…`    | 工作区/共享 | 人类通过 Dispatch 或应用程序工作区 | MCP配置刷新                     |
+| 表面               | 范围        | 作者                               | 阅读时间                     |
+| ------------------ | ----------- | ---------------------------------- | ---------------------------- |
+| `AGENTS.md`        | 共享        | 根据要求提供人类/代理              | 每个回合                     |
+| `LEARNINGS.md`     | 共享        | 根据要求提供人类/代理              | 每回合（仅限共享副本）       |
+| `memory/MEMORY.md` | 个人        | 特工/人类                          | 每个回合                     |
+| `instructions/…`   | 共享        | 根据要求提供人类/代理              | 每个回合                     |
+| `skills/…`         | 共享        | 根据要求提供人类/代理              | 按需（`/slash` 命令）        |
+| `context/…`        | 共享        | 根据要求提供人类/代理              | 每回合都编入索引，相关时阅读 |
+| `mcp-servers/…`    | 工作区/共享 | 人类通过 Dispatch 或应用程序工作区 | MCP配置刷新                  |
 
 用户可以直接在“工作空间”选项卡中编辑这些内存文件 - 它们是常规资源。删除代理出错的行，将个人偏好保留在 `memory/MEMORY.md` 中，或将团队范围的规则推广到 `AGENTS.md` 中。
 
@@ -260,13 +260,13 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 资源系统在两种模式下的工作方式相同。不同之处在于可用于 `@` 标记和 `/` 命令的其他源：
 
-| 功能            | 代码模式                                                               | 应用模式                                               |
-| ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| 功能           | 代码模式                                        | 应用模式                           |
+| -------------- | ----------------------------------------------- | ---------------------------------- |
 | @标记          | 代码库文件 + 工作区资源 + 自定义代理 + 连接代理 | 工作区资源 + 自定义代理 + 连接代理 |
-| /斜线命令   | .agents/skills/ + 资源 skills                                       | 仅资源skills                                   |
-| 代理文件访问  | 文件系统+资源                                                  | 仅限资源                                         |
-| 工作区面板    | 完全访问权限                                                             | 完全访问权限                                            |
-| AGENTS.md/内存 | 可用                                                               | 可用                                              |
+| /斜线命令      | .agents/skills/ + 资源 skills                   | 仅资源skills                       |
+| 代理文件访问   | 文件系统+资源                                   | 仅限资源                           |
+| 工作区面板     | 完全访问权限                                    | 完全访问权限                       |
+| AGENTS.md/内存 | 可用                                            | 可用                               |
 
 ## 工作区连接 {#workspace-connections}
 
@@ -286,17 +286,17 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 自动安装REST端点：
 
-| 方法   | 端点                                      | 描述                          |
-| -------- | --------------------------------------------- | ------------------------------------ |
-| `GET`    | `/_agent-native/resources?scope=all`          | 列出资源                       |
-| `GET`    | `/_agent-native/resources?scope=workspace`    | 列出继承的工作区资源   |
-| `GET`    | `/_agent-native/resources/tree?scope=all`     | 获取文件夹树                      |
-| `GET`    | `/_agent-native/resources/effective?path=...` | 显示有效继承堆栈 |
-| `POST`   | `/_agent-native/resources`                    | 创建资源                    |
-| `GET`    | `/_agent-native/resources/:id`                | 获取包含内容的资源            |
-| `PUT`    | `/_agent-native/resources/:id`                | 更新资源                    |
-| `DELETE` | `/_agent-native/resources/:id`                | 删除资源                    |
-| `POST`   | `/_agent-native/resources/upload`             | 上传文件作为资源            |
+| 方法     | 端点                                          | 描述                 |
+| -------- | --------------------------------------------- | -------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`          | 列出资源             |
+| `GET`    | `/_agent-native/resources?scope=workspace`    | 列出继承的工作区资源 |
+| `GET`    | `/_agent-native/resources/tree?scope=all`     | 获取文件夹树         |
+| `GET`    | `/_agent-native/resources/effective?path=...` | 显示有效继承堆栈     |
+| `POST`   | `/_agent-native/resources`                    | 创建资源             |
+| `GET`    | `/_agent-native/resources/:id`                | 获取包含内容的资源   |
+| `PUT`    | `/_agent-native/resources/:id`                | 更新资源             |
+| `DELETE` | `/_agent-native/resources/:id`                | 删除资源             |
+| `POST`   | `/_agent-native/resources/upload`             | 上传文件作为资源     |
 
 ### 动作API {#script-api}
 

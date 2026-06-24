@@ -84,13 +84,13 @@ Die unterstützten CLIs stammen aus der zentralen CLI-Registrierung
 to spawn – der PTY-Server validiert den angeforderten Befehl anhand der Registrierung
 Zulassungsliste zur Verhinderung der Injektion:
 
-| CLI         | Befehl    | Paket installieren             |
-| ----------- | ---------- | --------------------------- |
-| Claude-Code | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io  | `builder`  | (integriert)                  |
-| Codex       | `codex`    | `@openai/codex`             |
-| Zwillinge CLI  | `gemini`   | `@google/gemini-cli`        |
-| OpenCode    | `opencode` | `opencode-ai`               |
+| CLI           | Befehl     | Paket installieren          |
+| ------------- | ---------- | --------------------------- |
+| Claude-Code   | `claude`   | `@anthropic-ai/claude-code` |
+| Builder.io    | `builder`  | (integriert)                |
+| Codex         | `codex`    | `@openai/codex`             |
+| Zwillinge CLI | `gemini`   | `@google/gemini-cli`        |
+| OpenCode      | `opencode` | `opencode-ai`               |
 
 Wenn das ausgewählte CLI nicht auf `PATH` gefunden wird, greift das Terminal auf dessen Ausführung zurück
 bis `npx --yes <install-package>@latest` (wo ein Installationspaket vorhanden ist). Die
@@ -118,7 +118,7 @@ Agent, unabhängig davon, welcher Frame ihn hostet:
 
 1. **Nachricht senden** – `sendToAgentChat()` sendet eine Nachricht an den Agenten. Die
    `useSendToAgentChat()`-Hook umschließt es mit dem beschriebenen Code-Request-Gating
-    oben und gibt ein `codeRequiredDialog`-Element zum Rendern zurück. Siehe
+   oben und gibt ein `codeRequiredDialog`-Element zum Rendern zurück. Siehe
    [Drop-in Agent](/docs/drop-in-agent) für volle Nutzung und Optionen.
 2. **Generierungsstatus** – `useAgentChatGenerating()` verfolgt, wann der Agent ist
    wird ausgeführt, sodass UI den Fortschritt anzeigen kann, ohne den Agenten direkt abzufragen.

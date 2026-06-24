@@ -117,12 +117,12 @@ Voir [Workspace](/docs/workspace) pour le concept complet.
 
 ## Qu'est-ce qui le rend différent {#what-makes-it-different}
 
-| Approche                               | Description                                                                                                                            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Applications traditionnelles avec IA intégrée** | L'IA est une réflexion après coup. Limité à la saisie semi-automatique, aux résumés ou à une barre latérale de discussion qui ne peut rien faire dans l'application.           |
-| **Interfaces de chat/agent pures**       | Puissant mais inaccessible. Pas de tableaux de bord, pas de workflows, pas de persistance. Les non-développeurs ne peuvent pas les utiliser efficacement.                     |
-| **Code Claude / Codex pour SaaS**       | Idéal pour les développeurs sur leurs propres machines. Cela ne se traduit pas par un SaaS multi-tenant : une base de code par utilisateur sur une boîte de développement n'est pas évolutive.       |
-| **Applications natives pour agents**                  | L'agent est un citoyen de première classe. Il partage la même base de données, le même état et peut faire tout ce que le UI peut faire — et vice versa. |
+| Approche                                          | Description                                                                                                                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Applications traditionnelles avec IA intégrée** | L'IA est une réflexion après coup. Limité à la saisie semi-automatique, aux résumés ou à une barre latérale de discussion qui ne peut rien faire dans l'application.                           |
+| **Interfaces de chat/agent pures**                | Puissant mais inaccessible. Pas de tableaux de bord, pas de workflows, pas de persistance. Les non-développeurs ne peuvent pas les utiliser efficacement.                                      |
+| **Code Claude / Codex pour SaaS**                 | Idéal pour les développeurs sur leurs propres machines. Cela ne se traduit pas par un SaaS multi-tenant : une base de code par utilisateur sur une boîte de développement n'est pas évolutive. |
+| **Applications natives pour agents**              | L'agent est un citoyen de première classe. Il partage la même base de données, le même état et peut faire tout ce que le UI peut faire — et vice versa.                                        |
 
 ## Développement de toute l'équipe {#whole-team-development}
 

@@ -86,11 +86,11 @@ npx @agent-native/core@latest create my-platform
 
 所有数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/forms/server/db/schema.ts`。表单携带标准 `ownableColumns` 和匹配的框架共享表，因此它们可以插入每用户/每组织共享模型。
 
-| 表         | 它包含什么                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 表            | 它包含什么                                                                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forms`       | 表单定义 - `title`、`description`、唯一 `slug`、`fields`（`FormField` 的 JSON 数组）、`settings`（JSON `FormSettings`）、`status`（`draft` / `published` / `closed`），以及软删除 `deleted_at` |
-| `responses`   | 每行一次提交 - `form_id`、`data` (JSON `{ fieldId: value }`)、`submitted_at`、可选的 `ip` 和 `submitter_email`                                                                                    |
-| `form_shares` | 框架共享每个表单将主体（用户或组织）映射到角色（查看者、编辑者、管理员）的表                                                                                                            |
+| `responses`   | 每行一次提交 - `form_id`、`data` (JSON `{ fieldId: value }`)、`submitted_at`、可选的 `ip` 和 `submitter_email`                                                                                 |
+| `form_shares` | 框架共享每个表单将主体（用户或组织）映射到角色（查看者、编辑者、管理员）的表                                                                                                                   |
 
 `fields` 和 `settings` JSON 形状在 `templates/forms/shared/types.ts`（`FormField`、`FormSettings`）中定义。在任何数据通过 `toPublicFormSettings` 到达公共填充页面之前，所有者私有设置（例如集成 Webhook URL 和允许的来源）都会被删除。
 

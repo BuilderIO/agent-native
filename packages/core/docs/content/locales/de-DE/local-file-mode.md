@@ -37,9 +37,9 @@ Produktionshosting ohne Zugriff auf das lokale Dateisystem.
 
 Es gibt zwei Source-of-Truth-Modi:
 
-| Modus            | Quelle der Wahrheit                            | Am besten für                                                                 |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
-| Datenbankmodus   | SQL Zeilen bis Drizzle                   | Gehostete Apps, Zusammenarbeit, Freigabe, Kommentare, Versionsverlauf           |
+| Modus              | Quelle der Wahrheit                             | Am besten für                                                                              |
+| ------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Datenbankmodus     | SQL Zeilen bis Drizzle                          | Gehostete Apps, Zusammenarbeit, Freigabe, Kommentare, Versionsverlauf                      |
 | Lokaler Dateimodus | Repo-Dateien deklariert von `agent-native.json` | Lokale/Entwickler-Workflows, Git-Überprüfung, Coding-Agent-Änderungen, dateinativer Inhalt |
 
 UI und Agent actions sollten in beiden Modi die gleiche Form behalten. Ein Inhalt
@@ -112,7 +112,7 @@ oder aktualisiert `agent-native.json` mit den Inhaltsstandards:
 Der installierte Skill weist Programmieragenten an, Content actions zu verwenden
 (`list-documents`, `get-document`, `edit-document`, `update-document`,
 `share-local-file-document` und Komponentendatei actions) bei einer lokalen Content-App
- oder Agent Native Desktop Bridge macht sie verfügbar. Wenn keine Bridge läuft, wird der Skill
+oder Agent Native Desktop Bridge macht sie verfügbar. Wenn keine Bridge läuft, wird der Skill
 greift auf sichere direkte Repo-Bearbeitungen zurück und behält dabei Frontmatter, Importe, JSX,
 und unbekanntes MDX.
 
@@ -284,9 +284,9 @@ Quelle der Wahrheit für die Komponentenverwendung; Die Komponentendateien bleib
 Quelldateien mit Git überprüft.
 
 Wenn eine Komponente Eingabemetadaten exportiert, wählen Sie die Komponente im Editor aus
- zeigt eine Schaltfläche zum Bearbeiten in der oberen rechten Ecke der Komponente an. Unterstützte Eingabetypen
+zeigt eine Schaltfläche zum Bearbeiten in der oberen rechten Ecke der Komponente an. Unterstützte Eingabetypen
 sind `string`, `textarea`, `number`, `boolean` und `select`. Das Formular schreibt
- wechselt zurück zum MDX-Tag, sodass lokale Dateien die Quelle der Wahrheit bleiben. Die
+wechselt zurück zum MDX-Tag, sodass lokale Dateien die Quelle der Wahrheit bleiben. Die
 Metadaten können als `ComponentNameInputs`, `ComponentNameConfig.inputs`,
 `Component.inputs` oder `agentNative.inputs`.
 
@@ -391,10 +391,10 @@ Ordner sind Konventionen, die über demselben lokalen Artefaktvertrag liegen.
 
 Inhalt hat zwei verschiedene Datei-Workflows:
 
-| Workflow                     | Was passiert                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Workflow                     | Was passiert                                                                                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/local-files` Export/Import | Der Datenbankmodus bleibt die Quelle der Wahrheit. Dateien sind eine explizite Synchronisierungsoberfläche, die Sie exportieren, bearbeiten, in der Vorschau anzeigen und importieren können. |
-| Lokaler Dateimodus              | Dateien sind die Quelle der Wahrheit. Die Inhaltsseitenleiste und der Editor arbeiten direkt mit lokalen Dateien.                       |
+| Lokaler Dateimodus           | Dateien sind die Quelle der Wahrheit. Die Inhaltsseitenleiste und der Editor arbeiten direkt mit lokalen Dateien.                                                                             |
 
 Verwenden Sie Export/Import, wenn Sie gelegentlich Dateien in einem gehosteten Arbeitsbereich überprüfen möchten.
 Verwenden Sie den lokalen Dateimodus, wenn das Repo selbst der Arbeitsbereich ist.

@@ -15,15 +15,15 @@ Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l
 
 ## Les composants en un coup d'œil {#components}
 
-| Composant             | Qu'est-ce que c'est                                                                            | Utilisez-le quand                                                     |
-| --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Composant             | Qu'est-ce que c'est                                                                                                     | Utilisez-le quand                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `<AgentSidebar>`      | Enveloppe la présentation de votre application racine et ajoute un panneau latéral basculable contenant l'agent complet | Vous souhaitez que l'agent soit disponible à côté de votre application sur chaque écran |
-| `<AgentToggleButton>` | Ouvre/ferme `<AgentSidebar>` (mettez-le dans votre en-tête)                                 | Paire avec `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | Le panneau brut lui-même – chat + CLI + onglets de l'espace de travail                                    | Vous souhaitez un contrôle total sur la mise en page ou une page d'agent dédiée    |
-| `<AgentChatSurface>`  | Une surface de discussion panneau/page pré-câblée                                                   | Vous souhaitez discuter sans le wrapper de la barre latérale                       |
-| `<AssistantChat>`     | Rendu de chat de niveau inférieur avec crochets de composition/historique                                 | Vous avez besoin d'un chrome personnalisé autour de la conversation standard UI      |
-| `sendToAgentChat()`   | Envoyer un message au chat par programmation                                           | Un bouton qui confie le travail à l'agent au lieu de l'exécuter en ligne |
-| `useActionMutation()` |  Wrapper frontal Typesafe autour d'une action                                            | Le UI doit exécuter la même opération qu'un outil d'agent exécuterait  |
+| `<AgentToggleButton>` | Ouvre/ferme `<AgentSidebar>` (mettez-le dans votre en-tête)                                                             | Paire avec `<AgentSidebar>`                                                             |
+| `<AgentPanel>`        | Le panneau brut lui-même – chat + CLI + onglets de l'espace de travail                                                  | Vous souhaitez un contrôle total sur la mise en page ou une page d'agent dédiée         |
+| `<AgentChatSurface>`  | Une surface de discussion panneau/page pré-câblée                                                                       | Vous souhaitez discuter sans le wrapper de la barre latérale                            |
+| `<AssistantChat>`     | Rendu de chat de niveau inférieur avec crochets de composition/historique                                               | Vous avez besoin d'un chrome personnalisé autour de la conversation standard UI         |
+| `sendToAgentChat()`   | Envoyer un message au chat par programmation                                                                            | Un bouton qui confie le travail à l'agent au lieu de l'exécuter en ligne                |
+| `useActionMutation()` | Wrapper frontal Typesafe autour d'une action                                                                            | Le UI doit exécuter la même opération qu'un outil d'agent exécuterait                   |
 
 Tous ces éléments sont exportés depuis `@agent-native/core/client`.
 

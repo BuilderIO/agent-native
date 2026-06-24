@@ -24,11 +24,11 @@ La autenticación se configura automáticamente a través de `autoMountAuth(app)
 
 El flujo del navegador es el mismo flujo de Better Auth en todas partes: **no hay derivación de autenticación del desarrollador** y `getSession()` nunca recurre a un centinela `local@localhost`. Lo que cambia entre entornos es la fricción en el registro, no el muro de inicio de sesión:
 
-| Medio ambiente      | Comportamiento de la primera carga                                                           | Verificación por correo electrónico                              |
-| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Desarrollador local**    | Crea automáticamente una cuenta de desarrollador desechable y te registra (sin muro de inicio de sesión)         | Omitido de forma predeterminada (y cuando no hay proveedor de correo electrónico) |
-| **Control de calidad/vista previa** | Registro normal, pero se puede omitir la verificación para que los evaluadores no esperen el correo electrónico | Saltar con `AUTH_SKIP_EMAIL_VERIFICATION=1`      |
-| **Producción**   | Registro/inicio de sesión de autenticación normal y mejorada                                               | Obligatorio (cuando se configura un proveedor de correo electrónico) |
+| Medio ambiente                      | Comportamiento de la primera carga                                                                              | Verificación por correo electrónico                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **Desarrollador local**             | Crea automáticamente una cuenta de desarrollador desechable y te registra (sin muro de inicio de sesión)        | Omitido de forma predeterminada (y cuando no hay proveedor de correo electrónico) |
+| **Control de calidad/vista previa** | Registro normal, pero se puede omitir la verificación para que los evaluadores no esperen el correo electrónico | Saltar con `AUTH_SKIP_EMAIL_VERIFICATION=1`                                       |
+| **Producción**                      | Registro/inicio de sesión de autenticación normal y mejorada                                                    | Obligatorio (cuando se configura un proveedor de correo electrónico)              |
 
 Algunas banderas sintonizan esto; Los detalles completos se encuentran en la tabla [Environment Variables](#environment-variables):
 
@@ -65,12 +65,12 @@ Se montan mejores rutas de autenticación en `/_agent-native/auth/ba/*`. El marc
 El dominio de la cookie de sesión sigue la forma de implementación, por lo que las aplicaciones que comparten una
 Inicio de sesión compartido de base de datos/origen y aplicaciones que no permanecen aisladas:
 
-| Forma de implementación                            | Reino de las cookies                                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Aplicación independiente                              | Aislado por aplicación por slug (`APP_NAME` o nombre del paquete en el desarrollo local); Prefijo `an` estable en producción                |
-| Modo de espacio de trabajo (`AGENT_NATIVE_WORKSPACE=1`) | Un ámbito compartido: las aplicaciones del espacio de trabajo comparten un origen y una base de datos                                                       |
-| Subdominios personalizados de la misma base de datos             | Aceptar cookies compartidas con `COOKIE_DOMAIN`                                                                         |
-| Alojado propio (`*.agent-native.com`)   | Espacio de nombres aislado por aplicación (cada una tiene su propia base de datos de autenticación); `COOKIE_DOMAIN=.agent-native.com` se ignora de forma predeterminada |
+| Forma de implementación                                 | Reino de las cookies                                                                                                                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Aplicación independiente                                | Aislado por aplicación por slug (`APP_NAME` o nombre del paquete en el desarrollo local); Prefijo `an` estable en producción                                             |
+| Modo de espacio de trabajo (`AGENT_NATIVE_WORKSPACE=1`) | Un ámbito compartido: las aplicaciones del espacio de trabajo comparten un origen y una base de datos                                                                    |
+| Subdominios personalizados de la misma base de datos    | Aceptar cookies compartidas con `COOKIE_DOMAIN`                                                                                                                          |
+| Alojado propio (`*.agent-native.com`)                   | Espacio de nombres aislado por aplicación (cada una tiene su propia base de datos de autenticación); `COOKIE_DOMAIN=.agent-native.com` se ignora de forma predeterminada |
 
 Las aplicaciones alojadas propias tienen cada una su propia base de datos de autenticación, por lo que el inicio de sesión entre aplicaciones
 pasa por [Cross-App SSO](/docs/cross-app-sso) en lugar de una cookie compartida.
@@ -310,23 +310,23 @@ La ruta `/_agent-native/google/auth-url` predeterminada hace esto automáticamen
 
 ## Variables de entorno {#environment-variables}
 
-| Variables                                | Propósito                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | Clave de firma para una mejor autenticación (generada automáticamente si no está configurada)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | Establezca en `1` en entornos de control de calidad/vista previa para permitir que los registros de correo electrónico/contraseña se realicen sin verificación; El desarrollo/prueba local se salta de forma predeterminada            |
-| `AUTH_DISABLED`                         | Establezca en `true` o `1` para omitir el inicio de sesión/registro; todas las solicitudes se ejecutan como un usuario compartido (solo desarrollo/vista previa local, no para producción con usuarios reales) |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Establezca en `1` para deshabilitar el inicio de sesión automático de localhost en una base de datos de desarrollo nueva                                                                         |
-| `AUTH_MODE`                             | `local` resuelve solo la identidad de CLI/agente (con la que se ejecuta el usuario de desarrollo `pnpm action`); nunca una omisión de inicio de sesión del navegador                                |
-| `COOKIE_DOMAIN`                         | Opte por las cookies de sesión compartida entre subdominios de la misma base de datos (consulte [Cookie Realms](#cookie-realms))                                        |
-| `AGENT_NATIVE_WORKSPACE`                | `1` se ejecuta en modo de espacio de trabajo: un ámbito de sesión compartido entre aplicaciones de espacio de trabajo                                                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Configurar con `COOKIE_DOMAIN` para compartir una base de datos de autenticación entre subdominios propios                                                            |
-| `OAUTH_STATE_SECRET`                    | Clave HMAC dedicada para envolventes de estado OAuth (ver [Security — OAuth State Signing](/docs/security#oauth-state))                              |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | ID de cliente OAuth de Google de alcance reducido preferido para iniciar sesión en la aplicación                                                                                     |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Secreto OAuth de Google de bajo alcance preferido para iniciar sesión en la aplicación                                                                                        |
-| `GOOGLE_CLIENT_ID`                      | Respaldo de inicio de sesión de Google antiguo e ID de cliente del proveedor OAuth para integraciones de Google API                                                       |
-| `GOOGLE_CLIENT_SECRET`                  | Respaldo de inicio de sesión de Google antiguo y secreto del proveedor OAuth para integraciones de Google API                                                          |
-| `GITHUB_CLIENT_ID`                      | Habilitar GitHub OAuth                                                                                                                          |
-| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth secreto                                                                                                                          |
-| `ACCESS_TOKEN`                          | Reserva de portador estático para clientes MCP/connect; no autenticación del navegador                                                                             |
-| `ACCESS_TOKENS`                         | Reservas de portadores estáticos separados por comas para clientes MCP/connect; no autenticación del navegador                                                            |
-| `A2A_SECRET`                            | Secreto compartido para la verificación de identidad entre aplicaciones A2A firmada por JWT y, cuando esté presente, firma de token de acceso MCP OAuth                           |
+| Variables                               | Propósito                                                                                                                                                                                                                   |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | Clave de firma para una mejor autenticación (generada automáticamente si no está configurada)                                                                                                                               |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Establezca en `1` en entornos de control de calidad/vista previa para permitir que los registros de correo electrónico/contraseña se realicen sin verificación; El desarrollo/prueba local se salta de forma predeterminada |
+| `AUTH_DISABLED`                         | Establezca en `true` o `1` para omitir el inicio de sesión/registro; todas las solicitudes se ejecutan como un usuario compartido (solo desarrollo/vista previa local, no para producción con usuarios reales)              |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Establezca en `1` para deshabilitar el inicio de sesión automático de localhost en una base de datos de desarrollo nueva                                                                                                    |
+| `AUTH_MODE`                             | `local` resuelve solo la identidad de CLI/agente (con la que se ejecuta el usuario de desarrollo `pnpm action`); nunca una omisión de inicio de sesión del navegador                                                        |
+| `COOKIE_DOMAIN`                         | Opte por las cookies de sesión compartida entre subdominios de la misma base de datos (consulte [Cookie Realms](#cookie-realms))                                                                                            |
+| `AGENT_NATIVE_WORKSPACE`                | `1` se ejecuta en modo de espacio de trabajo: un ámbito de sesión compartido entre aplicaciones de espacio de trabajo                                                                                                       |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Configurar con `COOKIE_DOMAIN` para compartir una base de datos de autenticación entre subdominios propios                                                                                                                  |
+| `OAUTH_STATE_SECRET`                    | Clave HMAC dedicada para envolventes de estado OAuth (ver [Security — OAuth State Signing](/docs/security#oauth-state))                                                                                                     |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | ID de cliente OAuth de Google de alcance reducido preferido para iniciar sesión en la aplicación                                                                                                                            |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Secreto OAuth de Google de bajo alcance preferido para iniciar sesión en la aplicación                                                                                                                                      |
+| `GOOGLE_CLIENT_ID`                      | Respaldo de inicio de sesión de Google antiguo e ID de cliente del proveedor OAuth para integraciones de Google API                                                                                                         |
+| `GOOGLE_CLIENT_SECRET`                  | Respaldo de inicio de sesión de Google antiguo y secreto del proveedor OAuth para integraciones de Google API                                                                                                               |
+| `GITHUB_CLIENT_ID`                      | Habilitar GitHub OAuth                                                                                                                                                                                                      |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth secreto                                                                                                                                                                                                        |
+| `ACCESS_TOKEN`                          | Reserva de portador estático para clientes MCP/connect; no autenticación del navegador                                                                                                                                      |
+| `ACCESS_TOKENS`                         | Reservas de portadores estáticos separados por comas para clientes MCP/connect; no autenticación del navegador                                                                                                              |
+| `A2A_SECRET`                            | Secreto compartido para la verificación de identidad entre aplicaciones A2A firmada por JWT y, cuando esté presente, firma de token de acceso MCP OAuth                                                                     |

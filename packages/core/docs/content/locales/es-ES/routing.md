@@ -11,12 +11,12 @@ Las aplicaciones nativas del agente utilizan **React Router v7** con enrutamient
 
 ### Archivo → Mapeo URL
 
-| Archivo                  | URL                | Notas                                  |
-| --------------------- | ------------------ | -------------------------------------- |
-| `_index.tsx`          | `/`                | Ruta de índice                            |
-| `settings.tsx`        | `/settings`        | Página sencilla                            |
-| `inbox.$threadId.tsx` | `/inbox/:threadId` | Punto = `/`, `$` = parámetro dinámico         |
-| `_app.tsx`            | (sin segmento URL)   | Diseño sin rutas: prefijo con `_`      |
+| Archivo               | URL                | Notas                                           |
+| --------------------- | ------------------ | ----------------------------------------------- |
+| `_index.tsx`          | `/`                | Ruta de índice                                  |
+| `settings.tsx`        | `/settings`        | Página sencilla                                 |
+| `inbox.$threadId.tsx` | `/inbox/:threadId` | Punto = `/`, `$` = parámetro dinámico           |
+| `_app.tsx`            | (sin segmento URL) | Diseño sin rutas: prefijo con `_`               |
 | `inbox/route.tsx`     | `/inbox`           | Formulario de carpeta: `route.tsx` es el índice |
 
 Prefije un segmento con `$` para un parámetro dinámico. Prefije `_` para que sea una ruta de diseño sin ruta (sin segmento URL). Las plantillas usan `flatRoutes()`: el archivo de notación de puntos anterior es principal; el formato de carpeta anidada `inbox/route.tsx` también funciona.

@@ -140,17 +140,17 @@ Navigation und Auswahl.
 
 Das Schema von Brain befindet sich in `templates/brain/server/db/schema.ts`. Acht Tabellen:
 
-| Tabelle                    | Was es enthält                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brain_sources`          | Connector-Konfiguration – Anbieter, Kanäle/Repos auf der Zulassungsliste, Synchronisierungscursor, Überprüfungsstatus, `ingest_token_hash`, `status`, `last_synced_at`        |
-| `brain_source_shares`    | Freigabegewährung pro Quelle (Betrachter/Redakteur/Administrator)                                                                                              |
-| `brain_raw_captures`     | Transkripte, Kanalexporte, Notizen und Webhook-Importe mit `external_id`-Deduplizierungsschlüssel, `content_hash`, Art und Destillationsstatus          |
-| `brain_knowledge`        | Destillierte atomare Einträge – Art (Entscheidung / Tatsache / Prozess / …), Thema, Entitäten, Beweiszitate, Vertrauen, `publish_tier`, Ersatzlinks |
-| `brain_knowledge_shares` | Zuteilungen pro Wissensanteil                                                                                                                     |
-| `brain_proposals`        | Ausstehende Überprüfungselemente – vorgeschlagene Erstellung/Aktualisierung/Archivierung mit Beweisen und Prüfernotizen                                                         |
-| `brain_proposal_shares`  | Aktienzuteilungen pro Vorschlag                                                                                                                      |
-| `brain_sync_runs`        | Überwachungsprotokoll synchronisieren – Anbieter, Status, Statistiken JSON, Fehler, Start-/Endzeitstempel                                                                     |
-| `brain_ingest_queue`     | Hintergrund-Destillationswarteschlange – Vorgang, Status, Priorität, Anzahl der Wiederholungen, `run_after`                                                          |
+| Tabelle                  | Was es enthält                                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | Connector-Konfiguration – Anbieter, Kanäle/Repos auf der Zulassungsliste, Synchronisierungscursor, Überprüfungsstatus, `ingest_token_hash`, `status`, `last_synced_at` |
+| `brain_source_shares`    | Freigabegewährung pro Quelle (Betrachter/Redakteur/Administrator)                                                                                                      |
+| `brain_raw_captures`     | Transkripte, Kanalexporte, Notizen und Webhook-Importe mit `external_id`-Deduplizierungsschlüssel, `content_hash`, Art und Destillationsstatus                         |
+| `brain_knowledge`        | Destillierte atomare Einträge – Art (Entscheidung / Tatsache / Prozess / …), Thema, Entitäten, Beweiszitate, Vertrauen, `publish_tier`, Ersatzlinks                    |
+| `brain_knowledge_shares` | Zuteilungen pro Wissensanteil                                                                                                                                          |
+| `brain_proposals`        | Ausstehende Überprüfungselemente – vorgeschlagene Erstellung/Aktualisierung/Archivierung mit Beweisen und Prüfernotizen                                                |
+| `brain_proposal_shares`  | Aktienzuteilungen pro Vorschlag                                                                                                                                        |
+| `brain_sync_runs`        | Überwachungsprotokoll synchronisieren – Anbieter, Status, Statistiken JSON, Fehler, Start-/Endzeitstempel                                                              |
+| `brain_ingest_queue`     | Hintergrund-Destillationswarteschlange – Vorgang, Status, Priorität, Anzahl der Wiederholungen, `run_after`                                                            |
 
 ```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {

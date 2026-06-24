@@ -32,12 +32,12 @@ chamada de modelo.
 
 ## Qual documento de codificação eu quero? {#which-doc}
 
-| Você quer…                                                               | Usar                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Execute o código Claude / Codex / Pi **como agente**, com seu próprio loop + ferramentas | **Agentes de aproveitamento** (esta página)               |
-| Renderizar um espaço de trabalho de codificação estilo Claude/Codex **UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
-| Troque o back-end que executa a **ferramenta `run-code`** do agente                 | [Adapters](/docs/sandbox-adapters)           |
-| Prepare uma ferramenta CLI (`gh`, `ffmpeg`) para o agente ligar                     | [Adapters](/docs/sandbox-adapters)           |
+| Você quer…                                                                               | Usar                                         |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Execute o código Claude / Codex / Pi **como agente**, com seu próprio loop + ferramentas | **Agentes de aproveitamento** (esta página)  |
+| Renderizar um espaço de trabalho de codificação estilo Claude/Codex **UI**               | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Troque o back-end que executa a **ferramenta `run-code`** do agente                      | [Adapters](/docs/sandbox-adapters)           |
+| Prepare uma ferramenta CLI (`gh`, `ffmpeg`) para o agente ligar                          | [Adapters](/docs/sandbox-adapters)           |
 
 Superfícies adjacentes: coloque um agente que você construiu em outro lugar atrás do bate-papo de Agent-Native
 UI com [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes); deixe um
@@ -49,11 +49,11 @@ gerar execução de segundo plano/subagente com [Custom Agents & Teams](/docs/ag
 `registerBuiltinAgentHarnesses()` registra três adaptadores apoiados pelo AI SDK
 `HarnessAgent`:
 
-| Nome                         | Tempo de execução     | Caixa de areia | Aprovações |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Código Claude | sim     | sim       |
-| `ai-sdk-harness:codex`       | Codex       | sim     | não        |
-| `ai-sdk-harness:pi`          | Pi          | não      | sim       |
+| Nome                         | Tempo de execução | Caixa de areia | Aprovações |
+| ---------------------------- | ----------------- | -------------- | ---------- |
+| `ai-sdk-harness:claude-code` | Código Claude     | sim            | sim        |
+| `ai-sdk-harness:codex`       | Codex             | sim            | não        |
+| `ai-sdk-harness:pi`          | Pi                | não            | sim        |
 
 Seus pacotes de tempo de execução são **dependências de pares opcionais** e carregam lentamente, portanto,
 aplicativo que nunca usa arnês não paga por isso. Cada adaptador carrega um
@@ -79,11 +79,11 @@ ambiente pai, para que o agente reutilize qualquer login CLI local que já possu
 transporte hospedado ou em sandbox, e não é um transporte chat/A2A — para esses,
 veja [Agent Surfaces](/docs/agent-surfaces).
 
-| Nome              | Comando padrão                                | Recuperável\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(forneça `command`/`args` via configuração)_         | sim         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | sim         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | sim         |
+| Nome              | Comando padrão                                 | Recuperável\* |
+| ----------------- | ---------------------------------------------- | ------------- |
+| `acp`             | _(forneça `command`/`args` via configuração)_  | sim           |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | sim           |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | sim           |
 
 \*Resume funciona quando o agente anuncia o recurso `loadSession` e
 caso contrário, será degradado para uma nova sessão.
@@ -115,7 +115,7 @@ os sinalizadores de entrada ainda evoluem.
 
 `permissionMode` mapeia para ACP `session/request_permission` usando a chamada de ferramenta
 digite os relatórios do agente: leituras sempre executadas, edições executadas em `allow-edits` e
- tudo que é arriscado avisa, a menos que `allow-all`. As aprovações aparecem normalmente
+tudo que é arriscado avisa, a menos que `allow-all`. As aprovações aparecem normalmente
 Eventos `approval-request`. O adaptador serve `fs/read_text_file` e
 `fs/write_text_file` no espaço de trabalho da sessão (recusando caminhos que escapam
 it) e as gravações emitem eventos `file-change`; métodos de terminal não são anunciados,
@@ -247,11 +247,11 @@ você faz.
 
 `permissionMode` determina o que o chicote pode fazer sem aprovação:
 
-| Modo          | Significado                                            |
-| ------------- | -------------------------------------------------- |
-| `allow-reads` | Padrão. Leituras executadas; edições e prompt actions arriscado |
-| `allow-edits` | Leituras e edições são executadas; outro prompt actions arriscado    |
-| `allow-all`   | Sem restrição de aprovação                                 |
+| Modo          | Significado                                                       |
+| ------------- | ----------------------------------------------------------------- |
+| `allow-reads` | Padrão. Leituras executadas; edições e prompt actions arriscado   |
+| `allow-edits` | Leituras e edições são executadas; outro prompt actions arriscado |
+| `allow-all`   | Sem restrição de aprovação                                        |
 
 Quando um arnês faz uma pausa para aprovação, ele emite um evento `approval-request` e o
 a sessão é marcada como `idle` com a aprovação pendente registrada, para que UI possa
@@ -321,7 +321,7 @@ registerAgentHarness({
 ```
 
 Mantenha o pacote de tempo de execução opcional com uma importação dinâmica em `createSession` e um
-Dica `installPackage`. Para chicotes de codificação apoiados por ponte, é necessário um 
+Dica `installPackage`. Para chicotes de codificação apoiados por ponte, é necessário um
 provedor de sandbox/espaço de trabalho em vez de executar um agente de codificação arbitrário no
 processo host — consulte [Sandbox Adapters](/docs/sandbox-adapters). O adaptador AI SDK
 (`createAiSdkHarnessAdapter`, apoiado por `HarnessAgent` de `@ai-sdk/harness`) é

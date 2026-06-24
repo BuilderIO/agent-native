@@ -112,12 +112,12 @@ Wenn `A2A_SECRET` festgelegt ist (der empfohlene Pfad), kündigt die Karte ein
 
 Alle Methoden werden über `POST /_agent-native/a2a` im JSON-RPC 2.0-Format aufgerufen:
 
-| Methode           | Beschreibung                                                                                                           | Schlüsselparameter                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Methode          | Beschreibung                                                                                                                                                            | Schlüsselparameter            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `message/send`   | Senden Sie eine Nachricht und warten Sie auf die abgeschlossene Aufgabe. Übergeben Sie `async: true`, um sofort in den Status `working` und die Abfrage zurückzukehren. | `message, contextId?, async?` |
-| `message/stream` | Eine Nachricht senden, SSE-Aufgabenaktualisierungen erhalten                                                                              | `message, contextId?`         |
-| `tasks/get`      | Eine Aufgabe nach ID abrufen – wird verwendet, um eine asynchrone Aufgabe bis zum Abschluss abzurufen                                                         | `id`                          |
-| `tasks/cancel`   | Eine laufende Aufgabe abbrechen                                                                                                 | `id`                          |
+| `message/stream` | Eine Nachricht senden, SSE-Aufgabenaktualisierungen erhalten                                                                                                            | `message, contextId?`         |
+| `tasks/get`      | Eine Aufgabe nach ID abrufen – wird verwendet, um eine asynchrone Aufgabe bis zum Abschluss abzurufen                                                                   | `id`                          |
+| `tasks/cancel`   | Eine laufende Aufgabe abbrechen                                                                                                                                         | `id`                          |
 
 ```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
 {
@@ -260,14 +260,14 @@ Jede Nachricht erstellt eine Aufgabe, die diese Zustände durchläuft:
 
 `input-required` ist nicht terminal: Der Handler wartet auf weitere Informationen vom Aufrufer, und die Aufgabe kann zu `working` zurückkehren, sobald diese Eingabe eintrifft.
 
-| Bundesstaat            | Bedeutung                                        |
-| ---------------- | ---------------------------------------------- |
-| `submitted`      | Aufgabe erstellt, zur Verarbeitung in die Warteschlange gestellt            |
-| `working`        | Handler verarbeitet die Nachricht              |
-| `completed`      | Handler erfolgreich abgeschlossen                  |
-| `failed`         | Der Handler hat einen Fehler ausgegeben                         |
-| `canceled`       | Aufgabe wurde über Aufgaben/Abbrechen abgebrochen             |
-| `input-required` | Handler benötigt weitere Informationen vom Anrufer |
+| Bundesstaat      | Bedeutung                                                        |
+| ---------------- | ---------------------------------------------------------------- |
+| `submitted`      | Aufgabe erstellt, zur Verarbeitung in die Warteschlange gestellt |
+| `working`        | Handler verarbeitet die Nachricht                                |
+| `completed`      | Handler erfolgreich abgeschlossen                                |
+| `failed`         | Der Handler hat einen Fehler ausgegeben                          |
+| `canceled`       | Aufgabe wurde über Aufgaben/Abbrechen abgebrochen                |
+| `input-required` | Handler benötigt weitere Informationen vom Anrufer               |
 
 Aufgaben bleiben in der Tabelle `a2a_tasks` SQL bestehen und können später über `tasks/get` abgerufen werden.
 

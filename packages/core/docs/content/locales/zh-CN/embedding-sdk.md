@@ -144,20 +144,20 @@ export default createAgentNativeEmbeddedPlugin({
 上面的包含电池的插件是幸福的道路。伸手去拿其中之一
 只有当它更适合您的情况时：
 
-| 模式                            | 什么时候使用它                                                                                         | 包                                    |
-| ------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| **嵌入式应用程序选择器**          | 启动完整的 Agent-Native 应用程序作为重点 iframe（资产选择器、表单生成器、审批面板）。 | `@agent-native/embedding`                  |
-| **`<AgentNative>` 主桥** | 手动连接页面上下文和客户端 actions 的独立 sidecar 应用或跨源 iframe。 | `@agent-native/core/client`                |
-| **便携式扩展**         | 当 SaaS 已拥有扩展存储/批准时，让主机用户构建沙盒迷你应用程序。 | `@agent-native/core/client`扩展插槽 |
+| 模式                     | 什么时候使用它                                                                        | 包                                  |
+| ------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------- |
+| **嵌入式应用程序选择器** | 启动完整的 Agent-Native 应用程序作为重点 iframe（资产选择器、表单生成器、审批面板）。 | `@agent-native/embedding`           |
+| **`<AgentNative>` 主桥** | 手动连接页面上下文和客户端 actions 的独立 sidecar 应用或跨源 iframe。                 | `@agent-native/core/client`         |
+| **便携式扩展**           | 当 SaaS 已拥有扩展存储/批准时，让主机用户构建沙盒迷你应用程序。                       | `@agent-native/core/client`扩展插槽 |
 
 较低级别的 `@agent-native/embedding` 包公开：
 
-| 导入路径                        | 它提供什么                                                                        |
-| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| 导入路径                           | 它提供什么                                                                        |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
 | `@agent-native/embedding`          | `EmbeddedApp` 选择器组件、`getA2AUrl`、`getMcpUrl`、`sendMessage`（流式传输 A2A） |
-| `@agent-native/embedding/react`    | React 特定的钩子和组件                                                     |
-| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`、`sendEmbeddedAppMessage` — 在嵌入式应用内使用     |
-| `@agent-native/embedding/agent`    | 代理端点助手                                                                  |
+| `@agent-native/embedding/react`    | React 特定的钩子和组件                                                            |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`、`sendEmbeddedAppMessage` — 在嵌入式应用内使用         |
+| `@agent-native/embedding/agent`    | 代理端点助手                                                                      |
 | `@agent-native/embedding/protocol` | 协议类型                                                                          |
 
 ```bash
@@ -401,12 +401,12 @@ export function SidecarRuntime() {
 
 框架自动挂载`/_agent-native/browser-sessions`。一旦网桥运行，sidecar 代理就可以使用：
 
-| 工具                           | 目的                                                         |
-| ------------------------------ | --------------------------------------------------------------- |
-| `list-browser-sessions`        | 查看当前用户的已连接主机选项卡。                   |
-| `view-browser-session`         | 向实时选项卡询问当前页面上下文和屏幕快照。    |
-| `list-browser-session-actions` | 向实时选项卡询问当前客户端操作清单。        |
-| `run-browser-session-action`   | 通过实时选项卡运行一项当前客户端操作。             |
+| 工具                           | 目的                                           |
+| ------------------------------ | ---------------------------------------------- |
+| `list-browser-sessions`        | 查看当前用户的已连接主机选项卡。               |
+| `view-browser-session`         | 向实时选项卡询问当前页面上下文和屏幕快照。     |
+| `list-browser-session-actions` | 向实时选项卡询问当前客户端操作清单。           |
+| `run-browser-session-action`   | 通过实时选项卡运行一项当前客户端操作。         |
 | `send-browser-session-command` | 请求主机刷新、导航、重新安装、重新加载或批准。 |
 
 这是当代理在后端、Slack/Telegram/email 中运行或作为 A2A 被调用者运行时使用的桥，但在打开时仍需要触摸用户当前的浏览器选项卡。如果浏览器关闭，后端 actions 仍应处理持久工作，并且浏览器会话工具将报告没有连接活动选项卡。
@@ -415,10 +415,10 @@ export function SidecarRuntime() {
 
 有两个操作类：
 
-| 动作类型    | 运行位置                                               | 浏览器关闭时可以工作吗？ | 最适合                                                                                                 |
-| -------------- | ----------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 后端操作 | Sidecar 应用、后端 API、MCP 或集成适配器       | 是                           | 持久的工作，例如创建、更新、发布、同步、发送、导入。                                           |
-| 客户端操作  | 通过 `<AgentNative actions={...} />` 的当前浏览器选项卡 | 否                            | 临时 UI 的工作方式类似于选择元素、读取编辑器状态、滚动到一行、复制当前画布状态。 |
+| 动作类型   | 运行位置                                                | 浏览器关闭时可以工作吗？ | 最适合                                                                           |
+| ---------- | ------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
+| 后端操作   | Sidecar 应用、后端 API、MCP 或集成适配器                | 是                       | 持久的工作，例如创建、更新、发布、同步、发送、导入。                             |
+| 客户端操作 | 通过 `<AgentNative actions={...} />` 的当前浏览器选项卡 | 否                       | 临时 UI 的工作方式类似于选择元素、读取编辑器状态、滚动到一行、复制当前画布状态。 |
 
 后端 actions 应该是任何必须在刷新、关闭浏览器、重试或集成触发运行后仍然存在的默认设置。它们属于 sidecar 应用程序的正常 Agent-Native 操作/工具层，代理可以在其中通过聊天、自动化、Slack/Telegram/电子邮件集成和后台作业调用它们。
 
@@ -527,13 +527,13 @@ export function CustomerSidebar({ customer, userExtensions }) {
 
 iframe 内的可用全局变量：
 
-| 帮手                         | 目的                                                |
-| ------------------------------ | ------------------------------------------------------ |
-| `appAction(name, args)`        | 运行主机声明的操作。                            |
+| 帮手                           | 目的                                     |
+| ------------------------------ | ---------------------------------------- |
+| `appAction(name, args)`        | 运行主机声明的操作。                     |
 | `agentNative.context()`        | 读取当前主机页面、资源、插槽和用户数据。 |
-| `agentNative.command(name, p)` | 要求主机导航、刷新、重新安装或打开。   |
-| `agentNative.refresh(payload)` | `refreshData` 的快捷方式。                            |
-| `extensionData.*`              | 通过主机适配器保留扩展本地数据。 |
+| `agentNative.command(name, p)` | 要求主机导航、刷新、重新安装或打开。     |
+| `agentNative.refresh(payload)` | `refreshData` 的快捷方式。               |
+| `extensionData.*`              | 通过主机适配器保留扩展本地数据。         |
 
 默认情况下，`extensionData` 使用浏览器 `localStorage`，这对于原型和本地小部件很有用。生产 SaaS 主机应传递后端支持的 `storage` 适配器，以便用户和组织范围的扩展数据持久、可审核并受应用程序权限管理。通用 HTTP 适配器发送 POST 主体（如 `{ operation, extensionId, slotId, collection, id, data, options, context }`），并直接期望 `{ result }` 或结果 JSON。
 
@@ -556,14 +556,14 @@ iframe 内的可用全局变量：
 
 内置命令名称故意采用应用程序形式，而不是数据库形式：
 
-| 命令                                | 目的                                                                |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| `navigate`                             | 将主机 UI 移动到路径/视图/资源。                              |
-| `refreshData` / `refresh-data`         | 要求主机使客户端数据无效。                           |
-| `remountView` / `remount-view`         | 要求主机重新挂载子树，例如`<App key={key} />`。           |
-| `hardReload` / `hard-reload`           | 完全重新加载浏览器。                                                   |
-| `openResource` / `open-resource`       | 在主机UI中打开特定域对象。                          |
-| `requestApproval` / `request-approval` | 要求主持人展示确认流程。为此注册一个处理程序。 |
+| 命令                                   | 目的                                            |
+| -------------------------------------- | ----------------------------------------------- |
+| `navigate`                             | 将主机 UI 移动到路径/视图/资源。                |
+| `refreshData` / `refresh-data`         | 要求主机使客户端数据无效。                      |
+| `remountView` / `remount-view`         | 要求主机重新挂载子树，例如`<App key={key} />`。 |
+| `hardReload` / `hard-reload`           | 完全重新加载浏览器。                            |
+| `openResource` / `open-resource`       | 在主机UI中打开特定域对象。                      |
+| `requestApproval` / `request-approval` | 要求主持人展示确认流程。为此注册一个处理程序。  |
 
 如果未提供处理程序，安全默认值将调度浏览器事件，例如 `agentNative:refresh-data` 和 `agentNative:remount-view`。 `requestApproval`没有默认处理程序；在依赖它之前先注册一个。
 
@@ -581,12 +581,12 @@ iframe 内的可用全局变量：
 
 当代理运行时接受普通工具描述符时，请在 sidecar iframe 内使用 `createAgentNativeHostTools()`。它返回四个与框架无关的工具：
 
-| 工具                | 目的                                                             |
-| ------------------- | ------------------------------------------------------------------- |
-| `view-host-screen`  | 读取语义主机上下文和屏幕快照。                     |
-| `list-host-actions` | 列出当前选项卡公开的实时浏览器会话 actions。       |
-| `run-host-action`   | 按名称运行一个实时客户端操作。                                 |
-| `send-host-command` | 发送刷新、导航、重新安装或批准等主机命令。 |
+| 工具                | 目的                                         |
+| ------------------- | -------------------------------------------- |
+| `view-host-screen`  | 读取语义主机上下文和屏幕快照。               |
+| `list-host-actions` | 列出当前选项卡公开的实时浏览器会话 actions。 |
+| `run-host-action`   | 按名称运行一个实时客户端操作。               |
+| `send-host-command` | 发送刷新、导航、重新安装或批准等主机命令。   |
 
 助手有意返回普通的 `{ name, description, parameters, execute }` 对象，以便 sidecar 可以将它们调整为 AI SDK、Anthropic、OpenAI 函数调用或 Agent-Native `ActionEntry` 形状，而无需将此 SDK 耦合到一个运行时。
 

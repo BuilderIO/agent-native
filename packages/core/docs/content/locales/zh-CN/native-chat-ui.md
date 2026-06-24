@@ -34,10 +34,10 @@ description: "操作声明的本机聊天渲染器、可重用的 DataTable/Data
 内置数据渲染器使用普通的 JSON 结果和 `widget` 加上
 匹配有效负载：
 
-| 小部件            | 所需的有效负载             | 渲染为                                      |
-| ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | 原生的、可重用的数据表                   |
-| `"data-chart"`    | `chartSeries`                | 原生条形图、折线图或面积图               |
+| 小部件            | 所需的有效负载              | 渲染为                        |
+| ----------------- | --------------------------- | ----------------------------- |
+| `"data-table"`    | `table`                     | 原生的、可重用的数据表        |
+| `"data-chart"`    | `chartSeries`               | 原生条形图、折线图或面积图    |
 | `"data-insights"` | `table` 和/或 `chartSeries` | 带有图表/表格输出的组合洞察卡 |
 
 服务器 actions 应从
@@ -204,7 +204,7 @@ export default defineAction({
 本节是其规范参考。它允许您在其他地方构建代理
 将标准化事件流式传输到 Agent-Native 的对话 UI 中，同时保持
 共享作曲家、脚本渲染、工具卡、批准、本机小部件，
- 和周围的应用程序布局。 [Drop-in Agent](/docs/drop-in-agent#custom-chat-ui)
+和周围的应用程序布局。 [Drop-in Agent](/docs/drop-in-agent#custom-chat-ui)
 此处为运行时故事的教程点，以及 [Component API](/docs/components#agent-chat-ui)
 列出每个连接器和适配器及其导入路径；合约本身是
 如下所述。

@@ -6,7 +6,7 @@ description: "Dê ao agente acesso estruturado a qualquer ferramenta CLI (gh, ff
 # Adaptadores CLI
 
 > **Onde isso se encaixa:** Os adaptadores CLI são uma das duas costuras do adaptador no
->. O guia canônico é [Adapters](/docs/sandbox-adapters), que
+> . O guia canônico é [Adapters](/docs/sandbox-adapters), que
 > cobre esta junção e a junção sandbox `run-code` — incluindo a compartilhada
 > restrição de borda/sem servidor. Esta página é uma referência rápida para o lado CLI.
 

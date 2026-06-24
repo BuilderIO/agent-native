@@ -125,11 +125,11 @@ export default defineAction({
 
 `outputErrorStrategy` steuert, was bei einer Nichtübereinstimmung passiert:
 
-| Strategie     | Verhalten bei Nichtübereinstimmung                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
+| Strategie    | Verhalten bei Nichtübereinstimmung                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Default.** `console.warn` die Probleme und gibt das **ursprüngliche** Ergebnis unverändert zurück. Bruchsicher. |
-| `"strict"`   | Wirf einen eindeutigen Fehler, damit eine fehlerhafte Aktion lautstark zum Vorschein kommt.                                             |
-| `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                         |
+| `"strict"`   | Wirf einen eindeutigen Fehler, damit eine fehlerhafte Aktion lautstark zum Vorschein kommt.                       |
+| `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                       |
 
 Bei Erfolg wird der **validierte** Wert zurückgegeben, sodass alle im `outputSchema` definierten Zwänge oder Standardeinstellungen wirksam werden (Spiegelung des Eingabepfads). Wenn kein `outputSchema` angegeben wird, bleibt das Verhalten Byte für Byte unverändert – es gibt keinen Umbruch. Dies ist von der strukturierten Ausgabe von Mastra/Flue entlehnt und auf der Aktionsebene abhängigkeitsfrei gehalten.
 
@@ -188,12 +188,12 @@ Ein Beratungshelfer auf Repo-Ebene, `node scripts/audit-template-actions.mjs [te
 
 Vier Flags steuern, _wer_ eine Aktion aufrufen kann. Alle sind standardmäßig auf den zulässigen Wert eingestellt, sodass Sie nur einen festlegen, um eine bestimmte Oberfläche zu straffen. Diese Tabelle ist die übersichtliche Zusammenfassung; Die Unterabschnitte fügen jeweils das eine Detail hinzu, das jeder benötigt.
 
-| Flagge            | Standard       | Einschränkender Wert → wer noch anrufen kann                                      | Typische Verwendung                                                     |
-| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → Nur UI, HTTP, CLI – **vom Modell ausgeblendet**, MCP und A2A      | UI-nur / programmatisches actions, das keinen Tool-Slot verschwenden sollte |
-| `toolCallable`  | `true`        | `false` → alles **außer** der Sandbox-Erweiterung Iframe Bridge (403) | Benachbarte Vorgänge autorisieren (Konto löschen, Organisationsmitgliedschaft/-rollen ändern) |
-| `publicAgent`   | aus (privat) | `{ expose: true }` → fügt die Aktion **öffentlichen** MCP/A2A/OpenAPI-Oberflächen hinzu | Sichere Lese-/Ingest-Tools, die ohne Authentifizierung erreichbar sind         |
-| `needsApproval` | `false`       | `true` → der Agent **pausiert**; Ein Mensch muss den konkreten Anruf genehmigen       | Folgenebenwirkungen (E-Mail senden, Karte aufladen, löschen)  |
+| Flagge          | Standard     | Einschränkender Wert → wer noch anrufen kann                                            | Typische Verwendung                                                                           |
+| --------------- | ------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`       | `false` → Nur UI, HTTP, CLI – **vom Modell ausgeblendet**, MCP und A2A                  | UI-nur / programmatisches actions, das keinen Tool-Slot verschwenden sollte                   |
+| `toolCallable`  | `true`       | `false` → alles **außer** der Sandbox-Erweiterung Iframe Bridge (403)                   | Benachbarte Vorgänge autorisieren (Konto löschen, Organisationsmitgliedschaft/-rollen ändern) |
+| `publicAgent`   | aus (privat) | `{ expose: true }` → fügt die Aktion **öffentlichen** MCP/A2A/OpenAPI-Oberflächen hinzu | Sichere Lese-/Ingest-Tools, die ohne Authentifizierung erreichbar sind                        |
+| `needsApproval` | `false`      | `true` → der Agent **pausiert**; Ein Mensch muss den konkreten Anruf genehmigen         | Folgenebenwirkungen (E-Mail senden, Karte aufladen, löschen)                                  |
 
 Diese sind unabhängig: `agentTool` steuert die Modellansicht, `toolCallable` steuert nur den Erweiterungs-Iframe, `publicAgent` fügt eine öffentliche Opt-in-Oberfläche hinzu (öffentliche Webrouten bedeuten niemals die Offenlegung öffentlicher Tools) und `needsApproval` steuert die Ausführung, nachdem der Aufruf erfolgt ist – siehe [Human-in-the-loop approval](#needs-approval) unten.
 
@@ -259,24 +259,24 @@ export default defineAction({
 
 `ActionRunContext`-Felder:
 
-| Feld         | Typ                    | Notizen                                                                                                                                                           |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`       | `string \| null`        | Aufgelöste Organisations-ID oder `null`, wenn die Anfrage keine Organisation hat.                                                                                                         |
-| `caller`      | `ActionCaller`          | Wie die Aktion aufgerufen wurde (siehe unten).                                                                                                                         |
-| `send`        | `(event) => void`       | Optional. Senden Sie ein SSE-Ereignis an den Client. Nur innerhalb der Agent-Tool-Schleife vorhanden (`caller: "tool"`); `undefined` anderswo.                                   |
-| `attachments` | `AgentChatAttachment[]` | Dateien, Bilder und eingefügte Textblöcke, die mit der aktuellen Agentenrunde übermittelt wurden. Wird nur ausgefüllt, wenn `caller: "tool"`; `undefined` auf allen anderen Oberflächen.           |
+| Feld          | Typ                     | Notizen                                                                                                                                                                                  |
+| ------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.                          |
+| `orgId`       | `string \| null`        | Aufgelöste Organisations-ID oder `null`, wenn die Anfrage keine Organisation hat.                                                                                                        |
+| `caller`      | `ActionCaller`          | Wie die Aktion aufgerufen wurde (siehe unten).                                                                                                                                           |
+| `send`        | `(event) => void`       | Optional. Senden Sie ein SSE-Ereignis an den Client. Nur innerhalb der Agent-Tool-Schleife vorhanden (`caller: "tool"`); `undefined` anderswo.                                           |
+| `attachments` | `AgentChatAttachment[]` | Dateien, Bilder und eingefügte Textblöcke, die mit der aktuellen Agentenrunde übermittelt wurden. Wird nur ausgefüllt, wenn `caller: "tool"`; `undefined` auf allen anderen Oberflächen. |
 
 `caller` ist die Vereinigung `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
 
-| `caller`     | Festlegen, wann…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `caller`     | Festlegen, wann…                                                                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `"tool"`     | Die In-App-Agentenschleife, ein Subagent/Agenten-Team oder eine A2A-Anfrage (A2A steuert dieselbe Agentenschleife, daher lauten die Toolaufrufe `"tool"`). |
-| `"frontend"` | Ein Browseraufruf über `useActionMutation` / `useActionQuery` / `callAction` (getaggt mit dem `X-Agent-Native-Frontend: 1`-Header).      |
-| `"http"`     | Ein reines programmatisches `POST` / `GET` bis `/_agent-native/actions/<name>` ohne den Frontend-Marker.                                   |
-| `"cli"`      | `pnpm action <name>` (der CLI-Läufer).                                                                                               |
-| `"mcp"`      | Ein externer Agent über den MCP `tools/call`-Endpunkt.                                                                                |
-| `"a2a"`      | Reserviert für einen zukünftigen direkten A2A-Aktionsversand. Heute durchläuft A2A die Agentenschleife, daher lauten diese Aufrufe `"tool"`.                |
+| `"frontend"` | Ein Browseraufruf über `useActionMutation` / `useActionQuery` / `callAction` (getaggt mit dem `X-Agent-Native-Frontend: 1`-Header).                        |
+| `"http"`     | Ein reines programmatisches `POST` / `GET` bis `/_agent-native/actions/<name>` ohne den Frontend-Marker.                                                   |
+| `"cli"`      | `pnpm action <name>` (der CLI-Läufer).                                                                                                                     |
+| `"mcp"`      | Ein externer Agent über den MCP `tools/call`-Endpunkt.                                                                                                     |
+| `"a2a"`      | Reserviert für einen zukünftigen direkten A2A-Aktionsversand. Heute durchläuft A2A die Agentenschleife, daher lauten diese Aufrufe `"tool"`.               |
 
 `run` bleibt abwärtskompatibel: Bestehende 1-Argument-Handler und Handler, die nur `{ send }` zerstören, funktionieren unverändert weiter.
 
@@ -564,14 +564,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## Hilfsfunktionen {#utility-functions}
 
-| Funktion                | Retouren   | Beschreibung                                           |
-| ----------------------- | --------- | ----------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | `.env` aus dem Projektstamm (oder einem benutzerdefinierten Pfad) laden.       |
-| `camelCaseArgs(args)`   | `Record`  | Kebab-Case-Schlüssel in CamelCase konvertieren.                 |
-| `isValidPath(p)`        | `boolean` | Validieren Sie einen relativen Pfad (kein Durchlauf, kein absoluter). |
-| `isValidProjectPath(p)` | `boolean` | Validieren Sie einen Projekt-Slug (z. B. `my-project`).          |
-| `ensureDir(dir)`        | `void`    | `mkdir -p`-Helfer.                                    |
-| `fail(message)`         | `never`   | Drucken auf stderr und `exit(1)`.                        |
+| Funktion                | Retouren  | Beschreibung                                                             |
+| ----------------------- | --------- | ------------------------------------------------------------------------ |
+| `loadEnv(path?)`        | `void`    | `.env` aus dem Projektstamm (oder einem benutzerdefinierten Pfad) laden. |
+| `camelCaseArgs(args)`   | `Record`  | Kebab-Case-Schlüssel in CamelCase konvertieren.                          |
+| `isValidPath(p)`        | `boolean` | Validieren Sie einen relativen Pfad (kein Durchlauf, kein absoluter).    |
+| `isValidProjectPath(p)` | `boolean` | Validieren Sie einen Projekt-Slug (z. B. `my-project`).                  |
+| `ensureDir(dir)`        | `void`    | `mkdir -p`-Helfer.                                                       |
+| `fail(message)`         | `never`   | Drucken auf stderr und `exit(1)`.                                        |
 
 ## Was kommt als nächstes?
 

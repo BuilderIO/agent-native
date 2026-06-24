@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### 路由命名约定 {#route-naming-conventions}
 
-| 文件名模式  | HTTP方法 | 示例路径                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` 或包罗万象 |
+| 文件名模式         | HTTP方法 | 示例路径                  |
+| ------------------ | -------- | ------------------------- |
+| `index.get.ts`     | GET      | `/api/items`              |
+| `index.post.ts`    | POST     | `/api/items`              |
+| `[id].get.ts`      | GET      | `/api/items/:id`          |
+| `[id].patch.ts`    | PATCH    | `/api/items/:id`          |
+| `[id].delete.ts`   | DELETE   | `/api/items/:id`          |
+| `[...slug].get.ts` | GET      | `/api/items/*` 或包罗万象 |
 
 ## 首选 Actions 进行应用操作 {#actions-first}
 
@@ -149,19 +149,19 @@ export default runMigrations(
 
 框架在`/_agent-native/`下挂载自己的路由。将该命名空间视为保留。
 
-| 路由前缀                     | 目的                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | 操作 HTTP 端点                                                           |
-| `/_agent-native/agent-chat`      | 代理聊天循环                                                                 |
-| `/_agent-native/poll`            | SQL 支持的 UI 同步                                                              |
-| `/_agent-native/resources/*`     | 工作区资源                                                             |
+| 路由前缀                         | 目的                                                     |
+| -------------------------------- | -------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | 操作 HTTP 端点                                           |
+| `/_agent-native/agent-chat`      | 代理聊天循环                                             |
+| `/_agent-native/poll`            | SQL 支持的 UI 同步                                       |
+| `/_agent-native/resources/*`     | 工作区资源                                               |
 | `/_agent-native/extensions/*`    | 运行时扩展和扩展代理（旧别名：`/_agent-native/tools/*`） |
-| `/_agent-native/integrations/*`  | 消息传递/webhook 集成                                                  |
-| `/_agent-native/a2a`             | 代理到代理 JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP端点                                                                    |
-| `/_agent-native/onboarding/*`    | 设置清单                                                                 |
-| `/_agent-native/observability/*` | 跟踪、反馈、评估、实验                                            |
-| `/_agent-native/file-upload`     | 文件上传提供程序端点                                                   |
+| `/_agent-native/integrations/*`  | 消息传递/webhook 集成                                    |
+| `/_agent-native/a2a`             | 代理到代理 JSON-RPC                                      |
+| `/_agent-native/mcp`             | MCP端点                                                  |
+| `/_agent-native/onboarding/*`    | 设置清单                                                 |
+| `/_agent-native/observability/*` | 跟踪、反馈、评估、实验                                   |
+| `/_agent-native/file-upload`     | 文件上传提供程序端点                                     |
 
 自定义应用路由应使用 `/api/*`、公共应用路径或不与 `/_agent-native/` 冲突的提供商特定回调路径。
 

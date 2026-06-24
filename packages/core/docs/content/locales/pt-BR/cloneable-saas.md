@@ -13,22 +13,22 @@ A maioria dos "modelos" oferece um andaime em branco e uma longa lista TODO. O a
 
 Cada um é um aplicativo real que você pode usar hoje e a plataforma de lançamento para sua própria versão.
 
-| Modelo                                  | O que é                                                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Modelo                                    | O que é                                                                                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**Chat**](/docs/template-chat)           | Aplicativo mínimo de bate-papo com threads duráveis, actions, autenticação e um caminho limpo para UI personalizado ou seu próprio back-end. |
-| [**Mail**](/docs/template-mail)           | Um super-humano nativo do agente. Caixa de entrada, marcadores, triagem de IA, teclado, rascunhos e envios por meio do agente.      |
-| [**Calendar**](/docs/template-calendar)   | Um Google Calendar nativo do agente. Eventos, sincronização, links públicos para reservas, agendamento orientado por agentes.                  |
-| [**Content**](/docs/template-content)     | Obsidiana de código aberto para MDX. Markdown/MDX local, editor Tiptap, sincronização Notion, colaboração multiusuário em tempo real.     |
-| [**Brain**](/docs/template-brain)         | Bate-papo limpo da empresa, respaldado pela memória institucional citada, fontes aprovadas, portas de revisão e citações.        |
-| [**Assets**](/docs/template-assets)       | Gerenciador de ativos digitais para bibliotecas de marcas, uploads, referências e geração de imagens/vídeos da marca.           |
-| [**Slides**](/docs/template-slides)       | Um Apresentações Google nativo do agente. Decks baseados em React que o agente gera e edita diretamente.                       |
-| [**Video**](/docs/template-videos)        | Motion graphics programáticos e vídeos de demonstração de produtos no Remotion.                                              |
-| [**Analytics**](/docs/template-analytics) | Um Amplitude/Mixpanel nativo do agente. Conecte fontes de dados, solicite gráficos e fixe em painéis.                |
-| [**Clips**](/docs/template-clips)         | Tela assíncrona + gravação de câmera com transcrição, capítulos e resumos de IA.                                |
-| [**Design**](/docs/template-design)       | Estúdio de prototipagem HTML nativo do agente para designs interativos Alpine/Tailwind.                                  |
-| [**Forms**](/docs/template-forms)         | Um Typeform nativo do agente. Crie, compartilhe, colete e encaminhe envios para Slack, Planilhas, webhooks ou Discord. |
-| [**Plan**](/docs/template-plan)           | Planos visuais e recapitulações de relações públicas com diagramas, wireframes e anotações.                                         |
-| [**Dispatch**](/docs/template-dispatch)   | O plano de controle do espaço de trabalho: segredos compartilhados, integrações reutilizáveis, Slack/Telegram, trabalhos agendados.            |
+| [**Mail**](/docs/template-mail)           | Um super-humano nativo do agente. Caixa de entrada, marcadores, triagem de IA, teclado, rascunhos e envios por meio do agente.               |
+| [**Calendar**](/docs/template-calendar)   | Um Google Calendar nativo do agente. Eventos, sincronização, links públicos para reservas, agendamento orientado por agentes.                |
+| [**Content**](/docs/template-content)     | Obsidiana de código aberto para MDX. Markdown/MDX local, editor Tiptap, sincronização Notion, colaboração multiusuário em tempo real.        |
+| [**Brain**](/docs/template-brain)         | Bate-papo limpo da empresa, respaldado pela memória institucional citada, fontes aprovadas, portas de revisão e citações.                    |
+| [**Assets**](/docs/template-assets)       | Gerenciador de ativos digitais para bibliotecas de marcas, uploads, referências e geração de imagens/vídeos da marca.                        |
+| [**Slides**](/docs/template-slides)       | Um Apresentações Google nativo do agente. Decks baseados em React que o agente gera e edita diretamente.                                     |
+| [**Video**](/docs/template-videos)        | Motion graphics programáticos e vídeos de demonstração de produtos no Remotion.                                                              |
+| [**Analytics**](/docs/template-analytics) | Um Amplitude/Mixpanel nativo do agente. Conecte fontes de dados, solicite gráficos e fixe em painéis.                                        |
+| [**Clips**](/docs/template-clips)         | Tela assíncrona + gravação de câmera com transcrição, capítulos e resumos de IA.                                                             |
+| [**Design**](/docs/template-design)       | Estúdio de prototipagem HTML nativo do agente para designs interativos Alpine/Tailwind.                                                      |
+| [**Forms**](/docs/template-forms)         | Um Typeform nativo do agente. Crie, compartilhe, colete e encaminhe envios para Slack, Planilhas, webhooks ou Discord.                       |
+| [**Plan**](/docs/template-plan)           | Planos visuais e recapitulações de relações públicas com diagramas, wireframes e anotações.                                                  |
+| [**Dispatch**](/docs/template-dispatch)   | O plano de controle do espaço de trabalho: segredos compartilhados, integrações reutilizáveis, Slack/Telegram, trabalhos agendados.          |
 
 Não quer um modelo de domínio? Use [Chat](/docs/template-chat) quando quiser um aplicativo básico com o qual os usuários possam conversar imediatamente ou comece a agir primeiro com [Pure-Agent Apps](/docs/pure-agent-apps).
 

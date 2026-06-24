@@ -125,11 +125,11 @@ export default defineAction({
 
 `outputErrorStrategy` controla lo que sucede en caso de discrepancia:
 
-| Estrategia     | Comportamiento en caso de discrepancia                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
+| Estrategia   | Comportamiento en caso de discrepancia                                                                          |
+| ------------ | --------------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Predeterminado.** `console.warn` los problemas y devuelve el resultado **original** sin cambios. No se rompe. |
-| `"strict"`   | Arroja un error claro para que una acción con errores surja con fuerza.                                             |
-| `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado no válido.                         |
+| `"strict"`   | Arroja un error claro para que una acción con errores surja con fuerza.                                         |
+| `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado no válido.                              |
 
 En caso de éxito, se devuelve el valor **validado**, por lo que cualquier coerción o valor predeterminado definido en `outputSchema` tendrá efecto (reflejando la ruta de entrada). Cuando no se proporciona ningún `outputSchema`, el comportamiento no cambia byte por byte: no hay ajuste. Esto se toma prestado de la salida estructurada de Mastra/Flue y se mantiene libre de dependencia en la capa de acción.
 
@@ -177,7 +177,7 @@ Para una acción `GET`, se pasa `leadId` como parámetro de consulta: `/_agent-n
 
 Cada acción que el agente puede ver es una herramienta en la ventana contextual del modelo, y una lista de herramientas larga y superpuesta degrada la calidad de selección de herramientas del modelo. Diseñe la superficie de acción como un API que usted mantiene, no una acción por cada prestación de UI:
 
-- Prefiera **un `update`** de estilo CRUD** que acepte un parche de campos opcionales en lugar de N actions por campo (`update-name`, `update-order`, `update-color`,…). La persona que llama envía solo lo que cambió.
+- Prefiera **un `update`** de estilo CRUD\*\* que acepte un parche de campos opcionales en lugar de N actions por campo (`update-name`, `update-order`, `update-color`,…). La persona que llama envía solo lo que cambió.
 - Antes de agregar una nueva acción de lectura por consulta/filtro, busque una trampilla de escape genérica: [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de aplicaciones.
 - Marque UI solo o programático actions [`agentTool: false`](#agent-tool) para que sigan siendo invocables desde el frontend/HTTP sin gastar un espacio en la lista de herramientas del modelo.
 - Elimine u oculte los actions que los UI ya no usan en lugar de dejarlos expuestos al modelo.
@@ -188,12 +188,12 @@ Un asistente de asesoramiento a nivel de repositorio, `node scripts/audit-templa
 
 Cuatro banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
 
-| Bandera            | Predeterminado       | Valor restrictivo → quién aún puede llamar                                      | Uso típico                                                     |
-| --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `agentTool`     | `true`        | Solo `false` → UI, HTTP, CLI — **oculto del modelo**, MCP y A2A      | UI programático/solo UI que no debería gastar una ranura de herramienta |
-| `toolCallable`  | `true`        | `false` → todo **excepto** el puente iframe de extensión de espacio aislado (403) | Operaciones adyacentes a la autenticación (eliminar cuenta, cambiar membresía/roles de la organización) |
-| `publicAgent`   | apagado (privado) | `{ expose: true }` → agrega la acción a las superficies **públicas** MCP/A2A/OpenAPI | Herramientas de lectura/ingesta seguras accesibles sin autenticación         |
-| `needsApproval` | `false`       | `true` → el agente **hace una pausa**; un humano debe aprobar la llamada específica       | Efectos secundarios consecuentes (enviar correo electrónico, cargar una tarjeta, eliminar)  |
+| Bandera         | Predeterminado    | Valor restrictivo → quién aún puede llamar                                           | Uso típico                                                                                              |
+| --------------- | ----------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`            | Solo `false` → UI, HTTP, CLI — **oculto del modelo**, MCP y A2A                      | UI programático/solo UI que no debería gastar una ranura de herramienta                                 |
+| `toolCallable`  | `true`            | `false` → todo **excepto** el puente iframe de extensión de espacio aislado (403)    | Operaciones adyacentes a la autenticación (eliminar cuenta, cambiar membresía/roles de la organización) |
+| `publicAgent`   | apagado (privado) | `{ expose: true }` → agrega la acción a las superficies **públicas** MCP/A2A/OpenAPI | Herramientas de lectura/ingesta seguras accesibles sin autenticación                                    |
+| `needsApproval` | `false`           | `true` → el agente **hace una pausa**; un humano debe aprobar la llamada específica  | Efectos secundarios consecuentes (enviar correo electrónico, cargar una tarjeta, eliminar)              |
 
 Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas) y `needsApproval` controla la ejecución después de realizar la llamada; consulte [Human-in-the-loop approval](#needs-approval) a continuación.
 
@@ -259,24 +259,24 @@ export default defineAction({
 
 Campos `ActionRunContext`:
 
-| Campo         | Tipo                    | Notas                                                                                                                                                           |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | Cómo se invocó la acción (ver más abajo).                                                                                                                         |
-| `send`        | `(event) => void`       | Opcional. Emitir un evento SSE al cliente. Sólo presente dentro del bucle de herramientas del agente (`caller: "tool"`); `undefined` en otro lugar.                                   |
-| `attachments` | `AgentChatAttachment[]` | Archivos, imágenes y bloques de texto pegados enviados con el turno actual del agente. Se completa solo cuando `caller: "tool"`; `undefined` en todas las demás superficies.           |
+| Campo         | Tipo                    | Notas                                                                                                                                                                        |
+| ------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.              |
+| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                                      |
+| `caller`      | `ActionCaller`          | Cómo se invocó la acción (ver más abajo).                                                                                                                                    |
+| `send`        | `(event) => void`       | Opcional. Emitir un evento SSE al cliente. Sólo presente dentro del bucle de herramientas del agente (`caller: "tool"`); `undefined` en otro lugar.                          |
+| `attachments` | `AgentChatAttachment[]` | Archivos, imágenes y bloques de texto pegados enviados con el turno actual del agente. Se completa solo cuando `caller: "tool"`; `undefined` en todas las demás superficies. |
 
 `caller` es la unión `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
 
-| `caller`     | Establecer cuándo…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `caller`     | Establecer cuándo…                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `"tool"`     | El bucle de agente en la aplicación, un subagente/equipo de agentes o una solicitud A2A (A2A impulsa el mismo bucle de agente, por lo que sus llamadas a herramientas son `"tool"`). |
-| `"frontend"` | Una llamada del navegador a través de `useActionMutation` / `useActionQuery` / `callAction` (etiquetada con el encabezado `X-Agent-Native-Frontend: 1`).      |
-| `"http"`     | Un `POST` / `GET` a `/_agent-native/actions/<name>` programático simple sin el marcador de interfaz.                                   |
-| `"cli"`      | `pnpm action <name>` (el corredor CLI).                                                                                               |
-| `"mcp"`      | Un agente externo sobre el punto final MCP `tools/call`.                                                                                |
-| `"a2a"`      | Reservado para un futuro envío de acción directa A2A. Actualmente, A2A pasa por el bucle del agente, por lo que esas llamadas son `"tool"`.                |
+| `"frontend"` | Una llamada del navegador a través de `useActionMutation` / `useActionQuery` / `callAction` (etiquetada con el encabezado `X-Agent-Native-Frontend: 1`).                             |
+| `"http"`     | Un `POST` / `GET` a `/_agent-native/actions/<name>` programático simple sin el marcador de interfaz.                                                                                 |
+| `"cli"`      | `pnpm action <name>` (el corredor CLI).                                                                                                                                              |
+| `"mcp"`      | Un agente externo sobre el punto final MCP `tools/call`.                                                                                                                             |
+| `"a2a"`      | Reservado para un futuro envío de acción directa A2A. Actualmente, A2A pasa por el bucle del agente, por lo que esas llamadas son `"tool"`.                                          |
 
 `run` sigue siendo compatible con versiones anteriores: los controladores de 1 argumento existentes y los controladores que solo desestructuran `{ send }` continúan funcionando sin cambios.
 
@@ -564,14 +564,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ## Funciones de utilidad {#utility-functions}
 
-| Función                | Devoluciones   | Descripción                                           |
-| ----------------------- | --------- | ----------------------------------------------------- |
-| `loadEnv(path?)`        | `void`    | Cargue `.env` desde la raíz del proyecto (o ruta personalizada).       |
-| `camelCaseArgs(args)`   | `Record`  | Convierta las claves de kebab-case a camelCase.                 |
-| `isValidPath(p)`        | `boolean` | Validar una ruta relativa (sin recorrido, no absoluta). |
-| `isValidProjectPath(p)` | `boolean` | Validar un slug de proyecto (por ejemplo, `my-project`).          |
-| `ensureDir(dir)`        | `void`    | Ayudante `mkdir -p`.                                    |
-| `fail(message)`         | `never`   | Imprimir en stderr y `exit(1)`.                        |
+| Función                 | Devoluciones | Descripción                                                      |
+| ----------------------- | ------------ | ---------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`       | Cargue `.env` desde la raíz del proyecto (o ruta personalizada). |
+| `camelCaseArgs(args)`   | `Record`     | Convierta las claves de kebab-case a camelCase.                  |
+| `isValidPath(p)`        | `boolean`    | Validar una ruta relativa (sin recorrido, no absoluta).          |
+| `isValidProjectPath(p)` | `boolean`    | Validar un slug de proyecto (por ejemplo, `my-project`).         |
+| `ensureDir(dir)`        | `void`       | Ayudante `mkdir -p`.                                             |
+| `fail(message)`         | `never`      | Imprimir en stderr y `exit(1)`.                                  |
 
 ## ¿Qué sigue?
 

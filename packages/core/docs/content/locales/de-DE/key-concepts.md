@@ -41,11 +41,11 @@ Die Produktoberfläche ist Headless, Chat-First oder eine vollständige UI:
 }
 ```
 
-| Baustein   | Verwenden Sie es für                                                                                          | Geladen, wenn                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Anleitung** | Stabile Anleitung, die der Agent bei jeder Aufgabe übernehmen sollte: was die App ist, Invarianten, Ton, Indizes  | Jede Runde                                            |
-| **Skills**       | Wiederverwendbares Verhalten: wie man einem Arbeitsablauf folgt, eine Richtlinie anwendet, Beweise prüft oder eine Ausgabe überprüft  | Auf Anfrage, wenn die Fähigkeitsbeschreibung mit der Aufgabe übereinstimmt |
-| **Actions**      | Echte Operationen: Daten lesen oder schreiben, APIs aufrufen, Nachrichten senden, Genehmigungen ausführen, typisierte Ergebnisse erzeugen | Immer wieder als Werkzeuge aufgeführt; wird nur bei Aufruf ausgeführt |
+| Baustein      | Verwenden Sie es für                                                                                                                      | Geladen, wenn                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Anleitung** | Stabile Anleitung, die der Agent bei jeder Aufgabe übernehmen sollte: was die App ist, Invarianten, Ton, Indizes                          | Jede Runde                                                                 |
+| **Skills**    | Wiederverwendbares Verhalten: wie man einem Arbeitsablauf folgt, eine Richtlinie anwendet, Beweise prüft oder eine Ausgabe überprüft      | Auf Anfrage, wenn die Fähigkeitsbeschreibung mit der Aufgabe übereinstimmt |
+| **Actions**   | Echte Operationen: Daten lesen oder schreiben, APIs aufrufen, Nachrichten senden, Genehmigungen ausführen, typisierte Ergebnisse erzeugen | Immer wieder als Werkzeuge aufgeführt; wird nur bei Aufruf ausgeführt      |
 
 Skills und actions arbeiten zusammen. Eine Fertigkeit bringt dem Agenten bei, wie man eine Klasse von
 Arbeit; Eine Aktion ist der Codepfad, den sie während der Ausführung dieser Arbeit aufrufen kann. Beispiel:
@@ -66,12 +66,12 @@ Sechs Regeln bestimmen die Architektur:
 
 Jede benutzerseitige Funktion sollte alle anwendbaren Bereiche aktualisieren. Durch das Überspringen eines anwendbaren Bereichs wird der Agent-native-Vertrag gebrochen. Einen UI auf ein Nur-Aktion-Grundelement zu zwingen, ist ebenfalls ein Geruch.
 
-| Bereich             | Beschreibung                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| **1. UI**        | Seite, Komponente oder Dialog, mit dem der Benutzer interagiert             |
-| **2. Aktion**    | Von einem Agenten aufrufbare Aktion in actions/ für denselben Vorgang       |
-| **3. Skills**    | AGENTS.md aktualisieren und/oder einen Skill erstellen, der das Muster dokumentiert |
-| **4. App-Status** | Navigationsstatus, Bildschirmdaten und Navigationsbefehle      |
+| Bereich           | Beschreibung                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| **1. UI**         | Seite, Komponente oder Dialog, mit dem der Benutzer interagiert                     |
+| **2. Aktion**     | Von einem Agenten aufrufbare Aktion in actions/ für denselben Vorgang               |
+| **3. Skills**     | AGENTS.md aktualisieren und/oder einen Skill erstellen, der das Muster dokumentiert |
+| **4. App-Status** | Navigationsstatus, Bildschirmdaten und Navigationsbefehle                           |
 
 Eine Funktion mit nur UI ist für den Agenten unsichtbar. Eine vollständige UI-Funktion mit nur actions ist für den Benutzer unsichtbar. Eine Funktion ohne App-Status bedeutet, dass der Agent nicht wahrnimmt, was der Benutzer tut. Ein Headless-Vorgang kann legitimerweise mit Aktion + Anweisungen beginnen und UI/app-state später hinzufügen, wenn Menschen ihn durchsuchen, genehmigen, konfigurieren oder teilen müssen.
 

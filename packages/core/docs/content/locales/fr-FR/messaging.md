@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Variables d'environnement {#env-vars}
 
-| Plateforme | Obligatoire                                                                     | Facultatif                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Plateforme | Obligatoire                                                                  | Facultatif                                            |
+| ---------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack      | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
 | Télégramme | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| E-mail    | `EMAIL_AGENT_ADDRESS`, plus un parmi `RESEND_API_KEY` ou `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| E-mail     | `EMAIL_AGENT_ADDRESS`, plus un parmi `RESEND_API_KEY` ou `SENDGRID_API_KEY`  | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
 Toutes les informations d'identification résident dans les variables d'environnement – jamais dans la base de données, jamais dans le code source. Utilisez les paramètres de la barre latérale UI ou le panneau d'environnement de votre fournisseur d'hébergement.
 

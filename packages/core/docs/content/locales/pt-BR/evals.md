@@ -42,13 +42,13 @@ export default defineEval({
 
 Uma avaliação é aprovada somente quando **todos** pontuadores atingem o limite. Principais campos `defineEval`:
 
-| Campo       | Tipo                  | Notas                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------- |
-| `name`      | string                | Obrigatório. Mostrado no relatório.                                |
-| `input`     | `{ prompt, history }` |  `prompt` obrigatório; turnos `{ role, text }` anteriores opcionais.     |
-| `scorers`   | `Scorer[]`            | Obrigatório, pelo menos um.                                       |
-| `threshold` | número `0..1`         | Barra de passes por artilheiro. Padrão `0.5`; substituível pelo CLI. |
-| `run`       | função              | Substituição opcional para configuração personalizada (dados iniciais, multivoltas).   |
+| Campo       | Tipo                  | Notas                                                                                |
+| ----------- | --------------------- | ------------------------------------------------------------------------------------ |
+| `name`      | string                | Obrigatório. Mostrado no relatório.                                                  |
+| `input`     | `{ prompt, history }` | `prompt` obrigatório; turnos `{ role, text }` anteriores opcionais.                  |
+| `scorers`   | `Scorer[]`            | Obrigatório, pelo menos um.                                                          |
+| `threshold` | número `0..1`         | Barra de passes por artilheiro. Padrão `0.5`; substituível pelo CLI.                 |
+| `run`       | função                | Substituição opcional para configuração personalizada (dados iniciais, multivoltas). |
 
 A execução do agente entregue aos marcadores é pequena e independente de transporte:
 
@@ -67,12 +67,12 @@ interface AgentRunOutput {
 
 Importado de `@agent-native/core/eval`:
 
-| Artilheiro                   | Pontuação                                                             | Modelo? |
-| ------------------------ | ----------------------------------------------------------------- | ------ |
-| `exactMatch(expected)`   | `1.0` se o texto for igual a `expected` (cortado, sem distinção entre maiúsculas e minúsculas)       | Não     |
-| `contains(needles)`      | Fração de substrings necessárias presentes (portanto, ocorrências parciais aparecem) | Não     |
-| `usesTool(toolName)`     | `1.0` se o agente invocou essa ferramenta/ação pelo menos uma vez         | Não     |
-| `llmJudge({ criteria })` | LLM-como-juiz pontuou de acordo com uma rubrica de linguagem natural, → `0..1`   | Sim    |
+| Artilheiro               | Pontuação                                                                                      | Modelo? |
+| ------------------------ | ---------------------------------------------------------------------------------------------- | ------- |
+| `exactMatch(expected)`   | `1.0` se o texto for igual a `expected` (cortado, sem distinção entre maiúsculas e minúsculas) | Não     |
+| `contains(needles)`      | Fração de substrings necessárias presentes (portanto, ocorrências parciais aparecem)           | Não     |
+| `usesTool(toolName)`     | `1.0` se o agente invocou essa ferramenta/ação pelo menos uma vez                              | Não     |
+| `llmJudge({ criteria })` | LLM-como-juiz pontuou de acordo com uma rubrica de linguagem natural, → `0..1`                 | Sim     |
 
 `exactMatch` e `contains` usam um `{ caseSensitive }` opcional. `llmJudge` usa `{ criteria, rubric?, name?, scoreRange? }` – sua saída é normalizada para `[0, 1]`, e o modelo de juiz é o que o executor resolveu (nunca um provedor codificado).
 
@@ -131,11 +131,11 @@ O comando descobre `**/*.eval.ts` e `evals/*.ts` no aplicativo atual, executa o 
 
 Códigos de saída:
 
-| Código | Significado                                                         |
-| ---- | --------------------------------------------------------------- |
-| `0`  | Todas as avaliações foram aprovadas — _ou_ nenhum arquivo de avaliação foi encontrado (compatível com CI). |
-| `1`  | Pelo menos uma avaliação com pontuação abaixo do limite ou o conjunto apresentou erro. |
-| `2`  | Argumentos incorretos (por exemplo, `--threshold` fora de `[0, 1]`).            |
+| Código | Significado                                                                                                |
+| ------ | ---------------------------------------------------------------------------------------------------------- |
+| `0`    | Todas as avaliações foram aprovadas — _ou_ nenhum arquivo de avaliação foi encontrado (compatível com CI). |
+| `1`    | Pelo menos uma avaliação com pontuação abaixo do limite ou o conjunto apresentou erro.                     |
+| `2`    | Argumentos incorretos (por exemplo, `--threshold` fora de `[0, 1]`).                                       |
 
 ### Como porta de implantação de CI {#ci}
 

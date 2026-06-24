@@ -112,12 +112,12 @@ Schéma `jwtBearer` comme ci-dessus. Le schéma `apiKey` n'est ajouté que lorsq
 
 Toutes les méthodes sont appelées via `POST /_agent-native/a2a` au format JSON-RPC 2.0 :
 
-| Méthode           | Description                                                                                                           | Paramètres clés                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Méthode          | Description                                                                                                                            | Paramètres clés               |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `message/send`   | Envoyez un message et attendez la tâche terminée. Passez `async: true` pour revenir immédiatement dans l'état `working` et interrogez. | `message, contextId?, async?` |
-| `message/stream` | Envoyer un message, recevoir les mises à jour des tâches SSE                                                                              | `message, contextId?`         |
-| `tasks/get`      | Récupérer une tâche par ID – utilisé pour interroger une tâche asynchrone jusqu'à son achèvement                                                         | `id`                          |
-| `tasks/cancel`   | Annuler une tâche en cours                                                                                                 | `id`                          |
+| `message/stream` | Envoyer un message, recevoir les mises à jour des tâches SSE                                                                           | `message, contextId?`         |
+| `tasks/get`      | Récupérer une tâche par ID – utilisé pour interroger une tâche asynchrone jusqu'à son achèvement                                       | `id`                          |
+| `tasks/cancel`   | Annuler une tâche en cours                                                                                                             | `id`                          |
 
 ```an-api title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown."
 {
@@ -260,13 +260,13 @@ Chaque message crée une tâche qui passe par ces états :
 
 `input-required` n'est pas un terminal : le gestionnaire attend plus d'informations de la part de l'appelant et la tâche peut revenir à `working` une fois cette entrée arrivée.
 
-| État            | Signification                                        |
-| ---------------- | ---------------------------------------------- |
-| `submitted`      | Tâche créée, mise en file d'attente pour traitement            |
-| `working`        | Le gestionnaire traite le message              |
-| `completed`      | Le gestionnaire s'est terminé avec succès                  |
-| `failed`         | Le gestionnaire a généré une erreur                         |
-| `canceled`       | La tâche a été annulée via tâches/annulation             |
+| État             | Signification                                                            |
+| ---------------- | ------------------------------------------------------------------------ |
+| `submitted`      | Tâche créée, mise en file d'attente pour traitement                      |
+| `working`        | Le gestionnaire traite le message                                        |
+| `completed`      | Le gestionnaire s'est terminé avec succès                                |
+| `failed`         | Le gestionnaire a généré une erreur                                      |
+| `canceled`       | La tâche a été annulée via tâches/annulation                             |
 | `input-required` | Le gestionnaire a besoin de plus d'informations de la part de l'appelant |
 
 Les tâches persistent dans la table `a2a_tasks` SQL et peuvent être récupérées ultérieurement via `tasks/get`.

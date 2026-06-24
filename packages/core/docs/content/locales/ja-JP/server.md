@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### ルートの命名規則 {#route-naming-conventions}
 
-| ファイル名のパターン  | HTTP メソッド | パスの例                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` またはキャッチオール |
+| ファイル名のパターン | HTTP メソッド | パスの例                            |
+| -------------------- | ------------- | ----------------------------------- |
+| `index.get.ts`       | GET           | `/api/items`                        |
+| `index.post.ts`      | POST          | `/api/items`                        |
+| `[id].get.ts`        | GET           | `/api/items/:id`                    |
+| `[id].patch.ts`      | PATCH         | `/api/items/:id`                    |
+| `[id].delete.ts`     | DELETE        | `/api/items/:id`                    |
+| `[...slug].get.ts`   | GET           | `/api/items/*` またはキャッチオール |
 
 ## アプリの操作には Actions を優先 {#actions-first}
 
@@ -149,19 +149,19 @@ export default runMigrations(
 
 フレームワークは、`/_agent-native/` の下に独自のルートをマウントします。その名前空間を予約済みとして扱います。
 
-| ルートプレフィックス                     | 目的                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | アクション HTTP エンドポイント                                                           |
-| `/_agent-native/agent-chat`      | エージェント チャット ループ                                                                 |
-| `/_agent-native/poll`            | SQL をサポートする UI 同期                                                              |
-| `/_agent-native/resources/*`     | ワークスペース リソース                                                             |
+| ルートプレフィックス             | 目的                                                                          |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | アクション HTTP エンドポイント                                                |
+| `/_agent-native/agent-chat`      | エージェント チャット ループ                                                  |
+| `/_agent-native/poll`            | SQL をサポートする UI 同期                                                    |
+| `/_agent-native/resources/*`     | ワークスペース リソース                                                       |
 | `/_agent-native/extensions/*`    | ランタイム拡張機能と拡張プロキシ (従来のエイリアス: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | メッセージング/Webhook の統合                                                  |
-| `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP エンドポイント                                                                    |
-| `/_agent-native/onboarding/*`    | セットアップチェックリスト                                                                 |
-| `/_agent-native/observability/*` | トレース、フィードバック、評価、実験                                            |
-| `/_agent-native/file-upload`     | ファイル アップロード プロバイダー エンドポイント                                                   |
+| `/_agent-native/integrations/*`  | メッセージング/Webhook の統合                                                 |
+| `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                       |
+| `/_agent-native/mcp`             | MCP エンドポイント                                                            |
+| `/_agent-native/onboarding/*`    | セットアップチェックリスト                                                    |
+| `/_agent-native/observability/*` | トレース、フィードバック、評価、実験                                          |
+| `/_agent-native/file-upload`     | ファイル アップロード プロバイダー エンドポイント                             |
 
 カスタム アプリ ルートは、`/api/*`、パブリック アプリ パス、または `/_agent-native/` と衝突しないプロバイダー固有のコールバック パスを使用する必要があります。
 

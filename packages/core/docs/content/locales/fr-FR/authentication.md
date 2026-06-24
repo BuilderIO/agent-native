@@ -24,11 +24,11 @@ L'authentification est configurée automatiquement via `autoMountAuth(app)` dans
 
 Le flux du navigateur est le même flux Better Auth partout : il n'y a **pas de contournement d'authentification de développement** et `getSession()` ne revient jamais à une sentinelle `local@localhost`. Ce qui change entre les environnements, ce sont les frictions d'inscription, pas le mur de connexion :
 
-| Environnement      | Comportement au premier chargement                                                           | Vérification de l'e-mail                              |
-| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Développement local**    | Crée automatiquement un compte de développement jetable et vous connecte (pas de mur de connexion)         | Ignoré par défaut (et en l'absence de fournisseur de messagerie) |
-| **Contrôle qualité/aperçu** | Inscription normale, mais la vérification peut être ignorée afin que les testeurs n'attendent pas les e-mails | Passer avec `AUTH_SKIP_EMAIL_VERIFICATION=1`      |
-| **Production**   | Inscription/connexion normale avec une meilleure authentification                                               | Obligatoire (lorsqu'un fournisseur de messagerie est configuré) |
+| Environnement               | Comportement au premier chargement                                                                            | Vérification de l'e-mail                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Développement local**     | Crée automatiquement un compte de développement jetable et vous connecte (pas de mur de connexion)            | Ignoré par défaut (et en l'absence de fournisseur de messagerie) |
+| **Contrôle qualité/aperçu** | Inscription normale, mais la vérification peut être ignorée afin que les testeurs n'attendent pas les e-mails | Passer avec `AUTH_SKIP_EMAIL_VERIFICATION=1`                     |
+| **Production**              | Inscription/connexion normale avec une meilleure authentification                                             | Obligatoire (lorsqu'un fournisseur de messagerie est configuré)  |
 
 Quelques drapeaux règlent cela ; tous les détails sont dans le tableau [Environment Variables](#environment-variables) :
 
@@ -53,7 +53,7 @@ Par défaut, Better Auth gère l'authentification. Il fournit :
 - Jetons JWT pour accès API et A2A
 - Prise en charge des jetons Bearer pour les clients programmatiques
 
- De meilleures routes d'authentification sont montées sur `/_agent-native/auth/ba/*`. Le framework fournit également des points de terminaison rétrocompatibles :
+De meilleures routes d'authentification sont montées sur `/_agent-native/auth/ba/*`. Le framework fournit également des points de terminaison rétrocompatibles :
 
 - `GET /_agent-native/auth/session` – obtenir la session en cours
 - `POST /_agent-native/auth/login` — connexion par e-mail/mot de passe
@@ -65,12 +65,12 @@ Par défaut, Better Auth gère l'authentification. Il fournit :
 Le domaine du cookie de session suit la forme du déploiement, de sorte que les applications qui partagent un
 Connexion aux bases de données/partages d'origine et applications qui ne restent pas isolées :
 
-| Forme de déploiement                            | Domaine des cookies                                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Application autonome                              | Isolé par application par slug (`APP_NAME` ou nom du package dans le développement local) ; préfixe `an` stable en production                |
-| Mode Espace de travail (`AGENT_NATIVE_WORKSPACE=1`) | Un domaine partagé : les applications d'espace de travail partagent une origine et une base de données                                                       |
-| Sous-domaines personnalisés de la même base de données             | Activer les cookies partagés avec `COOKIE_DOMAIN`                                                                         |
-| Hébergé par un fournisseur propriétaire (`*.agent-native.com`)   | Espace de noms isolé par application (chacune possède sa propre base de données d'authentification) ; `COOKIE_DOMAIN=.agent-native.com` est ignoré par défaut |
+| Forme de déploiement                                           | Domaine des cookies                                                                                                                                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Application autonome                                           | Isolé par application par slug (`APP_NAME` ou nom du package dans le développement local) ; préfixe `an` stable en production                                 |
+| Mode Espace de travail (`AGENT_NATIVE_WORKSPACE=1`)            | Un domaine partagé : les applications d'espace de travail partagent une origine et une base de données                                                        |
+| Sous-domaines personnalisés de la même base de données         | Activer les cookies partagés avec `COOKIE_DOMAIN`                                                                                                             |
+| Hébergé par un fournisseur propriétaire (`*.agent-native.com`) | Espace de noms isolé par application (chacune possède sa propre base de données d'authentification) ; `COOKIE_DOMAIN=.agent-native.com` est ignoré par défaut |
 
 Les applications hébergées par des propriétaires possèdent chacune leur propre base de données d'authentification, donc la connexion entre applications
 passe par [Cross-App SSO](/docs/cross-app-sso) plutôt que par un cookie partagé.
@@ -310,23 +310,23 @@ La route `/_agent-native/google/auth-url` par défaut le fait automatiquement :
 
 ## Variables d'environnement {#environment-variables}
 
-| Variable                                | Objectif                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | Clé de signature pour une meilleure authentification (générée automatiquement si elle n'est pas définie)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | Défini sur `1` dans les environnements QA/preview pour permettre aux inscriptions par e-mail/mot de passe de se dérouler sans vérification ; le développement/test local est ignoré par défaut            |
+| Variable                                | Objectif                                                                                                                                                                                                                          |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | Clé de signature pour une meilleure authentification (générée automatiquement si elle n'est pas définie)                                                                                                                          |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Défini sur `1` dans les environnements QA/preview pour permettre aux inscriptions par e-mail/mot de passe de se dérouler sans vérification ; le développement/test local est ignoré par défaut                                    |
 | `AUTH_DISABLED`                         | Définissez sur `true` ou `1` pour ignorer la connexion/l'inscription ; toutes les requêtes s'exécutent en tant qu'utilisateur partagé (développement/aperçu local uniquement – pas pour la production avec de vrais utilisateurs) |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Définissez sur `1` pour désactiver la connexion automatique de localhost sur une nouvelle base de données de développement                                                                         |
-| `AUTH_MODE`                             | `local` résout uniquement l'identité de CLI/agent (sous quel utilisateur de développement `pnpm action` s'exécute) ; jamais de contournement de connexion au navigateur                                |
-| `COOKIE_DOMAIN`                         | Activer les cookies de session partagée sur les sous-domaines de la même base de données (voir [Cookie Realms](#cookie-realms))                                        |
-| `AGENT_NATIVE_WORKSPACE`                | `1` s'exécute en mode espace de travail : un domaine de session partagé entre les applications de l'espace de travail                                                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Défini avec `COOKIE_DOMAIN` pour partager une base de données d'authentification entre les sous-domaines propriétaires                                                            |
-| `OAUTH_STATE_SECRET`                    | Touche HMAC dédiée aux enveloppes d'état OAuth (voir [Security — OAuth State Signing](/docs/security#oauth-state))                              |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | ID client Google OAuth de faible portée préféré pour la connexion à l'application                                                                                     |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Secret Google OAuth de faible portée préféré pour la connexion à l'application                                                                                        |
-| `GOOGLE_CLIENT_ID`                      | Ancien système de secours de connexion Google et ID client du fournisseur OAuth pour les intégrations Google API                                                       |
-| `GOOGLE_CLIENT_SECRET`                  | Ancien système de secours de connexion Google et secret du fournisseur OAuth pour les intégrations Google API                                                          |
-| `GITHUB_CLIENT_ID`                      | Activer GitHub OAuth                                                                                                                          |
-| `GITHUB_CLIENT_SECRET`                  | Secret GitHub OAuth                                                                                                                          |
-| `ACCESS_TOKEN`                          | Repli du support statique pour les clients MCP/connect ; pas l'authentification du navigateur                                                                             |
-| `ACCESS_TOKENS`                         | Supports statiques de secours séparés par des virgules pour les clients MCP/connect ; pas l'authentification du navigateur                                                            |
-| `A2A_SECRET`                            | Secret partagé pour la vérification de l'identité inter-applications A2A signée par JWT et, le cas échéant, la signature du jeton d'accès MCP OAuth                           |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Définissez sur `1` pour désactiver la connexion automatique de localhost sur une nouvelle base de données de développement                                                                                                        |
+| `AUTH_MODE`                             | `local` résout uniquement l'identité de CLI/agent (sous quel utilisateur de développement `pnpm action` s'exécute) ; jamais de contournement de connexion au navigateur                                                           |
+| `COOKIE_DOMAIN`                         | Activer les cookies de session partagée sur les sous-domaines de la même base de données (voir [Cookie Realms](#cookie-realms))                                                                                                   |
+| `AGENT_NATIVE_WORKSPACE`                | `1` s'exécute en mode espace de travail : un domaine de session partagé entre les applications de l'espace de travail                                                                                                             |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Défini avec `COOKIE_DOMAIN` pour partager une base de données d'authentification entre les sous-domaines propriétaires                                                                                                            |
+| `OAUTH_STATE_SECRET`                    | Touche HMAC dédiée aux enveloppes d'état OAuth (voir [Security — OAuth State Signing](/docs/security#oauth-state))                                                                                                                |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | ID client Google OAuth de faible portée préféré pour la connexion à l'application                                                                                                                                                 |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Secret Google OAuth de faible portée préféré pour la connexion à l'application                                                                                                                                                    |
+| `GOOGLE_CLIENT_ID`                      | Ancien système de secours de connexion Google et ID client du fournisseur OAuth pour les intégrations Google API                                                                                                                  |
+| `GOOGLE_CLIENT_SECRET`                  | Ancien système de secours de connexion Google et secret du fournisseur OAuth pour les intégrations Google API                                                                                                                     |
+| `GITHUB_CLIENT_ID`                      | Activer GitHub OAuth                                                                                                                                                                                                              |
+| `GITHUB_CLIENT_SECRET`                  | Secret GitHub OAuth                                                                                                                                                                                                               |
+| `ACCESS_TOKEN`                          | Repli du support statique pour les clients MCP/connect ; pas l'authentification du navigateur                                                                                                                                     |
+| `ACCESS_TOKENS`                         | Supports statiques de secours séparés par des virgules pour les clients MCP/connect ; pas l'authentification du navigateur                                                                                                        |
+| `A2A_SECRET`                            | Secret partagé pour la vérification de l'identité inter-applications A2A signée par JWT et, le cas échéant, la signature du jeton d'accès MCP OAuth                                                                               |

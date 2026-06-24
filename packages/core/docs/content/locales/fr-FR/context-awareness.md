@@ -35,16 +35,16 @@ Six modèles résolvent ce problème :
 
 Utilisez différents canaux contextuels pour différentes tâches :
 
-| Couche                                     | Propriétaire             | Utilisez-le pour                                                                 |
-| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| Clé d'état de l'application `navigation`                | UI                | État de la route sémantique : vue actuelle, enregistrement ouvert, onglet actif, identifiants stables    |
-| Clé d'état de l'application `__url__`                   | Cadre UI      | Chemin d'accès actuel, chaîne de recherche, hachage et paramètres de requête URL analysés         |
-| Clé d'état de l'application `__set_url__`               | Agent/framework | Modifications ponctuelles de URL à partir de `set-search-params` et `set-url-path`             |
-| Clé d'état de l'application `selection`                 | UI                | Sélection sémantique durable : lignes, blocs, formes, ressources, messages         |
-| Clé d'état de l'application `pending-selection-context` | UI / `AgentPanel` | Texte sélectionné en une seule fois attaché au prochain tour de discussion, généralement à partir de Cmd+I  |
-| Action `view-screen`                      | Agent             | Hydratation des clés d'état de l'application dans des enregistrements réels et des résumés d'écran        |
-| `sendToAgentChat()`                       | UI                | Transformer un clic, une commande, une épingle de commentaire ou un élément sélectionné en invite de chat |
-| Clé d'état de l'application `navigate`                  | Agent             | Demander au UI de se déplacer vers un autre itinéraire ou de focaliser un autre objet             |
+| Couche                                                  | Propriétaire      | Utilisez-le pour                                                                                           |
+| ------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| Clé d'état de l'application `navigation`                | UI                | État de la route sémantique : vue actuelle, enregistrement ouvert, onglet actif, identifiants stables      |
+| Clé d'état de l'application `__url__`                   | Cadre UI          | Chemin d'accès actuel, chaîne de recherche, hachage et paramètres de requête URL analysés                  |
+| Clé d'état de l'application `__set_url__`               | Agent/framework   | Modifications ponctuelles de URL à partir de `set-search-params` et `set-url-path`                         |
+| Clé d'état de l'application `selection`                 | UI                | Sélection sémantique durable : lignes, blocs, formes, ressources, messages                                 |
+| Clé d'état de l'application `pending-selection-context` | UI / `AgentPanel` | Texte sélectionné en une seule fois attaché au prochain tour de discussion, généralement à partir de Cmd+I |
+| Action `view-screen`                                    | Agent             | Hydratation des clés d'état de l'application dans des enregistrements réels et des résumés d'écran         |
+| `sendToAgentChat()`                                     | UI                | Transformer un clic, une commande, une épingle de commentaire ou un élément sélectionné en invite de chat  |
+| Clé d'état de l'application `navigate`                  | Agent             | Demander au UI de se déplacer vers un autre itinéraire ou de focaliser un autre objet                      |
 
 La version courte : les paramètres de requête URL sont la source de vérité pour les filtres partageables, `navigation` stocke les identifiants sémantiques et les noms de vue, `view-screen` transforme ces couches d'état en données utiles et `sendToAgentChat()` transforme l'intention UI en message de discussion lorsque l'utilisateur clique sur une commande.
 
@@ -243,15 +243,15 @@ function askAgentAboutSelection(selection: {
 
 Utilisez les champs délibérément :
 
-| Champ               | Signification                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `message`           | Texte d'invite visible affiché dans le chat                                                |
-| `context`           | Contexte masqué visible par le modèle, non affiché sous forme de texte de discussion destiné à l'utilisateur                 |
-| `submit: true`      | Envoyer immédiatement ; bon pour les boutons de commande explicites tels que "Corriger la mise en page"         |
+| Champ               | Signification                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `message`           | Texte d'invite visible affiché dans le chat                                                                           |
+| `context`           | Contexte masqué visible par le modèle, non affiché sous forme de texte de discussion destiné à l'utilisateur          |
+| `submit: true`      | Envoyer immédiatement ; bon pour les boutons de commande explicites tels que "Corriger la mise en page"               |
 | `submit: false`     | Préremplir pour examen par l'utilisateur ; idéal pour "Demander à l'agent à ce sujet" ou pour les sélections ambiguës |
-| `openSidebar: true` | Rendre la réponse de l'agent visible même si le panneau a été réduit                  |
-| `newTab: true`      | Démarrez un fil de discussion distinct pour une tâche de création plus importante                          |
-| `type: "code"`      | Itinéraire vers le cadre d'édition de code lorsque la requête concerne la modification de la source de l'application    |
+| `openSidebar: true` | Rendre la réponse de l'agent visible même si le panneau a été réduit                                                  |
+| `newTab: true`      | Démarrez un fil de discussion distinct pour une tâche de création plus importante                                     |
+| `type: "code"`      | Itinéraire vers le cadre d'édition de code lorsque la requête concerne la modification de la source de l'application  |
 
 `sendToAgentChat()` est le wrapper de navigateur pris en charge pour le chemin de discussion soumis, parfois vu en interne sous le nom de `agentNative.submitChat`. L'application UI doit appeler le wrapper au lieu de publier directement `agentNative.submitChat`, car le wrapper gère les barres latérales locales, le routage Builder/Frame, le routage de l'hôte de l'application MCP, les ID d'onglet et le routage des demandes de code.
 
@@ -334,9 +334,9 @@ export function useNavigationState() {
 }
 ```
 
-| Vous écrivez                                              | Le framework gère                                                                    |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `getNavigationState` — mappe le URL à l'état sémantique   | `navigation` écrit, au niveau des tabulations plus une clé de secours globale                               |
+| Vous écrivez                                                      | Le framework gère                                                                                                                      |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `getNavigationState` — mappe le URL à l'état sémantique           | `navigation` écrit, au niveau des tabulations plus une clé de secours globale                                                          |
 | `getCommandPath` — mapper une commande `navigate` à un itinéraire | interrogation des commandes, suppression après lecture, protection contre les commandes en double, marquage de la source de la requête |
 
 `useAgentRouteState` suppose le routeur React. Lorsque la navigation ne réside pas dans le URL -- une étape de l'assistant, une sélection de canevas, un shell non-routeur -- descendez plutôt vers le niveau inférieur `useSemanticNavigationState` : vous lui donnez une valeur `state` prête à l'emploi plus `navigationKeys`/`commandKeys` et un rappel `onCommand`, et il reste complètement agnostique à propos du routeur React.

@@ -65,26 +65,26 @@ Wenn Sie Text auswählen und Befehl+I drücken, wird diese Auswahl mit Ihrer nä
 
 ## Tastaturkürzel
 
-| Schlüssel       | Aktion                      |
-| --------- | --------------------------- |
-| `J`       | Nächste E-Mail                  |
-| `K`       | Vorherige E-Mail              |
-| `Up/Down` | Dasselbe wie J/K                 |
-| `Enter`   | Öffnen Sie gezielte E-Mails          |
-| `E`       | E-Mail oder Thread archivieren     |
-| `D`       | E-Mail oder Thread im Papierkorb       |
-| `S`       | Markieren oder Sternchen aufheben              |
-| `R`       | Antworten                       |
-| `U`       | Gelesen/ungelesen umschalten          |
-| `C`       | Neue E-Mail verfassen           |
+| Schlüssel | Aktion                            |
+| --------- | --------------------------------- |
+| `J`       | Nächste E-Mail                    |
+| `K`       | Vorherige E-Mail                  |
+| `Up/Down` | Dasselbe wie J/K                  |
+| `Enter`   | Öffnen Sie gezielte E-Mails       |
+| `E`       | E-Mail oder Thread archivieren    |
+| `D`       | E-Mail oder Thread im Papierkorb  |
+| `S`       | Markieren oder Sternchen aufheben |
+| `R`       | Antworten                         |
+| `U`       | Gelesen/ungelesen umschalten      |
+| `C`       | Neue E-Mail verfassen             |
 | `/`       | Suchleiste fokussieren            |
-| `Cmd+K`   | Befehlspalette öffnen        |
-| `G I`     | Gehen Sie zum Posteingang                 |
-| `G S`     | Gehen Sie zu Markiert               |
-| `G T`     | Gehen Sie zu „Gesendet“                  |
-| `G D`     | Gehen Sie zu Entwürfen                |
-| `G A`     | Gehen Sie zum Archiv               |
-| `Esc`     | Thread schließen / Suche löschen |
+| `Cmd+K`   | Befehlspalette öffnen             |
+| `G I`     | Gehen Sie zum Posteingang         |
+| `G S`     | Gehen Sie zu Markiert             |
+| `G T`     | Gehen Sie zu „Gesendet“           |
+| `G D`     | Gehen Sie zu Entwürfen            |
+| `G A`     | Gehen Sie zum Archiv              |
+| `Esc`     | Thread schließen / Suche löschen  |
 
 ## Für Entwickler
 
@@ -142,17 +142,17 @@ Tokens werden in der Tabelle `oauth_tokens` SQL gespeichert und automatisch aktu
 
 Wenn ein Google-Konto verbunden ist, werden E-Mails in Gmail gespeichert – die App ist eine Ansicht oben. Wenn kein Konto verbunden ist, werden E-Mails im SQL-Einstellungsspeicher unter `getSetting("local-emails")` gespeichert (standardmäßig leer).
 
-| Geschäft / Tisch                 | Was es enthält                                                  |
-| ----------------------------- | -------------------------------------------------------------- |
-| `getSetting("local-emails")`  | Lokaler E-Mail-Fallback, wenn kein Google-Konto verbunden ist       |
-| `getSetting("labels")`        | System- und Benutzerbezeichnungen mit ungelesener Anzahl                     |
-| `getSetting("mail-settings")` | Benutzerprofil, Tracking-Einstellungen, Signatur, Aliase         |
-| `getSetting("aliases")`       | E-Mail-Aliase                                                  |
-| `queued_email_drafts`-Tabelle   | Von Teamkollegen angeforderte Entwürfe warten auf Überprüfung/Senden durch den Eigentümer           |
-| `email_tracking`-Tabelle        | Open-Pixel-Ereignisse für gesendete Nachrichten                            |
-| `email_link_tracking`-Tabelle   | Link-Klick-Ereignisse für gesendete Nachrichten                            |
-| `application_state`-Tabelle     | `navigation`-, `navigate`-, `compose-{id}`-Einträge (flüchtig)   |
-| `oauth_tokens`-Tabelle          | Google OAuth-Tokens (Anbieter `"google"`, eine Zeile pro Konto) |
+| Geschäft / Tisch              | Was es enthält                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `getSetting("local-emails")`  | Lokaler E-Mail-Fallback, wenn kein Google-Konto verbunden ist                             |
+| `getSetting("labels")`        | System- und Benutzerbezeichnungen mit ungelesener Anzahl                                  |
+| `getSetting("mail-settings")` | Benutzerprofil, Tracking-Einstellungen, Signatur, Aliase                                  |
+| `getSetting("aliases")`       | E-Mail-Aliase                                                                             |
+| `queued_email_drafts`-Tabelle | Von Teamkollegen angeforderte Entwürfe warten auf Überprüfung/Senden durch den Eigentümer |
+| `email_tracking`-Tabelle      | Open-Pixel-Ereignisse für gesendete Nachrichten                                           |
+| `email_link_tracking`-Tabelle | Link-Klick-Ereignisse für gesendete Nachrichten                                           |
+| `application_state`-Tabelle   | `navigation`-, `navigate`-, `compose-{id}`-Einträge (flüchtig)                            |
+| `oauth_tokens`-Tabelle        | Google OAuth-Tokens (Anbieter `"google"`, eine Zeile pro Konto)                           |
 
 E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 

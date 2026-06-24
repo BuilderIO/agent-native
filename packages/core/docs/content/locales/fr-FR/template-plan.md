@@ -385,16 +385,16 @@ Le modèle local est utile lorsque vous développez Plans lui-même, testez la p
 
 Le schéma réside dans `templates/plan/server/db/schema.ts`. Tableaux de base :
 
-| Tableau              | Ce qu'il contient                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tableau            | Ce qu'il contient                                                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `plans`            | Chaque plan ou récapitulatif : `title`, `brief`, `kind` (plan/récapitulatif), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, statistiques d'utilisation, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Sections ordonnées dans un plan – `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
-| `plan_comments`    | Commentaires dans le fil de discussion – `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                          |
-| `plan_events`      | Journal d'audit des événements agents/humains sur un plan                                                                                                                                               |
-| `plan_versions`    | Instantanés ponctuels pour l'historique des versions                                                                                                                                             |
-| `plan_shares`      | Attributions par action principale (téléspectateur/éditeur/administrateur)                                                                                                                                    |
-| `plan_guest_mints` | Enregistrements de limite de débit pour l'émission de sessions invité                                                                                                                                           |
-| `plan_assets`      | Éléments d'image intégrés stockés en base64 (remplacement en cas d'absence de fournisseur de téléchargement)                                                                                                                 |
+| `plan_sections`    | Sections ordonnées dans un plan – `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                                            |
+| `plan_comments`    | Commentaires dans le fil de discussion – `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                      |
+| `plan_events`      | Journal d'audit des événements agents/humains sur un plan                                                                                                                                                                |
+| `plan_versions`    | Instantanés ponctuels pour l'historique des versions                                                                                                                                                                     |
+| `plan_shares`      | Attributions par action principale (téléspectateur/éditeur/administrateur)                                                                                                                                               |
+| `plan_guest_mints` | Enregistrements de limite de débit pour l'émission de sessions invité                                                                                                                                                    |
+| `plan_assets`      | Éléments d'image intégrés stockés en base64 (remplacement en cas d'absence de fournisseur de téléchargement)                                                                                                             |
 
 ```an-schema title="Plan data model" summary="One plan row owns ordered sections plus comments, events, versions, shares, and inline assets."
 {
@@ -678,57 +678,57 @@ peut s'y abonner – aucun code d'intégration personnalisé n'est nécessaire
 
 Se déclenche lorsqu'un nouveau plan visuel ou un récapitulatif est créé.
 
-| Champ       | Tapez                  | Description                              |
-| ----------- | --------------------- | ---------------------------------------- |
-| `planId`    | chaîne                | Identifiant unique du forfait                   |
-| `title`     | chaîne                | Titre du forfait                               |
-| `kind`      | `"plan"` \| `"recap"` | Qu'il s'agisse d'un plan ou d'un récapitulatif        |
-| `status`    | chaîne                | Statut initial (par exemple `"review"`)         |
+| Champ       | Tapez                 | Description                                                   |
+| ----------- | --------------------- | ------------------------------------------------------------- |
+| `planId`    | chaîne                | Identifiant unique du forfait                                 |
+| `title`     | chaîne                | Titre du forfait                                              |
+| `kind`      | `"plan"` \| `"recap"` | Qu'il s'agisse d'un plan ou d'un récapitulatif                |
+| `status`    | chaîne                | Statut initial (par exemple `"review"`)                       |
 | `path`      | chaîne                | Chemin relatif à l'application (par exemple, `/plans/plan-…`) |
-| `createdBy` | chaîne                | Toujours `"agent"` pour la création de plan       |
+| `createdBy` | chaîne                | Toujours `"agent"` pour la création de plan                   |
 
 #### `plan.commented`
 
 Se déclenche lorsqu'un ou plusieurs commentaires sont ajoutés à un plan.
 
-| Champ              | Tapez                             | Description                                                 |
-| ------------------ | -------------------------------- | ----------------------------------------------------------- |
-| `planId`           | chaîne                           | Identifiant du forfait                                             |
-| `title`            | chaîne                           | Titre du forfait                                                  |
-| `kind`             | `"plan"` \| `"recap"`            | Planifier ou récapituler                                               |
-| `commentIds`       | chaîne[]                         | IDs des nouveaux commentaires                                     |
-| `commentCount`     | numéro                           | Nombre de nouveaux commentaires dans ce lot                        |
+| Champ              | Tapez                            | Description                                                  |
+| ------------------ | -------------------------------- | ------------------------------------------------------------ |
+| `planId`           | chaîne                           | Identifiant du forfait                                       |
+| `title`            | chaîne                           | Titre du forfait                                             |
+| `kind`             | `"plan"` \| `"recap"`            | Planifier ou récapituler                                     |
+| `commentIds`       | chaîne[]                         | IDs des nouveaux commentaires                                |
+| `commentCount`     | numéro                           | Nombre de nouveaux commentaires dans ce lot                  |
 | `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Cible dominante – `"agent"` si un commentaire cible un agent |
-| `excerpt`          | chaîne                           | 200 premiers caractères du premier commentaire                   |
-| `author`           | chaîne \| nul                   | E-mail du commentateur, si connu                            |
-| `path`             | chaîne                           | Chemin relatif à l'application                                           |
+| `excerpt`          | chaîne                           | 200 premiers caractères du premier commentaire               |
+| `author`           | chaîne \| nul                    | E-mail du commentateur, si connu                             |
+| `path`             | chaîne                           | Chemin relatif à l'application                               |
 
 #### `plan.published`
 
 Se déclenche lorsqu'un plan local est publié (ou republié) sur un URL partageable hébergé.
 
-| Champ                 | Tapez                  | Description                        |
-| --------------------- | --------------------- | ---------------------------------- |
+| Champ                 | Tapez                 | Description                            |
+| --------------------- | --------------------- | -------------------------------------- |
 | `planId`              | chaîne                | Identifiant du plan local              |
-| `title`               | chaîne                | Titre du forfait                         |
-| `kind`                | `"plan"` \| `"recap"` | Planifier ou récapituler                      |
-| `hostedPlanId`        | chaîne                | Identifiant du forfait hébergé             |
+| `title`               | chaîne                | Titre du forfait                       |
+| `kind`                | `"plan"` \| `"recap"` | Planifier ou récapituler               |
+| `hostedPlanId`        | chaîne                | Identifiant du forfait hébergé         |
 | `url`                 | chaîne                | URL entièrement public du plan hébergé |
-| `requestedVisibility` | chaîne                | `"public"`, `"private"`, etc.      |
+| `requestedVisibility` | chaîne                | `"public"`, `"private"`, etc.          |
 
 #### `plan.status.changed`
 
 Se déclenche lorsque le statut d'un plan change (par exemple, `review` → `approved`).
 
-| Champ       | Tapez                  | Description                        |
-| ----------- | --------------------- | ---------------------------------- |
-| `planId`    | chaîne                | Identifiant du forfait                    |
-| `title`     | chaîne                | Titre du forfait                         |
-| `kind`      | `"plan"` \| `"recap"` | Planifier ou récapituler                      |
-| `oldStatus` | chaîne \| nul        | Statut précédent                    |
-| `newStatus` | chaîne                | Nouveau statut                         |
-| `changedBy` | chaîne \| nul        | Email de la personne qui l'a modifié |
-| `path`      | chaîne                | Chemin relatif à l'application                  |
+| Champ       | Tapez                 | Description                          |
+| ----------- | --------------------- | ------------------------------------ |
+| `planId`    | chaîne                | Identifiant du forfait               |
+| `title`     | chaîne                | Titre du forfait                     |
+| `kind`      | `"plan"` \| `"recap"` | Planifier ou récapituler             |
+| `oldStatus` | chaîne \| nul         | Statut précédent                     |
+| `newStatus` | chaîne                | Nouveau statut                       |
+| `changedBy` | chaîne \| nul         | Email de la personne qui l'a modifié |
+| `path`      | chaîne                | Chemin relatif à l'application       |
 
 ### Recettes d'automatisation {#automation-recipes}
 

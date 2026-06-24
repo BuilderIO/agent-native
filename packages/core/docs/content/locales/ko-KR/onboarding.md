@@ -92,12 +92,12 @@ description: "최초 실행 구성을 위한 설정 체크리스트 — API 키,
 
 모든 경로는 `/_agent-native/onboarding/`에 속합니다:
 
-| 경로                                               | 목적                           |
-| --------------------------------------------------- | --------------------------------- |
-| `GET /_agent-native/onboarding/steps`               | 완료 상태가 포함된 단계 나열 |
-| `POST /_agent-native/onboarding/steps/:id/complete` | 단계 완료 표시(재정의)     |
-| `POST /_agent-native/onboarding/dismiss`            | 온보딩 배너 닫기     |
-| `POST /_agent-native/onboarding/reopen`             | 해제 해제(패널 다시 표시)   |
+| 경로                                                | 목적                           |
+| --------------------------------------------------- | ------------------------------ |
+| `GET /_agent-native/onboarding/steps`               | 완료 상태가 포함된 단계 나열   |
+| `POST /_agent-native/onboarding/steps/:id/complete` | 단계 완료 표시(재정의)         |
+| `POST /_agent-native/onboarding/dismiss`            | 온보딩 배너 닫기               |
+| `POST /_agent-native/onboarding/reopen`             | 해제 해제(패널 다시 표시)      |
 | `GET /_agent-native/onboarding/dismissed`           | 읽기 취소 + allComplete 플래그 |
 
 ```an-api title="List onboarding steps"
@@ -164,12 +164,12 @@ isComplete: async () => {
 
 ### 메소드 종류
 
-| 종류               | 페이로드                                               | 사용                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | 사용자를 OAuth 흐름 또는 문서 페이지로 보내기   |
-| `form`             | `{ fields, writeScope? }`                             | 환경 변수(키, 비밀, URL) 수집    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | 처리할 상담원 채팅에 메시지를 보냅니다. |
+| 종류               | 페이로드                                              | 사용                                          |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | 사용자를 OAuth 흐름 또는 문서 페이지로 보내기 |
+| `form`             | `{ fields, writeScope? }`                             | 환경 변수(키, 비밀, URL) 수집                 |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)        |
+| `agent-task`       | `{ prompt }`                                          | 처리할 상담원 채팅에 메시지를 보냅니다.       |
 
 `primary: true` 플래그는 메서드를 해당 단계의 큰 CTA로 표시합니다.
 설정 경로가 표시되어야 하는 경우 `badge: "soon"`와 `disabled: true`를 사용하세요.
@@ -177,12 +177,12 @@ isComplete: async () => {
 
 ### 내장 단계
 
-| 아이디         | 필수 | 설명                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | 그렇습니다      | Builder 연결 또는 공급자 LLM 키          |
-| `database` | 아니요       | 기본 데이터베이스 또는 SQL `DATABASE_URL`        |
-| `auth`     | 아니요       | 내장 계정, 선택적 OAuth 또는 액세스 토큰 |
-| `email`    | 아니요       | 거래 이메일을 위한 재전송 또는 SendGrid        |
+| 아이디     | 필수       | 설명                                      |
+| ---------- | ---------- | ----------------------------------------- |
+| `llm`      | 그렇습니다 | Builder 연결 또는 공급자 LLM 키           |
+| `database` | 아니요     | 기본 데이터베이스 또는 SQL `DATABASE_URL` |
+| `auth`     | 아니요     | 내장 계정, 선택적 OAuth 또는 액세스 토큰  |
+| `email`    | 아니요     | 거래 이메일을 위한 재전송 또는 SendGrid   |
 
 이들 중 하나는 동일한 `id`에 다시 등록하여 재정의할 수 있습니다.
 기본 로드.

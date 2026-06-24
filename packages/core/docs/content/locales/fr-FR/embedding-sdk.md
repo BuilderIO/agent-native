@@ -144,21 +144,21 @@ L'utilisation du `DATABASE_URL` principal du produit hôte est prise en charge, 
 Le plugin ci-dessus avec piles incluses est la voie heureuse. Achetez-en un
 uniquement lorsque cela correspond mieux à votre situation :
 
-| Mode                            | Utilisez-le quand                                                                                         | Forfait                                    |
-| ------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| **Sélecteur d'applications intégrées**          | Lancement d'une application Agent-Native complète en tant qu'iframe ciblée (sélecteur d'actifs, générateur de formulaires, panneau d'approbation). | `@agent-native/embedding`                  |
-| **Pont hôte `<AgentNative>`** | Applications side-car autonomes ou iframes d'origine croisée qui relient manuellement le contexte de la page et le client actions. | `@agent-native/core/client`                |
-| **Extensions portables**         | Permettre aux utilisateurs hôtes de créer des mini-applications en bac à sable lorsque le SaaS possède déjà le stockage/l'approbation des extensions. | Emplacement d'extension `@agent-native/core/client` |
+| Mode                                   | Utilisez-le quand                                                                                                                                     | Forfait                                             |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Sélecteur d'applications intégrées** | Lancement d'une application Agent-Native complète en tant qu'iframe ciblée (sélecteur d'actifs, générateur de formulaires, panneau d'approbation).    | `@agent-native/embedding`                           |
+| **Pont hôte `<AgentNative>`**          | Applications side-car autonomes ou iframes d'origine croisée qui relient manuellement le contexte de la page et le client actions.                    | `@agent-native/core/client`                         |
+| **Extensions portables**               | Permettre aux utilisateurs hôtes de créer des mini-applications en bac à sable lorsque le SaaS possède déjà le stockage/l'approbation des extensions. | Emplacement d'extension `@agent-native/core/client` |
 
 Le package `@agent-native/embedding` de niveau inférieur expose :
 
-| Chemin d'importation                        | Ce qu'il fournit                                                                        |
-| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| Chemin d'importation               | Ce qu'il fournit                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
 | `@agent-native/embedding`          | Composant de sélecteur `EmbeddedApp`, `getA2AUrl`, `getMcpUrl`, `sendMessage` (diffusion A2A) |
-| `@agent-native/embedding/react`    | Crochets et composants spécifiques à React                                                     |
-| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`, `sendEmbeddedAppMessage` — utilisés dans l'application intégrée     |
-| `@agent-native/embedding/agent`    | Assistants de point de terminaison d'agent                                                                  |
-| `@agent-native/embedding/protocol` | Types de protocoles                                                                          |
+| `@agent-native/embedding/react`    | Crochets et composants spécifiques à React                                                    |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`, `sendEmbeddedAppMessage` — utilisés dans l'application intégrée   |
+| `@agent-native/embedding/agent`    | Assistants de point de terminaison d'agent                                                    |
+| `@agent-native/embedding/protocol` | Types de protocoles                                                                           |
 
 ```bash
 pnpm add @agent-native/embedding
@@ -401,13 +401,13 @@ export function SidecarRuntime() {
 
 Le framework monte automatiquement `/_agent-native/browser-sessions`. Une fois le pont exécuté, l'agent side-car peut utiliser :
 
-| Outil                           | Objectif                                                         |
-| ------------------------------ | --------------------------------------------------------------- |
-| `list-browser-sessions`        | Voir les onglets des hôtes connectés pour l'utilisateur actuel.                   |
-| `view-browser-session`         | Demandez à un onglet en direct le contexte de la page actuelle et un instantané d'écran.    |
-| `list-browser-session-actions` | Demandez un onglet en direct pour les manifestes d'action actuels côté client.        |
-| `run-browser-session-action`   | Exécuter une action client en cours via l'onglet en direct.             |
-| `send-browser-session-command` | Demander à l'hôte d'actualiser, de naviguer, de remonter, de recharger ou d'approuver. |
+| Outil                          | Objectif                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `list-browser-sessions`        | Voir les onglets des hôtes connectés pour l'utilisateur actuel.                          |
+| `view-browser-session`         | Demandez à un onglet en direct le contexte de la page actuelle et un instantané d'écran. |
+| `list-browser-session-actions` | Demandez un onglet en direct pour les manifestes d'action actuels côté client.           |
+| `run-browser-session-action`   | Exécuter une action client en cours via l'onglet en direct.                              |
+| `send-browser-session-command` | Demander à l'hôte d'actualiser, de naviguer, de remonter, de recharger ou d'approuver.   |
 
 Il s'agit du pont à utiliser lorsque l'agent s'exécute sur le backend, dans Slack/Telegram/email ou en tant qu'appelé A2A, mais doit toujours toucher l'onglet actuel du navigateur de l'utilisateur lorsqu'il est ouvert. Si le navigateur est fermé, le backend actions devrait toujours gérer un travail durable et les outils de session du navigateur signaleront qu'aucun onglet actif n'est connecté.
 
@@ -415,10 +415,10 @@ Il s'agit du pont à utiliser lorsque l'agent s'exécute sur le backend, dans Sl
 
 Il existe deux classes d'actions :
 
-| Type d'action    | Où il s'exécute                                               | Fonctionne lorsque le navigateur est fermé ? | Idéal pour                                                                                                 |
-| -------------- | ----------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Action back-end | Application side-car, backend API, MCP ou adaptateur d'intégration       | Oui                           | Travail durable comme créer, mettre à jour, publier, synchroniser, envoyer, importer.                                           |
-| Action du client  | Onglet du navigateur actuel via `<AgentNative actions={...} />` | Non                            | Les UI éphémères fonctionnent comme sélectionner un élément, lire l'état de l'éditeur, faire défiler jusqu'à une ligne, copier l'état actuel du canevas. |
+| Type d'action    | Où il s'exécute                                                    | Fonctionne lorsque le navigateur est fermé ? | Idéal pour                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Action back-end  | Application side-car, backend API, MCP ou adaptateur d'intégration | Oui                                          | Travail durable comme créer, mettre à jour, publier, synchroniser, envoyer, importer.                                                                    |
+| Action du client | Onglet du navigateur actuel via `<AgentNative actions={...} />`    | Non                                          | Les UI éphémères fonctionnent comme sélectionner un élément, lire l'état de l'éditeur, faire défiler jusqu'à une ligne, copier l'état actuel du canevas. |
 
 Le backend actions doit être le serveur par défaut pour tout ce qui doit survivre aux actualisations, aux navigateurs fermés, aux tentatives ou aux exécutions déclenchées par l'intégration. Ils appartiennent à la couche d'action/outil Agent-Native normale de l'application side-car, où l'agent peut les appeler à partir du chat, des automatisations, des intégrations Slack/Telegram/e-mail et des tâches en arrière-plan.
 
@@ -527,13 +527,13 @@ Une extension est simplement HTML. Le moteur d'exécution iframe fournit les mê
 
 Globaux disponibles dans l'iframe :
 
-| Aide                         | Objectif                                                |
-| ------------------------------ | ------------------------------------------------------ |
-| `appAction(name, args)`        | Exécuter une action déclarée par l'hôte.                            |
+| Aide                           | Objectif                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `appAction(name, args)`        | Exécuter une action déclarée par l'hôte.                                              |
 | `agentNative.context()`        | Lire la page hôte actuelle, les ressources, l'emplacement et les données utilisateur. |
-| `agentNative.command(name, p)` | Demandez à l'hôte de naviguer, d'actualiser, de remonter ou d'ouvrir.   |
-| `agentNative.refresh(payload)` | Raccourci pour `refreshData`.                            |
-| `extensionData.*`              | Conserver les données locales de l'extension via l'adaptateur hôte. |
+| `agentNative.command(name, p)` | Demandez à l'hôte de naviguer, d'actualiser, de remonter ou d'ouvrir.                 |
+| `agentNative.refresh(payload)` | Raccourci pour `refreshData`.                                                         |
+| `extensionData.*`              | Conserver les données locales de l'extension via l'adaptateur hôte.                   |
 
 Par défaut, `extensionData` utilise le navigateur `localStorage`, ce qui est utile pour les prototypes et les widgets locaux. Les hôtes SaaS de production doivent transmettre un adaptateur `storage` basé sur le backend afin que les données d'extension au niveau de l'utilisateur et de l'organisation soient durables, vérifiables et régies par les autorisations de l'application. L'adaptateur générique HTTP envoie des corps POST comme `{ operation, extensionId, slotId, collection, id, data, options, context }` et attend soit `{ result }`, soit le résultat JSON directement.
 
@@ -556,13 +556,13 @@ Pour les produits multi-onglets, conservez l'état durable dans SQL/backend acti
 
 Les noms de commandes intégrés sont délibérément en forme d'application et non de base de données :
 
-| Commande                                | Objectif                                                                |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| `navigate`                             | Déplacez l'hôte UI vers un chemin/une vue/une ressource.                              |
-| `refreshData` / `refresh-data`         | Demander à l'hôte d'invalider les données côté client.                           |
-| `remountView` / `remount-view`         | Demander à l'hôte de remonter un sous-arbre, par ex. `<App key={key} />`.           |
-| `hardReload` / `hard-reload`           | Rechargement complet du navigateur.                                                   |
-| `openResource` / `open-resource`       | Ouvrez un objet de domaine spécifique dans l'hôte UI.                          |
+| Commande                               | Objectif                                                                                     |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `navigate`                             | Déplacez l'hôte UI vers un chemin/une vue/une ressource.                                     |
+| `refreshData` / `refresh-data`         | Demander à l'hôte d'invalider les données côté client.                                       |
+| `remountView` / `remount-view`         | Demander à l'hôte de remonter un sous-arbre, par ex. `<App key={key} />`.                    |
+| `hardReload` / `hard-reload`           | Rechargement complet du navigateur.                                                          |
+| `openResource` / `open-resource`       | Ouvrez un objet de domaine spécifique dans l'hôte UI.                                        |
 | `requestApproval` / `request-approval` | Demandez à l'hôte d'afficher un flux de confirmation. Enregistrez un gestionnaire pour cela. |
 
 Si aucun gestionnaire n'est fourni, les valeurs par défaut sécurisées distribuent les événements du navigateur tels que `agentNative:refresh-data` et `agentNative:remount-view`. `requestApproval` n'a pas de gestionnaire par défaut ; enregistrez-en un avant de vous y fier.
@@ -581,11 +581,11 @@ Préférez cette forme :
 
 Utilisez `createAgentNativeHostTools()` dans l’iframe side-car lorsque le runtime de votre agent accepte les descripteurs d’outils simples. Il renvoie quatre outils indépendants du framework :
 
-| Outil                | Objectif                                                             |
-| ------------------- | ------------------------------------------------------------------- |
-| `view-host-screen`  | Lire le contexte sémantique de l'hôte et l'instantané d'écran.                     |
-| `list-host-actions` | Liste des sessions de navigateur en direct actions exposées par l'onglet actuel.       |
-| `run-host-action`   | Exécuter une action client en direct par nom.                                 |
+| Outil               | Objectif                                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `view-host-screen`  | Lire le contexte sémantique de l'hôte et l'instantané d'écran.                                       |
+| `list-host-actions` | Liste des sessions de navigateur en direct actions exposées par l'onglet actuel.                     |
+| `run-host-action`   | Exécuter une action client en direct par nom.                                                        |
 | `send-host-command` | Envoyer des commandes hôte telles que l'actualisation, la navigation, le remontage ou l'approbation. |
 
 L'assistant renvoie intentionnellement des objets `{ name, description, parameters, execute }` simples afin que les side-cars puissent les adapter à l'appel de fonction AI SDK, Anthropic, OpenAI ou à la forme Agent-Native `ActionEntry` sans coupler ce SDK à un seul environnement d'exécution.

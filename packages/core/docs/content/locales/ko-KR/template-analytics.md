@@ -140,20 +140,20 @@ Slack, HubSpot, Notion 및 GitHub와 같은 재사용 가능한 공급자의 경
 
 자격 증명은 프레임워크의 설정/환경 계층을 통해 저장됩니다. git에는 비밀이 없습니다. 제작 요구사항:
 
-| 변수                                 | 목적                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | 지속적인 SQL 연결 URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | 인증                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | 기본 Google 로그인 클라이언트(OAuth 2.0)             |
+| 변수                                     | 목적                                        |
+| ---------------------------------------- | ------------------------------------------- |
+| `DATABASE_URL`                           | 지속적인 SQL 연결 URL                       |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | 인증                                        |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | 기본 Google 로그인 클라이언트(OAuth 2.0)    |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | 기존 로그인 대체/Google API 통합 클라이언트 |
-| `BIGQUERY_PROJECT_ID`                    | BigQuery 프로젝트                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery 서비스 계정 JSON                           |
-| `ANTHROPIC_API_KEY`                      | 에이전트 채팅                                              |
+| `BIGQUERY_PROJECT_ID`                    | BigQuery 프로젝트                           |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery 서비스 계정 JSON                   |
+| `ANTHROPIC_API_KEY`                      | 에이전트 채팅                               |
 
 공급자별 키(HubSpot, Jira, Gong, Pylon 등)는 데이터 소스 페이지의 각 소스 연습에 문서화되어 있습니다. API 키가 필요한 새 작업을 추가하면 템플릿의 온보딩 등록을 통해 해당 페이지에 새 소스로 나타납니다.
 
 참고: Google 로그인을 위한 BigQuery OAuth 사용자 인증 정보는 **별도**입니다.
-BigQuery 서비스 계정 JSON의 사용자 인증 정보입니다. 
+BigQuery 서비스 계정 JSON의 사용자 인증 정보입니다.
 GCP 콘솔 → APIs & 서비스 → 자격 증명 → OAuth 클라이언트 ID, 선호
 `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` 환경 이름은 이렇습니다
 낮은 범위의 로그인 클라이언트는 Google API 통합 클라이언트와 별도로 유지됩니다.

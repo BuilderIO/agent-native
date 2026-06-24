@@ -95,17 +95,17 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 
 ### 代理聊天消息 {#agentchatmessage}
 
-| 选项                | 类型        | 描述                                                                |
-| --------------------- | ----------- | -------------------------------------------------------------------------- |
-| `message`             | `string`    | 发送到聊天的可见提示                                        |
-| `context`             | `string?`   | 附加隐藏上下文（聊天UI中未显示）                             |
+| 选项                  | 类型        | 描述                                                                |
+| --------------------- | ----------- | ------------------------------------------------------------------- |
+| `message`             | `string`    | 发送到聊天的可见提示                                                |
+| `context`             | `string?`   | 附加隐藏上下文（聊天UI中未显示）                                    |
 | `submit`              | `boolean?`  | true = 自动提交，false = 仅预填充                                   |
-| `newTab`              | `boolean?`  | 为此提示创建单独的聊天线程                              |
+| `newTab`              | `boolean?`  | 为此提示创建单独的聊天线程                                          |
 | `background`          | `boolean?`  | 使用 `newTab`，在不聚焦选项卡的情况下运行并在 `RunsTray` 中显示运行 |
-| `openSidebar`         | `boolean?`  | 设置 false 来提交/预填充而不打开侧边栏                    |
-| `projectSlug`         | `string?`   | 结构化上下文的可选项目段                               |
-| `preset`              | `string?`   | 下游消费者的可选预设名称                              |
-| `referenceImagePaths` | `string[]?` | 可选的参考图像路径                                             |
+| `openSidebar`         | `boolean?`  | 设置 false 来提交/预填充而不打开侧边栏                              |
+| `projectSlug`         | `string?`   | 结构化上下文的可选项目段                                            |
+| `preset`              | `string?`   | 下游消费者的可选预设名称                                            |
+| `referenceImagePaths` | `string[]?` | 可选的参考图像路径                                                  |
 
 ## 客服人员聊天上下文状态（高级） {#agent-chat-context-state}
 
@@ -118,14 +118,14 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 “预填写此草稿以供审核”流程。将 `sendToAgentChat()` 与 `context` 结合使用
 还有 `submit`。
 
-| API                               | 何时使用                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `useAgentChatContext()`           | React 组件需要实时暂存上下文列表                   |
-| `setAgentChatContextItem(item)`   | 命令式代码应暂存或替换一个键控上下文项         |
-| `listAgentChatContext()`          | 非 React 代码需要暂存上下文的一次性快照             |
-| `removeAgentChatContextItem(key)` | UI 应通过其稳定的 `key` 删除一个暂存上下文项           |
+| API                               | 何时使用                                        |
+| --------------------------------- | ----------------------------------------------- |
+| `useAgentChatContext()`           | React 组件需要实时暂存上下文列表                |
+| `setAgentChatContextItem(item)`   | 命令式代码应暂存或替换一个键控上下文项          |
+| `listAgentChatContext()`          | 非 React 代码需要暂存上下文的一次性快照         |
+| `removeAgentChatContextItem(key)` | UI 应通过其稳定的 `key` 删除一个暂存上下文项    |
 | `clearAgentChatContext()`         | UI 应清除所有暂存上下文，例如在视图或模式重置后 |
-| `refreshAgentChatContext()`       | 命令代码应该重新读取最新的持久上下文快照   |
+| `refreshAgentChatContext()`       | 命令代码应该重新读取最新的持久上下文快照        |
 
 `useAgentChatContext()` 返回 `{ items, set, remove, clear, refresh }`。
 
@@ -181,11 +181,11 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 
 ### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
-| 选项        | 类型       | 描述                                            |
-| ------------- | ---------- | ------------------------------------------------------ |
-| `key`         | `string`   | 用于替换现有块的稳定标识符   |
-| `title`       | `string`   | 作曲家芯片中显示的短标签                 |
-| `context`     | `string`   | 下一个提交的提示中包含隐藏上下文 |
+| 选项          | 类型       | 描述                                        |
+| ------------- | ---------- | ------------------------------------------- |
+| `key`         | `string`   | 用于替换现有块的稳定标识符                  |
+| `title`       | `string`   | 作曲家芯片中显示的短标签                    |
+| `context`     | `string`   | 下一个提交的提示中包含隐藏上下文            |
 | `openSidebar` | `boolean?` | 默认为true；静默地将 false 传递给舞台上下文 |
 
 ## 询问用户问题（选择） {#ask-user-question}
@@ -328,17 +328,17 @@ function App() {
 
 ### 选项 {#usedbsync-options}
 
-| 选项             | 类型               | 描述                                                                            |
+| 选项               | 类型               | 描述                                                                                   |
 | ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | React-查询客户端缓存失效                                              |
-| `queryKeys`        | `string[]?`        | 已弃用并被忽略；为旧的调用站点保留                                        |
-| `pollUrl`          | `string?`          | 轮询端点 URL。默认值：`"/_agent-native/poll"`                                    |
+| `queryClient`      | `QueryClient?`     | React-查询客户端缓存失效                                                               |
+| `queryKeys`        | `string[]?`        | 已弃用并被忽略；为旧的调用站点保留                                                     |
+| `pollUrl`          | `string?`          | 轮询端点 URL。默认值：`"/_agent-native/poll"`                                          |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | 轮询间隔（以毫秒为单位）。默认值：`2000`                                                |
-| `fallbackInterval` | `number?`          | SSE 不可用时的回退轮询间隔。默认值：`15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | 当浏览器选项卡隐藏时暂停轮询。默认值：`true`                          |
-| `ignoreSource`     | `string?`          | 要忽略的每个选项卡请求源，以便选项卡不会从其自己的写入中重新获取         |
-| `onEvent`          | `(data) => void`   | SSE/polling 收到更改事件时的可选回调                             |
+| `interval`         | `number?`          | 轮询间隔（以毫秒为单位）。默认值：`2000`                                               |
+| `fallbackInterval` | `number?`          | SSE 不可用时的回退轮询间隔。默认值：`15000`                                            |
+| `pauseWhenHidden`  | `boolean?`         | 当浏览器选项卡隐藏时暂停轮询。默认值：`true`                                           |
+| `ignoreSource`     | `string?`          | 要忽略的每个选项卡请求源，以便选项卡不会从其自己的写入中重新获取                       |
+| `onEvent`          | `(data) => void`   | SSE/polling 收到更改事件时的可选回调                                                   |
 
 对于普通CRUD，优先选择`useActionQuery`和`useActionMutation`；变异 actions 会发出 `source: "action"` 并且这些钩子会自动重新获取。
 

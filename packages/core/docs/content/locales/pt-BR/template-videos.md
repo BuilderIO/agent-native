@@ -93,7 +93,7 @@ Abra o estúdio no seu navegador, crie uma composição e comece do zero. Pergun
 
 O agente sempre sabe qual composição você tem aberta. O estado de navegação (`{ view, compositionId }`) é gravado na tabela `application_state` da estrutura e a ação `view-screen` o retorna mais uma dica apontando para `app/remotion/registry.ts`. Você não precisa dizer ao agente em qual composição você está — peça para ele agir de acordo com "este" e ele o fará.
 
- Nos bastidores, o agente chama actions como `navigate`, `save-composition` e `generate-animated-component`. Os registros de composição apoiados por SQL são criados ou atualizados por meio de `save-composition`; Os componentes Remotion apoiados por código ainda residem em `app/remotion/compositions/*.tsx` e são registrados em `app/remotion/registry.ts`.
+Nos bastidores, o agente chama actions como `navigate`, `save-composition` e `generate-animated-component`. Os registros de composição apoiados por SQL são criados ou atualizados por meio de `save-composition`; Os componentes Remotion apoiados por código ainda residem em `app/remotion/compositions/*.tsx` e são registrados em `app/remotion/registry.ts`.
 
 ### Modelo de dados
 

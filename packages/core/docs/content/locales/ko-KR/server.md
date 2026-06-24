@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### 경로 명명 규칙 {#route-naming-conventions}
 
-| 파일 이름 패턴  | HTTP 방법 | 예제 경로                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` 또는 포괄 |
+| 파일 이름 패턴     | HTTP 방법 | 예제 경로                |
+| ------------------ | --------- | ------------------------ |
+| `index.get.ts`     | GET       | `/api/items`             |
+| `index.post.ts`    | POST      | `/api/items`             |
+| `[id].get.ts`      | GET       | `/api/items/:id`         |
+| `[id].patch.ts`    | PATCH     | `/api/items/:id`         |
+| `[id].delete.ts`   | DELETE    | `/api/items/:id`         |
+| `[...slug].get.ts` | GET       | `/api/items/*` 또는 포괄 |
 
 ## 앱 운영을 위해서는 Actions를 선호하세요 {#actions-first}
 
@@ -149,19 +149,19 @@ export default runMigrations(
 
 프레임워크는 `/_agent-native/` 아래에 자체 경로를 마운트합니다. 해당 네임스페이스를 예약된 것으로 처리하세요.
 
-| 경로 접두어                     | 목적                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | 액션 HTTP 엔드포인트                                                           |
-| `/_agent-native/agent-chat`      | 에이전트 채팅 루프                                                                 |
-| `/_agent-native/poll`            | SQL 지원 UI 동기화                                                              |
-| `/_agent-native/resources/*`     | 작업공간 리소스                                                             |
+| 경로 접두어                      | 목적                                                              |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | 액션 HTTP 엔드포인트                                              |
+| `/_agent-native/agent-chat`      | 에이전트 채팅 루프                                                |
+| `/_agent-native/poll`            | SQL 지원 UI 동기화                                                |
+| `/_agent-native/resources/*`     | 작업공간 리소스                                                   |
 | `/_agent-native/extensions/*`    | 런타임 확장 및 확장 프록시(레거시 별칭: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | 메시징/웹훅 통합                                                  |
-| `/_agent-native/a2a`             | 에이전트 간 JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP 엔드포인트                                                                    |
-| `/_agent-native/onboarding/*`    | 설정 체크리스트                                                                 |
-| `/_agent-native/observability/*` | 추적, 피드백, 평가, 실험                                            |
-| `/_agent-native/file-upload`     | 파일 업로드 공급자 엔드포인트                                                   |
+| `/_agent-native/a2a`             | 에이전트 간 JSON-RPC                                              |
+| `/_agent-native/mcp`             | MCP 엔드포인트                                                    |
+| `/_agent-native/onboarding/*`    | 설정 체크리스트                                                   |
+| `/_agent-native/observability/*` | 추적, 피드백, 평가, 실험                                          |
+| `/_agent-native/file-upload`     | 파일 업로드 공급자 엔드포인트                                     |
 
 맞춤 앱 경로는 `/api/*`, 공개 앱 경로 또는 `/_agent-native/`와 충돌하지 않는 공급자별 콜백 경로를 사용해야 합니다.
 

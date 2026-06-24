@@ -30,16 +30,16 @@ for (let i = 1; i <= total; i++) {
 await completeRun(run.id, run.owner, "succeeded");
 ```
 
- Préoccupation distincte de [notifications](/docs/notifications) : les notifications se déclenchent une fois ("X s'est produit"_), la progression est continue (_"X est terminé à 45 %"_). Les deux compositions - `completeRun` suivi de `notify(..., severity: "info")` indiquent à l'utilisateur quand le travail est terminé, même s'il ne regardait pas le plateau.
+Préoccupation distincte de [notifications](/docs/notifications) : les notifications se déclenchent une fois ("X s'est produit"_), la progression est continue (_"X est terminé à 45 %"\_). Les deux compositions - `completeRun` suivi de `notify(..., severity: "info")` indiquent à l'utilisateur quand le travail est terminé, même s'il ne regardait pas le plateau.
 
 ## Le cycle de vie {#lifecycle}
 
-| Statut      | Transition                  |
-| ----------- | --------------------------- |
+| Statut      | Transition                      |
+| ----------- | ------------------------------- |
 | `running`   | Initial — défini par `startRun` |
-| `succeeded` | Terminal Happy Path         |
-| `failed`    | Terminal d'erreur              |
-| `cancelled` | Utilisateur interrompu            |
+| `succeeded` | Terminal Happy Path             |
+| `failed`    | Terminal d'erreur               |
+| `cancelled` | Utilisateur interrompu          |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 Monté sur `/_agent-native/runs/*` par le plugin core-routes. **Lecture seule sur HTTP** : les écritures passent par les outils de l'agent puisque l'agent est l'écrivain canonique. Toutes les routes sont limitées au propriétaire.
 
-| Méthode   | Chemin                              |
+| Méthode  | Chemin                            |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ Widget d'en-tête intégré : installez-le à côté de la cloche de notificati
 
 Un seul outil `manage-progress` est enregistré dans chaque modèle. Le paramètre `action` sélectionne l'opération :
 
-| Actions     | Objectif                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | Appel en début de tâche longue. Renvoie un runId.                |
+| Actions    | Objectif                                                             |
+| ---------- | -------------------------------------------------------------------- |
+| `start`    | Appel en début de tâche longue. Renvoie un runId.                    |
 | `update`   | Appelez périodiquement pendant la tâche avec `percent` et/ou `step`. |
-| `complete` | Terminal : un parmi `succeeded`, `failed`, `cancelled`.           |
-| `list`     | Inspecter les exécutions récentes (filtrer par `active=true`).                  |
+| `complete` | Terminal : un parmi `succeeded`, `failed`, `cancelled`.              |
+| `list`     | Inspecter les exécutions récentes (filtrer par `active=true`).       |
 
 ### Quand démarrer une course {#when-to-start}
 
@@ -168,12 +168,12 @@ Un seul outil `manage-progress` est enregistré dans chaque modèle. Le paramèt
 
 Deux événements émettent sur le [event bus](/docs/automations#event-bus) :
 
-| Événement                  | Charge utile                            |
+| Événement              | Charge utile                       |
 | ---------------------- | ---------------------------------- |
 | `run.progress.started` | `{ runId, title, step? }`          |
 | `run.progress.updated` | `{ runId, percent, step, status }` |
 
-[Automations](/docs/automations) peut s'y abonner — par exemple, _"si une course dure plus de 5 minutes, prévenez-moi"_ :
+[Automations](/docs/automations) peut s'y abonner — par exemple, *"si une course dure plus de 5 minutes, prévenez-moi"* :
 
 ```yaml
 ---

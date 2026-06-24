@@ -7,12 +7,12 @@ description: "Exponga su aplicación nativa del agente como un servidor MCP remo
 
 **Esta página: la referencia del servidor MCP de nivel inferior.** Cómo cada aplicación nativa del agente expone su actions sobre MCP: el punto final montado automáticamente, los modos de autenticación, la superficie `tools/call`/`ask-agent` y el montaje personalizado. Consíguelo cuando necesites componentes internos del servidor; para conectar un host, comience con [External Agents](/docs/external-agents).
 
-| Si quieres…                                              | Leer                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Conecta un agente/host externo a tu aplicación                   | [External Agents](/docs/external-agents) |
-| Dale a tu agente más herramientas (consume otros servidores MCP)       | [MCP Clients](/docs/mcp-clients)         |
-| Crea UI en línea que se rendericen en Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
-| Referencia del servidor MCP de nivel inferior (autenticación, herramientas, montaje personalizado) | **Esta página** — Protocolo MCP             |
+| Si quieres…                                                                                        | Leer                                     |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Conecta un agente/host externo a tu aplicación                                                     | [External Agents](/docs/external-agents) |
+| Dale a tu agente más herramientas (consume otros servidores MCP)                                   | [MCP Clients](/docs/mcp-clients)         |
+| Crea UI en línea que se rendericen en Claude/ChatGPT                                               | [MCP Apps](/docs/mcp-apps)               |
+| Referencia del servidor MCP de nivel inferior (autenticación, herramientas, montaje personalizado) | **Esta página** — Protocolo MCP          |
 
 Cada aplicación nativa del agente expone automáticamente un servidor remoto MCP (Protocolo de contexto de modelo), por lo que herramientas externas de IA como Claude, aplicaciones MCP personalizadas ChatGPT, código Claude, cursor, Codex y VS Code GitHub Copilot pueden descubrir y llamar al actions de su aplicación directamente, sin necesidad de código adicional. Si su objetivo es _conectar_ uno de esos hosts a una aplicación alojada, [External Agents](/docs/external-agents) cubre el conector de envío único recomendado, URL, OAuth, MCP aplicaciones en línea UI por aplicación y enlaces profundos. Esta página documenta lo que hay debajo.
 
@@ -41,14 +41,14 @@ Conceptos clave:
 
 Ambos protocolos se montan automáticamente. Utilice el que se ajuste a su caso de uso:
 
-|                    | MCP                                                                      | A2A                                          |
-| ------------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
-| **Mejor para**       | Herramientas externas que llaman a tu aplicación                                          | Comunicación de agente a agente                 |
-| **Protocolo**       | MCP HTTP transmitible                                                      | JSON-RPC 2.0                                 |
-| **Descubrimiento de herramientas** | `tools/list`                                                             | Tarjeta de agente en `/.well-known/agent-card.json` |
-| **Punto final**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
-| **Con el apoyo de**   | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork y otros hosts MCP | Otras aplicaciones nativas del agente                      |
-| **Ejecución**      | Llamadas directas a herramientas (sin LLM adicionales)                                         | Bucle de agente completo (razonamiento LLM)              |
+|                                    | MCP                                                                   | A2A                                                 |
+| ---------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
+| **Mejor para**                     | Herramientas externas que llaman a tu aplicación                      | Comunicación de agente a agente                     |
+| **Protocolo**                      | MCP HTTP transmitible                                                 | JSON-RPC 2.0                                        |
+| **Descubrimiento de herramientas** | `tools/list`                                                          | Tarjeta de agente en `/.well-known/agent-card.json` |
+| **Punto final**                    | `/_agent-native/mcp`                                                  | `/_agent-native/a2a`                                |
+| **Con el apoyo de**                | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork y otros hosts MCP | Otras aplicaciones nativas del agente               |
+| **Ejecución**                      | Llamadas directas a herramientas (sin LLM adicionales)                | Bucle de agente completo (razonamiento LLM)         |
 
 También puedes usar la herramienta `ask-agent` MCP para obtener lo mejor de ambos mundos: llámala desde el código Claude y deja que el agente de tu aplicación razone a través de tareas complejas.
 
@@ -133,11 +133,11 @@ Cada persona que llama recibe un **catálogo compacto de forma predeterminada** 
 
 Cada acción se asigna directamente a una herramienta MCP:
 
-| Propiedad de acción    | Propiedad de herramienta MCP |
-| ------------------ | ----------------- |
-| `tool.description` | `description`     |
-| `tool.parameters`  | `inputSchema`     |
-| Nombre de la acción        | Nombre de la herramienta         |
+| Propiedad de acción | Propiedad de herramienta MCP |
+| ------------------- | ---------------------------- |
+| `tool.description`  | `description`                |
+| `tool.parameters`   | `inputSchema`                |
+| Nombre de la acción | Nombre de la herramienta     |
 
 Cuando `mcpApp` está presente, la entrada de herramienta también incluye `_meta.ui.resourceUri`, `_meta["ui/resourceUri"]` y `_meta["openai/outputTemplate"]`, y el recurso `ui://` correspondiente se devuelve como `text/html;profile=mcp-app`.
 
@@ -162,14 +162,14 @@ El agente ejecuta el mismo ciclo que el chat interactivo: puede llamar a múltip
 
 El punto final MCP admite MCP OAuth remoto estándar más el respaldo de token de portador existente:
 
-| Modo                        | Cómo funciona                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Estándar MCP OAuth          | El cliente descubre la autenticación de `WWW-Authenticate`, registra, ejecuta PKCE y envía `Authorization: Bearer <access-token>` |
-| JWT creado por Connect          | `npx @agent-native/core@latest connect` / la página Conectar crea un JWT revocable por usuario                            |
-| `ACCESS_TOKEN`              | Token de portador estático: el cliente envía `Authorization: Bearer <token>`                                                    |
-| `ACCESS_TOKENS`             | Lista separada por comas de tokens portadores estáticos válidos                                                                    |
-| `A2A_SECRET`                | Autenticación basada en JWT: los tokens se verifican criptográficamente                                                                |
-| _(ninguno establecido, solo bucle invertido)_ | No se requiere autenticación para las sondas de desarrollo local                                                                                 |
+| Modo                                          | Cómo funciona                                                                                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Estándar MCP OAuth                            | El cliente descubre la autenticación de `WWW-Authenticate`, registra, ejecuta PKCE y envía `Authorization: Bearer <access-token>` |
+| JWT creado por Connect                        | `npx @agent-native/core@latest connect` / la página Conectar crea un JWT revocable por usuario                                    |
+| `ACCESS_TOKEN`                                | Token de portador estático: el cliente envía `Authorization: Bearer <token>`                                                      |
+| `ACCESS_TOKENS`                               | Lista separada por comas de tokens portadores estáticos válidos                                                                   |
+| `A2A_SECRET`                                  | Autenticación basada en JWT: los tokens se verifican criptográficamente                                                           |
+| _(ninguno establecido, solo bucle invertido)_ | No se requiere autenticación para las sondas de desarrollo local                                                                  |
 
 Para hosts MCP compatibles con OAuth, configure el servidor remoto URL sin encabezados estáticos:
 
@@ -186,12 +186,12 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 Puntos finales de descubrimiento:
 
-| Punto final                                  | Propósito                                     |
-| ----------------------------------------- | ------------------------------------------- |
-| `/.well-known/oauth-protected-resource`   | RFC 9728 metadatos de recursos protegidos        |
-| `/.well-known/oauth-authorization-server` | Metadatos del servidor de autorización OAuth         |
-| `/_agent-native/mcp/oauth/register`       | Registro dinámico de cliente público          |
-| `/_agent-native/mcp/oauth/authorize`      | Autorización del navegador + consentimiento             |
+| Punto final                               | Propósito                                                        |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 metadatos de recursos protegidos                        |
+| `/.well-known/oauth-authorization-server` | Metadatos del servidor de autorización OAuth                     |
+| `/_agent-native/mcp/oauth/register`       | Registro dinámico de cliente público                             |
+| `/_agent-native/mcp/oauth/authorize`      | Autorización del navegador + consentimiento                      |
 | `/_agent-native/mcp/oauth/token`          | Concesiones de códigos de autorización y tokens de actualización |
 
 ```an-diagram title="OAuth discovery flow" summary="A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."
@@ -203,10 +203,10 @@ Puntos finales de descubrimiento:
 
 Los tokens de acceso son JWT firmados cuya audiencia es exactamente el recurso MCP URL. El servidor acepta solo tokens emitidos por sí mismo y aplica alcances antes de enumerar/llamar herramientas:
 
-| Alcance       | Permite                                      |
-| ----------- | ------------------------------------------- |
-| `mcp:read`  | actions de solo lectura                           |
-| `mcp:write` | mutando actions y `ask-agent`            |
+| Alcance     | Permite                                              |
+| ----------- | ---------------------------------------------------- |
+| `mcp:read`  | actions de solo lectura                              |
+| `mcp:write` | mutando actions y `ask-agent`                        |
 | `mcp:apps`  | Recursos de aplicaciones MCP (recursos `ui://` HTML) |
 
 Los tokens de actualización se almacenan solo como hashes y se rotan en cada actualización. `npx @agent-native/core@latest connect` escribe esta entrada OAuth exclusiva de URL para clientes de código Claude de forma predeterminada; mantenga la página Conectar, `npx @agent-native/core@latest connect --token <token>` y la configuración del portador estático para el proxy stdio local, clientes antiguos y flujos de emergencia/depuración.

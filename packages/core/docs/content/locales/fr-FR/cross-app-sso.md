@@ -51,11 +51,11 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
      "params": [
        { "name": "app", "in": "query", "type": "string", "required": true, "description": "L'identifiant de l'application demandeuse." },
        { "name": "redirect_uri", "in": "query", "type": "string", "required": true, "description": "App callback URL. Validé par rapport à une liste blanche stricte (`*.agent-native.com` ou localhost par défaut)." },
-       { "name": "state", "in": "query", "type": "string", "required": true, "description": "L'état CSRF a été renvoyé lors de la redirection." 
+       { "name": "state", "in": "query", "type": "string", "required": true, "description": "L'état CSRF a été renvoyé lors de la redirection."
      ],
      "réponses" : [
        { "status": "302", "description": "Redirection vers `redirect_uri` portant une identité signée `A2A_SECRET` de courte durée JWT (`scope: \"identity\"`, `exp` ≤ 2 minutes) plus l'original `state`." },
-       { "status": "400", "description": "Échec de la validation de la liste d'autorisation `redirect_uri` (origine croisée, `//host` relative au schéma ou suffixe non répertorié)." 
+       { "status": "400", "description": "Échec de la validation de la liste d'autorisation `redirect_uri` (origine croisée, `//host` relative au schéma ou suffixe non répertorié)."
      ]
    }
    ```
@@ -64,14 +64,14 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
 
 3. **Dispatch → Application (jeton d'identité signé).** Dispatch valide `redirect_uri` par rapport à une liste autorisée stricte et redirige vers le `redirect_uri` de l'application portant une **identité signée `A2A_SECRET` de courte durée JWT**. Les revendications du jeton sont intentionnellement minimes :
 
-   | Réclamation        | Signification                                                  |
-   | ------------ | -------------------------------------------------------- |
-   | `sub`        | ID utilisateur stable auprès de l'autorité d'identité                 |
-   | `email`      | L'adresse e-mail **vérifiée** de l'utilisateur : la seule clé de connexion        |
-   | `name`       | Nom d'affichage (ne faisant pas autorité, pour UI uniquement)            |
-   | `org_domain` | Domaine de l'espace de travail/de l'organisation, le cas échéant                       |
-   | `scope`      | Toujours `"identity"` : ce jeton autorise uniquement la connexion |
-   | `exp`        | **≤ 2 minutes** à partir du problème                               |
+   | Réclamation  | Signification                                                              |
+   | ------------ | -------------------------------------------------------------------------- |
+   | `sub`        | ID utilisateur stable auprès de l'autorité d'identité                      |
+   | `email`      | L'adresse e-mail **vérifiée** de l'utilisateur : la seule clé de connexion |
+   | `name`       | Nom d'affichage (ne faisant pas autorité, pour UI uniquement)              |
+   | `org_domain` | Domaine de l'espace de travail/de l'organisation, le cas échéant           |
+   | `scope`      | Toujours `"identity"` : ce jeton autorise uniquement la connexion          |
+   | `exp`        | **≤ 2 minutes** à partir du problème                                       |
 
 4. **L'application vérifie et les liens JIT par e-mail.** L'application vérifie la signature du jeton avec son propre `A2A_SECRET`, vérifie `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps strictement par e-mail vérifié** :
    - S'il existe un utilisateur local avec cette adresse e-mail → réutilisez-le tel quel.
@@ -158,7 +158,7 @@ Laissez l'environnement de toutes les autres applications non défini. Redéploy
 
 **3. Vérifiez le canari (liste de contrôle).**
 
-- Déconnectez-vous** de l'application.
+- Déconnectez-vous\*\* de l'application.
 - L'écran de connexion affiche désormais **"Connectez-vous avec Agent-Native"**. Cliquez dessus.
 - Vous êtes redirigé vers **Dispatch** et complétez sa connexion (ou passez directement si vous y êtes déjà connecté).
 - Vous êtes redirigé **vers l'application, connecté** — et il s'agit du **même compte préexistant** (même e-mail) que vous aviez auparavant, pas un nouveau.

@@ -30,12 +30,12 @@ track(
 
 Définissez une variable d'environnement et le fournisseur s'enregistre automatiquement au démarrage du serveur. Aucune modification de code requise.
 
-| Fournisseur  | Vars d'environnement                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| PostHog   | `POSTHOG_API_KEY` (obligatoire), `POSTHOG_HOST` (facultatif, par défaut `https://us.i.posthog.com`) |
-| Panneau de mixage  | `MIXPANEL_TOKEN`                                                                                |
-| Amplitude | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL` (obligatoire), `TRACKING_WEBHOOK_AUTH` (en-tête `Authorization` en option)    |
+| Fournisseur       | Vars d'environnement                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| PostHog           | `POSTHOG_API_KEY` (obligatoire), `POSTHOG_HOST` (facultatif, par défaut `https://us.i.posthog.com`) |
+| Panneau de mixage | `MIXPANEL_TOKEN`                                                                                    |
+| Amplitude         | `AMPLITUDE_API_KEY`                                                                                 |
+| Webhook           | `TRACKING_WEBHOOK_URL` (obligatoire), `TRACKING_WEBHOOK_AUTH` (en-tête `Authorization` en option)   |
 
 Plusieurs fournisseurs peuvent être actifs simultanément. Chaque événement leur est destiné à tous.
 

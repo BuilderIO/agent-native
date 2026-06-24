@@ -21,11 +21,11 @@ Un `Processor` est un **observateur/garde-corps** interne à la boucle pour l'ex
 
 Un processeur implémente n'importe quel sous-ensemble de trois hooks de cycle de vie facultatifs (la forme est empruntée aux processeurs de sortie de Mastra) :
 
-| Crochet                  | Feux…                                                                | Utilisez-le pour…                                                  |
-| --------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `processOutputStream` | par morceau diffusé (texte/deltas de réflexion) pendant que le modèle génère | réagir à la sortie avant l'arrivée du tour complet                  |
-| `processOutputStep`   | une fois par réponse du modèle, autour de l'exécution de l'outil                        | inspectez les appels de l'outil, le modèle est sur le point de s'exécuter ; portez-les |
-| `processOutputResult` | une fois à la fin de l'exécution, avec le texte final de l'assistant                        | enregistrer un verdict/une preuve de réussite sur la réponse complétée  |
+| Crochet               | Feux…                                                                        | Utilisez-le pour…                                                                      |
+| --------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `processOutputStream` | par morceau diffusé (texte/deltas de réflexion) pendant que le modèle génère | réagir à la sortie avant l'arrivée du tour complet                                     |
+| `processOutputStep`   | une fois par réponse du modèle, autour de l'exécution de l'outil             | inspectez les appels de l'outil, le modèle est sur le point de s'exécuter ; portez-les |
+| `processOutputResult` | une fois à la fin de l'exécution, avec le texte final de l'assistant         | enregistrer un verdict/une preuve de réussite sur la réponse complétée                 |
 
 Chaque processeur obtient son propre objet `state` mutable, à portée d'exécution, qui persiste dans chacun de ses appels de hook au cours d'une seule exécution et est **isolé** de l'état des autres processeurs.
 
@@ -69,8 +69,8 @@ import { TripWire } from "@agent-native/core";
 
 L'événement `tripwire` porte :
 
-| Champ       | Tapez     | Remarques                                                          |
-| ----------- | -------- | -------------------------------------------------------------- |
+| Champ       | Tapez    | Remarques                                                         |
+| ----------- | -------- | ----------------------------------------------------------------- |
 | `reason`    | `string` | Raison lisible par l'homme transmise à `abort`.                   |
 | `processor` | `string` | Nom du processeur qui a abandonné, lorsqu'il a déclaré un `name`. |
 

@@ -7,11 +7,11 @@ description: "Verbinden Sie Ihre agentennative App mit lokalen MCP-Servern (Clau
 
 **Diese Seite: Geben Sie Ihrem Agenten mehr Tools.** Richten Sie eine agentennative App auf MCP-Server – lokal oder remote –, damit deren Tools im Agenten-Chat angezeigt werden. Dies ist die _Client_-Richtung, das Spiegelbild von [MCP Protocol](/docs/mcp-protocol) (was Ihre App zu einem MCP _Server_ macht).
 
-| Wenn Sie möchten...                                              | Lesen                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Verbinden Sie einen externen Agenten/Host mit Ihrer App                   | [External Agents](/docs/external-agents) |
-| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)       | **Diese Seite** – MCP-Clients              |
-| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern               | [MCP Apps](/docs/mcp-apps)               |
+| Wenn Sie möchten...                                                                                    | Lesen                                    |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Verbinden Sie einen externen Agenten/Host mit Ihrer App                                                | [External Agents](/docs/external-agents) |
+| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)                                        | **Diese Seite** – MCP-Clients            |
+| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern                                                | [MCP Apps](/docs/mcp-apps)               |
 | MCP-Serverreferenz auf niedrigerer Ebene (Authentifizierung, Tools, benutzerdefinierte Bereitstellung) | [MCP Protocol](/docs/mcp-protocol)       |
 
 Mit einer Konfigurationsdatei erhält jede agentennative App in Ihrem Arbeitsbereich Zugriff auf Tools, die von MCP-Servern auf Ihrem Computer bereitgestellt werden: `claude-in-chrome` für die Browserautomatisierung, `@modelcontextprotocol/server-filesystem` zum Lesen von Dateien, `@playwright/mcp` für Browsertests und alles andere, das MCP spricht.
@@ -37,11 +37,11 @@ wenn die App lokal ausgeführt wird. Produktions- und gehostete serverlose Laufz
 diese integrierten Funktionen, auch wenn alte Einstellungszeilen vorhanden sind, und die Arbeitsbereichsressourcen
 Baum zeigt sie nicht als Standard-`mcp-servers/*.json`-Ressourcen an.
 
-| Fähigkeit         | Server-ID         | Befehl                                                                 |
+| Fähigkeit          | Server-ID         | Befehl                                                                  |
 | ------------------ | ----------------- | ----------------------------------------------------------------------- |
 | Chrome DevTools    | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
 | Dramatiker-Browser | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
-| Computernutzung       | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
+| Computernutzung    | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
 
 In einem Bereich kann jeweils nur eine Browserfunktion aktiviert sein. Durch die Aktivierung von Chrome DevTools wird Playwright für denselben Benutzer oder dieselbe Organisation deaktiviert, und durch die Aktivierung von Playwright werden Chrome DevTools deaktiviert.
 
@@ -66,10 +66,10 @@ Verwenden Sie eine prägnante, explizite Setup-Kopie für die sensiblen integrie
 
 ### Integrierte Endpunkte
 
-| Methode | Route                        | Zweck                                                                    |
-| ------ | ---------------------------- | -------------------------------------------------------------------------- |
-| GET    | `/_agent-native/mcp/builtin` | Integrierte Funktionen, aktivierte Bereiche, zusammengeführte IDs und Live-Status auflisten.   |
-| POST   | `/_agent-native/mcp/builtin` | Aktualisieren Sie einen Bereich. Körper: `{ scope, enabledIds }` oder `{ scope, id, enabled }`. |
+| Methode | Route                        | Zweck                                                                                           |
+| ------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/builtin` | Integrierte Funktionen, aktivierte Bereiche, zusammengeführte IDs und Live-Status auflisten.    |
+| POST    | `/_agent-native/mcp/builtin` | Aktualisieren Sie einen Bereich. Körper: `{ scope, enabledIds }` oder `{ scope, id, enabled }`. |
 
 ## Hinzufügen eines lokalen MCP-Servers {#adding-a-server}
 
@@ -186,13 +186,13 @@ Unter der Haube werden diese Server in der `settings`-Tabelle des Frameworks unt
 
 ### HTTP-Endpunkte
 
-| Methode | Route                                                 | Zweck                                                                |
-| ------ | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| GET    | `/_agent-native/mcp/servers`                          | Listen Sie die persönlichen Server und Organisationsserver des aktuellen Benutzers mit Live-Status auf.       |
-| POST   | `/_agent-native/mcp/servers`                          | Fügen Sie einen Server hinzu. Körper: `{ scope, name, url, headers?, description? }`.    |
-| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Entfernen Sie einen Server und konfigurieren Sie den Manager neu.                           |
-| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Führen Sie die Verbindungs- und Listentools des vorhandenen Servers trocken aus.                    |
-| POST   | `/_agent-native/mcp/servers/test`                     | Führen Sie einen Probelauf eines beliebigen URL durch, bevor Sie es beibehalten. Körper: `{ url, headers? }`. |
+| Methode | Route                                                 | Zweck                                                                                                         |
+| ------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/servers`                          | Listen Sie die persönlichen Server und Organisationsserver des aktuellen Benutzers mit Live-Status auf.       |
+| POST    | `/_agent-native/mcp/servers`                          | Fügen Sie einen Server hinzu. Körper: `{ scope, name, url, headers?, description? }`.                         |
+| DELETE  | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Entfernen Sie einen Server und konfigurieren Sie den Manager neu.                                             |
+| POST    | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Führen Sie die Verbindungs- und Listentools des vorhandenen Servers trocken aus.                              |
+| POST    | `/_agent-native/mcp/servers/test`                     | Führen Sie einen Probelauf eines beliebigen URL durch, bevor Sie es beibehalten. Körper: `{ url, headers? }`. |
 
 Stdio-Server sind außerhalb der Node-Laufzeiten immer noch ein No-Op-Server, aber entfernte HTTP MCP-Server funktionieren in jeder Umgebung mit `fetch` – einschließlich Desktop-Produktions-Builds.
 
@@ -272,10 +272,10 @@ Lokales UI fügt in jeder App Hot-Reload über `McpClientManager.reconfigure()` 
 
 ### Endpunktübersicht
 
-| Methode | Route                            | Zweck                                                                                                            |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/_agent-native/mcp/hub/servers` | Bereitstellung aller Server im Organisationsbereich mit vollständigen Berechtigungen (bearer-gated, nur gemountet, wenn `AGENT_NATIVE_MCP_HUB_TOKEN` festgelegt ist). |
-| GET    | `/_agent-native/mcp/hub/status`  | Gibt `{ serving, consuming, hubUrl }` für die Einstellungskarte UI zurück.                                                 |
+| Methode | Route                            | Zweck                                                                                                                                                                 |
+| ------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/hub/servers` | Bereitstellung aller Server im Organisationsbereich mit vollständigen Berechtigungen (bearer-gated, nur gemountet, wenn `AGENT_NATIVE_MCP_HUB_TOKEN` festgelegt ist). |
+| GET     | `/_agent-native/mcp/hub/status`  | Gibt `{ serving, consuming, hubUrl }` für die Einstellungskarte UI zurück.                                                                                            |
 
 ## Statusroute {#status-route}
 

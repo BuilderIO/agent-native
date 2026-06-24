@@ -13,10 +13,10 @@ OM é totalmente automático e com escopo definido pelo proprietário. **Threads
 
 OM representa um fio longo em três camadas, do mais destilado ao mais recente:
 
-| Nível                    | O que é                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| **Reflexões**         | Nível mais alto, condensado do registro de observação quando ele crescer. O resumo do arco longo.      |
-| **Observações**        | Entradas densas e datadas que reúnem uma série de mensagens brutas em um registro compacto do que aconteceu.  |
+| Nível                         | O que é                                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Reflexões**                 | Nível mais alto, condensado do registro de observação quando ele crescer. O resumo do arco longo.                           |
+| **Observações**               | Entradas densas e datadas que reúnem uma série de mensagens brutas em um registro compacto do que aconteceu.                |
 | **Mensagens brutas recentes** | Os últimos N turnos são mantidos **literalmente** — nunca dobrados — para que o agente sempre veja o contexto mais recente. |
 
 ```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
@@ -50,10 +50,10 @@ Os dados do OM residem no próprio banco de dados SQL do aplicativo, com escopo 
 
 Os padrões são conservadores. Um operador pode discar a compactação no momento da implantação com variáveis ​​de ambiente `AGENT_NATIVE_OM_*` (não é necessária a reimplantação do código do aplicativo); um valor inválido ou ausente sempre retorna ao padrão nomeado.
 
-| Var ambiente                                       | Padrão | O que ele controla                                                                       |
-| --------------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000` | Tokens de mensagens não observadas que acionam o Observador para agrupá-los em uma observação. |
-| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000` | Tokens de registro de observação que fazem com que o Refletor se condense em um reflexo.       |
+| Var ambiente                                  | Padrão  | O que ele controla                                                                               |
+| --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_OM_OBSERVATION_TOKEN_THRESHOLD` | `30000` | Tokens de mensagens não observadas que acionam o Observador para agrupá-los em uma observação.   |
+| `AGENT_NATIVE_OM_REFLECTION_TOKEN_THRESHOLD`  | `40000` | Tokens de registro de observação que fazem com que o Refletor se condense em um reflexo.         |
 | `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT`    | `12`    | Quantas das mensagens mais recentes permanecem textuais (nunca transformadas em uma observação). |
 
 Os limites de saída do Observador e do Refletor (4.000/2.000 tokens) evitam que uma única passagem de compactação estoure o orçamento; eles podem ser ajustados no código via `resolveObservationalMemoryConfig({ ... })`, mas não expostos ao ambiente.

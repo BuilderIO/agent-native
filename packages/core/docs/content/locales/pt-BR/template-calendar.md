@@ -100,7 +100,7 @@ Para conectar Google Calendar no dev, abra a visualização Configurações, col
 
 O agente vê o que você está olhando. A visualização atual do calendário, a data selecionada e o evento selecionado são incluídos em cada mensagem como um bloco `current-screen`, para que você possa dizer "este evento" ou "este dia" e tudo será resolvido corretamente.
 
- Nos bastidores, o agente chama actions como `list-events`, `check-availability`, `create-event`, `navigate` e `update-availability`. Como os eventos ocorrem em Google Calendar, o agente sempre consulta o API em vez de adivinhar — ele não retornará resultados vazios sem primeiro executar um script.
+Nos bastidores, o agente chama actions como `list-events`, `check-availability`, `create-event`, `navigate` e `update-availability`. Como os eventos ocorrem em Google Calendar, o agente sempre consulta o API em vez de adivinhar — ele não retornará resultados vazios sem primeiro executar um script.
 
 ### Modelo de dados
 

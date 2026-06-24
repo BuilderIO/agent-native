@@ -5,7 +5,7 @@ description: "用于自定义代理 UI、聊天字段、对话呈现、实时状
 
 # 组件API
 
-Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。 
+Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。
 合约是运行时：聊天流、线程状态、actions、上下文，
 附件、模型选择、运行和 SQL 支持的同步。使用库存
 当你需要定制产品UI时，可以选择组件，并下拉一层。
@@ -34,24 +34,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 
 ## 代理并聊天UI {#agent-chat-ui}
 
-| API                                  | 导入路径                                   | 何时使用                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望应用程序周围有完整的侧边栏。                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您为侧边栏渲染自己的标题按钮。                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat` | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。 |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的线程选项卡没有 `AgentPanel` chrome。                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。                    |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client`或`/client/chat` | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat` | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。                         |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 或 `/client/chat` | 需要自己将一个`AgentChatRuntime`适配成assistant-ui。                              |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` 或 `/client/chat` | 您需要内置 Agent-Native SSE 传输作为低级助手 UI 适配器。            |
-| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat` | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 产品操作应该将工作交给代理聊天。                                             |
+| API                                  | 导入路径                                      | 何时使用                                                    |
+| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望应用程序周围有完整的侧边栏。                          |
+| `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您为侧边栏渲染自己的标题按钮。                              |
+| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。      |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。          |
+| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。      |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的线程选项卡没有 `AgentPanel` chrome。            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。       |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。  |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。  |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client`或`/client/chat`   | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。       |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat`   | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。 |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。   |
+| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 或 `/client/chat` | 需要自己将一个`AgentChatRuntime`适配成assistant-ui。        |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` 或 `/client/chat` | 您需要内置 Agent-Native SSE 传输作为低级助手 UI 适配器。    |
+| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。         |
+| `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 产品操作应该将工作交给代理聊天。                            |
 
 `AgentChatRuntime` 是标准聊天 shell 的 BYO 代理合约。通过
 当外部代理应该为 `runtime` 到 `<AssistantChat>` 供电时
@@ -105,13 +105,13 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 当您需要进行相同的聊天时，请使用`@agent-native/core/client/composer`
 自定义UI内的侧边栏使用的字段。
 
-| API                               | 何时使用                                                                                                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API                               | 何时使用                                                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | 您需要一个随时可以提交的聊天字段，其中包含附件、斜线命令、参考、粘贴文本处理、草稿持久性、语音输入和提交语义。 |
-| `<AgentComposerFrame>`            | 您需要自定义 Composer 主体周围的标准视觉外壳。                                                                                                   |
-| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / Composer 运行时内呈现。                                    |
-| `buildPromptComposerSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                                                  |
-| `formatPromptWithAttachments()`   | 您需要将隐藏的附件元数据呈现到提示字符串中。                                                                                                 |
+| `<AgentComposerFrame>`            | 您需要自定义 Composer 主体周围的标准视觉外壳。                                                                 |
+| `<TiptapComposer>`                | 您需要最低级别的丰富聊天字段。它必须在 Assistant-ui `ThreadPrimitive.Root` / Composer 运行时内呈现。           |
+| `buildPromptComposerSubmission()` | 在调用您自己的提交处理程序之前，您需要相同的附件和粘贴文本规范化。                                             |
+| `formatPromptWithAttachments()`   | 您需要将隐藏的附件元数据呈现到提示字符串中。                                                                   |
 
 大多数自定义 UI 应以 `PromptComposer` 开头：
 
@@ -134,12 +134,12 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 使用 `@agent-native/core/client/conversation` 进行转录样式渲染
 在完整代理运行时之外。
 
-| API                                             | 何时使用                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| `<AgentConversation>`                           | 呈现标准化代理消息列表。                      |
-| `<AgentConversationMessageView>`                | 渲染一条标准化消息。                                   |
-| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。 |
-| `useNearBottomAutoscroll()`                     | 在流式传输时将自定义脚本固定在底部。   |
+| API                                             | 何时使用                             |
+| ----------------------------------------------- | ------------------------------------ |
+| `<AgentConversation>`                           | 呈现标准化代理消息列表。             |
+| `<AgentConversationMessageView>`                | 渲染一条标准化消息。                 |
+| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。   |
+| `useNearBottomAutoscroll()`                     | 在流式传输时将自定义脚本固定在底部。 |
 
 这一层有意做到数据优先：您拥有消息的来源，并且
 渲染器拥有一致的降价、附件、通知、工件和
@@ -153,30 +153,30 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 来自 `@agent-native/core/client/chat` 和根客户端条目。请参阅
 [Native Chat UI](/docs/native-chat-ui) 表示操作结果合约。
 
-| API                              | 何时使用                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | 您希望操作结果在本机聊天中呈现行和列。                    |
-| `DataChartWidget`                | 您希望在本机聊天中输出紧凑的条形图、折线图或面积图。                        |
+| API                              | 何时使用                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `DataTableWidget`                | 您希望操作结果在本机聊天中呈现行和列。                                        |
+| `DataChartWidget`                | 您希望在本机聊天中输出紧凑的条形图、折线图或面积图。                          |
 | `DataWidgetResult`               | 您想要 `"data-table"`、`"data-chart"` 或 `"data-insights"` 的类型化结果形状。 |
-| `registerActionChatRenderer()`   | 您需要一个由精确的 `chatUI.renderer` 选择的动作声明渲染器。               |
-| `registerToolRenderer()`         | 您需要特定于产品的本机渲染器来获得非核心工具结果。                 |
-| `registerReservedToolRenderer()` | 框架代码需要一个保留的渲染器，该渲染器在模板渲染器之前获胜。           |
+| `registerActionChatRenderer()`   | 您需要一个由精确的 `chatUI.renderer` 选择的动作声明渲染器。                   |
+| `registerToolRenderer()`         | 您需要特定于产品的本机渲染器来获得非核心工具结果。                            |
+| `registerReservedToolRenderer()` | 框架代码需要一个保留的渲染器，该渲染器在模板渲染器之前获胜。                  |
 
 ## 实时协作和在线状态 {#collab-presence}
 
 使用 `@agent-native/core/client/collab` 实现 Liveblocks 式的呈现效果
 协作文档挂钩。
 
-| API                                                 | 何时使用                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `useCollaborativeDoc()`                             | 将富文本编辑器或自定义 Yjs 界面绑定到 `/_agent-native/collab`。                   |
-| `usePresence()`                                     | 发布并渲染任意感知字段：光标、选择、视口、模式。         |
-| `<PresenceBar>`                                     | 显示活跃的人类和代理协作者。                                                  |
-| `<LiveCursorOverlay>`                               | 在定位的容器上渲染远程光标标签。                                    |
-| `<RemoteSelectionRings>`                            | 在 DOM 元素上渲染远程选择轮廓。                                         |
-| `useFollowUser()`                                   | 跟随其他参与者的视口或选择。                                         |
+| API                                                 | 何时使用                                                          |
+| --------------------------------------------------- | ----------------------------------------------------------------- |
+| `useCollaborativeDoc()`                             | 将富文本编辑器或自定义 Yjs 界面绑定到 `/_agent-native/collab`。   |
+| `usePresence()`                                     | 发布并渲染任意感知字段：光标、选择、视口、模式。                  |
+| `<PresenceBar>`                                     | 显示活跃的人类和代理协作者。                                      |
+| `<LiveCursorOverlay>`                               | 在定位的容器上渲染远程光标标签。                                  |
+| `<RemoteSelectionRings>`                            | 在 DOM 元素上渲染远程选择轮廓。                                   |
+| `useFollowUser()`                                   | 跟随其他参与者的视口或选择。                                      |
 | `useCollaborativeMap()` / `useCollaborativeArray()` | 当富文本正文协作不合适时，使用结构化 Y.Map/Y.Array 状态进行实验。 |
-| `dedupeCollabUsersByEmail()`                        | 为同一用户构建一个没有重复选项卡的自定义头像堆栈。                       |
+| `dedupeCollabUsersByEmail()`                        | 为同一用户构建一个没有重复选项卡的自定义头像堆栈。                |
 
 ```an-diagram title="Presence: humans and the agent share one awareness layer" summary="useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."
 {
@@ -202,16 +202,16 @@ import {
 计划、内容、资源和协作文档使用的表面
 经验。
 
-| API                              | 何时使用                                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `<SharedRichEditor>`             | 您需要具有 Markdown 序列化、可选 Yjs 和应用附加功能的当前可配置编辑器。 |
-| `<RichMarkdownEditor>`           | 您需要共享丰富编辑器的向后兼容别名。                                  |
-| `createSharedEditorExtensions()` | 您正在构建自己的 Tiptap 编辑器，但需要框架架构和 Markdown 方言。         |
-| `<SlashCommandMenu>`             | 您需要共享斜线命令 UI 来创建自定义 Tiptap 表面。                                    |
-| `<BubbleToolbar>`                | 您需要用于标记、链接和自定义内联 actions 的共享选择工具栏。                   |
-| `createRegistryBlockNode()`      | 您需要在丰富的编辑器中提供注册表支持的块节点。                                           |
-| `uploadEditorImage()`            | 您希望框架上传图像操作位于编辑器的共享图像块后面。                   |
-| `useCollabReconcile()`           | 您正在将自定义编辑器界面绑定到 Yjs 文档，同时将 Markdown 保留为已保存状态。       |
+| API                              | 何时使用                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `<SharedRichEditor>`             | 您需要具有 Markdown 序列化、可选 Yjs 和应用附加功能的当前可配置编辑器。     |
+| `<RichMarkdownEditor>`           | 您需要共享丰富编辑器的向后兼容别名。                                        |
+| `createSharedEditorExtensions()` | 您正在构建自己的 Tiptap 编辑器，但需要框架架构和 Markdown 方言。            |
+| `<SlashCommandMenu>`             | 您需要共享斜线命令 UI 来创建自定义 Tiptap 表面。                            |
+| `<BubbleToolbar>`                | 您需要用于标记、链接和自定义内联 actions 的共享选择工具栏。                 |
+| `createRegistryBlockNode()`      | 您需要在丰富的编辑器中提供注册表支持的块节点。                              |
+| `uploadEditorImage()`            | 您希望框架上传图像操作位于编辑器的共享图像块后面。                          |
+| `useCollabReconcile()`           | 您正在将自定义编辑器界面绑定到 Yjs 文档，同时将 Markdown 保留为已保存状态。 |
 
 基本的受控编辑器只是 markdown in 和 markdown out：
 
@@ -259,15 +259,15 @@ const collab = useCollaborativeDoc({
 当您想要公开相同的内容时，请使用 `@agent-native/core/client/resources`
 为代理面板的“工作空间”选项卡提供支持的工作空间资源模型。
 
-| API                                                                   | 何时使用                                                                |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| API                                                                   | 何时使用                                                 |
+| --------------------------------------------------------------------- | -------------------------------------------------------- |
 | `<ResourcesPanel>`                                                    | 您希望将完整的“工作区”选项卡作为页面、抽屉或自定义面板。 |
-| `<ResourceTree>`                                                      | 您想要围绕框架数据渲染您自己的资源浏览器。     |
-| `<ResourceEditor>`                                                    | 您需要所选资源的框架编辑器。                  |
-| `useResourceTree()`                                                   | 您需要一个用于个人、共享或工作区资源的作用域树。    |
-| `useResource()`                                                       | 您需要一项选定资源的内容和元数据。            |
-| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | 您需要围绕资源生命周期进行自定义控制。                 |
-| `useUploadResource()`                                                 | 您需要将文件上传到框架资源存储中。                 |
+| `<ResourceTree>`                                                      | 您想要围绕框架数据渲染您自己的资源浏览器。               |
+| `<ResourceEditor>`                                                    | 您需要所选资源的框架编辑器。                             |
+| `useResourceTree()`                                                   | 您需要一个用于个人、共享或工作区资源的作用域树。         |
+| `useResource()`                                                       | 您需要一项选定资源的内容和元数据。                       |
+| `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | 您需要围绕资源生命周期进行自定义控制。                   |
+| `useUploadResource()`                                                 | 您需要将文件上传到框架资源存储中。                       |
 
 完整的面板不需要道具：
 
@@ -322,15 +322,15 @@ function WorkspaceResources() {
 
 ## 其他公共UI {#other-ui}
 
-| 区域          | APIs                                                   | 导入路径                               |
-| ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| 分享       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
-| 通知 | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| 进度      | `<RunsTray>`，进度挂钩和类型                 | `@agent-native/core/client/progress`      |
-| 入职    | `useOnboarding()`，入门面板挂钩              | `@agent-native/core/client/onboarding`    |
-| 可观察性 | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
-| 资源     | `<ResourcesPanel>`、`<ResourceTree>`、资源挂钩   | `@agent-native/core/client/resources`     |
-| 丰富的编辑器   | `<SharedRichEditor>`，斜杠命令，块节点挂钩 | `@agent-native/core/client/editor`        |
+| 区域         | APIs                                                  | 导入路径                                  |
+| ------------ | ----------------------------------------------------- | ----------------------------------------- |
+| 分享         | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
+| 通知         | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
+| 进度         | `<RunsTray>`，进度挂钩和类型                          | `@agent-native/core/client/progress`      |
+| 入职         | `useOnboarding()`，入门面板挂钩                       | `@agent-native/core/client/onboarding`    |
+| 可观察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
+| 资源         | `<ResourcesPanel>`、`<ResourceTree>`、资源挂钩        | `@agent-native/core/client/resources`     |
+| 丰富的编辑器 | `<SharedRichEditor>`，斜杠命令，块节点挂钩            | `@agent-native/core/client/editor`        |
 
 ## 一次性文本完成 {#one-off-text-completion}
 

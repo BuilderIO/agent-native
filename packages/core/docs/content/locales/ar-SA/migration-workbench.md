@@ -22,12 +22,12 @@ npx @agent-native/core@latest code /migrate https://example.com --describe "mark
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
 ```
 
-الدليل الكامل — أشكال الإدخال (المسار / URL / الوصف)، ملفات `--emit`، 
+الدليل الكامل — أشكال الإدخال (المسار / URL / الوصف)، ملفات `--emit`،
 وضع التخطيط مقابل الوضع التلقائي، وعناصر التحكم في التشغيل، وبيانات الاعتماد، والروابط العميقة لسطح المكتب، و
 صادرات الحزمة `@agent-native/migrate` — موجودة في
 [Agent-Native Code UI → Migrating to Agent-Native](/docs/code-agents-ui#migrate).
 
 > [!NOTE]
 > تمت إزالة تطبيق تفاصيل `migration` القديم المخفي. استخدم الكود
->، أو علامة التبويب Desktop Code، أو الملف المنبعث كالملف المدعوم
+> ، أو علامة التبويب Desktop Code، أو الملف المنبعث كالملف المدعوم
 > الأسطح.

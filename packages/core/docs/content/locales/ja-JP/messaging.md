@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### 環境変数 {#env-vars}
 
-| プラットフォーム | 必須                                                                     | オプション                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| 電報 | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| メール    | `EMAIL_AGENT_ADDRESS`、および `RESEND_API_KEY` または `SENDGRID_API_KEY` のいずれか    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| プラットフォーム | 必須                                                                                | オプション                                            |
+| ---------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack            | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                           | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| 電報             | `TELEGRAM_BOT_TOKEN`                                                                | —                                                     |
+| メール           | `EMAIL_AGENT_ADDRESS`、および `RESEND_API_KEY` または `SENDGRID_API_KEY` のいずれか | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp         | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`        | —                                                     |
 
 すべての資格情報は環境変数内に存在します。データベースやソース コードには決して存在しません。サイドバー設定 UI またはホスティング プロバイダーの環境パネルを使用します。
 

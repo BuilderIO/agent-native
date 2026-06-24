@@ -140,17 +140,17 @@ Postgres、Neon、D1、Turso 和类似主机。应用程序状态反映
 
 Brain 的模式位于 `templates/brain/server/db/schema.ts` 中。八张桌子：
 
-| 表                    | 它包含什么                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brain_sources`          | 连接器配置 - 提供商、允许列出的频道/存储库、同步光标、审核状态、`ingest_token_hash`、`status`、`last_synced_at`        |
-| `brain_source_shares`    | 按来源共享授予（查看者/编辑者/管理员）                                                                                              |
-| `brain_raw_captures`     | 带有 `external_id` 重复数据删除密钥、`content_hash`、种类和蒸馏状态的脚本、通道导出、注释和 Webhook 导入          |
-| `brain_knowledge`        | 精炼的原子条目 - 种类（决策/事实/过程/...）、主题、实体、证据引用、置信度、`publish_tier`、取代链接 |
-| `brain_knowledge_shares` | 按知识共享授予                                                                                                                     |
-| `brain_proposals`        | 待审项目 - 建议创建/更新/存档并包含证据和审阅者注释                                                         |
-| `brain_proposal_shares`  | 每项提案的股份授予                                                                                                                      |
-| `brain_sync_runs`        | 同步审核日志 - 提供商、状态、统计信息 JSON、错误、开始/结束时间戳                                                                     |
-| `brain_ingest_queue`     | 后台蒸馏队列 - 操作、状态、优先级、重试计数、`run_after`                                                          |
+| 表                       | 它包含什么                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | 连接器配置 - 提供商、允许列出的频道/存储库、同步光标、审核状态、`ingest_token_hash`、`status`、`last_synced_at` |
+| `brain_source_shares`    | 按来源共享授予（查看者/编辑者/管理员）                                                                          |
+| `brain_raw_captures`     | 带有 `external_id` 重复数据删除密钥、`content_hash`、种类和蒸馏状态的脚本、通道导出、注释和 Webhook 导入        |
+| `brain_knowledge`        | 精炼的原子条目 - 种类（决策/事实/过程/...）、主题、实体、证据引用、置信度、`publish_tier`、取代链接             |
+| `brain_knowledge_shares` | 按知识共享授予                                                                                                  |
+| `brain_proposals`        | 待审项目 - 建议创建/更新/存档并包含证据和审阅者注释                                                             |
+| `brain_proposal_shares`  | 每项提案的股份授予                                                                                              |
+| `brain_sync_runs`        | 同步审核日志 - 提供商、状态、统计信息 JSON、错误、开始/结束时间戳                                               |
+| `brain_ingest_queue`     | 后台蒸馏队列 - 操作、状态、优先级、重试计数、`run_after`                                                        |
 
 ```an-schema title="Brain data model" summary="Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
 {
@@ -235,7 +235,7 @@ Brain 源凭证不会回退到部署级别环境变量。
 
 **Slack.** 创建范围为特定通道 ID 的源。连接器
 验证每个配置的对话，拒绝 DM 和 MPIM，并存储光标
- 状态，以便每次同步都从上次停止的位置恢复。安全的推出流程
+状态，以便每次同步都从上次停止的位置恢复。安全的推出流程
 每个 Slack 源卡都可以让您**测试**凭证和允许列表，而无需
 阅读历史记录，运行一个小上限的**安全试点**示例，**查看捕获**，
 并在任何内容变得可查询之前在**审核队列**中进行批准。授予

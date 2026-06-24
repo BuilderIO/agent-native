@@ -15,15 +15,15 @@ Você não precisa criar um agente nativo do zero. O bate-papo do agente, a guia
 
 ## Resumo dos componentes {#components}
 
-| Componente             | O que é                                                                            | Use quando                                                     |
-| --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Componente            | O que é                                                                                                    | Use quando                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `<AgentSidebar>`      | Envolve o layout do seu aplicativo raiz e adiciona um painel lateral alternável contendo o agente completo | Você deseja que o agente esteja disponível junto com seu aplicativo em todas as telas |
-| `<AgentToggleButton>` | Abre/fecha `<AgentSidebar>` (coloque no seu cabeçalho)                                 | Parear com `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | O próprio painel bruto — chat + CLI + guias da área de trabalho                                    | Você deseja controle total sobre o layout ou uma página de agente dedicada    |
-| `<AgentChatSurface>`  | Uma superfície de chat de painel/página pré-instalada                                                   | Você quer conversar sem o wrapper da barra lateral                       |
-| `<AssistantChat>`     | Renderizador de bate-papo de nível inferior com ganchos de compositor/histórico                                 | Você precisa de um cromo personalizado em torno da conversa padrão UI      |
-| `sendToAgentChat()`   | Enviar programaticamente uma mensagem para o chat                                           | Um botão que entrega o trabalho ao agente em vez de executar inline |
-| `useActionMutation()` | Wrapper de front-end Typesafe em torno de uma ação                                            | O UI precisa executar a mesma operação que uma ferramenta de agente executaria  |
+| `<AgentToggleButton>` | Abre/fecha `<AgentSidebar>` (coloque no seu cabeçalho)                                                     | Parear com `<AgentSidebar>`                                                           |
+| `<AgentPanel>`        | O próprio painel bruto — chat + CLI + guias da área de trabalho                                            | Você deseja controle total sobre o layout ou uma página de agente dedicada            |
+| `<AgentChatSurface>`  | Uma superfície de chat de painel/página pré-instalada                                                      | Você quer conversar sem o wrapper da barra lateral                                    |
+| `<AssistantChat>`     | Renderizador de bate-papo de nível inferior com ganchos de compositor/histórico                            | Você precisa de um cromo personalizado em torno da conversa padrão UI                 |
+| `sendToAgentChat()`   | Enviar programaticamente uma mensagem para o chat                                                          | Um botão que entrega o trabalho ao agente em vez de executar inline                   |
+| `useActionMutation()` | Wrapper de front-end Typesafe em torno de uma ação                                                         | O UI precisa executar a mesma operação que uma ferramenta de agente executaria        |
 
 Todos eles são exportados de `@agent-native/core/client`.
 

@@ -8,11 +8,11 @@ search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps Agent-na
 
 **Diese Seite: Verbinden Sie einen externen Agenten oder MCP-Host mit Ihrer App.** Verwenden Sie es, wenn Claude, ChatGPT, Codex, Cursor, Claude Cowork oder ein anderer MCP-kompatibler Host eine gehostete agentennative App steuern und das Ergebnis zurück in den laufenden UI zurückleiten soll.
 
-| Wenn Sie möchten...                                              | Lesen                               |
-| ------------------------------------------------------------ | ---------------------------------- |
-| Verbinden Sie einen externen Agenten/Host mit Ihrer App                   | **Diese Seite** – Externe Agenten    |
-| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)       | [MCP Clients](/docs/mcp-clients)   |
-| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern               | [MCP Apps](/docs/mcp-apps)         |
+| Wenn Sie möchten...                                                                                    | Lesen                              |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| Verbinden Sie einen externen Agenten/Host mit Ihrer App                                                | **Diese Seite** – Externe Agenten  |
+| Geben Sie Ihrem Agent mehr Tools (nutzen Sie andere MCP-Server)                                        | [MCP Clients](/docs/mcp-clients)   |
+| Erstellen Sie Inline-UIs, die in Claude/ChatGPT rendern                                                | [MCP Apps](/docs/mcp-apps)         |
 | MCP-Serverreferenz auf niedrigerer Ebene (Authentifizierung, Tools, benutzerdefinierte Bereitstellung) | [MCP Protocol](/docs/mcp-protocol) |
 
 Eine agentennative App ist von jedem MCP-kompatiblen Host erreichbar – Claude, Claude Desktop, Claude Code, ChatGPT benutzerdefinierte MCP-Apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam und zukünftige Clients, die den Standard implementieren. Externe Agenten sind hervorragend darin, Artefakte (einen Entwurf, ein Ereignis, ein Dashboard) zu erstellen, sie befinden sich jedoch oft in einem Terminal oder einer anderen App. Ohne Brücke erhält der Benutzer eine Wand aus JSON und muss das Ding suchen.
@@ -83,11 +83,11 @@ neben Dispatch aktiviert, jeden veralteten Connector aktualisieren oder erneut v
 Dispatch schreibt den zwischengespeicherten Kalender/Mail/usw. von ChatGPT oder Claude nicht neu.
 Schnappschüsse. Die Bereiche sind:
 
-| Geltungsbereich       | Was es ermöglicht                                      |
-| ----------- | ---------------------------------------------------- |
-| `mcp:read`  | Schreibgeschützte Tools und Tool-/Ressourcenerkennung          |
-| `mcp:write` | Entwurf, Aktualisierung und andere Änderungen actions       |
-| `mcp:apps`  | Inline-MCP-Apps, Diagramme, Dashboards, Entwürfe und UIs |
+| Geltungsbereich | Was es ermöglicht                                        |
+| --------------- | -------------------------------------------------------- |
+| `mcp:read`      | Schreibgeschützte Tools und Tool-/Ressourcenerkennung    |
+| `mcp:write`     | Entwurf, Aktualisierung und andere Änderungen actions    |
+| `mcp:apps`      | Inline-MCP-Apps, Diagramme, Dashboards, Entwürfe und UIs |
 
 Cursor, Goose, Postman, MCPJam und VS Code GitHub Copilot verwenden dieselbe Fernbedienung
 MCP URL über ihre eigenen MCP-Server UIs, wenn ihr Build Remote-OAuth unterstützt
@@ -127,19 +127,19 @@ Die lokale Client-Konfiguration erhält das Token nicht.
 
 Wenn Sie den Claude-Code zuvor über den alten Bearer-Token-Fluss verbunden haben, führen Sie einfach denselben `npx @agent-native/core@latest connect ... --client claude-code`-Befehl erneut aus. Der CLI ersetzt die alten `Authorization`-Header durch den nur für URL gültigen OAuth-Eintrag und fordert Sie auf, sich erneut über `/mcp` zu authentifizieren.
 
-| Lokaler Kunde                  | Konfiguration geschrieben von `connect`                             | Authentifizierungsablauf                                       |
-| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
-| Claude-Code / Claude-Code CLI | `.mcp.json` oder `~/.claude.json`, je nach `--scope` | Standardfernbedienung MCP OAuth im Claude `/mcp` UI |
-| Cursor                        | `.cursor/mcp.json` oder `~/.cursor/mcp.json`              | Standardfernbedienung MCP OAuth in Cursors MCP UI    |
-| OpenCode                      | `opencode.json` oder `~/.config/opencode/opencode.json`   | Standard-Remote MCP OAuth in OpenCodes MCP UI  |
-| GitHub Copilot/VS-Code      | `.vscode/mcp.json`- oder VS-Code-Benutzer-MCP-Konfiguration           | Standard-Remote MCP OAuth in VS Codes MCP UI   |
-| Codex                         | `$CODEX_HOME/config.toml` oder `~/.codex/config.toml`     | Browser-autorisierter Bearer-Fallback              |
-| Claude Cowork                 | `~/.cowork/mcp.json` unter Verwendung der Form Claude Code MCP    | Browser-autorisierter Bearer-Fallback              |
+| Lokaler Kunde                 | Konfiguration geschrieben von `connect`                        | Authentifizierungsablauf                            |
+| ----------------------------- | -------------------------------------------------------------- | --------------------------------------------------- |
+| Claude-Code / Claude-Code CLI | `.mcp.json` oder `~/.claude.json`, je nach `--scope`           | Standardfernbedienung MCP OAuth im Claude `/mcp` UI |
+| Cursor                        | `.cursor/mcp.json` oder `~/.cursor/mcp.json`                   | Standardfernbedienung MCP OAuth in Cursors MCP UI   |
+| OpenCode                      | `opencode.json` oder `~/.config/opencode/opencode.json`        | Standard-Remote MCP OAuth in OpenCodes MCP UI       |
+| GitHub Copilot/VS-Code        | `.vscode/mcp.json`- oder VS-Code-Benutzer-MCP-Konfiguration    | Standard-Remote MCP OAuth in VS Codes MCP UI        |
+| Codex                         | `$CODEX_HOME/config.toml` oder `~/.codex/config.toml`          | Browser-autorisierter Bearer-Fallback               |
+| Claude Cowork                 | `~/.cowork/mcp.json` unter Verwendung der Form Claude Code MCP | Browser-autorisierter Bearer-Fallback               |
 
 Starten Sie den Agent-Client nach der Verbindung neu, damit er den neuen MCP-Server aufnimmt. OAuth-native Clients fordern Sie dann möglicherweise auf, sich von ihrem MCP UI aus zu authentifizieren.
 
 Bei der Fehlerbehebung in der lokalen MCP-Konfiguration müssen `Authorization`, `http_headers` usw. geschwärzt werden.
- und Tokenwerte, bevor Sie Protokolle freigeben. Verwenden Sie rohe Locken nicht als Ersatz für ein
+und Tokenwerte, bevor Sie Protokolle freigeben. Verwenden Sie rohe Locken nicht als Ersatz für ein
 MCP-Sitzung hosten; Verwenden Sie nach dem Herstellen der Verbindung die vom Host bereitgestellten Tools oder starten Sie den
 Client, wenn der neue Server noch nicht sichtbar ist.
 
@@ -161,9 +161,9 @@ npx skills@latest add BuilderIO/agent-native --skill assets
 Der rohe `skills` CLI installiert nur `SKILL.md`-Dateien; lokale MCP-Clients noch
 benötigen einen Anschluss wie `npx @agent-native/core@latest connect https://assets.agent-native.com`.
 
-| Fähigkeit    | Alias              | Für                    |
-| -------- | ------------------ | ---------------------- |
-| `assets` | `image-generation` | Bild-/Videogenerierung |
+| Fähigkeit | Alias              | Für                    |
+| --------- | ------------------ | ---------------------- |
+| `assets`  | `image-generation` | Bild-/Videogenerierung |
 
 Die Standard-Clientauswahl umfasst alle unterstützten lokalen Clients. Fügen Sie `--client codex`, `--client claude-code` oder ein anderes spezifisches Ziel hinzu, um das Setup einzugrenzen. Inline-Hosts (ChatGPT, Claude.ai, Claude Desktop-Hauptchat) rendern das Auswahl-/Variantenraster im Chat; CLI/Link-only-Hosts (Codex, Claude Code, Claude Desktop-Registerkarte „Code“) geben einen Link „Öffnen in … →“ zurück, den der Benutzer im Browser auswählt und eine Übergabezusammenfassung zurück einfügt.
 
@@ -233,11 +233,11 @@ Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstokenro
 
 Aktuelle Bereiche sind:
 
-| Geltungsbereich       | Erlaubt                                                                    |
-| ----------- | ------------------------------------------------------------------------- |
-| `mcp:read`  | schreibgeschützt MCP actions und normale Tool-/Ressourcenerkennung                |
-| `mcp:write` | Mutation von actions und dem Meta-Tool `ask-agent`                            |
-| `mcp:apps`  | MCP Auflisten/Lesen von Apps-Ressourcen und Inline-UI-Rendering, sofern unterstützt |
+| Geltungsbereich | Erlaubt                                                                             |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `mcp:read`      | schreibgeschützt MCP actions und normale Tool-/Ressourcenerkennung                  |
+| `mcp:write`     | Mutation von actions und dem Meta-Tool `ask-agent`                                  |
+| `mcp:apps`      | MCP Auflisten/Lesen von Apps-Ressourcen und Inline-UI-Rendering, sofern unterstützt |
 
 Wenn der Client keinen expliziten Bereich anfordert, gewährt die App alle drei, sodass sich der Connector wie der vom Browser autorisierte Connect-Flow verhält. Behalten Sie die Bearer-Token-Connect-Seite und den `npx @agent-native/core@latest connect --token <token>`-Fallback für lokale Entwickler, Fallback-Hosts und Clients bei, bei denen Sie einen sofort einfügbaren Konfigurationsblock benötigen.
 
@@ -245,7 +245,7 @@ Wenn der Client keinen expliziten Bereich anfordert, gewährt die App alle drei,
 
 Dies ist die kanonische Erklärung der MCP-Katalogebenen – andere Seiten verlinken hier.
 
-Der MCP-Server stellt jedem Aufrufer standardmäßig einen kompakten Katalog bereit** – gehostete Connectors (ChatGPT, Claude), Code-Clients (Claude Code, Cursor, Codex) und den lokalen CLI/stdio-Proxy gleichermaßen. Die vollständige Aktionsoberfläche wird nur bei ausdrücklicher Einwilligung bereitgestellt. Der Katalog wird niemals aus dem Clientnamen oder dem Benutzeragenten abgeleitet.
+Der MCP-Server stellt jedem Aufrufer standardmäßig einen kompakten Katalog bereit\*\* – gehostete Connectors (ChatGPT, Claude), Code-Clients (Claude Code, Cursor, Codex) und den lokalen CLI/stdio-Proxy gleichermaßen. Die vollständige Aktionsoberfläche wird nur bei ausdrücklicher Einwilligung bereitgestellt. Der Katalog wird niemals aus dem Clientnamen oder dem Benutzeragenten abgeleitet.
 
 ```an-diagram title="Two catalog tiers" summary="Every caller gets the compact tier by default; the full ~105-tool surface is opt-in only. tool-search bridges the gap so nothing is ever truly hidden."
 {
@@ -356,13 +356,13 @@ Siehe [MCP Apps](/docs/mcp-apps) für die vollständigen Bridge-Details – Tran
 
 Zusätzlich zu den Tools pro Aktion stellt der MCP-Server einen stabilen Verbsatz bereit, sodass ein externer Agent eine vorhersehbare Oberfläche hat, ohne die Aktionsnamen pro App erraten zu müssen:
 
-| Werkzeug                                               | Nebenwirkungen | Retouren                                                                                     |
-| -------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | keine         | Workspace-Apps + ihre URLs/Ausführungsstatus                                                 |
-| `open_app({ app, view?, path?, params?, embed? })` | keine         | ein Deep Link oder eine Route mit demselben Ursprung; `embed: true` rendert die vollständige App inline, sofern dies unterstützt wird |
-| `ask_app({ app, message })`                        | Agentenschleife   | leitet eine Aufgabe in natürlicher Sprache an den In-App-Agenten dieser App weiter (delegiert an `ask-agent`)        |
-| `create_workspace_app({ name, template })`         | Gerüste    | Eine neue App, die über den Workspace-Pfad gestartet wurde, plus die Ausführung von URL + Deep Link                   |
-| `list_templates`                                   | keine         | Nur die auf der Zulassungsliste aufgeführten Vorlagen                                                             |
+| Werkzeug                                           | Nebenwirkungen  | Retouren                                                                                                                              |
+| -------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | keine           | Workspace-Apps + ihre URLs/Ausführungsstatus                                                                                          |
+| `open_app({ app, view?, path?, params?, embed? })` | keine           | ein Deep Link oder eine Route mit demselben Ursprung; `embed: true` rendert die vollständige App inline, sofern dies unterstützt wird |
+| `ask_app({ app, message })`                        | Agentenschleife | leitet eine Aufgabe in natürlicher Sprache an den In-App-Agenten dieser App weiter (delegiert an `ask-agent`)                         |
+| `create_workspace_app({ name, template })`         | Gerüste         | Eine neue App, die über den Workspace-Pfad gestartet wurde, plus die Ausführung von URL + Deep Link                                   |
+| `list_templates`                                   | keine           | Nur die auf der Zulassungsliste aufgeführten Vorlagen                                                                                 |
 
 `create_workspace_app` lehnt alle nicht auf der Zulassungsliste aufgeführten Vorlagen ab – die öffentliche Zulassungsliste für Vorlagen in `packages/shared-app-config/templates.ts` ist maßgeblich und CI-geschützt; ein externer Agent kann es nicht erweitern. Eine gleichnamige Vorlagenaktion überschreibt eine integrierte Aktion (Vorrang der Vorlage vor dem Kern). Deaktivieren Sie das gesamte Set mit `MCPConfig.builtinCrossAppTools: false`.
 
@@ -512,13 +512,13 @@ Der Eintrag führt `npx @agent-native/core@latest mcp serve --app <id>` aus, der
 
 Companion-Unterbefehle:
 
-| Befehl                                                    | Was es tut                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| `npx @agent-native/core@latest mcp serve [--app <id>]`     | Führen Sie den MCP stdio-Transport aus (welche Client-Konfigurationen entstehen).            |
-| `npx @agent-native/core@latest mcp install --client <c>`   | Stellen Sie ein Token bereit und schreiben Sie die MCP-Konfiguration des Clients (idempotent).     |
-| `npx @agent-native/core@latest mcp uninstall --client <c>` | Entfernen Sie den benannten MCP-Eintrag aus der Konfiguration eines Clients (idempotent).     |
-| `npx @agent-native/core@latest mcp status`                 | Aufgelöste MCP URL/Port-, Token-Status- und Client-Einträge anzeigen.    |
-| `npx @agent-native/core@latest mcp token [--rotate]`       | Drucken (oder drehen) Sie das lokale `ACCESS_TOKEN` im Arbeitsbereich `.env`. |
+| Befehl                                                     | Was es tut                                                                                     |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `npx @agent-native/core@latest mcp serve [--app <id>]`     | Führen Sie den MCP stdio-Transport aus (welche Client-Konfigurationen entstehen).              |
+| `npx @agent-native/core@latest mcp install --client <c>`   | Stellen Sie ein Token bereit und schreiben Sie die MCP-Konfiguration des Clients (idempotent). |
+| `npx @agent-native/core@latest mcp uninstall --client <c>` | Entfernen Sie den benannten MCP-Eintrag aus der Konfiguration eines Clients (idempotent).      |
+| `npx @agent-native/core@latest mcp status`                 | Aufgelöste MCP URL/Port-, Token-Status- und Client-Einträge anzeigen.                          |
+| `npx @agent-native/core@latest mcp token [--rotate]`       | Drucken (oder drehen) Sie das lokale `ACCESS_TOKEN` im Arbeitsbereich `.env`.                  |
 
 Starten Sie den Client nach `install` neu, damit er den neuen MCP-Server aufnimmt.
 

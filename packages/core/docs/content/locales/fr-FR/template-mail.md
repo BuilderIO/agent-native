@@ -65,25 +65,25 @@ Si vous sélectionnez du texte et appuyez sur Cmd+I, cette sélection accompagne
 
 ## Raccourcis clavier
 
-| Clé       | Actions                      |
-| --------- | --------------------------- |
-| `J`       | E-mail suivant                  |
-| `K`       | E-mail précédent              |
-| `Up/Down` | Identique à J/K                 |
-| `Enter`   | Ouvrir un e-mail ciblé          |
-| `E`       | Archiver l'e-mail ou le fil de discussion     |
-| `D`       | Corbeille d'un e-mail ou d'un fil de discussion       |
-| `S`       | Étiqueter ou supprimer une étoile              |
-| `R`       | Répondre                       |
-| `U`       | Basculer lecture/non lecture          |
-| `C`       | Rédiger un nouvel e-mail           |
-| `/`       | Barre de recherche de focus            |
-| `Cmd+K`   | Ouvrir la palette de commandes        |
-| `G I`     | Accéder à la boîte de réception                 |
-| `G S`     | Aller dans Favoris               |
-| `G T`     | Aller à Envoyés                  |
-| `G D`     | Accéder aux brouillons                |
-| `G A`     | Aller aux archives               |
+| Clé       | Actions                                          |
+| --------- | ------------------------------------------------ |
+| `J`       | E-mail suivant                                   |
+| `K`       | E-mail précédent                                 |
+| `Up/Down` | Identique à J/K                                  |
+| `Enter`   | Ouvrir un e-mail ciblé                           |
+| `E`       | Archiver l'e-mail ou le fil de discussion        |
+| `D`       | Corbeille d'un e-mail ou d'un fil de discussion  |
+| `S`       | Étiqueter ou supprimer une étoile                |
+| `R`       | Répondre                                         |
+| `U`       | Basculer lecture/non lecture                     |
+| `C`       | Rédiger un nouvel e-mail                         |
+| `/`       | Barre de recherche de focus                      |
+| `Cmd+K`   | Ouvrir la palette de commandes                   |
+| `G I`     | Accéder à la boîte de réception                  |
+| `G S`     | Aller dans Favoris                               |
+| `G T`     | Aller à Envoyés                                  |
+| `G D`     | Accéder aux brouillons                           |
+| `G A`     | Aller aux archives                               |
 | `Esc`     | Fermer le fil de discussion/effacer la recherche |
 
 ## Pour les développeurs
@@ -142,17 +142,17 @@ Les jetons sont stockés dans la table `oauth_tokens` SQL et s'actualisent autom
 
 Lorsqu'un compte Google est connecté, la messagerie électronique se trouve dans Gmail : l'application est une vue au-dessus. Lorsqu'aucun compte n'est connecté, les e-mails sont stockés dans le magasin de paramètres SQL sous `getSetting("local-emails")` (vide par défaut).
 
-| Magasin / Table                 | Ce qu'il contient                                                  |
-| ----------------------------- | -------------------------------------------------------------- |
-| `getSetting("local-emails")`  | E-mail local de secours lorsqu'aucun compte Google n'est connecté       |
-| `getSetting("labels")`        | Étiquettes système et utilisateur, avec nombres non lus                     |
-| `getSetting("mail-settings")` | Profil utilisateur, préférences de suivi, signature, alias         |
-| `getSetting("aliases")`       | Alias de messagerie                                                  |
-| Tableau `queued_email_drafts`   | Brouillons demandés par un coéquipier en attente d'examen/envoi par le propriétaire           |
-| Tableau `email_tracking`        | Événements à pixel ouvert pour les messages envoyés                            |
-| Tableau `email_link_tracking`   | Événements de clic sur un lien pour les messages envoyés                            |
-| Tableau `application_state`     | Entrées `navigation`, `navigate`, `compose-{id}` (éphémères)   |
-| Tableau `oauth_tokens`          | Jetons Google OAuth (fournisseur `"google"`, une ligne par compte) |
+| Magasin / Table               | Ce qu'il contient                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------- |
+| `getSetting("local-emails")`  | E-mail local de secours lorsqu'aucun compte Google n'est connecté                   |
+| `getSetting("labels")`        | Étiquettes système et utilisateur, avec nombres non lus                             |
+| `getSetting("mail-settings")` | Profil utilisateur, préférences de suivi, signature, alias                          |
+| `getSetting("aliases")`       | Alias de messagerie                                                                 |
+| Tableau `queued_email_drafts` | Brouillons demandés par un coéquipier en attente d'examen/envoi par le propriétaire |
+| Tableau `email_tracking`      | Événements à pixel ouvert pour les messages envoyés                                 |
+| Tableau `email_link_tracking` | Événements de clic sur un lien pour les messages envoyés                            |
+| Tableau `application_state`   | Entrées `navigation`, `navigate`, `compose-{id}` (éphémères)                        |
+| Tableau `oauth_tokens`        | Jetons Google OAuth (fournisseur `"google"`, une ligne par compte)                  |
 
 Les e-mails circulant via le API ont la forme `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 

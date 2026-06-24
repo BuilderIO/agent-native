@@ -10,12 +10,12 @@ description: "共有 UI パッケージ、デスクトップ ホスト ブリッ
 
 ## どのコーディング ドキュメントが必要ですか? {#which-doc}
 
-| あなたがしたいのは…                                                               | 使用                                    |
-| -------------------------------------------------------------------------- | -------------------------------------- |
-| Claude-Code/Codex スタイル **コーディング ワークスペース UI** をレンダリングします                   | **Agent-Native コード UI** (このページ)   |
-| 独自のループ + ツールを使用して、**エージェント**として Claude コード / Codex / Pi を実行します | [Harness Agents](/docs/harness-agents) |
-| エージェントの **`run-code` ツール**を実行するバックエンドを交換します                 | [Adapters](/docs/sandbox-adapters)     |
-| エージェントが呼び出せるように CLI ツール (`gh`、`ffmpeg`) をラップします                     | [Adapters](/docs/sandbox-adapters)     |
+| あなたがしたいのは…                                                                             | 使用                                    |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Claude-Code/Codex スタイル **コーディング ワークスペース UI** をレンダリングします              | **Agent-Native コード UI** (このページ) |
+| 独自のループ + ツールを使用して、**エージェント**として Claude コード / Codex / Pi を実行します | [Harness Agents](/docs/harness-agents)  |
+| エージェントの **`run-code` ツール**を実行するバックエンドを交換します                          | [Adapters](/docs/sandbox-adapters)      |
+| エージェントが呼び出せるように CLI ツール (`gh`、`ffmpeg`) をラップします                       | [Adapters](/docs/sandbox-adapters)      |
 
 Agent-Native コードは、Agent-Native コーディング サーフェスです。コーディング セッション、スラッシュ コマンド、移行、監査、トランスクリプト、実行制御、フォローアップ用のローカル Claude コード/Codex スタイルのワークスペースです。そのままの `npx @agent-native/core@latest` コマンドでこのワークスペースを開きます。 `npx @agent-native/core@latest code` は、同じエクスペリエンスを実現するための明示的なサブコマンドです。
 
@@ -95,7 +95,7 @@ codex login status
 
 デスクトップと CLI は `codex login status` を読み取り、`codex exec` を実行します。
 インストールされている Codex CLI を認証する ChatGPT サブスクリプションまたは API キーを再利用します
- reports. This is separate from the `@ai-sdk/harness-codex` package used by
+reports. This is separate from the `@ai-sdk/harness-codex` package used by
 [Harness Agents](/docs/harness-agents);ハーネス アダプターはローカルにコピーできます
 Codex CLI は、`codexCliAuth: true` が有効な場合にのみ信頼できるサンドボックスに認証されます
 明示的に有効化されています。
@@ -172,10 +172,10 @@ npx @agent-native/core@latest code ui
 
 実行モードにより、編集ポリシーがセッションごとに明示的になります:
 
-| モード          | CLI フラグ | 行動                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **計画モード** | `--plan` | ファイルの作成やミューテーションの実行を行わずに、検査、計画、説明を行います。                                   |
-| **自動モード** | `--auto` | ファイルの編集、チェックの実行、および一時停止は、本当に破壊的なファイル、git、パブリッシュ、またはデータ操作の場合にのみ行います。 |
+| モード         | CLI フラグ | 行動                                                                                                                                |
+| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **計画モード** | `--plan`   | ファイルの作成やミューテーションの実行を行わずに、検査、計画、説明を行います。                                                      |
+| **自動モード** | `--auto`   | ファイルの編集、チェックの実行、および一時停止は、本当に破壊的なファイル、git、パブリッシュ、またはデータ操作の場合にのみ行います。 |
 
 自動モードは、ローカル Agent-Native コード セッションのデフォルトです。プランモードを
 評価、アーキテクチャ、レビュー、または事前に提案が必要なタスク
@@ -229,19 +229,19 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 
 `CodeAgentsHost` は意図的に小さいです:
 
-| メソッド                                                | 目的                                                |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| `listRuns(goalId?)`                                   | 選択した目標のセッションをリストします                    |
-| `listCodePacks?()`                                    | `.agents/commands` と `.agents/skills` をリストします           |
-| `createRun(request)`                                  | 新しい実行を開始                                        |
-| `subscribeTranscript?(request, callback)`             | トランスクリプトの更新を共有会話にプッシュする     |
-| `readTranscript(request)`                             | 互換性フォールバックとしてのトランスクリプト イベントのポーリング     |
+| メソッド                                              | 目的                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `listRuns(goalId?)`                                   | 選択した目標のセッションをリストします                                         |
+| `listCodePacks?()`                                    | `.agents/commands` と `.agents/skills` をリストします                          |
+| `createRun(request)`                                  | 新しい実行を開始                                                               |
+| `subscribeTranscript?(request, callback)`             | トランスクリプトの更新を共有会話にプッシュする                                 |
+| `readTranscript(request)`                             | 互換性フォールバックとしてのトランスクリプト イベントのポーリング              |
 | `appendFollowUp(request)`                             | アクティブな作業をステアリングするかキューに入れて、フォローアップを追加します |
-| `updateRun(request)`                                  | 更新モードまたはメタデータの実行                            |
-| `retryRun?(request)`                                  | 選択した実行をその場で再試行します                        |
-| `rerunRun?(request)`                                  | 前のプロンプトから新しい実行を開始します                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | 再開、承認、更新、または停止                      |
-| `openTerminal?(request)`                              | オプションのネイティブ端末フック                          |
+| `updateRun(request)`                                  | 更新モードまたはメタデータの実行                                               |
+| `retryRun?(request)`                                  | 選択した実行をその場で再試行します                                             |
+| `rerunRun?(request)`                                  | 前のプロンプトから新しい実行を開始します                                       |
+| `controlRun(goalId, runId, command, permissionMode?)` | 再開、承認、更新、または停止                                                   |
+| `openTerminal?(request)`                              | オプションのネイティブ端末フック                                               |
 
 ブラウザ ホストは、ネイティブ端末の起動をエミュレートしようとするのではなく、適切な `openTerminal` エラーを返す必要があります。
 
@@ -269,7 +269,7 @@ standard sidebar composer. Code uses `PromptComposer` directly because the host
 `shell`、`read-file`、`write-file`、`list-files`、`search-files` など
 互換性のみであり、デフォルトのアドバタイズ サーフェスの一部ではありません。
 
-コード固有の UI は、フォークされたチャットフィールド内ではなく、コンポーザーの周囲に属します。 
+コード固有の UI は、フォークされたチャットフィールド内ではなく、コンポーザーの周囲に属します。
 共有コード UI は次のスロットを追加できます:
 
 - 自動 / プラン モードのコントロール。
@@ -395,19 +395,19 @@ Agent-Native の残り:
 }
 ```
 
-| メソッド     | ルート                                                    | 発信者          | 目的                                     |
-| ---------- | -------------------------------------------------------- | --------------- | ------------------------------------------- |
+| メソッド   | ルート                                                   | 発信者                 | 目的                                                   |
+| ---------- | -------------------------------------------------------- | ---------------------- | ------------------------------------------------------ |
 | `POST`     | `/_agent-native/integrations/remote/register`            | デスクトップセッション | デスクトップ ホストをペアリングし、トークンを 1 回返す |
-| `GET`      | `/_agent-native/integrations/remote/hosts`               | モバイル/セッション  | ペアリングされたホストをリストする                           |
-| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | モバイル/セッション  | ペアリングされたホストを取り消す                        |
-| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | モバイル/セッション  | ペアリングされたホストを取り消す                        |
-| `POST/GET` | `/_agent-native/integrations/remote/poll`                | デスクトップトークン   | クレーム作業                                  |
-| `POST`     | `/_agent-native/integrations/remote/result`              | デスクトップトークン   | 作業を完了または失敗                       |
-| `POST`     | `/_agent-native/integrations/remote/run-events`          | デスクトップトークン   | ミラートランスクリプトイベント                    |
-| `GET`      | `/_agent-native/integrations/remote/runs`                | モバイル/セッション  | セッションのリスト                               |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | モバイル/セッション  | セッションの概要を読む                        |
-| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | モバイル/セッション  | ミラーリングされたトランスクリプトを読む                    |
-| `POST`     | `/_agent-native/integrations/remote/push/register`       | モバイル/セッション  | Expo/モバイル プッシュ トークンを登録             |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | モバイル/セッション    | ペアリングされたホストをリストする                     |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | モバイル/セッション    | ペアリングされたホストを取り消す                       |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | モバイル/セッション    | ペアリングされたホストを取り消す                       |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | デスクトップトークン   | クレーム作業                                           |
+| `POST`     | `/_agent-native/integrations/remote/result`              | デスクトップトークン   | 作業を完了または失敗                                   |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | デスクトップトークン   | ミラートランスクリプトイベント                         |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | モバイル/セッション    | セッションのリスト                                     |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | モバイル/セッション    | セッションの概要を読む                                 |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | モバイル/セッション    | ミラーリングされたトランスクリプトを読む               |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | モバイル/セッション    | Expo/モバイル プッシュ トークンを登録                  |
 
 Telegram は、Dispatch を通じて同じリレーを使用します。サポートされているコマンドは次のとおりです:
 

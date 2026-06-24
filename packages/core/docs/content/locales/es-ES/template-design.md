@@ -77,13 +77,13 @@ pnpm dev
 
 Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/design/server/db/schema.ts`. Los diseños y los sistemas de diseño llevan el estándar `ownableColumns` y una tabla de recursos compartidos de marco correspondiente, por lo que encajan en el modelo de uso compartido por usuario/por organización.
 
-| Tabla                                    | Qué contiene                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tabla                                    | Qué contiene                                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `designs`                                | Un proyecto de diseño: `title`, `description`, `project_type` (`prototype` / `other`), el blob `data` JSON y un enlace `design_system_id` opcional |
-| `design_files`                           | Archivos individuales que pertenecen a un diseño (`filename`, `content`, `file_type` por defecto `html`)                                                 |
-| `design_versions`                        | `snapshot` puntuales de un diseño con un `label` opcional, para historial y reversión                                                         |
-| `design_systems`                         | Tokens de marca reutilizables: `data` (colores/tipografía/espaciado), `assets`, `custom_instructions` y una bandera `is_default`                            |
-| `design_shares` / `design_system_shares` | El marco comparte tablas que asignan principales (usuarios u organizaciones) a roles (visor, editor, administrador)                                                      |
+| `design_files`                           | Archivos individuales que pertenecen a un diseño (`filename`, `content`, `file_type` por defecto `html`)                                           |
+| `design_versions`                        | `snapshot` puntuales de un diseño con un `label` opcional, para historial y reversión                                                              |
+| `design_systems`                         | Tokens de marca reutilizables: `data` (colores/tipografía/espaciado), `assets`, `custom_instructions` y una bandera `is_default`                   |
+| `design_shares` / `design_system_shares` | El marco comparte tablas que asignan principales (usuarios u organizaciones) a roles (visor, editor, administrador)                                |
 
 ```an-schema title="Design data model" summary="A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
 {

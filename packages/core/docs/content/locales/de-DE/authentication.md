@@ -24,11 +24,11 @@ Auth wird automatisch über `autoMountAuth(app)` im Authentifizierungsserver-Plu
 
 Der Browser-Flow ist überall derselbe. Besserer Auth-Flow – es gibt **keine Umgehung der Entwicklerauthentifizierung** und `getSession()` greift nie auf einen `local@localhost`-Sentinel zurück. Was sich zwischen den Umgebungen ändert, ist die Reibung bei der Anmeldung, nicht die Login-Wall:
 
-| Umgebung      | Verhalten beim ersten Laden                                                           | E-Mail-Bestätigung                              |
-| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Lokaler Entwickler**    | Erstellt automatisch ein Wegwerf-Entwicklerkonto und meldet Sie an (keine Login-Wall)         | Standardmäßig übersprungen (und wenn kein E-Mail-Anbieter vorhanden ist) |
-| **QA/Vorschau** | Normale Anmeldung, aber die Überprüfung kann übersprungen werden, damit Tester nicht auf E-Mails warten | Mit `AUTH_SKIP_EMAIL_VERIFICATION=1` überspringen      |
-| **Produktion**   | Normale Better Auth-Anmeldung/Anmeldung                                               | Erforderlich (wenn ein E-Mail-Anbieter konfiguriert ist) |
+| Umgebung               | Verhalten beim ersten Laden                                                                             | E-Mail-Bestätigung                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Lokaler Entwickler** | Erstellt automatisch ein Wegwerf-Entwicklerkonto und meldet Sie an (keine Login-Wall)                   | Standardmäßig übersprungen (und wenn kein E-Mail-Anbieter vorhanden ist) |
+| **QA/Vorschau**        | Normale Anmeldung, aber die Überprüfung kann übersprungen werden, damit Tester nicht auf E-Mails warten | Mit `AUTH_SKIP_EMAIL_VERIFICATION=1` überspringen                        |
+| **Produktion**         | Normale Better Auth-Anmeldung/Anmeldung                                                                 | Erforderlich (wenn ein E-Mail-Anbieter konfiguriert ist)                 |
 
 Ein paar Flags optimieren dies; Ausführliche Informationen finden Sie in der Tabelle [Environment Variables](#environment-variables):
 
@@ -65,12 +65,12 @@ Bessere Auth-Routen werden unter `/_agent-native/auth/ba/*` bereitgestellt. Das 
 Der Bereich des Sitzungscookies folgt der Bereitstellungsform, also Apps, die eine teilen
 Datenbank-/Origin-Freigabeanmeldung und Apps, die nicht isoliert bleiben:
 
-| Bereitstellungsform                            | Cookie-Bereich                                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Eigenständige App                              | Isoliert pro App durch Slug (`APP_NAME` oder Paketname im lokalen Entwickler); stabiles `an`-Präfix in der Produktion                |
-| Arbeitsbereichsmodus (`AGENT_NATIVE_WORKSPACE=1`) | Ein gemeinsamer Bereich – Arbeitsbereichs-Apps teilen sich einen Ursprung und eine Datenbank                                                       |
-| Benutzerdefinierte Subdomains derselben Datenbank             | Aktivieren Sie freigegebene Cookies mit `COOKIE_DOMAIN`                                                                         |
-| Vom Erstanbieter gehostet (`*.agent-native.com`)   | Isolierter Namespace pro App (jede hat ihre eigene Authentifizierungsdatenbank); `COOKIE_DOMAIN=.agent-native.com` wird standardmäßig ignoriert |
+| Bereitstellungsform                               | Cookie-Bereich                                                                                                                                  |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Eigenständige App                                 | Isoliert pro App durch Slug (`APP_NAME` oder Paketname im lokalen Entwickler); stabiles `an`-Präfix in der Produktion                           |
+| Arbeitsbereichsmodus (`AGENT_NATIVE_WORKSPACE=1`) | Ein gemeinsamer Bereich – Arbeitsbereichs-Apps teilen sich einen Ursprung und eine Datenbank                                                    |
+| Benutzerdefinierte Subdomains derselben Datenbank | Aktivieren Sie freigegebene Cookies mit `COOKIE_DOMAIN`                                                                                         |
+| Vom Erstanbieter gehostet (`*.agent-native.com`)  | Isolierter Namespace pro App (jede hat ihre eigene Authentifizierungsdatenbank); `COOKIE_DOMAIN=.agent-native.com` wird standardmäßig ignoriert |
 
 Von Erstanbietern gehostete Apps verfügen jeweils über eine eigene Authentifizierungsdatenbank, also App-übergreifende Anmeldung
 läuft über [Cross-App SSO](/docs/cross-app-sso) und nicht über ein gemeinsames Cookie.
@@ -226,7 +226,7 @@ spezifische öffentliche Seiten:
 ```
 
 `publicPaths` und `protectedPaths` verwenden Präfix-Matching, also auch `"/admin"`
- deckt `"/admin/users"` ab. Diese Einstellungen öffnen nur die Seitennavigation. Rahmen
+deckt `"/admin/users"` ab. Diese Einstellungen öffnen nur die Seitennavigation. Rahmen
 Routen (`/_agent-native/*`) und benutzerdefinierte API-Routen (`/api/*`) erfordern weiterhin eine Authentifizierung
 es sei denn, die App fügt diese Präfixe explizit hinzu
 `createAuthPlugin({ publicPaths: [...] })`.
@@ -310,23 +310,23 @@ Die Standardroute `/_agent-native/google/auth-url` führt dies automatisch aus �
 
 ## Umgebungsvariablen {#environment-variables}
 
-| Variable                                | Zweck                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | Signaturschlüssel für Better Auth (automatisch generiert, wenn nicht festgelegt)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | In QA-/Vorschauumgebungen auf `1` setzen, damit E-Mail-/Passwort-Anmeldungen ohne Überprüfung durchgeführt werden können. Lokale Entwicklung/Test überspringt standardmäßig            |
+| Variable                                | Zweck                                                                                                                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | Signaturschlüssel für Better Auth (automatisch generiert, wenn nicht festgelegt)                                                                                                                                             |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | In QA-/Vorschauumgebungen auf `1` setzen, damit E-Mail-/Passwort-Anmeldungen ohne Überprüfung durchgeführt werden können. Lokale Entwicklung/Test überspringt standardmäßig                                                  |
 | `AUTH_DISABLED`                         | Auf `true` oder `1` einstellen, um Anmeldung/Registrierung zu überspringen; Alle Anfragen werden von einem gemeinsamen Benutzer ausgeführt (nur lokale Entwicklung/Vorschau – nicht für die Produktion mit echten Benutzern) |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Auf `1` einstellen, um die automatische Anmeldung von Localhost in einer neuen Entwicklungsdatenbank zu deaktivieren                                                                         |
-| `AUTH_MODE`                             | `local` löst nur die CLI/Agent-Identität auf (unter der der Entwicklerbenutzer `pnpm action` ausgeführt wird); niemals eine Browser-Anmeldeumgehung                                |
-| `COOKIE_DOMAIN`                         | Aktivieren Sie gemeinsam genutzte Sitzungscookies für Subdomains derselben Datenbank (siehe [Cookie Realms](#cookie-realms))                                        |
-| `AGENT_NATIVE_WORKSPACE`                | `1` wird im Workspace-Modus ausgeführt – ein gemeinsamer Sitzungsbereich für alle Workspace-Apps                                                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Mit `COOKIE_DOMAIN` festlegen, um eine Authentifizierungsdatenbank für alle Erstanbieter-Subdomänen gemeinsam zu nutzen                                                            |
-| `OAUTH_STATE_SECRET`                    | Dedizierter HMAC-Schlüssel für OAuth-Statusumschläge (siehe [Security — OAuth State Signing](/docs/security#oauth-state))                              |
-| `GOOGLE_SIGN_IN_CLIENT_ID`              | Bevorzugte Low-Scope-Client-ID von Google OAuth für die App-Anmeldung                                                                                     |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Bevorzugtes Google OAuth-Geheimnis mit niedrigem Gültigkeitsbereich für die App-Anmeldung                                                                                        |
-| `GOOGLE_CLIENT_ID`                      | Legacy-Google-Login-Fallback und Anbieter-OAuth-Client-ID für Google API-Integrationen                                                       |
-| `GOOGLE_CLIENT_SECRET`                  | Alter Google-Login-Fallback und Anbieter-OAuth-Geheimnis für Google API-Integrationen                                                          |
-| `GITHUB_CLIENT_ID`                      | GitHub OAuth aktivieren                                                                                                                          |
-| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth Geheimnis                                                                                                                          |
-| `ACCESS_TOKEN`                          | Statischer Bearer-Fallback für MCP/connect-Clients; keine Browser-Authentifizierung                                                                             |
-| `ACCESS_TOKENS`                         | Durch Kommas getrennte statische Bearer-Fallbacks für MCP/connect-Clients; keine Browser-Authentifizierung                                                            |
-| `A2A_SECRET`                            | Gemeinsames Geheimnis für die JWT-signierte A2A-Cross-App-Identitätsüberprüfung und, falls vorhanden, MCP OAuth-Zugriffstoken-Signierung                           |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Auf `1` einstellen, um die automatische Anmeldung von Localhost in einer neuen Entwicklungsdatenbank zu deaktivieren                                                                                                         |
+| `AUTH_MODE`                             | `local` löst nur die CLI/Agent-Identität auf (unter der der Entwicklerbenutzer `pnpm action` ausgeführt wird); niemals eine Browser-Anmeldeumgehung                                                                          |
+| `COOKIE_DOMAIN`                         | Aktivieren Sie gemeinsam genutzte Sitzungscookies für Subdomains derselben Datenbank (siehe [Cookie Realms](#cookie-realms))                                                                                                 |
+| `AGENT_NATIVE_WORKSPACE`                | `1` wird im Workspace-Modus ausgeführt – ein gemeinsamer Sitzungsbereich für alle Workspace-Apps                                                                                                                             |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Mit `COOKIE_DOMAIN` festlegen, um eine Authentifizierungsdatenbank für alle Erstanbieter-Subdomänen gemeinsam zu nutzen                                                                                                      |
+| `OAUTH_STATE_SECRET`                    | Dedizierter HMAC-Schlüssel für OAuth-Statusumschläge (siehe [Security — OAuth State Signing](/docs/security#oauth-state))                                                                                                    |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | Bevorzugte Low-Scope-Client-ID von Google OAuth für die App-Anmeldung                                                                                                                                                        |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Bevorzugtes Google OAuth-Geheimnis mit niedrigem Gültigkeitsbereich für die App-Anmeldung                                                                                                                                    |
+| `GOOGLE_CLIENT_ID`                      | Legacy-Google-Login-Fallback und Anbieter-OAuth-Client-ID für Google API-Integrationen                                                                                                                                       |
+| `GOOGLE_CLIENT_SECRET`                  | Alter Google-Login-Fallback und Anbieter-OAuth-Geheimnis für Google API-Integrationen                                                                                                                                        |
+| `GITHUB_CLIENT_ID`                      | GitHub OAuth aktivieren                                                                                                                                                                                                      |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth Geheimnis                                                                                                                                                                                                       |
+| `ACCESS_TOKEN`                          | Statischer Bearer-Fallback für MCP/connect-Clients; keine Browser-Authentifizierung                                                                                                                                          |
+| `ACCESS_TOKENS`                         | Durch Kommas getrennte statische Bearer-Fallbacks für MCP/connect-Clients; keine Browser-Authentifizierung                                                                                                                   |
+| `A2A_SECRET`                            | Gemeinsames Geheimnis für die JWT-signierte A2A-Cross-App-Identitätsüberprüfung und, falls vorhanden, MCP OAuth-Zugriffstoken-Signierung                                                                                     |

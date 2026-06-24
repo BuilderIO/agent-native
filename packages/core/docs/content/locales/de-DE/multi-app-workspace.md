@@ -17,17 +17,17 @@ Mit dem **Multi-App-Arbeitsbereich**-Muster löst Agent-nativ dieses Problem. Si
 
 Alles, worüber sich jede App in Ihrer Organisation einigen sollte, kann in `packages/shared` leben:
 
-| Geteiltes Ding                  | Wo es lebt                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| Auth/SSO-Überschreibung           | `authPlugin` aus `src/server/index.ts` exportieren                                |
-| Org/RBAC-Regeln              | Bessere Authentifizierungsorganisationen, optional umschlossen von `authPlugin`            |
-| Agent-Chat-Überschreibung           | `agentChatPlugin` aus `src/server/index.ts` exportieren                           |
-| Anweisungen für Enterprise-Agenten | `AGENTS.md`                                                                   |
-| Agent skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
-| Gemeinsamer Agent actions          | `actions/*.ts`                                                                |
-| Gemeinsame React-Komponenten       | Export aus `src/client/index.ts`                                             |
-| Design-Tokens/Marke         | Fügen Sie eine freigegebene CSS-Datei hinzu und importieren Sie sie aus jeder App                             |
-| Gemeinsame API-Anmeldeinformationen        | Framework-bezogene Anmeldeinformationen bevorzugen; Fügen Sie Helfer nur hinzu, wenn Sie einen Namensraum benötigen |
+| Geteiltes Ding                      | Wo es lebt                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Auth/SSO-Überschreibung             | `authPlugin` aus `src/server/index.ts` exportieren                                                                  |
+| Org/RBAC-Regeln                     | Bessere Authentifizierungsorganisationen, optional umschlossen von `authPlugin`                                     |
+| Agent-Chat-Überschreibung           | `agentChatPlugin` aus `src/server/index.ts` exportieren                                                             |
+| Anweisungen für Enterprise-Agenten  | `AGENTS.md`                                                                                                         |
+| Agent skills                        | `.agents/skills/<skill-name>/SKILL.md`                                                                              |
+| Gemeinsamer Agent actions           | `actions/*.ts`                                                                                                      |
+| Gemeinsame React-Komponenten        | Export aus `src/client/index.ts`                                                                                    |
+| Design-Tokens/Marke                 | Fügen Sie eine freigegebene CSS-Datei hinzu und importieren Sie sie aus jeder App                                   |
+| Gemeinsame API-Anmeldeinformationen | Framework-bezogene Anmeldeinformationen bevorzugen; Fügen Sie Helfer nur hinzu, wenn Sie einen Namensraum benötigen |
 
 Jede einzelne App wird zu _nur einer Reihe von Bildschirmen_ – Routen, Dashboards, Ansichten, domänenspezifische actions. Die Framework-Standardeinstellungen decken den Rest ab, bis Sie eine echte Arbeitsbereichsanpassung hinzufügen.
 
@@ -124,12 +124,12 @@ Die Zusammenführung erfolgt nach Dateinamen. Wenn eine App eine lokale Datei be
 
 Wenn eine App etwas anderes benötigt, legen Sie eine lokale Datei ab:
 
-| Ding zum Überschreiben             | Datei, die in der App erstellt werden soll                       |
-| ----------------------------- | --------------------------------------------------- |
-| Auth-Plugin                   | `apps/<name>/server/plugins/auth.ts`                |
-| Agent-Chat-Plugin             | `apps/<name>/server/plugins/agent-chat.ts`          |
-| Eine bestimmte Fähigkeit              | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`  |
-| Eine bestimmte Aktion             | `apps/<name>/actions/<action-name>.ts`              |
+| Ding zum Überschreiben         | Datei, die in der App erstellt werden soll                             |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| Auth-Plugin                    | `apps/<name>/server/plugins/auth.ts`                                   |
+| Agent-Chat-Plugin              | `apps/<name>/server/plugins/agent-chat.ts`                             |
+| Eine bestimmte Fähigkeit       | `apps/<name>/.agents/skills/<skill-name>/SKILL.md`                     |
+| Eine bestimmte Aktion          | `apps/<name>/actions/<action-name>.ts`                                 |
 | Zusätzliche Agentenanweisungen | `apps/<name>/AGENTS.md` (wird mit Arbeitsbereich eins zusammengeführt) |
 
 Keine Verkabelung, keine Konfiguration. Erstellen Sie die Datei und sie übernimmt.

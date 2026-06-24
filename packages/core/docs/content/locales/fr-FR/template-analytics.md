@@ -140,15 +140,15 @@ choix de vérité, définitions de métriques, tableaux de bord et analyses.
 
 Les informations d'identification sont stockées via la couche paramètres/env du framework — aucun secret dans git. La production nécessite :
 
-| Variable                                 | Objectif                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | Connexion persistante SQL URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Authentification                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Client de connexion Google préféré (OAuth 2.0)             |
+| Variable                                 | Objectif                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`                           | Connexion persistante SQL URL                                          |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Authentification                                                       |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Client de connexion Google préféré (OAuth 2.0)                         |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | Ancien système de secours de connexion/client d'intégration Google API |
-| `BIGQUERY_PROJECT_ID`                    | Projet BigQuery                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Compte de service BigQuery JSON                           |
-| `ANTHROPIC_API_KEY`                      | Discussion avec les agents                                              |
+| `BIGQUERY_PROJECT_ID`                    | Projet BigQuery                                                        |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Compte de service BigQuery JSON                                        |
+| `ANTHROPIC_API_KEY`                      | Discussion avec les agents                                             |
 
 Les clés spécifiques au fournisseur (HubSpot, Jira, Gong, Pylon, etc.) sont documentées dans la procédure pas à pas de chaque source sur la page Sources de données. Si vous ajoutez une nouvelle action nécessitant une clé API, elle apparaît comme une nouvelle source sur cette page via l'enregistrement d'intégration du modèle.
 

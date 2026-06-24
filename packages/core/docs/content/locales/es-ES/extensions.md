@@ -158,17 +158,17 @@ compartir.
 
 Dentro del entorno limitado de iframe, cada extensión tiene estos ayudantes en `window`:
 
-| Ayudante                                           | Propósito                                                   | Ejemplo                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Llame a cualquiera de los actions de la plantilla de host                   | `appAction('list-emails', { view: 'inbox' })`             |
+| Ayudante                                         | Propósito                                                              | Ejemplo                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Llame a cualquiera de los actions de la plantilla de host              | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Llamar a los puntos finales del marco permitidos en `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Leer desde SQL (con alcance automático para el usuario)                   | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Escribir en SQL                                              | `dbExec('INSERT INTO ...')`                               |
-| `extensionFetch(url, options)`                   | Accede a API externos a través de un proxy seguro con secretos     | `extensionFetch('https://api.github.com/user')`           |
+| `dbQuery(sql, args)`                             | Leer desde SQL (con alcance automático para el usuario)                | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Escribir en SQL                                                        | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | Accede a API externos a través de un proxy seguro con secretos         | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Persistir datos por extensión (alcance usuario/organización)           | `extensionData.set('notes', id, { text: '...' })`         |
-| `extensionData.list(collection, opts?)`          | Listar elementos persistentes                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Obtén un solo artículo                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Eliminar un elemento persistente                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `extensionData.list(collection, opts?)`          | Listar elementos persistentes                                          | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | Obtén un solo artículo                                                 | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Eliminar un elemento persistente                                       | `extensionData.remove('notes', 'note-1')`                 |
 
 Tres reglas generales:
 
@@ -211,12 +211,12 @@ Pero el caso de uso más parecido a QBO es diferente: el usuario quiere que su w
 
 Una ranura es un widget con nombre en el área que incluye una plantilla:
 
-| Plantilla      | Ejemplo de ranura                   | Dónde aparece                            |
-| ------------- | ------------------------------ | -------------------------------------------- |
-| **Correo**      | `mail.contact-sidebar.bottom`  | Debajo de la información de contacto en cada hilo de correo electrónico |
-| **Análisis** | `analytics.dashboard.tiles`    | Junto a los paneles integrados del tablero    |
-| **Calendario**  | `calendar.event-detail.bottom` | Debajo del evento abierto                         |
-| **Clips**     | `clips.right-panel.tabs`       | Una nueva pestaña en el panel de revisión de clips           |
+| Plantilla      | Ejemplo de ranura              | Dónde aparece                                                           |
+| -------------- | ------------------------------ | ----------------------------------------------------------------------- |
+| **Correo**     | `mail.contact-sidebar.bottom`  | Debajo de la información de contacto en cada hilo de correo electrónico |
+| **Análisis**   | `analytics.dashboard.tiles`    | Junto a los paneles integrados del tablero                              |
+| **Calendario** | `calendar.event-detail.bottom` | Debajo del evento abierto                                               |
+| **Clips**      | `clips.right-panel.tabs`       | Una nueva pestaña en el panel de revisión de clips                      |
 
 Cuando una extensión se **instala en una ranura**, el anfitrión inserta el contexto relevante (el correo electrónico del contacto, la identificación del panel, la identificación del evento) en el iframe. La extensión dice `window.slotContext` para saber qué está mirando el usuario.
 
@@ -315,14 +315,14 @@ Las extensiones compartidas tienen sus propios URL y se conectan al mismo cuadro
 
 El marco permite al agente editar el código fuente de la aplicación directamente: componentes, rutas, estilos. Entonces, ¿cuándo debería optar por una extensión?
 
-|                       | Extensión                                         | Edición del código de la aplicación                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Creado por**        | Agente (o usuario) en tiempo de ejecución                        | Agente editando archivos fuente           |
-| **Almacenado en**         | La base de datos                                      | El repositorio de git                   |
-| **Requiere una compilación**  | No                                                | Sí                                  |
-| **Requiere una implementación** | No                                                | Sí                                  |
-| **Alcance**             | Un usuario (o compartido con la organización)                     | El producto completo, cada usuario       |
-| **Mejor para**          | Widgets personales, KPI personalizados, utilidades por equipo | Funciones principales disponibles para todos los usuarios |
+|                                 | Extensión                                                     | Edición del código de la aplicación                       |
+| ------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| **Creado por**                  | Agente (o usuario) en tiempo de ejecución                     | Agente editando archivos fuente                           |
+| **Almacenado en**               | La base de datos                                              | El repositorio de git                                     |
+| **Requiere una compilación**    | No                                                            | Sí                                                        |
+| **Requiere una implementación** | No                                                            | Sí                                                        |
+| **Alcance**                     | Un usuario (o compartido con la organización)                 | El producto completo, cada usuario                        |
+| **Mejor para**                  | Widgets personales, KPI personalizados, utilidades por equipo | Funciones principales disponibles para todos los usuarios |
 
 Regla general: **si es para un usuario o un equipo, es una extensión.** Si todos los usuarios de la plantilla deben obtenerla, envíela como una característica real.
 

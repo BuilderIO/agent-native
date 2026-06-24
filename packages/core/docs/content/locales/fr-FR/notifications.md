@@ -27,20 +27,20 @@ await notify(
 
 ## Gravités {#severities}
 
-| Gravité   | Utiliser pour                                 |
-| ---------- | --------------------------------------- |
-| `info`     | Confirmations, étapes de progression, FYI |
-| `warning`  | Quelque chose que l'utilisateur devrait bientôt consulter  |
-| `critical` | Besoin d'une attention immédiate               |
+| Gravité    | Utiliser pour                                             |
+| ---------- | --------------------------------------------------------- |
+| `info`     | Confirmations, étapes de progression, FYI                 |
+| `warning`  | Quelque chose que l'utilisateur devrait bientôt consulter |
+| `critical` | Besoin d'une attention immédiate                          |
 
 La gravité détermine le style du badge dans la liste déroulante et est transmise aux canaux afin qu'ils puissent effectuer une branche en cas d'urgence.
 
 ## Canaux intégrés {#channels}
 
-| Chaîne   | Livraison                                                  | Requiert                                            |
-| --------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `inbox`   | Persiste dans la table `notifications` ; entraîne la cloche UI | Toujours activé – fait partie de la primitive.                  |
-| `webhook` | POST JSON vers un URL configuré                             | Var d'environnement `NOTIFICATIONS_WEBHOOK_URL` définie au démarrage. |
+| Chaîne    | Livraison                                                      | Requiert                                                              |
+| --------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `inbox`   | Persiste dans la table `notifications` ; entraîne la cloche UI | Toujours activé – fait partie de la primitive.                        |
+| `webhook` | POST JSON vers un URL configuré                                | Var d'environnement `NOTIFICATIONS_WEBHOOK_URL` définie au démarrage. |
 
 Le canal webhook résout les références `${keys.NAME}` dans les URL et `NOTIFICATIONS_WEBHOOK_AUTH` par rapport au [secrets](/docs/security) ad hoc du propriétaire, de sorte que la valeur brute n'entre jamais dans le contexte de l'agent. Les listes d'autorisation URL par clé sont appliquées – même règle que celle utilisée par l'outil d'automatisation `web-request`.
 
@@ -147,7 +147,7 @@ interface NotificationMeta {
 
 Monté sur `/_agent-native/notifications/*` par le plugin core-routes. Toutes les routes sont limitées à l'e-mail de la session authentifiée.
 
-| Méthode   | Chemin                                                |
+| Méthode  | Chemin                                              |
 | -------- | --------------------------------------------------- |
 | `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
 | `GET`    | `/_agent-native/notifications/count`                |
@@ -194,10 +194,10 @@ Transmettez `browserNotifications` pour déclencher également les fenêtres con
 
 Un seul outil `manage-notifications` est enregistré dans chaque modèle. Le paramètre `action` sélectionne l'opération :
 
-| Actions | Paramètres                                                                    | Objectif                                                         |
-| ------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `send` | `severity` (obligatoire), `title` (obligatoire), `body`, `metadataJson`, `channels` | Envoyer une notification à la boîte de réception de l'utilisateur et aux chaînes enregistrées |
-| `list` | `unreadOnly`, `limit` (max 200, 20 par défaut)                                   | Répertorier les notifications récentes pour le contexte                           |
+| Actions | Paramètres                                                                          | Objectif                                                                                      |
+| ------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `send`  | `severity` (obligatoire), `title` (obligatoire), `body`, `metadataJson`, `channels` | Envoyer une notification à la boîte de réception de l'utilisateur et aux chaînes enregistrées |
+| `list`  | `unreadOnly`, `limit` (max 200, 20 par défaut)                                      | Répertorier les notifications récentes pour le contexte                                       |
 
 Les automatisations (voir [Automations](/docs/automations)) peuvent appeler `manage-notifications` avec `action=send` dans leur corps — il s'agit du modèle canonique pour transformer un événement externe en une alerte visible par l'utilisateur.
 

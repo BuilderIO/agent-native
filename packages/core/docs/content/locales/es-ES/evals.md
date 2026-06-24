@@ -42,13 +42,13 @@ export default defineEval({
 
 Una evaluación se realiza solo cuando **todos** los anotadores alcanzan el umbral. Campos clave de `defineEval`:
 
-| Campo       | Tipo                  | Notas                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------- |
-| `name`      | cadena                | Obligatorio. Se muestra en el informe.                                |
-| `input`     | `{ prompt, history }` | Requerido `prompt`; Giros previos opcionales de `{ role, text }`.     |
-| `scorers`   | `Scorer[]`            | Obligatorio, al menos uno.                                       |
-| `threshold` | número `0..1`         | Barra de pase por anotador. Predeterminado `0.5`; anulable desde el CLI. |
-| `run`       | función              | Anulación opcional para configuración personalizada (datos de semillas, multivuelta).   |
+| Campo       | Tipo                  | Notas                                                                                 |
+| ----------- | --------------------- | ------------------------------------------------------------------------------------- |
+| `name`      | cadena                | Obligatorio. Se muestra en el informe.                                                |
+| `input`     | `{ prompt, history }` | Requerido `prompt`; Giros previos opcionales de `{ role, text }`.                     |
+| `scorers`   | `Scorer[]`            | Obligatorio, al menos uno.                                                            |
+| `threshold` | número `0..1`         | Barra de pase por anotador. Predeterminado `0.5`; anulable desde el CLI.              |
+| `run`       | función               | Anulación opcional para configuración personalizada (datos de semillas, multivuelta). |
 
 El recorrido del agente entregado a los anotadores es pequeño y independiente del transporte:
 
@@ -67,12 +67,12 @@ interface AgentRunOutput {
 
 Importado de `@agent-native/core/eval`:
 
-| Goleador                   | Puntuación                                                             | ¿Modelo? |
-| ------------------------ | ----------------------------------------------------------------- | ------ |
-| `exactMatch(expected)`   | `1.0` si el texto es igual a `expected` (recortado, no distingue entre mayúsculas y minúsculas)       | No     |
-| `contains(needles)`      | Fracción de subcadenas requeridas presentes (por lo que aparecen coincidencias parciales) | No     |
-| `usesTool(toolName)`     | `1.0` si el agente invocó esa herramienta/acción al menos una vez         | No     |
-| `llmJudge({ criteria })` | LLM-como-juez anotó según una rúbrica de lenguaje natural, → `0..1`   | Sí    |
+| Goleador                 | Puntuación                                                                                      | ¿Modelo? |
+| ------------------------ | ----------------------------------------------------------------------------------------------- | -------- |
+| `exactMatch(expected)`   | `1.0` si el texto es igual a `expected` (recortado, no distingue entre mayúsculas y minúsculas) | No       |
+| `contains(needles)`      | Fracción de subcadenas requeridas presentes (por lo que aparecen coincidencias parciales)       | No       |
+| `usesTool(toolName)`     | `1.0` si el agente invocó esa herramienta/acción al menos una vez                               | No       |
+| `llmJudge({ criteria })` | LLM-como-juez anotó según una rúbrica de lenguaje natural, → `0..1`                             | Sí       |
 
 `exactMatch` y `contains` toman un `{ caseSensitive }` opcional. `llmJudge` toma `{ criteria, rubric?, name?, scoreRange? }`; su salida está normalizada a `[0, 1]` y el modelo de juez es lo que resolvió el corredor (nunca un proveedor codificado).
 
@@ -131,11 +131,11 @@ El comando descubre `**/*.eval.ts` y `evals/*.ts` en la aplicación actual, ejec
 
 Códigos de salida:
 
-| Código | Significado                                                         |
-| ---- | --------------------------------------------------------------- |
-| `0`  | Se aprobaron todas las evaluaciones, _o_ no se encontró ningún archivo de evaluación (compatible con CI). |
-| `1`  | Al menos una evaluación obtuvo una puntuación inferior al umbral o la suite tuvo un error. |
-| `2`  | Malos argumentos (por ejemplo, `--threshold` fuera de `[0, 1]`).            |
+| Código | Significado                                                                                               |
+| ------ | --------------------------------------------------------------------------------------------------------- |
+| `0`    | Se aprobaron todas las evaluaciones, _o_ no se encontró ningún archivo de evaluación (compatible con CI). |
+| `1`    | Al menos una evaluación obtuvo una puntuación inferior al umbral o la suite tuvo un error.                |
+| `2`    | Malos argumentos (por ejemplo, `--threshold` fuera de `[0, 1]`).                                          |
 
 ### Como puerta de implementación de CI {#ci}
 

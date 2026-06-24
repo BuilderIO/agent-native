@@ -79,13 +79,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Aide    | Objectif                                                         |
-| --------- | --------------------------------------------------------------- |
-| `table`   | Définir une table — délégués à `pgTable` ou `sqliteTable`        |
-| `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                         |
+| Aide      | Objectif                                                               |
+| --------- | ---------------------------------------------------------------------- |
+| `table`   | Définir une table — délégués à `pgTable` ou `sqliteTable`              |
+| `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                    |
 | `integer` | Colonne entière, `{ mode: "boolean" }` correspond au booléen Postgres  |
 | `real`    | Colonne flottante – `real` sur SQLite, `double precision` sur Postgres |
-| `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`        |
+| `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`       |
 
 Le tableau `tasks` ci-dessus définit les mêmes colonnes sur chaque backend :
 
@@ -177,7 +177,7 @@ Au lieu de pousser directement, les modifications de schéma doivent être appli
 
 ## Variables d'environnement {#environment-variables}
 
-| Variable              | Objectif                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Variable              | Objectif                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Chaîne de connexion SQL persistante (non définie = SQLite local, qui n'est durable que pour le développement local) |
-| `DATABASE_AUTH_TOKEN` | Jeton d'authentification pour les fournisseurs qui nécessitent un jeton distinct, tel que Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | Jeton d'authentification pour les fournisseurs qui nécessitent un jeton distinct, tel que Turso/libSQL              |

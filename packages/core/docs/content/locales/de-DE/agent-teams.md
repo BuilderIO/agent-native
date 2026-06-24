@@ -54,13 +54,13 @@ Das Framework stellt dem Hauptagenten ein `agent-teams`-Tool zur Verfügung. Wen
 
 Der vollständige `agent-teams`-Aktionssatz ist:
 
-| Aktion        | Zweck                              |
-| ------------- | ------------------------------------ |
-| `spawn`       | Starten Sie eine neue Subagentenaufgabe           |
+| Aktion        | Zweck                                                     |
+| ------------- | --------------------------------------------------------- |
+| `spawn`       | Starten Sie eine neue Subagentenaufgabe                   |
 | `status`      | Überprüfen Sie den Fortschritt eines laufenden Subagenten |
-| `read-result` | Erhalten Sie die Ausgabe eines fertigen Subagenten    |
-| `send`        | Eine Nachricht an einen laufenden Subagenten senden          |
-| `list`        | Alle Aufgaben für den aktuellen Benutzer anzeigen   |
+| `read-result` | Erhalten Sie die Ausgabe eines fertigen Subagenten        |
+| `send`        | Eine Nachricht an einen laufenden Subagenten senden       |
+| `list`        | Alle Aufgaben für den aktuellen Benutzer anzeigen         |
 
 ### 3. Programmatischer Spawn {#programmatic-spawn}
 
@@ -151,12 +151,12 @@ Die Durchsetzung erfolgt in der Umgebung: Jeder Subagent läuft in einem `AsyncL
 
 Überschreiben Sie die Standardeinstellung zum Zeitpunkt der Bereitstellung mit `AGENT_NATIVE_MAX_SUBAGENT_DEPTH`:
 
-| Wert           | Effekt                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| _(nicht gesetzt)_       | Standardobergrenze von `2`.                                                                                                                   |
-| `0`             | **Es dürfen keine Unteragenten erzeugt werden** – der Agent der obersten Ebene erledigt die gesamte Arbeit.                                                                 |
-| `1`…`16`        | So viele Delegationsebenen.                                                                                                       |
-| ungültig / `>16` | Ein nicht ganzzahliger / negativer / NaN-Wert fällt auf `2` zurück; Alles über `16` wird an `16` geklemmt, sodass ein Tippfehler niemals den Schutz deaktivieren kann. |
+| Wert              | Effekt                                                                                                                                                                 |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(nicht gesetzt)_ | Standardobergrenze von `2`.                                                                                                                                            |
+| `0`               | **Es dürfen keine Unteragenten erzeugt werden** – der Agent der obersten Ebene erledigt die gesamte Arbeit.                                                            |
+| `1`…`16`          | So viele Delegationsebenen.                                                                                                                                            |
+| ungültig / `>16`  | Ein nicht ganzzahliger / negativer / NaN-Wert fällt auf `2` zurück; Alles über `16` wird an `16` geklemmt, sodass ein Tippfehler niemals den Schutz deaktivieren kann. |
 
 ```bash
 AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # sub-agents allowed, but they can't sub-delegate

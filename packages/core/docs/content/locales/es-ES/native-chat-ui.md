@@ -34,10 +34,10 @@ La ruta nativa tiene dos partes explícitas:
 Los renderizadores de datos integrados utilizan un resultado simple JSON con `widget` más
 carga útil coincidente:
 
-| Aparato            | Carga útil requerida             | Representa como                                      |
-| ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | Una tabla de datos nativa y reutilizable                   |
-| `"data-chart"`    | `chartSeries`                | Un gráfico nativo de barras, líneas o áreas               |
+| Aparato           | Carga útil requerida      | Representa como                                                      |
+| ----------------- | ------------------------- | -------------------------------------------------------------------- |
+| `"data-table"`    | `table`                   | Una tabla de datos nativa y reutilizable                             |
+| `"data-chart"`    | `chartSeries`             | Un gráfico nativo de barras, líneas o áreas                          |
 | `"data-insights"` | `table` y/o `chartSeries` | Una tarjeta de información combinada con resultados de gráfico/tabla |
 
 El servidor actions debe importar los esquemas y ayudantes seguros para el servidor

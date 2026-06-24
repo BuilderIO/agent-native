@@ -34,12 +34,12 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ## دورة الحياة {#lifecycle}
 
-| الحالة      | الانتقال                  |
-| ----------- | --------------------------- |
+| الحالة      | الانتقال                           |
+| ----------- | ---------------------------------- |
 | `running`   | الأولي — تم ضبطه بواسطة `startRun` |
-| `succeeded` | محطة المسار السعيد         |
-| `failed`    | خطأ في المحطة              |
-| `cancelled` | تمت مقاطعة المستخدم            |
+| `succeeded` | محطة المسار السعيد                 |
+| `failed`    | خطأ في المحطة                      |
+| `cancelled` | تمت مقاطعة المستخدم                |
 
 ```an-diagram title="Run lifecycle" summary="startRun opens a running row; updateRunProgress patches it; completeRun moves it to one terminal status and stamps completed_at."
 {
@@ -107,7 +107,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 تم تركيبه على `/_agent-native/runs/*` بواسطة البرنامج الإضافي للمسارات الأساسية. **للقراءة فقط عبر HTTP** — تمر عمليات الكتابة عبر أدوات الوكيل نظرًا لأن الوكيل هو الكاتب الأساسي. جميع المسارات مخصصة للمالك.
 
-| الطريقة   | المسار                              |
+| الطريقة  | المسار                            |
 | -------- | --------------------------------- |
 | `GET`    | `/_agent-native/runs?active=true` |
 | `GET`    | `/_agent-native/runs/:id`         |
@@ -150,12 +150,12 @@ export function HeaderBar() {
 
 يتم تسجيل أداة `manage-progress` واحدة في كل قالب. تحدد المعلمة `action` العملية:
 
-| الإجراء     | الغرض                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `start`    | الاتصال بأعلى مهمة طويلة. تقوم بإرجاع معرف التشغيل.                |
-| `update`   | اتصل بشكل دوري أثناء المهمة بـ `percent` و/أو `step`. |
-| `complete` | المحطة — إحدى `succeeded`، `failed`، `cancelled`.           |
-| `list`     | فحص عمليات التشغيل الأخيرة (التصفية حسب `active=true`).                  |
+| الإجراء    | الغرض                                                   |
+| ---------- | ------------------------------------------------------- |
+| `start`    | الاتصال بأعلى مهمة طويلة. تقوم بإرجاع معرف التشغيل.     |
+| `update`   | اتصل بشكل دوري أثناء المهمة بـ `percent` و/أو `step`.   |
+| `complete` | المحطة — إحدى `succeeded`، `failed`، `cancelled`.       |
+| `list`     | فحص عمليات التشغيل الأخيرة (التصفية حسب `active=true`). |
 
 ### متى يبدأ الجري {#when-to-start}
 

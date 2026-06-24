@@ -141,14 +141,14 @@ Wahrheitsentscheidungen, Metrikdefinitionen, Dashboards und Analysen.
 Anmeldeinformationen werden über die Settings/Env-Ebene des Frameworks gespeichert – keine Geheimnisse in Git. Für die Produktion ist Folgendes erforderlich:
 
 | Variable                                 | Zweck                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | Persistente SQL-Verbindung URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Auth                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Bevorzugter Google-Anmeldeclient (OAuth 2.0)             |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `DATABASE_URL`                           | Persistente SQL-Verbindung URL                        |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Auth                                                  |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Bevorzugter Google-Anmeldeclient (OAuth 2.0)          |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | Legacy-Anmelde-Fallback/Google API-Integrationsclient |
-| `BIGQUERY_PROJECT_ID`                    | BigQuery-Projekt                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery-Dienstkonto JSON                           |
-| `ANTHROPIC_API_KEY`                      | Agenten-Chat                                              |
+| `BIGQUERY_PROJECT_ID`                    | BigQuery-Projekt                                      |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery-Dienstkonto JSON                             |
+| `ANTHROPIC_API_KEY`                      | Agenten-Chat                                          |
 
 Anbieterspezifische Schlüssel (HubSpot, Jira, Gong, Pylon usw.) werden in der exemplarischen Vorgehensweise für jede Quelle auf der Seite „Datenquellen“ dokumentiert. Wenn Sie eine neue Aktion hinzufügen, die einen API-Schlüssel benötigt, wird sie über die Onboarding-Registrierung der Vorlage als neue Quelle auf dieser Seite angezeigt.
 

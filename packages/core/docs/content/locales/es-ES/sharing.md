@@ -19,11 +19,11 @@ Esto también significa que el agente nunca tendrá que aprender un nuevo modelo
 
 La visibilidad aproximada vive del recurso mismo; Las subvenciones detalladas se encuentran en una tabla de acciones complementaria.
 
-| Visibilidad | Quién puede verlo                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| `private`  | Propietario + personas otorgadas explícitamente. **Predeterminado para cada recurso nuevo.**                              |
-| `org`      | Propietario + subvenciones explícitas + cualquier persona en la misma organización (solo lectura).                              |
-| `public`   | Propietario + subvenciones explícitas + cualquier persona con el enlace (solo lectura). No aparece en las listas/búsquedas de otros. |
+| Visibilidad | Quién puede verlo                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `private`   | Propietario + personas otorgadas explícitamente. **Predeterminado para cada recurso nuevo.**                                         |
+| `org`       | Propietario + subvenciones explícitas + cualquier persona en la misma organización (solo lectura).                                   |
+| `public`    | Propietario + subvenciones explícitas + cualquier persona con el enlace (solo lectura). No aparece en las listas/búsquedas de otros. |
 
 `public` es un nivel deliberadamente silencioso: se puede acceder a un recurso público mediante un enlace directo, pero **no** aparece en las barras laterales, listas o búsquedas de otros usuarios. Eso mantiene el "público para compartir el URL" separado del "público para el descubrimiento entre usuarios". Las galerías y catálogos de plantillas que realmente desean el descubrimiento entre usuarios optan por participar explícitamente.
 
@@ -96,12 +96,12 @@ Para las listas, coloque un `<VisibilityBadge visibility={row.visibility} />` al
 
 El marco monta automáticamente estos actions en cada plantilla: el agente los llama como herramientas y el UI los llama a través de `useActionQuery`/`useActionMutation`:
 
-| Acción                    | Qué hace                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Acción                    | Qué hace                                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `share-resource`          | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
-| `unshare-resource`        | Revocar el acceso a un usuario u organización.                                                               |
-| `list-resource-shares`    | Mostrar visibilidad actual más todas las subvenciones explícitas.                                              |
-| `set-resource-visibility` | Cambiar a `private`, `org` o `public`.                                                       |
+| `unshare-resource`        | Revocar el acceso a un usuario u organización.                                                                                                 |
+| `list-resource-shares`    | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
+| `set-resource-visibility` | Cambiar a `private`, `org` o `public`.                                                                                                         |
 
 Dígale al agente "comparta este diseño con el equipo de marketing como editores" y llamará a `share-resource` contra el mismo punto final que utiliza UI. El resultado aparece en el cuadro de diálogo para compartir en el siguiente renderizado.
 

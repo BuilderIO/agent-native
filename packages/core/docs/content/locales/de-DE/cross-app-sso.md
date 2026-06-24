@@ -51,11 +51,11 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
      "params": [
        { „name“: „app“, „in“: „query“, „type“: „string“, „required“: true, „description“: „Die anfordernde App-ID.“ },
        { „name“: „redirect_uri“, „in“: „query“, „type“: „string“, „required“: true, „description“: „App-Rückruf URL. Validiert anhand einer strengen Zulassungsliste (standardmäßig `*.agent-native.com` oder localhost).“ },
-       { „name“: „state“, „in“: „query“, „type“: „string“, „required“: true, „description“: „CSRF-Status wird bei der Umleitung zurückgegeben.“ 
+       { „name“: „state“, „in“: „query“, „type“: „string“, „required“: true, „description“: „CSRF-Status wird bei der Umleitung zurückgegeben.“
      ],
      "Antworten": [
        { „status“: „302“, „description“: „Weiterleitung zu `redirect_uri` mit einer kurzlebigen `A2A_SECRET`-signierten Identität JWT (`scope: \"identity\"`, `exp` ≤ 2 Minuten) plus der ursprünglichen `state`.“ },
-       { „status“: „400“, „description“: „`redirect_uri` ist bei der Zulassungslistenvalidierung fehlgeschlagen (herkunftsübergreifend, schemarelatives `//host` oder nicht gelistetes Suffix).“ 
+       { „status“: „400“, „description“: „`redirect_uri` ist bei der Zulassungslistenvalidierung fehlgeschlagen (herkunftsübergreifend, schemarelatives `//host` oder nicht gelistetes Suffix).“
      ]
    }
    ```
@@ -64,14 +64,14 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
 
 3. **Dispatch → App (signiertes Identitätstoken).** Dispatch validiert `redirect_uri` anhand einer strengen Zulassungsliste und leitet 302 zurück zum `redirect_uri` der App mit einer kurzlebigen **`A2A_SECRET`-signierten Identität JWT**. Die Ansprüche des Tokens sind bewusst minimal:
 
-   | Anspruch        | Bedeutung                                                  |
-   | ------------ | -------------------------------------------------------- |
-   | `sub`        | Stabile Benutzer-ID bei der Identitätsbehörde                 |
-   | `email`      | Die **bestätigte** E-Mail-Adresse des Benutzers – der einzige Beitrittsschlüssel        |
-   | `name`       | Anzeigename (nicht autorisierend, nur für UI)            |
-   | `org_domain` | Workspace/org-Domäne, falls vorhanden                       |
-   | `scope`      | Immer `"identity"` – dieses Token autorisiert nur die Anmeldung |
-   | `exp`        | **≤ 2 Minuten** ab Problem                               |
+   | Anspruch     | Bedeutung                                                                        |
+   | ------------ | -------------------------------------------------------------------------------- |
+   | `sub`        | Stabile Benutzer-ID bei der Identitätsbehörde                                    |
+   | `email`      | Die **bestätigte** E-Mail-Adresse des Benutzers – der einzige Beitrittsschlüssel |
+   | `name`       | Anzeigename (nicht autorisierend, nur für UI)                                    |
+   | `org_domain` | Workspace/org-Domäne, falls vorhanden                                            |
+   | `scope`      | Immer `"identity"` – dieses Token autorisiert nur die Anmeldung                  |
+   | `exp`        | **≤ 2 Minuten** ab Problem                                                       |
 
 4. **App verifiziert und JIT-Links per E-Mail.** Die App überprüft die Token-Signatur mit ihrem eigenen `A2A_SECRET`, überprüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung ausschließlich per verifizierter E-Mail** durch:
    - Wenn ein lokaler Benutzer mit dieser E-Mail existiert → unverändert wiederverwenden.

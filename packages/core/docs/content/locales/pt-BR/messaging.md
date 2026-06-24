@@ -309,12 +309,12 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Variáveis de ambiente {#env-vars}
 
-| Plataforma | Obrigatório                                                                     | Opcional                                              |
-| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| Telegrama | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
-| E-mail    | `EMAIL_AGENT_ADDRESS`, mais um de `RESEND_API_KEY` ou `SENDGRID_API_KEY`    | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+| Plataforma | Obrigatório                                                                  | Opcional                                              |
+| ---------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack      | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Telegrama  | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
+| E-mail     | `EMAIL_AGENT_ADDRESS`, mais um de `RESEND_API_KEY` ou `SENDGRID_API_KEY`     | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
 Todas as credenciais residem em env vars - nunca no banco de dados, nunca no código-fonte. Use as configurações da barra lateral UI ou o painel ambiental do seu provedor de hospedagem.
 

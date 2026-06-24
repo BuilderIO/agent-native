@@ -30,12 +30,12 @@ track(
 
 Defina um env var e o provedor será registrado automaticamente na inicialização do servidor. Não são necessárias alterações de código.
 
-| Provedor  | Vars ambientes                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------- |
-| PostHog   | `POSTHOG_API_KEY` (obrigatório), `POSTHOG_HOST` (opcional, o padrão é `https://us.i.posthog.com`) |
-| Painel de mixagem  | `MIXPANEL_TOKEN`                                                                                |
-| Amplitude | `AMPLITUDE_API_KEY`                                                                             |
-| Webhook   | `TRACKING_WEBHOOK_URL` (obrigatório), `TRACKING_WEBHOOK_AUTH` (cabeçalho `Authorization` opcional)    |
+| Provedor          | Vars ambientes                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| PostHog           | `POSTHOG_API_KEY` (obrigatório), `POSTHOG_HOST` (opcional, o padrão é `https://us.i.posthog.com`)  |
+| Painel de mixagem | `MIXPANEL_TOKEN`                                                                                   |
+| Amplitude         | `AMPLITUDE_API_KEY`                                                                                |
+| Webhook           | `TRACKING_WEBHOOK_URL` (obrigatório), `TRACKING_WEBHOOK_AUTH` (cabeçalho `Authorization` opcional) |
 
 Vários provedores podem estar ativos simultaneamente. Cada evento vai para todos eles.
 

@@ -29,5 +29,5 @@ Plan vs. Auto-Modus, Ausführungskontrollen, Anmeldeinformationen, Desktop-Deep-
 
 > [!NOTE]
 > Die alte versteckte `migration`-Detail-App wurde entfernt. Verwenden Sie den Code
->-Arbeitsbereich, die Registerkarte „Desktop-Code“ oder ein ausgegebenes Dossier als unterstützt
->Oberflächen.
+> -Arbeitsbereich, die Registerkarte „Desktop-Code“ oder ein ausgegebenes Dossier als unterstützt
+> Oberflächen.

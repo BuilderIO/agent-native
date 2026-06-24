@@ -35,16 +35,16 @@ Acerte esses dois e o resto será o padrão. O [Production Checklist](#productio
 
 A arquitetura da estrutura evita vulnerabilidades comuns quando você usa os padrões padrão:
 
-| Vulnerabilidade   | Proteção de estrutura                                                   |
-| --------------- | ---------------------------------------------------------------------- |
-| Injeção SQL   | Consultas parametrizadas em `db-query`/`db-exec` e Drizzle ORM          |
-| XSS             | React escapa automaticamente de JSX; TipTap limpa rich text                     |
-| Vazamento de dados      | Escopo no nível SQL por meio de visualizações temporárias (`owner_email`, `org_id`)        |
-| Ignorar autenticação     | A proteção de autenticação protege automaticamente todos os endpoints `defineAction`                  |
-| Injeção de entrada | Validação do esquema Zod em `defineAction`                                |
-| CSRF            | Biscoitos `SameSite=lax` + `httpOnly`                                    |
-| Exposição secreta | `.env` gitignorado; credenciais e cofre criptografados em repouso (AES-256-GCM) |
-| SSRF            | `ssrfSafeFetch` bloqueia alvos internos/metadados + religação de redirecionamento  |
+| Vulnerabilidade      | Proteção de estrutura                                                                |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Injeção SQL          | Consultas parametrizadas em `db-query`/`db-exec` e Drizzle ORM                       |
+| XSS                  | React escapa automaticamente de JSX; TipTap limpa rich text                          |
+| Vazamento de dados   | Escopo no nível SQL por meio de visualizações temporárias (`owner_email`, `org_id`)  |
+| Ignorar autenticação | A proteção de autenticação protege automaticamente todos os endpoints `defineAction` |
+| Injeção de entrada   | Validação do esquema Zod em `defineAction`                                           |
+| CSRF                 | Biscoitos `SameSite=lax` + `httpOnly`                                                |
+| Exposição secreta    | `.env` gitignorado; credenciais e cofre criptografados em repouso (AES-256-GCM)      |
+| SSRF                 | `ssrfSafeFetch` bloqueia alvos internos/metadados + religação de redirecionamento    |
 
 ## Validação de entrada {#input-validation}
 
@@ -225,13 +225,13 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Gerenciamento de segredos {#secrets}
 
-| Tipo de segredo                        | Onde armazenar                                             |
-| ---------------------------------- | ---------------------------------------------------------- |
-| Chaves no nível da implantação (uma por aplicativo)    | Arquivo `.env` (gitignored, somente no lado do servidor)                 |
-| Chaves API por usuário/por organização        | `saveCredential`/`resolveCredential` (criptografado em repouso) |
-| Segredos registrados (cofre da barra lateral) | Cofre `app_secrets` (criptografado em repouso)                    |
-| Tokens OAuth (Google, GitHub)      | Armazenamento `oauth_tokens` via `saveOAuthTokens()`               |
-| Tokens de sessão                     | Automático (melhor autenticação lida com isso)                       |
+| Tipo de segredo                                     | Onde armazenar                                                  |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| Chaves no nível da implantação (uma por aplicativo) | Arquivo `.env` (gitignored, somente no lado do servidor)        |
+| Chaves API por usuário/por organização              | `saveCredential`/`resolveCredential` (criptografado em repouso) |
+| Segredos registrados (cofre da barra lateral)       | Cofre `app_secrets` (criptografado em repouso)                  |
+| Tokens OAuth (Google, GitHub)                       | Armazenamento `oauth_tokens` via `saveOAuthTokens()`            |
+| Tokens de sessão                                    | Automático (melhor autenticação lida com isso)                  |
 
 As credenciais por usuário/por organização e o cofre são criptografados em repouso com AES-256-GCM, codificados por `SECRETS_ENCRYPTION_KEY` (retrocedendo para `BETTER_AUTH_SECRET`); a produção se recusa a começar sem ele. Para criptografar quaisquer linhas de credenciais de texto simples pré-existentes, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
 

@@ -140,15 +140,15 @@ opciones de verdad, definiciones de métricas, paneles y análisis.
 
 Las credenciales se almacenan a través de la capa de configuración/entorno del marco; no hay secretos en git. La producción requiere:
 
-| Variable                                 | Propósito                                                 |
-| ---------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`                           | Conexión persistente SQL URL                           |
-| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Autenticación                                                    |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Cliente de inicio de sesión de Google preferido (OAuth 2.0)             |
+| Variable                                 | Propósito                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `DATABASE_URL`                           | Conexión persistente SQL URL                                          |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Autenticación                                                         |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Cliente de inicio de sesión de Google preferido (OAuth 2.0)           |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | Reserva de inicio de sesión antiguo/cliente de integración Google API |
-| `BIGQUERY_PROJECT_ID`                    | Proyecto BigQuery                                        |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Cuenta de servicio de BigQuery JSON                           |
-| `ANTHROPIC_API_KEY`                      | Chat del agente                                              |
+| `BIGQUERY_PROJECT_ID`                    | Proyecto BigQuery                                                     |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Cuenta de servicio de BigQuery JSON                                   |
+| `ANTHROPIC_API_KEY`                      | Chat del agente                                                       |
 
 Las claves específicas del proveedor (HubSpot, Jira, Gong, Pylon, etc.) están documentadas en el tutorial de cada fuente en la página Fuentes de datos. Si agrega una nueva acción que necesita una clave API, aparece como una nueva fuente en esa página a través del registro de incorporación de la plantilla.
 

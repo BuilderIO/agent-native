@@ -18,9 +18,9 @@ As automações estendem o [recurring jobs](/docs/recurring-jobs) com **gatilhos
 
 ## Dois tipos de gatilho {#trigger-types}
 
-| Tipo       | Dispara quando                                             | Campo-chave         |
-| ---------- | ------------------------------------------------------ | ----------------- |
-| `schedule` | Uma expressão cron corresponde (o mesmo que trabalhos recorrentes)     | `schedule` (cron) |
+| Tipo       | Dispara quando                                                           | Campo-chave       |
+| ---------- | ------------------------------------------------------------------------ | ----------------- |
+| `schedule` | Uma expressão cron corresponde (o mesmo que trabalhos recorrentes)       | `schedule` (cron) |
 | `event`    | Um evento correspondente é emitido no barramento de eventos da estrutura | `event` (nome)    |
 
 Os gatilhos de eventos podem incluir um `condition` — uma string de linguagem natural avaliada pelo Haiku em relação à carga útil do evento antes do envio. Se a condição não corresponder, a automação será ignorada silenciosamente.
@@ -57,13 +57,13 @@ O terceiro caminho — escrever o arquivo `jobs/<name>.md` manualmente via `reso
 
 As automações compartilham todos os campos do [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Esses campos adicionais controlam gatilhos de eventos, condições e modo de execução:
 
-| Campo         | Tipo                             | Padrão      | Descrição                                                                                                                                                  |
-| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Como a automação é acionada                                                                                                                                     |
-| `event`       | string                           | _(opcional)_ | Nome do evento para assinatura (somente acionadores de eventos)                                                                                                             |
-| `condition`   | string                           | _(opcional)_ | Condição de linguagem natural avaliada antes do envio                                                                                                         |
+| Campo         | Tipo                             | Padrão       | Descrição                                                                                                                                                                             |
+| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Como a automação é acionada                                                                                                                                                           |
+| `event`       | string                           | _(opcional)_ | Nome do evento para assinatura (somente acionadores de eventos)                                                                                                                       |
+| `condition`   | string                           | _(opcional)_ | Condição de linguagem natural avaliada antes do envio                                                                                                                                 |
 | `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Loop completo do agente. (`"deterministic"` está reservado, mas ainda não implementado — as automações que o definem são ignoradas. Use `"agentic"` para todas as automações atuais.) |
-| `domain`      | string                           | _(opcional)_ | Tag de agrupamento (e-mail, calendário, clipes etc.)                                                                                                                   |
+| `domain`      | string                           | _(opcional)_ | Tag de agrupamento (e-mail, calendário, clipes etc.)                                                                                                                                  |
 
 Para um acionador de evento, `schedule` é `""` (vazio); para um gatilho de agendamento, ele carrega a expressão cron. O despachante também grava os mesmos campos gerenciados `lastRun`/`lastStatus`/`lastError` que o agendador faz, além de um status `"skipped"` quando uma condição é avaliada como falsa.
 
@@ -73,13 +73,13 @@ As integrações registram eventos no momento do carregamento do módulo. O barr
 
 ### Eventos integrados {#built-in-events}
 
-| Evento                  | Fonte                                         |
-| ---------------------- | ---------------------------------------------- |
+| Evento                 | Fonte                                            |
+| ---------------------- | ------------------------------------------------ |
 | `test.event.fired`     | Manual / ação `manage-automations`=teste de fogo |
-| `agent.turn.completed` | Bate-papo com agente                                     |
-| `calendar.*`           | Integração do calendário                           |
-| `clip.*`               | Integração de clipes                              |
-| `mail.*`               | Integração de e-mail                               |
+| `agent.turn.completed` | Bate-papo com agente                             |
+| `calendar.*`           | Integração do calendário                         |
+| `clip.*`               | Integração de clipes                             |
+| `mail.*`               | Integração de e-mail                             |
 
 Chame `manage-automations` com `action=list-events` do agente para ver todos os eventos registrados com descrições e esquemas de carga útil para o modelo atual.
 
@@ -152,13 +152,13 @@ Os espaços reservados são resolvidos **no lado do servidor** depois que o agen
 
 ### Parâmetros {#web-request-params}
 
-| Parâmetro    | Tipo   | Padrão | Descrição                                         |
-| ------------ | ------ | ------- | --------------------------------------------------- |
-| `url`        | string | —       | URL completo. Pode conter referências `${keys.NAME}`.    |
-| `method`     | string | `GET`   | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).  |
-| `headers`    | string | `{}`    | Objeto JSON de cabeçalhos. Pode conter `${keys.NAME}`. |
-| `body`       | string | —       |  Corpo da solicitação. Pode conter `${keys.NAME}`.           |
-| `timeout_ms` | número | 15000   | Tempo limite em milissegundos (máximo 30.000).                |
+| Parâmetro    | Tipo   | Padrão | Descrição                                              |
+| ------------ | ------ | ------ | ------------------------------------------------------ |
+| `url`        | string | —      | URL completo. Pode conter referências `${keys.NAME}`.  |
+| `method`     | string | `GET`  | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).     |
+| `headers`    | string | `{}`   | Objeto JSON de cabeçalhos. Pode conter `${keys.NAME}`. |
+| `body`       | string | —      | Corpo da solicitação. Pode conter `${keys.NAME}`.      |
+| `timeout_ms` | número | 15000  | Tempo limite em milissegundos (máximo 30.000).         |
 
 ## Chaves {#keys}
 
@@ -173,26 +173,26 @@ Chaves são segredos ad hoc criados pelos usuários ou pelo agente para uso de a
 
 Todas as operações de automação são acessadas através de uma única ferramenta `manage-automations` com um parâmetro `action`:
 
-| Ação        | Propósito                                                              |
-| ------------- | -------------------------------------------------------------------- |
+| Ação          | Propósito                                                                |
+| ------------- | ------------------------------------------------------------------------ |
 | `list-events` | Descubra todos os eventos registrados com descrições e esquemas de carga |
-| `list`        | Listar todas as automações com status; filtrar por domínio ou ativado        |
+| `list`        | Listar todas as automações com status; filtrar por domínio ou ativado    |
 | `define`      | Crie uma nova automação (nome, tipo de gatilho, evento, condição, corpo) |
-| `update`      | Atualizar uma automação existente (habilitado, condição, corpo)             |
-| `delete`      | Excluir uma automação (sempre confirme primeiro com o usuário)               |
+| `update`      | Atualizar uma automação existente (habilitado, condição, corpo)          |
+| `delete`      | Excluir uma automação (sempre confirme primeiro com o usuário)           |
 | `fire-test`   | Emitir um evento `test.event.fired` para validar automações              |
 
 Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.NAME}`.
 
 ## Extremidades API {#api}
 
-| Ponto final                               | Método | Descrição                     |
-| -------------------------------------- | ------ | ------------------------------- |
-| `/_agent-native/automations`           | GET    | Listar todas as automações (analisadas)   |
-| `/_agent-native/automations/fire-test` | POST   | Emitir um evento `test.event.fired` |
-| `/_agent-native/secrets/adhoc`         | GET    | Listar chaves ad-hoc (sem valores)    |
-| `/_agent-native/secrets/adhoc`         | POST   | Criar ou atualizar uma chave ad hoc  |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | Excluir uma chave ad hoc            |
+| Ponto final                            | Método | Descrição                               |
+| -------------------------------------- | ------ | --------------------------------------- |
+| `/_agent-native/automations`           | GET    | Listar todas as automações (analisadas) |
+| `/_agent-native/automations/fire-test` | POST   | Emitir um evento `test.event.fired`     |
+| `/_agent-native/secrets/adhoc`         | GET    | Listar chaves ad-hoc (sem valores)      |
+| `/_agent-native/secrets/adhoc`         | POST   | Criar ou atualizar uma chave ad hoc     |
+| `/_agent-native/secrets/adhoc/:name`   | DELETE | Excluir uma chave ad hoc                |
 
 ```an-api title="Fire a test event"
 {

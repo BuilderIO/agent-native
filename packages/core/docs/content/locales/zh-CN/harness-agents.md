@@ -32,12 +32,12 @@ search: "harness代理AgentHarness ai-sdk HarnessAgent Claude代码Codex Pi Curs
 
 ## 我需要哪个编码文档？ {#which-doc}
 
-| 你想要……                                                               | 使用                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | **安全带代理**（本页）               |
-| 渲染 Claude-Code/Codex 样式 **编码工作区 UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
-| 交换运行代理的 **`run-code` 工具**的后端                 | [Adapters](/docs/sandbox-adapters)           |
-| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用                     | [Adapters](/docs/sandbox-adapters)           |
+| 你想要……                                               | 使用                                         |
+| ------------------------------------------------------ | -------------------------------------------- |
+| 使用自己的循环+工具**作为代理**运行Claude代码/Codex/Pi | **安全带代理**（本页）                       |
+| 渲染 Claude-Code/Codex 样式 **编码工作区 UI**          | [Agent-Native Code UI](/docs/code-agents-ui) |
+| 交换运行代理的 **`run-code` 工具**的后端               | [Adapters](/docs/sandbox-adapters)           |
+| 封装一个CLI工具（`gh`、`ffmpeg`）供代理调用            | [Adapters](/docs/sandbox-adapters)           |
 
 相邻表面：将您在其他地方构建的代理放在 Agent-Native 的聊天后面
 UI 与 [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)；让一个
@@ -50,10 +50,10 @@ UI 与 [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)；让一个
 `HarnessAgent`:
 
 | 姓名                         | 运行时     | 沙盒 | 批准 |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Claude代码 | 是的     | 是的       |
-| `ai-sdk-harness:codex`       | Codex       | 是的     | 没有        |
-| `ai-sdk-harness:pi`          | 圆周率          | 没有      | 是的       |
+| ---------------------------- | ---------- | ---- | ---- |
+| `ai-sdk-harness:claude-code` | Claude代码 | 是的 | 是的 |
+| `ai-sdk-harness:codex`       | Codex      | 是的 | 没有 |
+| `ai-sdk-harness:pi`          | 圆周率     | 没有 | 是的 |
 
 它们的运行时包是**可选的对等依赖项**并且延迟加载，因此
 从不使用安全带的应用程序无需付费。每个适配器都带有一个
@@ -79,11 +79,11 @@ Agent-Native可以充当[ACP](https://agentclientprotocol.com)（代理客户端
 托管或沙盒传输，并且它不是聊天/A2A 传输 - 对于这些，
 参见[Agent Surfaces](/docs/agent-surfaces)。
 
-| 姓名              | 默认命令                                | 可恢复\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(通过配置提供`command`/`args`)_         | 是的         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | 是的         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | 是的         |
+| 姓名              | 默认命令                                       | 可恢复\* |
+| ----------------- | ---------------------------------------------- | -------- |
+| `acp`             | _(通过配置提供`command`/`args`)_               | 是的     |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | 是的     |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | 是的     |
 
 \*当代理通告 `loadSession` 功能时恢复工作并且
 否则将降级为新会话。
@@ -166,7 +166,7 @@ registerBuiltinAgentHarnesses();
 const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 ```
 
-`resolveAgentHarness(name, config?)` 返回 `AgentHarnessAdapter`。 
+`resolveAgentHarness(name, config?)` 返回 `AgentHarnessAdapter`。
 可选的 `config` 被转发到适配器工厂 - 用于 AI SDK 适配器
 映射到 `AiSdkHarnessAdapterOptions`（`label`、`description`，
 仅 `permissionMode`、`harnessOptions`、`agentOptions` 和 Codex
@@ -247,11 +247,11 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 
 `permissionMode` 控制安全带在未经批准的情况下可以执行的操作：
 
-| 模式          | 含义                                            |
-| ------------- | -------------------------------------------------- |
+| 模式          | 含义                                      |
+| ------------- | ----------------------------------------- |
 | `allow-reads` | 默认。读取运行；编辑和有风险的actions提示 |
-| `allow-edits` | 读取和编辑运行；其他有风险actions提示    |
-| `allow-all`   | 无审批门控                                 |
+| `allow-edits` | 读取和编辑运行；其他有风险actions提示     |
+| `allow-all`   | 无审批门控                                |
 
 当线束暂停等待批准时，它会发出 `approval-request` 事件，并且
 会话标记为 `idle`，并记录待批准，因此 UI 可以

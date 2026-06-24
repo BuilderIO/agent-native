@@ -68,10 +68,10 @@ pinnen den festgeschriebenen `visual-recap`-Ordner an und legen die Repository-V
 
 Wählen Sie mit der Repository-Variable `VISUAL_RECAP_AGENT` aus, welcher Codierungsagent den Skill ausführt:
 
-| `VISUAL_RECAP_AGENT` | Codierungsagent     | Erforderlicher API-Schlüssel    |
-| -------------------- | ---------------- | ------------------- |
-| `claude` _(Standard)_ | Claude-Code CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `VISUAL_RECAP_AGENT`  | Codierungsagent  | Erforderlicher API-Schlüssel |
+| --------------------- | ---------------- | ---------------------------- |
+| `claude` _(Standard)_ | Claude-Code CLI  | `ANTHROPIC_API_KEY`          |
+| `codex`               | OpenAI Codex CLI | `OPENAI_API_KEY`             |
 
 Wenn die Variable nicht gesetzt ist, verwendet die Aktion `claude`.
 
@@ -91,10 +91,10 @@ Legen Sie diese in den **Einstellungen → Geheimnisse und Variablen → Actions
 
 ### Geheimnisse (nur zwei erforderlich)
 
-| Geheimnis              | Zweck                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Geheimnis           | Zweck                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PLAN_RECAP_TOKEN`  | Widerruflicher Token, geprägt von `npx @agent-native/core@latest connect`. Autorisiert die Veröffentlichung des Zusammenfassungsplans und des Screenshot-Uploads. |
-| `ANTHROPIC_API_KEY` | Der LLM-Schlüssel für das Standard-Claude-Code-Backend.                                                                                   |
+| `ANTHROPIC_API_KEY` | Der LLM-Schlüssel für das Standard-Claude-Code-Backend.                                                                                                           |
 
 **Teams: Verwenden Sie ein Organisationsdienst-Token.** Ein persönliches Token ist an die Person gebunden
 Wer hat es geprägt – wenn sie die Organisation verlassen oder ihre Token widerrufen, jedes Repo mit
@@ -128,14 +128,14 @@ echtes Token.
 
 ### Optional (nur wenn Sie die Standardeinstellungen ändern)
 
-| Geheimnis/Variable        | Standard                         | Wenn Sie es brauchen                                                                                                                                |
-| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | Geheimnis. Zusammen mit `VISUAL_RECAP_AGENT=codex` einstellen, um die Zusammenfassung stattdessen mit Codex auszuführen.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Wählt das Coding-Agent-Backend (`claude` oder `codex`) aus.                                                                               |
-| `VISUAL_RECAP_MODEL`     | die Standardeinstellung jedes CLI              | Variable. Steckt das Modell fest – z.B. `gpt-5.5` für Codex oder eine Claude-Modell-ID. Unset verwendet die eigene Standardeinstellung von CLI.                                    |
-| `VISUAL_RECAP_REASONING` | Standardeinstellung jedes Modells            | Variable. Argumentationstiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                |
-| `RECAP_CLI_VERSION`      | `latest`                        | Variable. Pinnt die `@agent-native/core` CLI-Version, die der Workflow installiert – z. B. `1.5.0`. Siehe [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Geheimnis. Nur beim Selbsthosten der Plans-App an einem anderen Ursprung.                                                                             |
+| Geheimnis/Variable       | Standard                          | Wenn Sie es brauchen                                                                                                                                        |
+| ------------------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                 | Geheimnis. Zusammen mit `VISUAL_RECAP_AGENT=codex` einstellen, um die Zusammenfassung stattdessen mit Codex auszuführen.                                    |
+| `VISUAL_RECAP_AGENT`     | `claude`                          | Variable. Wählt das Coding-Agent-Backend (`claude` oder `codex`) aus.                                                                                       |
+| `VISUAL_RECAP_MODEL`     | die Standardeinstellung jedes CLI | Variable. Steckt das Modell fest – z.B. `gpt-5.5` für Codex oder eine Claude-Modell-ID. Unset verwendet die eigene Standardeinstellung von CLI.             |
+| `VISUAL_RECAP_REASONING` | Standardeinstellung jedes Modells | Variable. Argumentationstiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                         |
+| `RECAP_CLI_VERSION`      | `latest`                          | Variable. Pinnt die `@agent-native/core` CLI-Version, die der Workflow installiert – z. B. `1.5.0`. Siehe [Version pinning](#version-pinning-copy-variant). |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`   | Geheimnis. Nur beim Selbsthosten der Plans-App an einem anderen Ursprung.                                                                                   |
 
 Der Workflow erkennt automatisch, wie sein Hilfsprogramm CLI (lokale Quelle in diesem Monorepo, das an anderer Stelle veröffentlichte `@agent-native/core`) aufgerufen wird, sodass keine `RECAP_CLI`-Variable festgelegt werden muss.
 
@@ -173,14 +173,14 @@ Um es zu installieren, kopieren Sie die Datei von [BuilderIO/agent-native](https
 
 ### Was der Fork-Workflow macht und was NOT macht
 
-| Der Workflow DOES                                                                                                      | Der Workflow führt NOT                                                              |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Checken Sie das **Basis-Repository** bei der **Basiszweig-Referenz** aus – nur vertrauenswürdiger Code                                        | Checken Sie beliebigen Code aus dem Fork aus oder führen Sie ihn aus                                        |
-| Den Fork-Kopf als Remote-Referenz (`git fetch origin pull/<n>/head:refs/recap/fork-head`) abrufen – das Abrufen von Commits ist sicher | Installieren Sie Pakete vom Fork, führen Sie Fork-Skripte aus oder werten Sie Fork-Inhalte als Code aus |
-| Führen Sie `git diff base...refs/recap/fork-head` aus – reiner Textvergleich zweier bereits abgerufener Objekte                             | Verwenden Sie das Diff als etwas anderes als als Texteingabe für LLM                          |
-| Führen Sie den Visual-Recap-Skill und die Agent-Konfiguration des **Basis-Repos** aus                                                     | Laden Sie einen beliebigen Skill oder eine beliebige Konfiguration vom Fork                                             |
-| Führen Sie das Diff durch denselben Secret-Scan-Schritt (Fail-Closed) wie Erstanbieter-PRs                                       | Überspringen Sie den geheimen Scan                                                               |
-| Fügen Sie einen expliziten Hinweis zur Eingabeaufforderungsverstärkung zur Agentenaufforderung hinzu, der den Diff-Inhalt als nicht vertrauenswürdig markiert.                            | Gewähren Sie dem Agenten zusätzliche Berechtigungen, die über den normalen Zusammenfassungsagenten hinausgehen.           |
+| Der Workflow DOES                                                                                                                                              | Der Workflow führt NOT                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Checken Sie das **Basis-Repository** bei der **Basiszweig-Referenz** aus – nur vertrauenswürdiger Code                                                         | Checken Sie beliebigen Code aus dem Fork aus oder führen Sie ihn aus                                            |
+| Den Fork-Kopf als Remote-Referenz (`git fetch origin pull/<n>/head:refs/recap/fork-head`) abrufen – das Abrufen von Commits ist sicher                         | Installieren Sie Pakete vom Fork, führen Sie Fork-Skripte aus oder werten Sie Fork-Inhalte als Code aus         |
+| Führen Sie `git diff base...refs/recap/fork-head` aus – reiner Textvergleich zweier bereits abgerufener Objekte                                                | Verwenden Sie das Diff als etwas anderes als als Texteingabe für LLM                                            |
+| Führen Sie den Visual-Recap-Skill und die Agent-Konfiguration des **Basis-Repos** aus                                                                          | Laden Sie einen beliebigen Skill oder eine beliebige Konfiguration vom Fork                                     |
+| Führen Sie das Diff durch denselben Secret-Scan-Schritt (Fail-Closed) wie Erstanbieter-PRs                                                                     | Überspringen Sie den geheimen Scan                                                                              |
+| Fügen Sie einen expliziten Hinweis zur Eingabeaufforderungsverstärkung zur Agentenaufforderung hinzu, der den Diff-Inhalt als nicht vertrauenswürdig markiert. | Gewähren Sie dem Agenten zusätzliche Berechtigungen, die über den normalen Zusammenfassungsagenten hinausgehen. |
 
 ### Warum Sie den Unterschied vor der Beschriftung überprüfen müssen
 
@@ -202,14 +202,14 @@ Die beiden Workflowdateien sind unabhängig. Für Nicht-Fork-PR-Updates ist `pr-
 
 Der `gate`-Schritt überspringt die Zusammenfassung vollständig, wenn ein PR einen der folgenden Pfade berührt, sodass ein PR niemals den Workflow, den Skill oder die Agentenkonfiguration neu schreiben kann, die der vertrauenswürdige Zusammenfassungsjob lädt und Geheimnisse herausfiltert:
 
-| Pfadmuster                               | Grund                                   |
-| ------------------------------------------ | ---------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | Der Workflow selbst                      |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
-| `**/.claude/**`                            | Agent-Einstellungen, die der Runner lädt          |
+| Pfadmuster                                 | Grund                                        |
+| ------------------------------------------ | -------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | Der Workflow selbst                          |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows     |
+| `**/.claude/**`                            | Agent-Einstellungen, die der Runner lädt     |
 | `**/CLAUDE.md`                             | Agent weist den Runner an, ihn zu laden      |
-| `**/AGENTS.md`                             | Agent weist den Läufer an, zu laden      |
-| `**/.mcp.json`                             | MCP Serverkonfiguration, die der Runner lädt       |
+| `**/AGENTS.md`                             | Agent weist den Läufer an, zu laden          |
+| `**/.mcp.json`                             | MCP Serverkonfiguration, die der Runner lädt |
 
 Im `BuilderIO/agent-native`-Monorepo führt der Workflow die Zusammenfassung CLI von der vertrauenswürdigen Basiszweigquelle statt von der PR-Kopfquelle aus. Dadurch bleiben normale Paketänderungen, einschließlich `packages/core/**`, für Wiederholungen berechtigt, ohne dass PR-modifizierter CLI-Code ausgeführt werden muss.
 
@@ -248,7 +248,7 @@ Die Zusammenfassung ist eine Überprüfungshilfe, die über dem normalen PR-Abla
 
 - Es wird eine `Visual Recap`-Prüfzeile zur Sichtbarkeit angezeigt, aber es ist **nie eine erforderliche Prüfung** und blockiert niemals die Zusammenführung.
 - Ein Generierungs- oder Veröffentlichungsfehler wird neutral abgeschlossen und als erklärender Kurzkommentar angezeigt, nicht als rotes X in nicht verwandtem Code.
-- Die Zusammenfassung und der Screenshot bedeuten nicht, dass der Unterschied überprüft wurde**. Prüfer müssen noch die tatsächlich geänderten Zeilen lesen.
+- Die Zusammenfassung und der Screenshot bedeuten nicht, dass der Unterschied überprüft wurde\*\*. Prüfer müssen noch die tatsächlich geänderten Zeilen lesen.
 
 ## Versionspinning (Kopiervariante) {#version-pinning-copy-variant}
 
@@ -301,12 +301,12 @@ Das Standardinstallationsprogramm kopiert den vollständigen ~360-Zeilen-Workflo
 
 Die Option **wiederverwendbar** schreibt stattdessen einen dünnen Aufrufer mit ca. 20 Leitungen. Es wird über `uses:` an `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` delegiert. Jeder Aufrufer ruft automatisch die neueste Logik ab, wenn der Workflow ausgeführt wird, ohne dass eine lokale Aktualisierung erforderlich ist.
 
-|                                | Kopieren (Standard)            | Wiederverwendbar                       |
-| ------------------------------ | ------------------------- | ------------------------------ |
-| Workflow-Größe in Ihrem Repository     | ~360 Zeilen                | ~20 Zeilen                      |
-| Fixes werden automatisch übernommen   | Nein – `recap setup` erneut ausführen | Ja                            |
-| Luftspalt / vollständige Überprüfbarkeit    | Ja                       | Nein                             |
-| An eine bestimmte Version anheftbar | Nur durch lokales Bearbeiten   | Ja – `@v1.2.3` in `uses:` festlegen |
+|                                          | Kopieren (Standard)                   | Wiederverwendbar                    |
+| ---------------------------------------- | ------------------------------------- | ----------------------------------- |
+| Workflow-Größe in Ihrem Repository       | ~360 Zeilen                           | ~20 Zeilen                          |
+| Fixes werden automatisch übernommen      | Nein – `recap setup` erneut ausführen | Ja                                  |
+| Luftspalt / vollständige Überprüfbarkeit | Ja                                    | Nein                                |
+| An eine bestimmte Version anheftbar      | Nur durch lokales Bearbeiten          | Ja – `@v1.2.3` in `uses:` festlegen |
 
 ### Anrufer-Snippet
 

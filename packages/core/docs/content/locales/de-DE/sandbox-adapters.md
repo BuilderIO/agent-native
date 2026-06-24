@@ -23,11 +23,11 @@ nicht auf Edge-/Worker-Laufzeiten ausführen – siehe [Edge and serverless](#ed
 
 ## Welches Codierungsdokument möchte ich? {#which-doc}
 
-| Sie möchten…                                                               | Verwenden                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Tauschen Sie das Backend aus, das das **`run-code`-Tool** des Agenten ausführt                 | **Sandbox-Adapter** (diese Seite)             |
-| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann                     | **CLI-Adapter** (diese Seite)                 |
-| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil                   | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Sie möchten…                                                                       | Verwenden                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| Tauschen Sie das Backend aus, das das **`run-code`-Tool** des Agenten ausführt     | **Sandbox-Adapter** (diese Seite)            |
+| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann          | **CLI-Adapter** (diese Seite)                |
+| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil        | [Agent-Native Code UI](/docs/code-agents-ui) |
 | Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | [Harness Agents](/docs/harness-agents)       |
 
 # Sandbox-Adapter

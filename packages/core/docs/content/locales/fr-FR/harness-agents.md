@@ -32,12 +32,12 @@ appel de modèle.
 
 ## Quel document de codage dois-je souhaiter ? {#which-doc}
 
-| Vous voulez…                                                               | Utiliser                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Exécutez Claude Code / Codex / Pi **en tant qu'agent**, avec leur propre boucle + outils | **Exploiter les agents** (cette page)               |
+| Vous voulez…                                                                             | Utiliser                                     |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Exécutez Claude Code / Codex / Pi **en tant qu'agent**, avec leur propre boucle + outils | **Exploiter les agents** (cette page)        |
 | Afficher un **espace de travail de codage de style Claude-Code/Codex**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
-| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                 | [Adapters](/docs/sandbox-adapters)           |
-| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                     | [Adapters](/docs/sandbox-adapters)           |
+| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                        | [Adapters](/docs/sandbox-adapters)           |
+| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                        | [Adapters](/docs/sandbox-adapters)           |
 
 Surfaces adjacentes : placez un agent que vous avez construit ailleurs derrière le chat de Agent-Native
 UI avec [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes) ; laissez un
@@ -49,11 +49,11 @@ apparaître en arrière-plan/sous-agent avec [Custom Agents & Teams](/docs/agent
 `registerBuiltinAgentHarnesses()` enregistre trois adaptateurs soutenus par l'IA SDK
 `HarnessAgent`:
 
-| Nom                         | Exécution     | Bac à sable | Approbations |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Code Claude | oui     | oui       |
-| `ai-sdk-harness:codex`       | Codex       | oui     | non        |
-| `ai-sdk-harness:pi`          | Pi          | non      | oui       |
+| Nom                          | Exécution   | Bac à sable | Approbations |
+| ---------------------------- | ----------- | ----------- | ------------ |
+| `ai-sdk-harness:claude-code` | Code Claude | oui         | oui          |
+| `ai-sdk-harness:codex`       | Codex       | oui         | non          |
+| `ai-sdk-harness:pi`          | Pi          | non         | oui          |
 
 Leurs packages d'exécution sont des **dépendances homologues facultatives** et se chargent paresseusement, donc
 une application qui n'utilise jamais de harnais ne paie pas pour cela. Chaque adaptateur porte un
@@ -79,11 +79,11 @@ environnement parent, de sorte que l'agent réutilise la connexion locale CLI do
 transport hébergé ou en bac à sable, et ce n'est pas un transport chat/A2A — pour ceux-là,
 voir [Agent Surfaces](/docs/agent-surfaces).
 
-| Nom              | Commande par défaut                                | Reprise\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(fournir `command`/`args` via la configuration)_         | oui         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | oui         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | oui         |
+| Nom               | Commande par défaut                               | Reprise\* |
+| ----------------- | ------------------------------------------------- | --------- |
+| `acp`             | _(fournir `command`/`args` via la configuration)_ | oui       |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp`    | oui       |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`          | oui       |
 
 \*La reprise fonctionne lorsque l'agent annonce la fonctionnalité `loadSession` et
 se dégrade en une nouvelle session sinon.
@@ -115,7 +115,7 @@ les drapeaux d'entrée évoluent encore.
 
 `permissionMode` mappe sur ACP `session/request_permission` à l'aide de l'appel d'outil
 type de rapport de l'agent : les lectures sont toujours exécutées, les modifications sont exécutées sous `allow-edits` et
- tout est risqué sauf si `allow-all`. Les approbations semblent normales
+tout est risqué sauf si `allow-all`. Les approbations semblent normales
 Événements `approval-request`. L'adaptateur sert `fs/read_text_file` et
 `fs/write_text_file` contre l'espace de travail de session (refusant les chemins qui s'échappent
 it) et écrit des événements `file-change` ; les méthodes de terminal ne sont pas annoncées,
@@ -247,11 +247,11 @@ vous le faites.
 
 `permissionMode` contrôle ce que le harnais peut faire sans approbation :
 
-| Mode          | Signification                                            |
-| ------------- | -------------------------------------------------- |
+| Mode          | Signification                                                                     |
+| ------------- | --------------------------------------------------------------------------------- |
 | `allow-reads` | Par défaut. Les lectures sont exécutées ; modifications et invite actions risquée |
-| `allow-edits` | Les lectures et les modifications sont exécutées ; autre invite actions risquée    |
-| `allow-all`   | Pas de contrôle d'approbation                                 |
+| `allow-edits` | Les lectures et les modifications sont exécutées ; autre invite actions risquée   |
+| `allow-all`   | Pas de contrôle d'approbation                                                     |
 
 Lorsqu'un harnais s'arrête pour approbation, il émet un événement `approval-request` et le
 la session est marquée `idle` avec l'approbation en attente enregistrée, afin que le UI puisse

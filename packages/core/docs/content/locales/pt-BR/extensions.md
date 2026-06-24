@@ -158,17 +158,17 @@ compartilhamento.
 
 Dentro da sandbox iframe, cada extensão tem estes auxiliares em `window`:
 
-| Ajudante                                           | Propósito                                                   | Exemplo                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Chame qualquer actions do modelo de host                   | `appAction('list-emails', { view: 'inbox' })`             |
+| Ajudante                                         | Propósito                                                      | Exemplo                                                   |
+| ------------------------------------------------ | -------------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Chame qualquer actions do modelo de host                       | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Chamar endpoints de estrutura permitidos em `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Ler de SQL (com escopo automático para o usuário)                   | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbQuery(sql, args)`                             | Ler de SQL (com escopo automático para o usuário)              | `dbQuery('SELECT id, name FROM tools')`                   |
 | `dbExec(sql, args)`                              | Escrever para SQL                                              | `dbExec('INSERT INTO ...')`                               |
-| `extensionFetch(url, options)`                   | Atingir APIs externos através de um proxy seguro com segredos     | `extensionFetch('https://api.github.com/user')`           |
-| `extensionData.set(collection, id, data, opts?)` | Persistir dados por extensão (escopo de usuário/organização)           | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionFetch(url, options)`                   | Atingir APIs externos através de um proxy seguro com segredos  | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | Persistir dados por extensão (escopo de usuário/organização)   | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Listar itens persistentes                                      | `extensionData.list('notes', { scope: 'all' })`           |
-| `extensionData.get(collection, id, opts?)`       | Obtenha um único item                                         | `extensionData.get('notes', 'note-1')`                    |
-| `extensionData.remove(collection, id, opts?)`    | Excluir um item persistido                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `extensionData.get(collection, id, opts?)`       | Obtenha um único item                                          | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Excluir um item persistido                                     | `extensionData.remove('notes', 'note-1')`                 |
 
 Três regras básicas:
 
@@ -211,12 +211,12 @@ Mas o caso de uso com formato mais QBO é diferente: o usuário deseja que seu w
 
 Um slot é um widget nomeado onde um modelo é enviado:
 
-| Modelo      | Exemplo de espaço                   | Onde aparece                            |
-| ------------- | ------------------------------ | -------------------------------------------- |
-| **E-mail**      | `mail.contact-sidebar.bottom`  | Abaixo das informações de contato em todas as conversas por e-mail |
-| **Análise** | `analytics.dashboard.tiles`    | Juntamente com os painéis integrados do painel    |
-| **Calendário**  | `calendar.event-detail.bottom` | Abaixo do evento aberto                         |
-| **Clipes**     | `clips.right-panel.tabs`       | Uma nova guia no painel de revisão de clipes           |
+| Modelo         | Exemplo de espaço              | Onde aparece                                                       |
+| -------------- | ------------------------------ | ------------------------------------------------------------------ |
+| **E-mail**     | `mail.contact-sidebar.bottom`  | Abaixo das informações de contato em todas as conversas por e-mail |
+| **Análise**    | `analytics.dashboard.tiles`    | Juntamente com os painéis integrados do painel                     |
+| **Calendário** | `calendar.event-detail.bottom` | Abaixo do evento aberto                                            |
+| **Clipes**     | `clips.right-panel.tabs`       | Uma nova guia no painel de revisão de clipes                       |
 
 Quando uma extensão é **instalada em um slot**, o host envia o contexto relevante — o e-mail do contato, o ID do painel, o ID do evento — para o iframe. A extensão lê `window.slotContext` para saber o que o usuário está vendo.
 
@@ -315,14 +315,14 @@ As extensões compartilhadas têm seus próprios URLs e se conectam à mesma cai
 
 A estrutura permite que o agente edite o código-fonte do aplicativo diretamente – componentes, rotas, estilos. Então, quando você deve solicitar uma extensão?
 
-|                       | Extensão                                         | Edição do código do aplicativo                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Criado por**        | Agente (ou usuário) em tempo de execução                        | Agente editando arquivos de origem           |
-| **Armazenado em**         | O banco de dados                                      | O repositório git                   |
-| **Requer uma versão**  | Não                                                | Sim                                  |
-| **Requer uma implantação** | Não                                                | Sim                                  |
-| **Escopo**             | Um usuário (ou compartilhado com a organização)                     | O produto inteiro, cada usuário       |
-| **Melhor para**          | Widgets pessoais, KPIs personalizados, utilitários por equipe | Recursos principais disponíveis para todos os usuários |
+|                            | Extensão                                                      | Edição do código do aplicativo                         |
+| -------------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
+| **Criado por**             | Agente (ou usuário) em tempo de execução                      | Agente editando arquivos de origem                     |
+| **Armazenado em**          | O banco de dados                                              | O repositório git                                      |
+| **Requer uma versão**      | Não                                                           | Sim                                                    |
+| **Requer uma implantação** | Não                                                           | Sim                                                    |
+| **Escopo**                 | Um usuário (ou compartilhado com a organização)               | O produto inteiro, cada usuário                        |
+| **Melhor para**            | Widgets pessoais, KPIs personalizados, utilitários por equipe | Recursos principais disponíveis para todos os usuários |
 
 Regra geral: **se for para um usuário ou uma equipe, é uma extensão.** Se todos os usuários do modelo quiserem obtê-lo, envie-o como um recurso real.
 

@@ -84,13 +84,13 @@ Los CLI compatibles provienen del registro principal CLI
 para generar: el servidor PTY valida el comando solicitado en el registro
 Lista de permitidos para evitar la inyección:
 
-| CLI         | Comando    | Instalar paquete             |
-| ----------- | ---------- | --------------------------- |
-| Código Claude | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io  | `builder`  | (integrado)                  |
-| Codex       | `codex`    | `@openai/codex`             |
-| Géminis CLI  | `gemini`   | `@google/gemini-cli`        |
-| Código abierto    | `opencode` | `opencode-ai`               |
+| CLI            | Comando    | Instalar paquete            |
+| -------------- | ---------- | --------------------------- |
+| Código Claude  | `claude`   | `@anthropic-ai/claude-code` |
+| Builder.io     | `builder`  | (integrado)                 |
+| Codex          | `codex`    | `@openai/codex`             |
+| Géminis CLI    | `gemini`   | `@google/gemini-cli`        |
+| Código abierto | `opencode` | `opencode-ai`               |
 
 Si el CLI seleccionado no se encuentra en `PATH`, el terminal vuelve a ejecutarlo
 a través de `npx --yes <install-package>@latest` (donde existe un paquete de instalación). El

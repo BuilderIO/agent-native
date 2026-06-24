@@ -35,16 +35,16 @@ Seis patrones resuelven esto:
 
 Utilice diferentes canales de contexto para diferentes trabajos:
 
-| Capa                                     | Propietario             | Úselo para                                                                 |
-| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| Clave de estado de aplicación `navigation`                | UI                | Estado de ruta semántica: vista actual, registro abierto, pestaña activa, ID estables    |
-| Clave de estado de aplicación `__url__`                   | Marco UI      | Nombre de ruta actual, cadena de búsqueda, hash y parámetros de consulta URL analizados         |
-| Clave de estado de aplicación `__set_url__`               | Agente/marco | Ediciones únicas de URL de `set-search-params` y `set-url-path`             |
-| Clave de estado de aplicación `selection`                 | UI                | Selección semántica duradera: filas, bloques, formas, activos, mensajes         |
-| Clave de estado de aplicación `pending-selection-context` | UI / `AgentPanel` | Texto seleccionado de una sola vez adjunto al siguiente turno de chat, generalmente desde Cmd+I  |
-| Acción `view-screen`                      | Agente             | Hidratar las claves de estado de la aplicación en registros reales y resúmenes de pantalla        |
-| `sendToAgentChat()`                       | UI                | Convertir un clic, un comando, un pin de comentario o un elemento seleccionado en un mensaje de chat |
-| Clave de estado de aplicación `navigate`                  | Agente             | Pedir al UI que se mueva a otra ruta o enfoque otro objeto             |
+| Capa                                                      | Propietario       | Úselo para                                                                                           |
+| --------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| Clave de estado de aplicación `navigation`                | UI                | Estado de ruta semántica: vista actual, registro abierto, pestaña activa, ID estables                |
+| Clave de estado de aplicación `__url__`                   | Marco UI          | Nombre de ruta actual, cadena de búsqueda, hash y parámetros de consulta URL analizados              |
+| Clave de estado de aplicación `__set_url__`               | Agente/marco      | Ediciones únicas de URL de `set-search-params` y `set-url-path`                                      |
+| Clave de estado de aplicación `selection`                 | UI                | Selección semántica duradera: filas, bloques, formas, activos, mensajes                              |
+| Clave de estado de aplicación `pending-selection-context` | UI / `AgentPanel` | Texto seleccionado de una sola vez adjunto al siguiente turno de chat, generalmente desde Cmd+I      |
+| Acción `view-screen`                                      | Agente            | Hidratar las claves de estado de la aplicación en registros reales y resúmenes de pantalla           |
+| `sendToAgentChat()`                                       | UI                | Convertir un clic, un comando, un pin de comentario o un elemento seleccionado en un mensaje de chat |
+| Clave de estado de aplicación `navigate`                  | Agente            | Pedir al UI que se mueva a otra ruta o enfoque otro objeto                                           |
 
 La versión corta: los parámetros de consulta URL son la fuente de verdad para los filtros que se pueden compartir, `navigation` almacena ID semánticos y nombres de vistas, `view-screen` convierte esas capas de estado en datos útiles y `sendToAgentChat()` convierte la intención de UI en un mensaje de chat cuando el usuario hace clic en un comando.
 
@@ -243,15 +243,15 @@ function askAgentAboutSelection(selection: {
 
 Utilice los campos deliberadamente:
 
-| Campo               | Significado                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `message`           | Texto de aviso visible mostrado en el chat                                                |
-| `context`           | Contexto visible del modelo oculto, no se muestra como texto de chat de cara al usuario                 |
-| `submit: true`      | Enviar inmediatamente; bueno para botones de comando explícitos como "Reparar diseño"         |
+| Campo               | Significado                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `message`           | Texto de aviso visible mostrado en el chat                                                                 |
+| `context`           | Contexto visible del modelo oculto, no se muestra como texto de chat de cara al usuario                    |
+| `submit: true`      | Enviar inmediatamente; bueno para botones de comando explícitos como "Reparar diseño"                      |
 | `submit: false`     | Precompletar para revisión del usuario; bueno para "Preguntar al agente sobre esto" o selecciones ambiguas |
-| `openSidebar: true` | Hacer visible la respuesta del agente incluso si el panel estaba contraído                  |
-| `newTab: true`      | Iniciar un hilo de chat independiente para una tarea de creación más grande                          |
-| `type: "code"`      | Ruta al marco de edición de código cuando la solicitud trata sobre cambiar la fuente de la aplicación    |
+| `openSidebar: true` | Hacer visible la respuesta del agente incluso si el panel estaba contraído                                 |
+| `newTab: true`      | Iniciar un hilo de chat independiente para una tarea de creación más grande                                |
+| `type: "code"`      | Ruta al marco de edición de código cuando la solicitud trata sobre cambiar la fuente de la aplicación      |
 
 `sendToAgentChat()` es el contenedor del navegador compatible para la ruta del chat enviado que a veces se ve internamente como `agentNative.submitChat`. La aplicación UI debe llamar al contenedor en lugar de publicar `agentNative.submitChat` directamente porque el contenedor maneja las barras laterales locales, el enrutamiento Builder/Frame, el enrutamiento del host de la aplicación MCP, los ID de pestañas y el enrutamiento de solicitud de código.
 
@@ -334,9 +334,9 @@ export function useNavigationState() {
 }
 ```
 
-| Tú escribes                                              | El marco maneja                                                                    |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `getNavigationState`: asigna el URL al estado semántico   | Escrituras `navigation`, con alcance de tabulación más una clave alternativa global                               |
+| Tú escribes                                               | El marco maneja                                                                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `getNavigationState`: asigna el URL al estado semántico   | Escrituras `navigation`, con alcance de tabulación más una clave alternativa global                                      |
 | `getCommandPath`: asigna un comando `navigate` a una ruta | sondeo de comandos, eliminación después de lectura, protección de comandos duplicados, etiquetado de fuente de solicitud |
 
 `useAgentRouteState` asume el enrutador React. Cuando la navegación no reside en el URL (un paso del asistente, una selección de lienzo, un shell que no es un enrutador), descienda al `useSemanticNavigationState` de nivel inferior: le entrega un valor `state` listo para usar más `navigationKeys`/`commandKeys` y una devolución de llamada `onCommand`, y se mantiene completamente independiente del enrutador React.

@@ -42,13 +42,13 @@ export default defineEval({
 
 Eine Bewertung ist nur dann erfolgreich, wenn **jeder** Scorer den Schwellenwert erreicht. Schlüsselfelder `defineEval`:
 
-| Feld       | Typ                  | Notizen                                                         |
-| ----------- | --------------------- | ------------------------------------------------------------- |
-| `name`      | Zeichenfolge                | Erforderlich. Wird im Bericht angezeigt.                                |
-| `input`     | `{ prompt, history }` | Erforderlich `prompt`; optionale vorherige `{ role, text }`-Runden.     |
-| `scorers`   | `Scorer[]`            | Erforderlich, mindestens einer.                                       |
-| `threshold` | Nummer `0..1`         | Passleiste pro Torschütze. Standard `0.5`; überschreibbar vom CLI. |
-| `run`       | Funktion              | Optionale Überschreibung für benutzerdefinierte Einrichtung (Saatdaten, Multiturn).   |
+| Feld        | Typ                   | Notizen                                                                             |
+| ----------- | --------------------- | ----------------------------------------------------------------------------------- |
+| `name`      | Zeichenfolge          | Erforderlich. Wird im Bericht angezeigt.                                            |
+| `input`     | `{ prompt, history }` | Erforderlich `prompt`; optionale vorherige `{ role, text }`-Runden.                 |
+| `scorers`   | `Scorer[]`            | Erforderlich, mindestens einer.                                                     |
+| `threshold` | Nummer `0..1`         | Passleiste pro Torschütze. Standard `0.5`; überschreibbar vom CLI.                  |
+| `run`       | Funktion              | Optionale Überschreibung für benutzerdefinierte Einrichtung (Saatdaten, Multiturn). |
 
 Der den Bewertern übergebene Agentenlauf ist klein und transportunabhängig:
 
@@ -67,12 +67,12 @@ interface AgentRunOutput {
 
 Importiert von `@agent-native/core/eval`:
 
-| Scorer                   | Punktzahl                                                             | Modell? |
-| ------------------------ | ----------------------------------------------------------------- | ------ |
-| `exactMatch(expected)`   | `1.0`, wenn der Text gleich `expected` ist (gekürzt, ohne Berücksichtigung der Groß-/Kleinschreibung)       | Nein     |
-| `contains(needles)`      | Anteil der erforderlichen Teilzeichenfolgen vorhanden (so dass Teiltreffer sichtbar sind) | Nein     |
-| `usesTool(toolName)`     | `1.0`, wenn der Agent dieses Tool/diese Aktion mindestens einmal aufgerufen hat         | Nein     |
-| `llmJudge({ criteria })` | LLM-als-Richter punktete anhand einer Rubrik in natürlicher Sprache, → `0..1`   | Ja    |
+| Scorer                   | Punktzahl                                                                                             | Modell? |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | ------- |
+| `exactMatch(expected)`   | `1.0`, wenn der Text gleich `expected` ist (gekürzt, ohne Berücksichtigung der Groß-/Kleinschreibung) | Nein    |
+| `contains(needles)`      | Anteil der erforderlichen Teilzeichenfolgen vorhanden (so dass Teiltreffer sichtbar sind)             | Nein    |
+| `usesTool(toolName)`     | `1.0`, wenn der Agent dieses Tool/diese Aktion mindestens einmal aufgerufen hat                       | Nein    |
+| `llmJudge({ criteria })` | LLM-als-Richter punktete anhand einer Rubrik in natürlicher Sprache, → `0..1`                         | Ja      |
 
 `exactMatch` und `contains` benötigen einen optionalen `{ caseSensitive }`. `llmJudge` übernimmt `{ criteria, rubric?, name?, scoreRange? }` – seine Ausgabe wird auf `[0, 1]` normalisiert, und das Richtermodell ist das, was der Läufer aufgelöst hat (niemals ein fest codierter Anbieter).
 
@@ -131,11 +131,11 @@ Der Befehl erkennt `**/*.eval.ts` und `evals/*.ts` unter der aktuellen App, füh
 
 Exit-Codes:
 
-| Code | Bedeutung                                                         |
-| ---- | --------------------------------------------------------------- |
+| Code | Bedeutung                                                                                           |
+| ---- | --------------------------------------------------------------------------------------------------- |
 | `0`  | Alle Evaluierungen bestanden – _oder_ es wurden keine Evaluierungsdateien gefunden (CI-freundlich). |
-| `1`  | Mindestens eine Bewertung lag unter dem Schwellenwert oder die Suite ist fehlerhaft. |
-| `2`  | Ungültige Argumente (z. B. `--threshold` außerhalb von `[0, 1]`).            |
+| `1`  | Mindestens eine Bewertung lag unter dem Schwellenwert oder die Suite ist fehlerhaft.                |
+| `2`  | Ungültige Argumente (z. B. `--threshold` außerhalb von `[0, 1]`).                                   |
 
 ### Als CI-Deploy-Gate {#ci}
 

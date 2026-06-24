@@ -35,16 +35,16 @@ Sechs Muster lösen dieses Problem:
 
 Verwenden Sie unterschiedliche Kontextkanäle für unterschiedliche Aufgaben:
 
-| Ebene                                     | Eigentümer             | Verwenden Sie es für                                                                 |
-| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
-| `navigation` App-Statusschlüssel                | UI                | Semantischer Routenstatus: aktuelle Ansicht, geöffneter Datensatz, aktive Registerkarte, stabile IDs    |
-| `__url__` App-Statusschlüssel                   | Framework UI      | Aktueller Pfadname, Suchzeichenfolge, Hash und analysierte URL-Abfrageparameter         |
-| `__set_url__` App-Statusschlüssel               | Agent/Framework | Einzelne URL-Bearbeitungen von `set-search-params` und `set-url-path`             |
-| `selection` App-Statusschlüssel                 | UI                | Dauerhafte semantische Auswahl: Zeilen, Blöcke, Formen, Assets, Nachrichten         |
-| `pending-selection-context` App-Statusschlüssel | UI / `AgentPanel` | Einmaliger ausgewählter Text, der an die nächste Chat-Runde angehängt wird, normalerweise über Cmd+I  |
-| `view-screen`-Aktion                      | Agent             | Übertragung der App-Statusschlüssel in echte Datensätze und Bildschirmzusammenfassungen        |
-| `sendToAgentChat()`                       | UI                | Einen Klick, einen Befehl, eine Kommentar-Pin oder ein ausgewähltes Element in eine Chat-Eingabeaufforderung umwandeln |
-| `navigate` App-Statusschlüssel                  | Agent             | Aufforderung an den UI, zu einer anderen Route zu wechseln oder ein anderes Objekt zu fokussieren             |
+| Ebene                                           | Eigentümer        | Verwenden Sie es für                                                                                                   |
+| ----------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `navigation` App-Statusschlüssel                | UI                | Semantischer Routenstatus: aktuelle Ansicht, geöffneter Datensatz, aktive Registerkarte, stabile IDs                   |
+| `__url__` App-Statusschlüssel                   | Framework UI      | Aktueller Pfadname, Suchzeichenfolge, Hash und analysierte URL-Abfrageparameter                                        |
+| `__set_url__` App-Statusschlüssel               | Agent/Framework   | Einzelne URL-Bearbeitungen von `set-search-params` und `set-url-path`                                                  |
+| `selection` App-Statusschlüssel                 | UI                | Dauerhafte semantische Auswahl: Zeilen, Blöcke, Formen, Assets, Nachrichten                                            |
+| `pending-selection-context` App-Statusschlüssel | UI / `AgentPanel` | Einmaliger ausgewählter Text, der an die nächste Chat-Runde angehängt wird, normalerweise über Cmd+I                   |
+| `view-screen`-Aktion                            | Agent             | Übertragung der App-Statusschlüssel in echte Datensätze und Bildschirmzusammenfassungen                                |
+| `sendToAgentChat()`                             | UI                | Einen Klick, einen Befehl, eine Kommentar-Pin oder ein ausgewähltes Element in eine Chat-Eingabeaufforderung umwandeln |
+| `navigate` App-Statusschlüssel                  | Agent             | Aufforderung an den UI, zu einer anderen Route zu wechseln oder ein anderes Objekt zu fokussieren                      |
 
 Die Kurzfassung: URL-Abfrageparameter sind die Quelle der Wahrheit für gemeinsam nutzbare Filter, `navigation` speichert semantische IDs und Ansichtsnamen, `view-screen` wandelt diese Zustandsebenen in nützliche Daten um und `sendToAgentChat()` wandelt die UI-Absicht in eine Chat-Nachricht um, wenn der Benutzer auf einen Befehl klickt.
 
@@ -243,15 +243,15 @@ function askAgentAboutSelection(selection: {
 
 Verwenden Sie die Felder bewusst:
 
-| Feld               | Bedeutung                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `message`           | Sichtbarer Aufforderungstext wird im Chat angezeigt                                                |
-| `context`           | Versteckter, für das Modell sichtbarer Kontext, der nicht als für den Benutzer sichtbarer Chattext angezeigt wird                 |
-| `submit: true`      | Sofort senden; gut für explizite Befehlsschaltflächen wie „Layout korrigieren“         |
-| `submit: false`     | Vorausfüllen zur Benutzerüberprüfung; Gut für „Fragen Sie den Agenten danach“ oder mehrdeutige Auswahlen |
-| `openSidebar: true` | Machen Sie die Antwort des Agenten sichtbar, auch wenn das Bedienfeld ausgeblendet war                  |
-| `newTab: true`      | Starten Sie einen separaten Chat-Thread für eine größere Erstellungsaufgabe                          |
-| `type: "code"`      | Weiterleitung zum Codebearbeitungs-Frame, wenn es bei der Anfrage darum geht, die App-Quelle zu ändern    |
+| Feld                | Bedeutung                                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `message`           | Sichtbarer Aufforderungstext wird im Chat angezeigt                                                               |
+| `context`           | Versteckter, für das Modell sichtbarer Kontext, der nicht als für den Benutzer sichtbarer Chattext angezeigt wird |
+| `submit: true`      | Sofort senden; gut für explizite Befehlsschaltflächen wie „Layout korrigieren“                                    |
+| `submit: false`     | Vorausfüllen zur Benutzerüberprüfung; Gut für „Fragen Sie den Agenten danach“ oder mehrdeutige Auswahlen          |
+| `openSidebar: true` | Machen Sie die Antwort des Agenten sichtbar, auch wenn das Bedienfeld ausgeblendet war                            |
+| `newTab: true`      | Starten Sie einen separaten Chat-Thread für eine größere Erstellungsaufgabe                                       |
+| `type: "code"`      | Weiterleitung zum Codebearbeitungs-Frame, wenn es bei der Anfrage darum geht, die App-Quelle zu ändern            |
 
 `sendToAgentChat()` ist der unterstützte Browser-Wrapper für den Pfad des übermittelten Chats, der intern manchmal als `agentNative.submitChat` angezeigt wird. Die App UI sollte den Wrapper aufrufen, anstatt `agentNative.submitChat` direkt zu veröffentlichen, da der Wrapper lokale Seitenleisten, Builder/Frame-Routing, MCP-App-Host-Routing, Tab-IDs und Code-Anfrage-Routing verarbeitet.
 
@@ -334,9 +334,9 @@ export function useNavigationState() {
 }
 ```
 
-| Du schreibst                                              | Das Framework behandelt                                                                    |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `getNavigationState` – ordnet URL dem semantischen Zustand zu   | `navigation` schreibt, tabulatorgesteuert und mit einem globalen Fallback-Schlüssel                               |
+| Du schreibst                                                         | Das Framework behandelt                                                                               |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `getNavigationState` – ordnet URL dem semantischen Zustand zu        | `navigation` schreibt, tabulatorgesteuert und mit einem globalen Fallback-Schlüssel                   |
 | `getCommandPath` – Ordnen Sie einen `navigate`-Befehl einer Route zu | Befehlsabfrage, Löschen nach dem Lesen, Schutz vor doppelten Befehlen, Tagging der Anforderungsquelle |
 
 `useAgentRouteState` geht vom React-Router aus. Wenn die Navigation nicht im URL erfolgt – ein Assistentenschritt, eine Canvas-Auswahl, eine Nicht-Router-Shell –, wechseln Sie stattdessen zur untergeordneten `useSemanticNavigationState`: Sie übergeben ihr einen vorgefertigten `state`-Wert plus `navigationKeys`/`commandKeys` und einen `onCommand`-Rückruf, und sie bleibt völlig unabhängig vom React-Router.

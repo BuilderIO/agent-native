@@ -188,26 +188,26 @@ A estrutura compartilha tabelas (`deck_shares`, `design_system_shares`) mapeia p
 
 #### baralhos
 
-| Coluna       | Tipo | Notas                                                     |
-| ------------ | ---- | --------------------------------------------------------- |
-| `id`         | texto | Chave primária, por ex. `deck-1712345-abc`                      |
-| `title`      | texto | Título do deck                                                |
+| Coluna       | Tipo  | Notas                                                     |
+| ------------ | ----- | --------------------------------------------------------- |
+| `id`         | texto | Chave primária, por ex. `deck-1712345-abc`                |
+| `title`      | texto | Título do deck                                            |
 | `data`       | texto | Blob JSON: `{ title, slides: [{ id, content, layout }] }` |
-| `created_at` | texto | Carimbo de data e hora                                                 |
-| `updated_at` | texto | Carimbo de data e hora                                                 |
+| `created_at` | texto | Carimbo de data e hora                                    |
+| `updated_at` | texto | Carimbo de data e hora                                    |
 
 Cada deck também carrega o `ownableColumns` padrão (proprietário, visibilidade, token de compartilhamento) para que ele se encaixe no modelo de compartilhamento da estrutura.
 
 #### slide_comments
 
-| Coluna                        | Notas                                  |
-| ----------------------------- | -------------------------------------- |
-| `id`                          | Chave primária                            |
-| `deck_id`                     | Baralho pai                            |
-| `slide_id`                    | Deslize o comentário ao vivo             |
-| `thread_id`, `parent_id`      | Rosqueamento                              |
+| Coluna                        | Notas                                          |
+| ----------------------------- | ---------------------------------------------- |
+| `id`                          | Chave primária                                 |
+| `deck_id`                     | Baralho pai                                    |
+| `slide_id`                    | Deslize o comentário ao vivo                   |
+| `thread_id`, `parent_id`      | Rosqueamento                                   |
 | `content`, `quoted_text`      | Corpo do comentário e trecho de texto opcional |
-| `author_email`, `author_name` | Autor                                 |
+| `author_email`, `author_name` | Autor                                          |
 | `resolved`                    | Sinalizador booleano                           |
 
 #### deck_shares

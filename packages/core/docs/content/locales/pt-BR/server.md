@@ -42,14 +42,14 @@ export default defineEventHandler(() => ({
 
 ### Convenções de nomenclatura de rotas {#route-naming-conventions}
 
-| Padrão de nome de arquivo  | Método HTTP | Caminho de exemplo                |
-| ------------------ | ----------- | --------------------------- |
-| `index.get.ts`     | GET         | `/api/items`                |
-| `index.post.ts`    | POST        | `/api/items`                |
-| `[id].get.ts`      | GET         | `/api/items/:id`            |
-| `[id].patch.ts`    | PATCH       | `/api/items/:id`            |
-| `[id].delete.ts`   | DELETE      | `/api/items/:id`            |
-| `[...slug].get.ts` | GET         | `/api/items/*` ou pega-tudo |
+| Padrão de nome de arquivo | Método HTTP | Caminho de exemplo          |
+| ------------------------- | ----------- | --------------------------- |
+| `index.get.ts`            | GET         | `/api/items`                |
+| `index.post.ts`           | POST        | `/api/items`                |
+| `[id].get.ts`             | GET         | `/api/items/:id`            |
+| `[id].patch.ts`           | PATCH       | `/api/items/:id`            |
+| `[id].delete.ts`          | DELETE      | `/api/items/:id`            |
+| `[...slug].get.ts`        | GET         | `/api/items/*` ou pega-tudo |
 
 ## Prefira Actions para operações de aplicativos {#actions-first}
 
@@ -149,19 +149,19 @@ As migrações devem ser aditivas. Nunca coloque SQL destrutivo em plugins de in
 
 A estrutura monta suas próprias rotas em `/_agent-native/`. Trate esse namespace como reservado.
 
-| Prefixo da rota                     | Propósito                                                                         |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Endpoints de ação HTTP                                                           |
+| Prefixo da rota                  | Propósito                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints de ação HTTP                                                                      |
 | `/_agent-native/agent-chat`      | Loop de bate-papo do agente                                                                 |
-| `/_agent-native/poll`            | Sincronização UI suportada por SQL                                                              |
-| `/_agent-native/resources/*`     | Recursos do espaço de trabalho                                                             |
+| `/_agent-native/poll`            | Sincronização UI suportada por SQL                                                          |
+| `/_agent-native/resources/*`     | Recursos do espaço de trabalho                                                              |
 | `/_agent-native/extensions/*`    | Extensões de tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Integrações de mensagens/webhook                                                  |
-| `/_agent-native/a2a`             | Agente para agente JSON-RPC                                                         |
-| `/_agent-native/mcp`             | Ponto final MCP                                                                    |
-| `/_agent-native/onboarding/*`    | Lista de verificação de configuração                                                                 |
-| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                            |
-| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                                   |
+| `/_agent-native/integrations/*`  | Integrações de mensagens/webhook                                                            |
+| `/_agent-native/a2a`             | Agente para agente JSON-RPC                                                                 |
+| `/_agent-native/mcp`             | Ponto final MCP                                                                             |
+| `/_agent-native/onboarding/*`    | Lista de verificação de configuração                                                        |
+| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                                  |
+| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                                  |
 
 As rotas de aplicativos personalizados devem usar `/api/*`, caminhos de aplicativos públicos ou caminhos de retorno de chamada específicos do provedor que não colidam com `/_agent-native/`.
 

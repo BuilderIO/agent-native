@@ -18,14 +18,14 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
 }
 ```
 
-| Claude-Code / Codex              | Agent-nativer Arbeitsbereich                             |
-| -------------------------------- | -------------------------------------------------- |
-| Dateien auf Ihrer lokalen Festplatte         | Zeilen in einer gemeinsam genutzten SQL-Datenbank                      |
-| Eine Codebasis pro Entwickler       | Eine Codebasis, viele Benutzer                           |
-| Benötigt eine Entwicklungsbox oder einen Container     | Läuft auf jedem serverlosen/Edge-Host                   |
-| Anpassung bei `~/.claude/`    | Anpassung pro Benutzer, mit Gültigkeitsbereich `u:<email>:…`       |
-| Pro Projekt `CLAUDE.md` / skills | `AGENTS.md` pro App + Arbeitsspeicherressourcen   |
-| MCP-Konfiguration in einer JSON-Datei        | MCP-Konfiguration in JSON _oder_ die Einstellungen UI, pro Bereich |
+| Claude-Code / Codex                                | Agent-nativer Arbeitsbereich                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| Dateien auf Ihrer lokalen Festplatte               | Zeilen in einer gemeinsam genutzten SQL-Datenbank                  |
+| Eine Codebasis pro Entwickler                      | Eine Codebasis, viele Benutzer                                     |
+| Benötigt eine Entwicklungsbox oder einen Container | Läuft auf jedem serverlosen/Edge-Host                              |
+| Anpassung bei `~/.claude/`                         | Anpassung pro Benutzer, mit Gültigkeitsbereich `u:<email>:…`       |
+| Pro Projekt `CLAUDE.md` / skills                   | `AGENTS.md` pro App + Arbeitsspeicherressourcen                    |
+| MCP-Konfiguration in einer JSON-Datei              | MCP-Konfiguration in JSON _oder_ die Einstellungen UI, pro Bereich |
 
 Gleiche Funktionen. Andere Wirtschaftswissenschaften. Warum dies für SaaS wichtig ist, erfahren Sie unter [Templates](/docs/cloneable-saas).
 
@@ -41,13 +41,13 @@ Das In-App-Arbeitsbereich-Bedienfeld zeigt alle drei Bereiche. Persönliche und 
 
 Die kanonischen Pfade, die steuern, wie der Agent jede Ressource nutzt:
 
-| Laufzeitressource        | Pfad                                    | Wie Agenten es verwenden                               |
-| ----------------------- | --------------------------------------- | ----------------------------------------------- |
-| Leitplankenanweisungen  | `AGENTS.md` oder `instructions/<slug>.md` | Wird in jeder Runde in jeder App geladen, die es empfängt |
-| Global skills           | `skills/<slug>/SKILL.md`                | Als Arbeitsbereich skills aufgeführt und bei Bedarf gelesen   |
-| Marken-/Unternehmensressourcen | `context/<slug>.md`                     | Bei jedem Schritt indiziert, bei Bedarf gelesen          |
-| Benutzerdefinierte Agentenprofile   | `agents/<slug>.md`                      | Verfügbar als wiederverwendbare lokale Agentenprofile      |
-| Freigegebene HTTP MCP-Server | `mcp-servers/<slug>.json`               | In die Tool-Registrierung MCP gewährter Apps geladen     |
+| Laufzeitressource                 | Pfad                                      | Wie Agenten es verwenden                                    |
+| --------------------------------- | ----------------------------------------- | ----------------------------------------------------------- |
+| Leitplankenanweisungen            | `AGENTS.md` oder `instructions/<slug>.md` | Wird in jeder Runde in jeder App geladen, die es empfängt   |
+| Global skills                     | `skills/<slug>/SKILL.md`                  | Als Arbeitsbereich skills aufgeführt und bei Bedarf gelesen |
+| Marken-/Unternehmensressourcen    | `context/<slug>.md`                       | Bei jedem Schritt indiziert, bei Bedarf gelesen             |
+| Benutzerdefinierte Agentenprofile | `agents/<slug>.md`                        | Verfügbar als wiederverwendbare lokale Agentenprofile       |
+| Freigegebene HTTP MCP-Server      | `mcp-servers/<slug>.json`                 | In die Tool-Registrierung MCP gewährter Apps geladen        |
 
 Diese Pfade gelten für alle drei Bereiche – Arbeitsbereich, Organisation/App und Persönlich. Der spätere Bereich gewinnt, wenn derselbe Pfad auf mehreren Ebenen vorhanden ist.
 
@@ -104,7 +104,7 @@ skills/company-voice/SKILL.md   # on-demand guidance for customer-facing writing
 agents/<slug>.md                # reusable custom agent profiles
 ```
 
- Halten Sie `context/`-Dateien sachlich und leicht zu überfliegen. Legen Sie in `instructions/guardrails.md` Regeln fest, die in jeder Runde gelten müssen. Verwenden Sie `skills/company-voice/SKILL.md`, wenn der Agent die Kopie im Namen des Unternehmens absichtlich umwandeln oder überprüfen soll.
+Halten Sie `context/`-Dateien sachlich und leicht zu überfliegen. Legen Sie in `instructions/guardrails.md` Regeln fest, die in jeder Runde gelten müssen. Verwenden Sie `skills/company-voice/SKILL.md`, wenn der Agent die Kopie im Namen des Unternehmens absichtlich umwandeln oder überprüfen soll.
 
 Um einen globalen Standard für eine App oder ein Team zu überschreiben, erstellen Sie in dieser App eine freigegebene/Organisationsressource mit demselben Pfad. Um es für eine Person zu überschreiben, erstellen Sie eine persönliche Ressource mit demselben Pfad. Kopieren Sie die Arbeitsbereichsdatei nicht in jede App; Die Laufzeit löst den Stapel beim Lesen auf:
 
@@ -169,15 +169,15 @@ Das Ressourcensystem setzt auch einen persönlichen `LEARNINGS.md` für die Komp
 
 **Wo es passt.**
 
-| Oberfläche            | Geltungsbereich              | Geschrieben von                           | Wann lesen                              |
-| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
-| `AGENTS.md`        | Geteilt             | Menschen / Agent auf Anfrage            | Jede Runde                             |
-| `LEARNINGS.md`     | Geteilt             | Menschen / Agent auf Anfrage            | Jede Runde (nur geteilte Kopie)          |
-| `memory/MEMORY.md` | Persönlich           | Agent / Menschen                       | Jede Runde                             |
-| `instructions/…`   | Geteilt             | Menschen / Agent auf Anfrage            | Jede Runde                             |
-| `skills/…`         | Geteilt             | Menschen / Agent auf Anfrage            | Auf Anfrage (`/slash`-Befehl)           |
-| `context/…`        | Geteilt             | Menschen / Agent auf Anfrage            | Bei jedem Schritt indiziert, bei Bedarf gelesen |
-| `mcp-servers/…`    | Arbeitsbereich / freigegeben | Menschen über Dispatch oder App-Arbeitsbereich | MCP-Konfigurationsaktualisierung                     |
+| Oberfläche         | Geltungsbereich              | Geschrieben von                                | Wann lesen                                      |
+| ------------------ | ---------------------------- | ---------------------------------------------- | ----------------------------------------------- |
+| `AGENTS.md`        | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde                                      |
+| `LEARNINGS.md`     | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde (nur geteilte Kopie)                 |
+| `memory/MEMORY.md` | Persönlich                   | Agent / Menschen                               | Jede Runde                                      |
+| `instructions/…`   | Geteilt                      | Menschen / Agent auf Anfrage                   | Jede Runde                                      |
+| `skills/…`         | Geteilt                      | Menschen / Agent auf Anfrage                   | Auf Anfrage (`/slash`-Befehl)                   |
+| `context/…`        | Geteilt                      | Menschen / Agent auf Anfrage                   | Bei jedem Schritt indiziert, bei Bedarf gelesen |
+| `mcp-servers/…`    | Arbeitsbereich / freigegeben | Menschen über Dispatch oder App-Arbeitsbereich | MCP-Konfigurationsaktualisierung                |
 
 Benutzer können diese Speicherdateien direkt auf der Registerkarte „Arbeitsbereich“ bearbeiten – es handelt sich um reguläre Ressourcen. Löschen Sie Zeilen, die der Agent falsch verstanden hat, behalten Sie persönliche Präferenzen in `memory/MEMORY.md` bei oder übertragen Sie teamweite Regeln in `AGENTS.md`.
 
@@ -260,13 +260,13 @@ Geben Sie `/` am Anfang einer Zeile ein, um einen Skill aufzurufen. Ein Dropdown
 
 Das Ressourcensystem funktioniert in beiden Modi identisch. Der Unterschied besteht in den zusätzlichen Quellen, die für `@`-Tagging und `/`-Befehle verfügbar sind:
 
-| Funktion            | Codemodus                                                               | App-Modus                                               |
-| ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| @-Tagging          | Codebasisdateien + Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten | Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten |
-| / Slash-Befehle   | .agents/skills/ + Ressource skills                                       | Nur Ressource skills                                   |
-| Agent-Dateizugriff  | Dateisystem + Ressourcen                                                  | Nur Ressourcen                                         |
-| Arbeitsbereichsbereich    | Vollzugriff                                                             | Vollzugriff                                            |
-| AGENTS.md / Speicher | Verfügbar                                                               | Verfügbar                                              |
+| Funktion               | Codemodus                                                                                      | App-Modus                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| @-Tagging              | Codebasisdateien + Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten | Arbeitsbereichsressourcen + benutzerdefinierte Agenten + verbundene Agenten |
+| / Slash-Befehle        | .agents/skills/ + Ressource skills                                                             | Nur Ressource skills                                                        |
+| Agent-Dateizugriff     | Dateisystem + Ressourcen                                                                       | Nur Ressourcen                                                              |
+| Arbeitsbereichsbereich | Vollzugriff                                                                                    | Vollzugriff                                                                 |
+| AGENTS.md / Speicher   | Verfügbar                                                                                      | Verfügbar                                                                   |
 
 ## Workspace-Verbindungen {#workspace-connections}
 
@@ -286,16 +286,16 @@ Ressourcen können über den Servercode actions oder REST API verwaltet werden.
 
 REST Endpunkte automatisch gemountet:
 
-| Methode   | Endpunkt                                      | Beschreibung                          |
-| -------- | --------------------------------------------- | ------------------------------------ |
-| `GET`    | `/_agent-native/resources?scope=all`          | Ressourcen auflisten                       |
+| Methode  | Endpunkt                                      | Beschreibung                                  |
+| -------- | --------------------------------------------- | --------------------------------------------- |
+| `GET`    | `/_agent-native/resources?scope=all`          | Ressourcen auflisten                          |
 | `GET`    | `/_agent-native/resources?scope=workspace`    | Geerbte Arbeitsbereichsressourcen auflisten   |
-| `GET`    | `/_agent-native/resources/tree?scope=all`     | Ordnerbaum abrufen                      |
+| `GET`    | `/_agent-native/resources/tree?scope=all`     | Ordnerbaum abrufen                            |
 | `GET`    | `/_agent-native/resources/effective?path=...` | Zeigen Sie den effektiven Vererbungsstapel an |
-| `POST`   | `/_agent-native/resources`                    | Erstellen Sie eine Ressource                    |
-| `GET`    | `/_agent-native/resources/:id`                | Ressource mit Inhalt abrufen            |
-| `PUT`    | `/_agent-native/resources/:id`                | Eine Ressource aktualisieren                    |
-| `DELETE` | `/_agent-native/resources/:id`                | Eine Ressource löschen                    |
+| `POST`   | `/_agent-native/resources`                    | Erstellen Sie eine Ressource                  |
+| `GET`    | `/_agent-native/resources/:id`                | Ressource mit Inhalt abrufen                  |
+| `PUT`    | `/_agent-native/resources/:id`                | Eine Ressource aktualisieren                  |
+| `DELETE` | `/_agent-native/resources/:id`                | Eine Ressource löschen                        |
 | `POST`   | `/_agent-native/resources/upload`             | Eine Datei als Ressource hochladen            |
 
 ### Aktion API {#script-api}

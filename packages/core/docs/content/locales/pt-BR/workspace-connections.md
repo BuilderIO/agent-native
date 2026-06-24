@@ -139,17 +139,17 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 
 Os IDs iniciais do provedor são:
 
-| Provedor       | Capacidades                   | Usos comuns                    |
-| -------------- | ------------------------------ | ------------------------------ |
-| `slack`        | pesquisar, importar, mensagens       | cérebro, expedição, análise     |
-| `github`       | pesquisar, importar, codificar, documentos     | cérebro, análise, expedição     |
-| `notion`       | pesquisar, importar, documentos           | cérebro, conteúdo, expedição       |
-| `gmail`        | pesquisar, importar, mensagens       | correio, cérebro, despacho          |
-| `google_drive` | pesquisar, importar, documentos           | cérebro, conteúdo, slides         |
-| `hubspot`      | pesquisar, importar, CRM            | analítica, cérebro, e-mail         |
-| `granola`      | pesquisa, importação, reuniões, documentos | cérebro, calendário, envio      |
-| `clips`        | pesquisa, importação, reuniões       | cérebro, clipes, vídeos           |
-| `generic`      | pesquisar, importar, documentos           | webhooks personalizado e descarte de arquivos |
+| Provedor       | Capacidades                                | Usos comuns                                   |
+| -------------- | ------------------------------------------ | --------------------------------------------- |
+| `slack`        | pesquisar, importar, mensagens             | cérebro, expedição, análise                   |
+| `github`       | pesquisar, importar, codificar, documentos | cérebro, análise, expedição                   |
+| `notion`       | pesquisar, importar, documentos            | cérebro, conteúdo, expedição                  |
+| `gmail`        | pesquisar, importar, mensagens             | correio, cérebro, despacho                    |
+| `google_drive` | pesquisar, importar, documentos            | cérebro, conteúdo, slides                     |
+| `hubspot`      | pesquisar, importar, CRM                   | analítica, cérebro, e-mail                    |
+| `granola`      | pesquisa, importação, reuniões, documentos | cérebro, calendário, envio                    |
+| `clips`        | pesquisa, importação, reuniões             | cérebro, clipes, vídeos                       |
+| `generic`      | pesquisar, importar, documentos            | webhooks personalizado e descarte de arquivos |
 
 As chaves de credenciais são apenas nomes, como `SLACK_BOT_TOKEN` ou `GITHUB_TOKEN`. Os metadados do provedor nunca devem incluir valores de credenciais reais.
 

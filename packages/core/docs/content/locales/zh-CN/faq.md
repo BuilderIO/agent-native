@@ -26,7 +26,7 @@ Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数
 
 ### 这与向现有应用添加 AI 有何不同？ {#how-is-this-different}
 
-大多数应用程序将人工智能作为事后的想法，实际上无法在应用程序中_做_事情。在代理原生应用程序中，代理是一等公民，与 UI 共享相同的 actions、数据库和状态，因此它可以执行按钮可以执行的任何操作 - 并修改应用程序自己的代码。参见[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
+大多数应用程序将人工智能作为事后的想法，实际上无法在应用程序中*做*事情。在代理原生应用程序中，代理是一等公民，与 UI 共享相同的 actions、数据库和状态，因此它可以执行按钮可以执行的任何操作 - 并修改应用程序自己的代码。参见[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
 
 ```an-diagram title="Bolted-on AI vs. agent-native" summary="A bolted-on chat sidebar lives in its own world. An agent-native agent shares the same actions, database, and state as the UI."
 {
@@ -62,7 +62,7 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ### 我可以将现有应用迁移到代理原生吗？ {#can-i-use-existing-code}
 
-可以，但是从头开始构建原生代理效果最好。架构——共享数据库、轮询同步、actions、应用程序状态——需要始终集成。从模板开始并自定义它是推荐的路径。可以把它想象成从桌面优先到移动优先的转变：你_可以_改造，但构建原生更好。
+可以，但是从头开始构建原生代理效果最好。架构——共享数据库、轮询同步、actions、应用程序状态——需要始终集成。从模板开始并自定义它是推荐的路径。可以把它想象成从桌面优先到移动优先的转变：你*可以*改造，但构建原生更好。
 
 ## 模板以及您可以构建的内容 {#templates}
 

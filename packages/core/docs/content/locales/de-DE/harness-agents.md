@@ -32,12 +32,12 @@ Modellaufruf.
 
 ## Welches Codierungsdokument möchte ich? {#which-doc}
 
-| Sie möchten…                                                               | Verwenden                                          |
-| -------------------------------------------------------------------------- | -------------------------------------------- |
-| Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | **Harness-Agenten** (diese Seite)               |
-| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil                   | [Agent-Native Code UI](/docs/code-agents-ui) |
-| Tausch das Backend, das das **`run-code`-Tool** des Agenten ausführt                 | [Adapters](/docs/sandbox-adapters)           |
-| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann                     | [Adapters](/docs/sandbox-adapters)           |
+| Sie möchten…                                                                       | Verwenden                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| Führen Sie Claude Code / Codex / Pi **als Agent** mit eigener Schleife + Tools aus | **Harness-Agenten** (diese Seite)            |
+| Rendern Sie einen **Codierungsarbeitsbereich UI** im Claude-Code/Codex-Stil        | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Tausch das Backend, das das **`run-code`-Tool** des Agenten ausführt               | [Adapters](/docs/sandbox-adapters)           |
+| Verpacken Sie ein CLI-Tool (`gh`, `ffmpeg`), damit der Agent anrufen kann          | [Adapters](/docs/sandbox-adapters)           |
 
 Angrenzende Oberflächen: Platzieren Sie einen Agenten, den Sie an anderer Stelle erstellt haben, hinter dem Chat von Agent-Native
 UI mit [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes); lass ein
@@ -49,17 +49,17 @@ Spawn-Hintergrund/Subagent läuft mit [Custom Agents & Teams](/docs/agent-teams)
 `registerBuiltinAgentHarnesses()` registriert drei Adapter, die von der AI SDK unterstützt werden
 `HarnessAgent`:
 
-| Name                         | Laufzeit     | Sandbox | Genehmigungen |
-| ---------------------------- | ----------- | ------- | --------- |
-| `ai-sdk-harness:claude-code` | Claude-Code | Ja     | Ja       |
-| `ai-sdk-harness:codex`       | Codex       | Ja     | nein        |
-| `ai-sdk-harness:pi`          | Pi          | nein      | Ja       |
+| Name                         | Laufzeit    | Sandbox | Genehmigungen |
+| ---------------------------- | ----------- | ------- | ------------- |
+| `ai-sdk-harness:claude-code` | Claude-Code | Ja      | Ja            |
+| `ai-sdk-harness:codex`       | Codex       | Ja      | nein          |
+| `ai-sdk-harness:pi`          | Pi          | nein    | Ja            |
 
 Ihre Laufzeitpakete sind **optionale Peer-Abhängigkeiten** und werden träge geladen, also ein
 Apps, die niemals ein Geschirr verwenden, zahlen nicht dafür. Jeder Adapter trägt eine
 `installPackage`-Hinweis (zum Beispiel „@ai-sdk/harness@canary“
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` löst eine klare Installation aus
-Fehler, wenn die Pakete fehlen, und `isAgentHarnessPackageInstalled(entry)`
+@ai-sdk/harness-codex@canary`); `resolveAgentHarness`löst eine klare Installation aus
+Fehler, wenn die Pakete fehlen, und`isAgentHarnessPackageInstalled(entry)`
 ermöglicht es Ihnen, zuerst zu prüfen.
 
 `registerBuiltinAgentHarnesses()` registriert auch die [ACP](#acp)-Kabelbäume
@@ -75,15 +75,15 @@ lokaler Unterprozess, der durch Zeilenumbrüche getrennte JSON-RPC über stdio s
 
 Dieser Adapter ist auf **lokale Codierung** ausgelegt. Der untergeordnete Prozess erbt die
 übergeordnete Umgebung, sodass der Agent alle lokalen CLI-Anmeldungen wiederverwendet, über die er bereits verfügt
- (zum Beispiel `gemini`- oder `claude`-Authentifizierung im Home-Verzeichnis des Benutzers). Es ist kein
+(zum Beispiel `gemini`- oder `claude`-Authentifizierung im Home-Verzeichnis des Benutzers). Es ist kein
 gehosteter oder Sandbox-Transport, und es handelt sich nicht um einen Chat/A2A-Transport – für diese
 siehe [Agent Surfaces](/docs/agent-surfaces).
 
-| Name              | Standardbefehl                                | Fortsetzbar\* |
-| ----------------- | ---------------------------------------------- | ----------- |
-| `acp`             | _(`command`/`args` über Konfiguration bereitstellen)_         | Ja         |
-| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | Ja         |
-| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | Ja         |
+| Name              | Standardbefehl                                        | Fortsetzbar\* |
+| ----------------- | ----------------------------------------------------- | ------------- |
+| `acp`             | _(`command`/`args` über Konfiguration bereitstellen)_ | Ja            |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp`        | Ja            |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`              | Ja            |
 
 \*Resume funktioniert, wenn der Agent die `loadSession`-Fähigkeit ankündigt und
 wird andernfalls zu einer neuen Sitzung degradiert.
@@ -247,11 +247,11 @@ Das tun Sie.
 
 `permissionMode` grenzt ein, was der Gurt ohne Genehmigung tun darf:
 
-| Modus          | Bedeutung                                            |
-| ------------- | -------------------------------------------------- |
+| Modus         | Bedeutung                                                                       |
+| ------------- | ------------------------------------------------------------------------------- |
 | `allow-reads` | Standard. Liest ausgeführt; Änderungen und riskante actions-Eingabeaufforderung |
-| `allow-edits` | Lese- und Bearbeitungslauf; andere riskante actions-Eingabeaufforderung    |
-| `allow-all`   | Kein Genehmigungs-Gating                                 |
+| `allow-edits` | Lese- und Bearbeitungslauf; andere riskante actions-Eingabeaufforderung         |
+| `allow-all`   | Kein Genehmigungs-Gating                                                        |
 
 Wenn ein Kabelbaum zur Genehmigung pausiert, gibt er ein `approval-request`-Ereignis aus und
 Die Sitzung wird als `idle` markiert, wobei die ausstehende Genehmigung aufgezeichnet wird, sodass UI dies tun kann

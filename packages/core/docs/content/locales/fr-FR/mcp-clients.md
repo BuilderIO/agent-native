@@ -7,11 +7,11 @@ description: "Connectez votre application native d'agent aux serveurs MCP locaux
 
 **Cette page : donnez plus d'outils à votre agent.** Pointez une application native d'agent vers les serveurs MCP (locaux ou distants) afin que leurs outils s'affichent dans le chat de l'agent. Il s'agit de la direction _client_, l'image miroir de [MCP Protocol](/docs/mcp-protocol) (qui fait de votre application un _serveur_ MCP).
 
-| Si vous voulez…                                              | Lire                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| Connectez un agent/hôte externe à votre application                   | [External Agents](/docs/external-agents) |
-| Donnez plus d'outils à votre agent (consommez d'autres serveurs MCP)       | **Cette page** — Clients MCP              |
-| Créez des UI en ligne qui s'affichent dans Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
+| Si vous voulez…                                                                               | Lire                                     |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Connectez un agent/hôte externe à votre application                                           | [External Agents](/docs/external-agents) |
+| Donnez plus d'outils à votre agent (consommez d'autres serveurs MCP)                          | **Cette page** — Clients MCP             |
+| Créez des UI en ligne qui s'affichent dans Claude/ChatGPT                                     | [MCP Apps](/docs/mcp-apps)               |
 | Référence du serveur MCP de niveau inférieur (authentification, outils, montage personnalisé) | [MCP Protocol](/docs/mcp-protocol)       |
 
 Avec un seul fichier de configuration, chaque application native d'agent de votre espace de travail a accès aux outils fournis par les serveurs MCP sur votre machine : `claude-in-chrome` pour l'automatisation du navigateur, `@modelcontextprotocol/server-filesystem` pour la lecture de fichiers, `@playwright/mcp` pour les tests du navigateur et tout ce qui parle de MCP.
@@ -37,11 +37,11 @@ lorsque l'application s'exécute localement. Ignorer les environnements d'exécu
 ces éléments intégrés même si d'anciennes lignes de paramètres existent, ainsi que les ressources de l'espace de travail
 l'arborescence ne les affiche pas comme ressources `mcp-servers/*.json` par défaut.
 
-| Capacité         | ID du serveur         | Commande                                                                 |
-| ------------------ | ----------------- | ----------------------------------------------------------------------- |
-| Outils de développement Chrome    | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
-| Navigateur de dramaturge | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
-| Utilisation de l'ordinateur       | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
+| Capacité                       | ID du serveur     | Commande                                                                |
+| ------------------------------ | ----------------- | ----------------------------------------------------------------------- |
+| Outils de développement Chrome | `chrome-devtools` | `npx -y chrome-devtools-mcp@latest --autoConnect --no-usage-statistics` |
+| Navigateur de dramaturge       | `playwright`      | `npx -y @playwright/mcp@latest`                                         |
+| Utilisation de l'ordinateur    | `computer-use`    | `npx -y computer-use-mcp@latest`                                        |
 
 Une seule fonctionnalité de navigateur peut être activée dans une étendue à la fois. L'activation de Chrome DevTools désactive Playwright pour ce même utilisateur ou cette même organisation, et l'activation de Playwright désactive Chrome DevTools.
 
@@ -66,10 +66,10 @@ Utilisez une copie de configuration concise et explicite pour les éléments int
 
 ### Points de terminaison intégrés
 
-| Méthode | Itinéraire                        | Objectif                                                                    |
-| ------ | ---------------------------- | -------------------------------------------------------------------------- |
-| GET    | `/_agent-native/mcp/builtin` | Répertoriez les fonctionnalités intégrées, les étendues activées, les identifiants fusionnés et l'état actuel.   |
-| POST   | `/_agent-native/mcp/builtin` | Mettre à jour une étendue. Corps : `{ scope, enabledIds }` ou `{ scope, id, enabled }`. |
+| Méthode | Itinéraire                   | Objectif                                                                                                       |
+| ------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/builtin` | Répertoriez les fonctionnalités intégrées, les étendues activées, les identifiants fusionnés et l'état actuel. |
+| POST    | `/_agent-native/mcp/builtin` | Mettre à jour une étendue. Corps : `{ scope, enabledIds }` ou `{ scope, id, enabled }`.                        |
 
 ## Ajout d'un serveur MCP local {#adding-a-server}
 
@@ -186,13 +186,13 @@ Sous le capot, ces serveurs sont conservés dans la table `settings` du framewor
 
 ### Points de terminaison HTTP
 
-| Méthode | Itinéraire                                                 | Objectif                                                                |
-| ------ | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| GET    | `/_agent-native/mcp/servers`                          | Répertoriez les serveurs personnels et d'organisation de l'utilisateur actuel avec leur statut actif.       |
-| POST   | `/_agent-native/mcp/servers`                          | Ajouter un serveur. Corps : `{ scope, name, url, headers?, description? }`.    |
-| DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Supprimez un serveur et reconfigurez le gestionnaire.                           |
-| POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Exécutez à sec les outils de connexion et de liste du serveur existant.                    |
-| POST   | `/_agent-native/mcp/servers/test`                     | Exécutez à sec un URL arbitraire avant de persister. Corps : `{ url, headers? }`. |
+| Méthode | Itinéraire                                            | Objectif                                                                                              |
+| ------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/servers`                          | Répertoriez les serveurs personnels et d'organisation de l'utilisateur actuel avec leur statut actif. |
+| POST    | `/_agent-native/mcp/servers`                          | Ajouter un serveur. Corps : `{ scope, name, url, headers?, description? }`.                           |
+| DELETE  | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Supprimez un serveur et reconfigurez le gestionnaire.                                                 |
+| POST    | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Exécutez à sec les outils de connexion et de liste du serveur existant.                               |
+| POST    | `/_agent-native/mcp/servers/test`                     | Exécutez à sec un URL arbitraire avant de persister. Corps : `{ url, headers? }`.                     |
 
 Les serveurs Stdio ne fonctionnent toujours pas en dehors des environnements d'exécution Node, mais les serveurs distants HTTP MCP fonctionnent dans n'importe quel environnement avec `fetch`, y compris les versions de production de bureau.
 
@@ -272,10 +272,10 @@ Le local UI ajoute un rechargement à chaud dans chaque application via `McpClie
 
 ### Résumé des points de terminaison
 
-| Méthode | Itinéraire                            | Objectif                                                                                                            |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/_agent-native/mcp/hub/servers` | Servez tous les serveurs de l'organisation avec des crédits complets (dépendants du porteur, montés uniquement lorsque `AGENT_NATIVE_MCP_HUB_TOKEN` est défini). |
-| GET    | `/_agent-native/mcp/hub/status`  | Renvoie `{ serving, consuming, hubUrl }` pour les paramètres de la carte UI.                                                 |
+| Méthode | Itinéraire                       | Objectif                                                                                                                                                         |
+| ------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET     | `/_agent-native/mcp/hub/servers` | Servez tous les serveurs de l'organisation avec des crédits complets (dépendants du porteur, montés uniquement lorsque `AGENT_NATIVE_MCP_HUB_TOKEN` est défini). |
+| GET     | `/_agent-native/mcp/hub/status`  | Renvoie `{ serving, consuming, hubUrl }` pour les paramètres de la carte UI.                                                                                     |
 
 ## Statut de l'itinéraire {#status-route}
 

@@ -49,7 +49,7 @@ por trás de um seletor ou divulgação quando uma etapa tem vários provedores 
 - **Abra um link** — algumas etapas apontam para uma página de login ou documentos. Clique
   **Continue** e finalize o fluxo na nova guia.
 - **Pergunte ao agente** — algumas etapas oferecem a opção "Deixe o agente configurar".
-  Clique nele e o agente atende no chat, orientando você em qualquer 
+  Clique nele e o agente atende no chat, orientando você em qualquer
   configuração externa (criação de credenciais OAuth, etc.).
 
 ### As etapas integradas que você normalmente verá
@@ -92,12 +92,12 @@ plug-in do servidor.
 
 Todas as rotas estão sob `/_agent-native/onboarding/`:
 
-| Rota                                               | Propósito                           |
-| --------------------------------------------------- | --------------------------------- |
-| `GET /_agent-native/onboarding/steps`               | Listar etapas com status de conclusão |
-| `POST /_agent-native/onboarding/steps/:id/complete` | Marcar etapa concluída (substituir)     |
-| `POST /_agent-native/onboarding/dismiss`            | Dispensar o banner de integração     |
-| `POST /_agent-native/onboarding/reopen`             | Limpar dispensa (reexibir painel)   |
+| Rota                                                | Propósito                              |
+| --------------------------------------------------- | -------------------------------------- |
+| `GET /_agent-native/onboarding/steps`               | Listar etapas com status de conclusão  |
+| `POST /_agent-native/onboarding/steps/:id/complete` | Marcar etapa concluída (substituir)    |
+| `POST /_agent-native/onboarding/dismiss`            | Dispensar o banner de integração       |
+| `POST /_agent-native/onboarding/reopen`             | Limpar dispensa (reexibir painel)      |
 | `GET /_agent-native/onboarding/dismissed`           | Ler dispensa + sinalizador allComplete |
 
 ```an-api title="List onboarding steps"
@@ -164,12 +164,12 @@ Consulte a documentação do [Workspace Connections](/docs/workspace-connections
 
 ### Tipos de métodos
 
-| Gentil               | Carga útil                                               | Usar para                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | Enviar o usuário para um fluxo OAuth ou página de documentos   |
-| `form`             | `{ fields, writeScope? }`                             | Colete variáveis de ambiente (chaves, segredos, URLs)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | Envie uma solicitação ao chat do agente para tratar |
+| Gentil             | Carga útil                                            | Usar para                                                    |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `link`             | `{ url, external? }`                                  | Enviar o usuário para um fluxo OAuth ou página de documentos |
+| `form`             | `{ fields, writeScope? }`                             | Colete variáveis de ambiente (chaves, segredos, URLs)        |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                       |
+| `agent-task`       | `{ prompt }`                                          | Envie uma solicitação ao chat do agente para tratar          |
 
 O sinalizador `primary: true` marca um método como o grande CTA para sua etapa.
 Use `badge: "soon"` mais `disabled: true` quando um caminho de configuração estiver visível
@@ -177,12 +177,12 @@ antes de estar disponível.
 
 ### Etapas integradas
 
-| ID         | Obrigatório | Descrição                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | sim      | Conexão Builder ou chave LLM do provedor          |
-| `database` | não       | Banco de dados padrão ou qualquer SQL `DATABASE_URL`        |
-| `auth`     | não       | Contas integradas, OAuth opcional ou token de acesso |
-| `email`    | não       | Reenviar ou SendGrid para e-mail transacional        |
+| ID         | Obrigatório | Descrição                                            |
+| ---------- | ----------- | ---------------------------------------------------- |
+| `llm`      | sim         | Conexão Builder ou chave LLM do provedor             |
+| `database` | não         | Banco de dados padrão ou qualquer SQL `DATABASE_URL` |
+| `auth`     | não         | Contas integradas, OAuth opcional ou token de acesso |
+| `email`    | não         | Reenviar ou SendGrid para e-mail transacional        |
 
 Qualquer um deles pode ser substituído registrando-se novamente com o mesmo `id` após
 carregamento padrão.

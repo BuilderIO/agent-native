@@ -8,11 +8,11 @@ description: "将您的代理原生应用公开为远程 MCP 服务器，以便 
 **此页面：较低级别的 MCP 服务器参考。** 每个代理本机应用程序如何通过 MCP 公开其 actions — 自动安装的端点、身份验证模式、`tools/call` / `ask-agent` 表面和自定义安装。当您需要服务器内部结构时，可以使用它；要连接主机，请从 [External Agents](/docs/external-agents) 开始。
 
 | 如果你想……                                              | 阅读                                     |
-| ------------------------------------------------------------ | ---------------------------------------- |
-| 将外部代理/主机连接到您的应用                   | [External Agents](/docs/external-agents) |
-| 为您的代理提供更多工具（使用其他 MCP 服务器）       | [MCP Clients](/docs/mcp-clients)         |
-| 构建在 Claude/ChatGPT 中渲染的内联 UI               | [MCP Apps](/docs/mcp-apps)               |
-| 较低级别的 MCP 服务器参考（身份验证、工具、自定义挂载） | **此页** — MCP 协议             |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 将外部代理/主机连接到您的应用                           | [External Agents](/docs/external-agents) |
+| 为您的代理提供更多工具（使用其他 MCP 服务器）           | [MCP Clients](/docs/mcp-clients)         |
+| 构建在 Claude/ChatGPT 中渲染的内联 UI                   | [MCP Apps](/docs/mcp-apps)               |
+| 较低级别的 MCP 服务器参考（身份验证、工具、自定义挂载） | **此页** — MCP 协议                      |
 
 每个代理本机应用程序都会自动公开远程 MCP（模型上下文协议）服务器，因此 Claude、ChatGPT 自定义 MCP 应用程序、Claude Code、Cursor、Codex 和 VS Code GitHub Copilot 等外部 AI 工具可以直接发现并调用应用程序的 actions - 无需额外代码需要。如果您的目标是将其中一台主机连接到托管应用程序，[External Agents](/docs/external-agents) 涵盖建议的单个调度连接器、每个应用程序 URL、OAuth、MCP 应用内联 UI 和深层链接。此页面记录了其下方的内容。
 
@@ -41,14 +41,14 @@ MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代
 
 两种协议都是自动安装的。使用适合您的用例的选项：
 
-|                    | MCP                                                                      | A2A                                          |
-| ------------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
-| **最适合**       | 调用您的应用的外部工具                                          | 代理间通信                 |
-| **协议**       | MCP 可流式传输 HTTP                                                      | JSON-RPC 2.0                                 |
-| **工具发现** | `tools/list`                                                             | `/.well-known/agent-card.json`的代理卡 |
-| **端点**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
-| **支持**   | Claude、ChatGPT、Claude Code、Cursor、Codex、Cowork 和其他 MCP 主机 | 其他代理本机应用                      |
-| **执行**      | 直接工具调用（无需额外的LLM）                                         | 完整代理循环（LLM 推理）              |
+|              | MCP                                                                 | A2A                                    |
+| ------------ | ------------------------------------------------------------------- | -------------------------------------- |
+| **最适合**   | 调用您的应用的外部工具                                              | 代理间通信                             |
+| **协议**     | MCP 可流式传输 HTTP                                                 | JSON-RPC 2.0                           |
+| **工具发现** | `tools/list`                                                        | `/.well-known/agent-card.json`的代理卡 |
+| **端点**     | `/_agent-native/mcp`                                                | `/_agent-native/a2a`                   |
+| **支持**     | Claude、ChatGPT、Claude Code、Cursor、Codex、Cowork 和其他 MCP 主机 | 其他代理本机应用                       |
+| **执行**     | 直接工具调用（无需额外的LLM）                                       | 完整代理循环（LLM 推理）               |
 
 您还可以使用 `ask-agent` MCP 工具来获得两全其美的效果 - 从 Claude 代码中调用它，并让您的应用的代理通过复杂的任务进行推理。
 
@@ -133,11 +133,11 @@ POST https://your-app.example.com/_agent-native/mcp
 
 每个操作都直接映射到一个 MCP 工具：
 
-| 操作属性    | MCP工具属性 |
-| ------------------ | ----------------- |
-| `tool.description` | `description`     |
-| `tool.parameters`  | `inputSchema`     |
-| 操作名称        | 工具名称         |
+| 操作属性           | MCP工具属性   |
+| ------------------ | ------------- |
+| `tool.description` | `description` |
+| `tool.parameters`  | `inputSchema` |
+| 操作名称           | 工具名称      |
 
 当存在`mcpApp`时，工具条目还包括`_meta.ui.resourceUri`、`_meta["ui/resourceUri"]`和`_meta["openai/outputTemplate"]`，并且相应的`ui://`资源返回为`text/html;profile=mcp-app`。
 
@@ -162,14 +162,14 @@ POST https://your-app.example.com/_agent-native/mcp
 
 MCP 端点支持标准远程 MCP OAuth 以及现有的不记名令牌后备：
 
-| 模式                        | 它是如何工作的                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 标准MCP OAuth          | 客户端从`WWW-Authenticate`发现身份验证，注册，运行PKCE，并发送`Authorization: Bearer <access-token>` |
-| 连接铸造JWT          | `npx @agent-native/core@latest connect` / Connect 页面铸造一个每用户、可撤销的 JWT                            |
-| `ACCESS_TOKEN`              | 静态不记名令牌 - 客户端发送 `Authorization: Bearer <token>`                                                    |
-| `ACCESS_TOKENS`             | 以逗号分隔的有效静态不记名令牌列表                                                                    |
-| `A2A_SECRET`                | 基于 JWT 的身份验证 - 令牌通过加密方式进行验证                                                                |
-| _（未设置，仅环回）_ | 本地开发探针不需要身份验证                                                                                 |
+| 模式                 | 它是如何工作的                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| 标准MCP OAuth        | 客户端从`WWW-Authenticate`发现身份验证，注册，运行PKCE，并发送`Authorization: Bearer <access-token>` |
+| 连接铸造JWT          | `npx @agent-native/core@latest connect` / Connect 页面铸造一个每用户、可撤销的 JWT                   |
+| `ACCESS_TOKEN`       | 静态不记名令牌 - 客户端发送 `Authorization: Bearer <token>`                                          |
+| `ACCESS_TOKENS`      | 以逗号分隔的有效静态不记名令牌列表                                                                   |
+| `A2A_SECRET`         | 基于 JWT 的身份验证 - 令牌通过加密方式进行验证                                                       |
+| _（未设置，仅环回）_ | 本地开发探针不需要身份验证                                                                           |
 
 对于支持 OAuth 的 MCP 主机，配置不带静态标头的远程服务器 URL：
 
@@ -186,13 +186,13 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 发现端点：
 
-| 端点                                  | 目的                                     |
-| ----------------------------------------- | ------------------------------------------- |
-| `/.well-known/oauth-protected-resource`   | RFC 9728 受保护资源元数据        |
-| `/.well-known/oauth-authorization-server` | OAuth 授权服务器元数据         |
-| `/_agent-native/mcp/oauth/register`       | 动态公共客户端注册          |
-| `/_agent-native/mcp/oauth/authorize`      | 浏览器授权+同意             |
-| `/_agent-native/mcp/oauth/token`          | 授权代码和刷新令牌授予 |
+| 端点                                      | 目的                      |
+| ----------------------------------------- | ------------------------- |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 受保护资源元数据 |
+| `/.well-known/oauth-authorization-server` | OAuth 授权服务器元数据    |
+| `/_agent-native/mcp/oauth/register`       | 动态公共客户端注册        |
+| `/_agent-native/mcp/oauth/authorize`      | 浏览器授权+同意           |
+| `/_agent-native/mcp/oauth/token`          | 授权代码和刷新令牌授予    |
 
 ```an-diagram title="OAuth discovery flow" summary="A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."
 {
@@ -203,10 +203,10 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 访问令牌是经过签名的 JWT，其受众是确切的 MCP 资源 URL。服务器仅接受为其自身颁发的令牌，并在列出/调用工具之前应用范围：
 
-| 范围       | 允许                                      |
-| ----------- | ------------------------------------------- |
-| `mcp:read`  | 只读 actions                           |
-| `mcp:write` | 突变 actions 和 `ask-agent`            |
+| 范围        | 允许                              |
+| ----------- | --------------------------------- |
+| `mcp:read`  | 只读 actions                      |
+| `mcp:write` | 突变 actions 和 `ask-agent`       |
 | `mcp:apps`  | MCP 应用资源（`ui://` HTML 资源） |
 
 刷新令牌仅存储为哈希值，并在每次刷新时轮换。默认情况下，`npx @agent-native/core@latest connect` 为 Claude 代码客户端写入仅 URL 的 OAuth 条目；保留连接页面、`npx @agent-native/core@latest connect --token <token>` 和静态承载配置以用于本地 stdio 代理、旧客户端和紧急/调试流程。

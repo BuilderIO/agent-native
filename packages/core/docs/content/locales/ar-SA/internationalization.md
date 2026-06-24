@@ -31,7 +31,7 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 ```
 
 يقوم `getLocaleInitScript()` بتعيين `lang` الأولي و`dir` و
- `window.__AGENT_NATIVE_LOCALE__` قبل هيدرات React. يمكن أن تكون مسارات SSR العامة
+`window.__AGENT_NATIVE_LOCALE__` قبل هيدرات React. يمكن أن تكون مسارات SSR العامة
 اتصل بـ `resolveLocaleFromRequest()` من `@agent-native/core/server` وقم بتمرير
 تم حل الإعدادات المحلية/الكتالوج في هذا البرنامج النصي لتجنب عدم تطابق الماء.
 
@@ -123,7 +123,7 @@ function SettingsPage() {
 - `set-localization-preference` - قم بتعيين `"system"` أو لغة محلية مدعومة
 
 تتواجد القيمة الدائمة في إعدادات SQL على نطاق المستخدم ضمن `localization`.
- يستخدم `localStorage` فقط للترطيب المسبق والاحتياطي المجهول. النشط
+يستخدم `localStorage` فقط للترطيب المسبق والاحتياطي المجهول. النشط
 يتم عكس اللغة المحلية في حالة التطبيق كسياق محيط حتى يتمكن الوكلاء من رؤيتها
 لغة الواجهة الحالية.
 

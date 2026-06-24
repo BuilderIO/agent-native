@@ -95,17 +95,17 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 
 ### エージェントチャットメッセージ {#agentchatmessage}
 
-| オプション                | タイプ        | 説明                                                                |
-| --------------------- | ----------- | -------------------------------------------------------------------------- |
+| オプション            | タイプ      | 説明                                                                            |
+| --------------------- | ----------- | ------------------------------------------------------------------------------- |
 | `message`             | `string`    | チャットに送信される表示されるプロンプト                                        |
-| `context`             | `string?`   | 非表示のコンテキストが追加されました (チャット UI には表示されません)                             |
-| `submit`              | `boolean?`  | true = 自動送信、false = 事前入力のみ                                   |
-| `newTab`              | `boolean?`  | このプロンプトに対して別のチャット スレッドを作成します                              |
+| `context`             | `string?`   | 非表示のコンテキストが追加されました (チャット UI には表示されません)           |
+| `submit`              | `boolean?`  | true = 自動送信、false = 事前入力のみ                                           |
+| `newTab`              | `boolean?`  | このプロンプトに対して別のチャット スレッドを作成します                         |
 | `background`          | `boolean?`  | `newTab` では、タブをフォーカスせずに実行し、実行結果を `RunsTray` に表示します |
 | `openSidebar`         | `boolean?`  | サイドバーを開かずに送信/事前入力するには false を設定します                    |
-| `projectSlug`         | `string?`   | 構造化コンテキストのオプションのプロジェクト スラグ                               |
-| `preset`              | `string?`   | ダウンストリーム コンシューマのオプションのプリセット名                              |
-| `referenceImagePaths` | `string[]?` | オプションの参照画像パス                                             |
+| `projectSlug`         | `string?`   | 構造化コンテキストのオプションのプロジェクト スラグ                             |
+| `preset`              | `string?`   | ダウンストリーム コンシューマのオプションのプリセット名                         |
+| `referenceImagePaths` | `string[]?` | オプションの参照画像パス                                                        |
 
 ## エージェント チャット コンテキストの状態 (詳細) {#agent-chat-context-state}
 
@@ -118,14 +118,14 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 「レビューのためにこのドラフトを事前入力する」フロー。 `sendToAgentChat()` を `context` と一緒に使用する
 それらについては `submit`。
 
-| API                               | 次の場合に使用します                                                               |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `useAgentChatContext()`           | React コンポーネントにはライブ ステージングされたコンテキスト リストが必要です                   |
-| `setAgentChatContextItem(item)`   | 命令型コードは 1 つのキー付きコンテキスト項目をステージングまたは置換する必要があります         |
-| `listAgentChatContext()`          | 非 React コードには、ステージングされたコンテキストの 1 回限りのスナップショットが必要です             |
-| `removeAgentChatContextItem(key)` | UI は、安定した `key` によって 1 つの段階的コンテキスト項目を削除する必要があります           |
+| API                               | 次の場合に使用します                                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | React コンポーネントにはライブ ステージングされたコンテキスト リストが必要です                        |
+| `setAgentChatContextItem(item)`   | 命令型コードは 1 つのキー付きコンテキスト項目をステージングまたは置換する必要があります               |
+| `listAgentChatContext()`          | 非 React コードには、ステージングされたコンテキストの 1 回限りのスナップショットが必要です            |
+| `removeAgentChatContextItem(key)` | UI は、安定した `key` によって 1 つの段階的コンテキスト項目を削除する必要があります                   |
 | `clearAgentChatContext()`         | UI は、ビューやモードのリセット後など、ステージングされたコンテキストをすべてクリアする必要があります |
-| `refreshAgentChatContext()`       | 命令型コードは、永続化された最新のコンテキスト スナップショットを再読み取りする必要があります   |
+| `refreshAgentChatContext()`       | 命令型コードは、永続化された最新のコンテキスト スナップショットを再読み取りする必要があります         |
 
 `useAgentChatContext()` は `{ items, set, remove, clear, refresh }` を返します。
 
@@ -181,11 +181,11 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 
 ### AgentChatContextSetOptions {#agentchatcontextsetoptions}
 
-| オプション        | タイプ       | 説明                                            |
-| ------------- | ---------- | ------------------------------------------------------ |
-| `key`         | `string`   | 既存のナゲットを置き換えるために使用される安定した識別子   |
-| `title`       | `string`   | コンポーザーチップに表示される短いラベル                 |
-| `context`     | `string`   | 次に送信されるプロンプトに含まれる非表示のコンテキスト |
+| オプション    | タイプ     | 説明                                                                            |
+| ------------- | ---------- | ------------------------------------------------------------------------------- |
+| `key`         | `string`   | 既存のナゲットを置き換えるために使用される安定した識別子                        |
+| `title`       | `string`   | コンポーザーチップに表示される短いラベル                                        |
+| `context`     | `string`   | 次に送信されるプロンプトに含まれる非表示のコンテキスト                          |
 | `openSidebar` | `boolean?` | デフォルトは true です。 false をステージングコンテキストにサイレントに渡します |
 
 ## ユーザーに質問する(オプション) {#ask-user-question}
@@ -200,7 +200,7 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 その上で分岐します。
 
 UI がその前に 1 つの小さな決定 (2 ～ 4 つの選択肢) を必要とする場合に使用します
-カスタム モーダルを構築するのではなく、エージェントの作業を開始します。 
+カスタム モーダルを構築するのではなく、エージェントの作業を開始します。
 フリーフォーム詳細用のコンポーザと、複数フィールド入力用のフォーム/ポップオーバー。
 
 ```tsx
@@ -328,17 +328,17 @@ function App() {
 
 ### オプション {#usedbsync-options}
 
-| オプション             | タイプ               | 説明                                                                            |
+| オプション         | タイプ             | 説明                                                                                   |
 | ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | React - キャッシュ無効化のためのクライアントのクエリ                                              |
-| `queryKeys`        | `string[]?`        | 非推奨で無視されます。古い通話サイト用に保持                                        |
-| `pollUrl`          | `string?`          | エンドポイント URL をポーリングします。デフォルト: `"/_agent-native/poll"`                                    |
+| `queryClient`      | `QueryClient?`     | React - キャッシュ無効化のためのクライアントのクエリ                                   |
+| `queryKeys`        | `string[]?`        | 非推奨で無視されます。古い通話サイト用に保持                                           |
+| `pollUrl`          | `string?`          | エンドポイント URL をポーリングします。デフォルト: `"/_agent-native/poll"`             |
 | `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | ポーリング間隔 (ミリ秒)。デフォルト: `2000`                                                |
-| `fallbackInterval` | `number?`          | SSE が使用できない場合のフォールバック ポーリング間隔。デフォルト: `15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | ブラウザのタブが非表示の場合はポーリングを一時停止します。デフォルト: `true`                          |
-| `ignoreSource`     | `string?`          | タブが自身の書き込みから再取得しないように無視するタブごとのリクエスト ソース         |
-| `onEvent`          | `(data) => void`   | SSE/polling が変更イベントを受信したときのオプションのコールバック                             |
+| `interval`         | `number?`          | ポーリング間隔 (ミリ秒)。デフォルト: `2000`                                            |
+| `fallbackInterval` | `number?`          | SSE が使用できない場合のフォールバック ポーリング間隔。デフォルト: `15000`             |
+| `pauseWhenHidden`  | `boolean?`         | ブラウザのタブが非表示の場合はポーリングを一時停止します。デフォルト: `true`           |
+| `ignoreSource`     | `string?`          | タブが自身の書き込みから再取得しないように無視するタブごとのリクエスト ソース          |
+| `onEvent`          | `(data) => void`   | SSE/polling が変更イベントを受信したときのオプションのコールバック                     |
 
 通常の CRUD の場合は、`useActionQuery` および `useActionMutation` を優先します。 actions を変更すると `source: "action"` が発行され、それらのフックは自動的に再フェッチされます。
 

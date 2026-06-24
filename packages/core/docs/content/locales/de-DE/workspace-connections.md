@@ -139,17 +139,17 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 
 Die anfänglichen Anbieter-IDs sind:
 
-| Anbieter       | Fähigkeiten                   | Häufige Verwendungszwecke                    |
-| -------------- | ------------------------------ | ------------------------------ |
-| `slack`        | Suche, Import, Nachrichten       | Gehirn, Versand, Analyse     |
-| `github`       | Suche, Import, Code, Dokumente     | Gehirn, Analyse, Versand     |
-| `notion`       | Suche, Import, Dokumente           | Gehirn, Inhalt, Versand       |
-| `gmail`        | Suche, Import, Nachrichten       | Post, Gehirn, Versand          |
-| `google_drive` | Suche, Import, Dokumente           | Gehirn, Inhalte, Folien         |
-| `hubspot`      | Suche, Import, CRM            | Analyse, Gehirn, E-Mail         |
-| `granola`      | Suche, Import, Besprechungen, Dokumente | Gehirn, Kalender, Versand      |
-| `clips`        | Suche, Import, Besprechungen       | Gehirn, Clips, Videos           |
-| `generic`      | Suche, Import, Dokumente           | benutzerdefiniertes webhooks und Dateilöschungen |
+| Anbieter       | Fähigkeiten                             | Häufige Verwendungszwecke                        |
+| -------------- | --------------------------------------- | ------------------------------------------------ |
+| `slack`        | Suche, Import, Nachrichten              | Gehirn, Versand, Analyse                         |
+| `github`       | Suche, Import, Code, Dokumente          | Gehirn, Analyse, Versand                         |
+| `notion`       | Suche, Import, Dokumente                | Gehirn, Inhalt, Versand                          |
+| `gmail`        | Suche, Import, Nachrichten              | Post, Gehirn, Versand                            |
+| `google_drive` | Suche, Import, Dokumente                | Gehirn, Inhalte, Folien                          |
+| `hubspot`      | Suche, Import, CRM                      | Analyse, Gehirn, E-Mail                          |
+| `granola`      | Suche, Import, Besprechungen, Dokumente | Gehirn, Kalender, Versand                        |
+| `clips`        | Suche, Import, Besprechungen            | Gehirn, Clips, Videos                            |
+| `generic`      | Suche, Import, Dokumente                | benutzerdefiniertes webhooks und Dateilöschungen |
 
 Anmeldeinformationsschlüssel sind nur Namen, wie z. B. `SLACK_BOT_TOKEN` oder `GITHUB_TOKEN`. Anbietermetadaten dürfen niemals tatsächliche Anmeldeinformationswerte enthalten.
 
