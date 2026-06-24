@@ -8,6 +8,7 @@ import {
 import { builderCmsQualifiedId } from "./_builder-cms-source-adapter";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter";
 import { executeBuilderCmsWrite } from "./_builder-cms-write-client";
+import { readBuilderCmsEntryLiveState } from "./_builder-cms-read-client";
 import {
   executeBuilderSourceExecutionWithDeps,
   type BuilderSourceExecutionRecord,
@@ -201,6 +202,12 @@ function buildDeps(args: {
       args.onFailed(call);
     }),
     executeWrite: vi.fn((call) => executeBuilderCmsWrite(call)),
+    readLiveEntry: vi.fn(async () => ({
+      exists: true,
+      published: "draft",
+      lastUpdated: NOW,
+      id: args.source.rows[0]?.sourceRowId ?? "builder-entry-1",
+    })),
     reconcileWrite: vi.fn(async (call) => {
       args.onReconcile(call);
     }),
@@ -343,6 +350,211 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
       const liveData = recordFromJson(liveEntry.data);
       expect(liveEntry.published).toBe("published");
       expect(liveData.marker).toBe("v1-live");
+    });
+  },
+);
+
+// Publication-state effects against live Builder, using the REAL readLiveEntry
+// preflight. The baseline is derived from the seeded entry's real `lastUpdated`
+// (a NUMBER from delivery), which locks down the stale-guard format fix:
+// update_in_place must NOT be falsely blocked, and a wrong baseline MUST block.
+describe.skipIf(!LIVE_BUILDER_ENABLED)(
+  "Builder publication-state effects against live Builder",
+  () => {
+    const seededIds: string[] = [];
+
+    async function seedEntry(
+      published: "published" | "draft",
+      marker: string,
+    ): Promise<{ entryId: string; baselineLastUpdated: string | null }> {
+      const created = await executeBuilderCmsWrite({
+        request: {
+          method: "POST",
+          path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}`,
+          query: { triggerWebhooks: "false" },
+          body: {
+            name: `zz-pr3-eff-${randomSuffix()}`,
+            published,
+            data: { marker },
+          },
+        },
+      });
+      if (!created.entryId) throw new Error("Failed to seed live entry.");
+      seededIds.push(created.entryId);
+      // Derive the staleness baseline exactly as a real sync would observe it:
+      // the live numeric lastUpdated, stringified.
+      const live = await readBuilderCmsEntryLiveState({
+        model: BUILDER_CMS_SAFE_WRITE_MODEL,
+        entryId: created.entryId,
+      });
+      const baselineLastUpdated =
+        live.lastUpdated === null || live.lastUpdated === undefined
+          ? null
+          : String(live.lastUpdated);
+      return { entryId: created.entryId, baselineLastUpdated };
+    }
+
+    afterAll(async () => {
+      for (const id of seededIds) {
+        await fetch(
+          `https://builder.io/api/v1/write/${encodeURIComponent(
+            BUILDER_CMS_SAFE_WRITE_MODEL,
+          )}/${encodeURIComponent(id)}`,
+          {
+            method: "DELETE",
+            headers: {
+              authorization: `Bearer ${requireEnv("BUILDER_PRIVATE_KEY")}`,
+            },
+          },
+        ).catch(() => {});
+      }
+    });
+
+    async function runEffect(opts: {
+      entryId: string;
+      pushMode: "autosave" | "draft" | "publish";
+      allowedWriteModes: ("autosave" | "draft" | "publish")[];
+      baselineLastUpdated: string | null;
+      marker: string;
+      publicationTransition?: "publish" | "unpublish";
+      confirmUnpublish?: boolean;
+    }) {
+      const changeSet: ContentDatabaseSourceChangeSet = {
+        ...buildChangeSet(),
+        pushMode: opts.pushMode,
+        fieldChanges: [
+          {
+            propertyId: null,
+            propertyName: "Marker",
+            localFieldKey: "marker",
+            sourceFieldKey: "data.marker",
+            currentValue: null,
+            proposedValue: opts.marker,
+          },
+        ],
+      };
+      const source = buildSource({ entryId: opts.entryId, changeSet });
+      source.metadata = {
+        ...source.metadata,
+        pushMode: opts.pushMode,
+        allowedWriteModes: opts.allowedWriteModes,
+      };
+      source.rows[0]!.lastSourceUpdatedAt = opts.baselineLastUpdated;
+
+      const plan = buildBuilderCmsExecutionPlan({
+        source,
+        changeSet,
+        pushModeConfirmation: opts.pushMode,
+        publicationTransition: opts.publicationTransition,
+        confirmUnpublish: opts.confirmUnpublish,
+      });
+      const execution: BuilderSourceExecutionRecord = {
+        id: "execution-eff",
+        state: "ready",
+        idempotencyKey: plan.idempotencyKey,
+        payloadJson: JSON.stringify(plan.payload),
+        updatedAt: NOW,
+      };
+      let succeededCall: MarkExecutionSucceededArgs | null = null;
+      let failedCall: MarkExecutionFailedArgs | null = null;
+      let wrote = false;
+      const deps = buildDeps({
+        source,
+        execution,
+        onSucceeded: (c) => {
+          succeededCall = c;
+        },
+        onFailed: (c) => {
+          failedCall = c;
+        },
+        onReconcile: () => {},
+      });
+      // Use the REAL preflight read against live Builder.
+      deps.readLiveEntry = (args) => readBuilderCmsEntryLiveState(args);
+      const realWrite = deps.executeWrite;
+      deps.executeWrite = (args) => {
+        wrote = true;
+        return realWrite(args);
+      };
+      const result = await executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: DATABASE_ID,
+          changeSetId: CHANGE_SET_ID,
+          pushModeConfirmation: opts.pushMode,
+          publicationTransition: opts.publicationTransition,
+          confirmUnpublish: opts.confirmUnpublish,
+        },
+        deps,
+      );
+      return { result, succeededCall, failedCall, wrote, plan };
+    }
+
+    it("update_in_place takes content live, stays published, and is NOT falsely stale-blocked", async () => {
+      const { entryId, baselineLastUpdated } = await seedEntry(
+        "published",
+        "before",
+      );
+      const { wrote, failedCall } = await runEffect({
+        entryId,
+        pushMode: "publish", // non-autosave + no transition → update_in_place
+        allowedWriteModes: ["publish"],
+        baselineLastUpdated,
+        marker: "after-LIVE",
+      });
+      expect(wrote).toBe(true);
+      expect(failedCall).toBeNull();
+      const after = await fetchLiveBuilderEntry(entryId);
+      expect(after.published).toBe("published");
+      expect(recordFromJson(after.data).marker).toBe("after-LIVE");
+    });
+
+    it("blocks before write when the baseline is stale (entry changed since the diff)", async () => {
+      const { entryId } = await seedEntry("published", "orig");
+      await expect(
+        runEffect({
+          entryId,
+          pushMode: "publish",
+          allowedWriteModes: ["publish"],
+          baselineLastUpdated: "1700000000000", // wrong/old → stale
+          marker: "should-not-write",
+        }),
+      ).rejects.toThrow(/changed since this diff/i);
+      const after = await fetchLiveBuilderEntry(entryId);
+      expect(recordFromJson(after.data).marker).toBe("orig");
+    });
+
+    it("publish transition takes a draft to published", async () => {
+      const { entryId, baselineLastUpdated } = await seedEntry("draft", "d1");
+      const { wrote } = await runEffect({
+        entryId,
+        pushMode: "autosave",
+        allowedWriteModes: ["autosave"],
+        baselineLastUpdated,
+        marker: "d2",
+        publicationTransition: "publish",
+      });
+      expect(wrote).toBe(true);
+      const after = await fetchLiveBuilderEntry(entryId);
+      expect(after.published).toBe("published");
+    });
+
+    it("unpublish transition takes a published entry to draft (with confirmation)", async () => {
+      const { entryId, baselineLastUpdated } = await seedEntry(
+        "published",
+        "u1",
+      );
+      const { wrote } = await runEffect({
+        entryId,
+        pushMode: "autosave",
+        allowedWriteModes: ["autosave"],
+        baselineLastUpdated,
+        marker: "u1",
+        publicationTransition: "unpublish",
+        confirmUnpublish: true,
+      });
+      expect(wrote).toBe(true);
+      const after = await fetchLiveBuilderEntry(entryId);
+      expect(after.published).toBe("draft");
     });
   },
 );

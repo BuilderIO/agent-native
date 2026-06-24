@@ -19,6 +19,8 @@ import {
 } from "./execute-builder-source-execution";
 
 const NOW = "2026-06-15T12:00:00.000Z";
+const BUILDER_LAST_UPDATED_MS = 1782328870774;
+const STALE_BUILDER_LAST_UPDATED_MS = 1700000000000;
 const RESPONSE: ContentDatabaseResponse = {
   database: {
     id: "database-1",
@@ -72,7 +74,7 @@ function row(
     syncState: "idle",
     freshness: "fresh",
     lastSyncedAt: "2026-06-08T00:00:00.000Z",
-    lastSourceUpdatedAt: "2026-06-08T00:00:00.000Z",
+    lastSourceUpdatedAt: String(BUILDER_LAST_UPDATED_MS),
     ...overrides,
   };
 }
@@ -217,7 +219,7 @@ function depsFor(args: {
         : {
             exists: true,
             published: "draft",
-            lastUpdated: "2026-06-08T00:00:00.000Z",
+            lastUpdated: BUILDER_LAST_UPDATED_MS,
             id: "builder-entry-1",
           },
     ),
@@ -460,7 +462,7 @@ describe("execute Builder source execution", () => {
     expect(reconcileCallOrder).toBeLessThan(successCallOrder);
   });
 
-  it("preflights update-in-place writes before claiming and then writes", async () => {
+  it("preflights update-in-place writes when string baseline matches numeric live timestamp", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({ changeSets: [approvedChangeSet] });
     const execution = executionFor({
@@ -494,7 +496,14 @@ describe("execute Builder source execution", () => {
 
   it("blocks stale live entries before claiming or writing", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
-    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const builderSource = source({
+      rows: [
+        row({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+        }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,
@@ -505,7 +514,7 @@ describe("execute Builder source execution", () => {
       readLiveEntry: {
         exists: true,
         published: "draft",
-        lastUpdated: "2026-06-09T00:00:00.000Z",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
         id: "builder-entry-1",
       },
     });
@@ -619,7 +628,7 @@ describe("execute Builder source execution", () => {
       readLiveEntry: {
         exists: true,
         published: "published",
-        lastUpdated: "2026-06-08T00:00:00.000Z",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
         id: "builder-entry-1",
       },
     });
@@ -662,7 +671,7 @@ describe("execute Builder source execution", () => {
       readLiveEntry: {
         exists: true,
         published: "published",
-        lastUpdated: "2026-06-08T00:00:00.000Z",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
         id: "builder-entry-1",
       },
     });

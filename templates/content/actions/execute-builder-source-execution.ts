@@ -238,6 +238,37 @@ function normalizedLiveTimestamp(value: number | string | null | undefined) {
   return value === null || value === undefined ? null : String(value);
 }
 
+function toEpochMs(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) return numeric;
+
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function liveTimestampsDiffer(args: {
+  liveLastUpdated: number | string | null | undefined;
+  baselineLastUpdated: string | null | undefined;
+}) {
+  const liveEpoch = toEpochMs(args.liveLastUpdated);
+  const baselineEpoch = toEpochMs(args.baselineLastUpdated);
+  if (liveEpoch !== null && baselineEpoch !== null) {
+    return liveEpoch !== baselineEpoch;
+  }
+  return (
+    normalizedLiveTimestamp(args.liveLastUpdated) !==
+    normalizedLiveTimestamp(args.baselineLastUpdated)
+  );
+}
+
 function livePreflightBlockMessage(args: {
   liveState: BuilderCmsEntryLiveState;
   baselineLastUpdated: string | null;
@@ -247,8 +278,10 @@ function livePreflightBlockMessage(args: {
     return "Builder entry no longer exists; refresh the source.";
   }
   if (
-    normalizedLiveTimestamp(args.liveState.lastUpdated) !==
-    normalizedLiveTimestamp(args.baselineLastUpdated)
+    liveTimestampsDiffer({
+      liveLastUpdated: args.liveState.lastUpdated,
+      baselineLastUpdated: args.baselineLastUpdated,
+    })
   ) {
     return "Builder entry changed since this diff was approved; refresh and re-review.";
   }

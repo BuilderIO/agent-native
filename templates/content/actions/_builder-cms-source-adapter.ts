@@ -196,6 +196,22 @@ function stringFromRecord(
   return null;
 }
 
+function timestampStringFromRecord(
+  value: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return String(candidate);
+    }
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
 function pickStringField(
   obj: Record<string, unknown>,
   keys: string[],
@@ -317,8 +333,12 @@ export function normalizeBuilderCmsApiEntry(
     stringFromRecord(data, ["url", "urlPath", "path"]) ??
     (slug ? `/blog/${slug.replace(/^\/+/, "")}` : `/blog/${id}`);
   const updatedAt =
-    stringFromRecord(record, ["lastUpdated", "updatedDate", "updatedAt"]) ??
-    stringFromRecord(data, ["updatedAt"]) ??
+    timestampStringFromRecord(record, [
+      "lastUpdated",
+      "updatedDate",
+      "updatedAt",
+    ]) ??
+    timestampStringFromRecord(data, ["updatedAt"]) ??
     new Date().toISOString();
 
   return {

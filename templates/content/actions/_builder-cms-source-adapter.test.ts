@@ -205,6 +205,36 @@ describe("Builder CMS source adapter", () => {
     });
   });
 
+  it("uses numeric Builder lastUpdated as the row source baseline", () => {
+    const lastUpdated = 1782328870774;
+    const entry = normalizeBuilderCmsApiEntry(
+      {
+        id: "entry-numeric-last-updated",
+        lastUpdated,
+        data: {
+          title: "Numeric timestamp entry",
+          url: "/blog/numeric-timestamp-entry",
+        },
+      },
+      "blog_article",
+    );
+
+    if (!entry) throw new Error("Expected Builder entry to normalize.");
+    expect(entry.updatedAt).toBe(String(lastUpdated));
+    expect(entry.sourceValues.lastUpdated).toBe(String(lastUpdated));
+    expect(
+      builderCmsSourceRowIdentity({
+        item: item("Local title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T12:30:00.000Z",
+        entry,
+      }),
+    ).toMatchObject({
+      sourceRowId: "entry-numeric-last-updated",
+      lastSourceUpdatedAt: String(lastUpdated),
+    });
+  });
+
   it("renders Builder reference fields as readable labels, not raw JSON", () => {
     const result = normalizeBuilderCmsApiEntry(
       {
