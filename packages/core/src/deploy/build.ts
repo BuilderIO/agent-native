@@ -1617,20 +1617,37 @@ let cachedHandler;
 // PROCESS_RUN_PATH before delegating. Method, ALL headers (the HMAC
 // Authorization: Bearer MUST survive — the plugin verifies it) and the body are
 // preserved by cloning the incoming Request with only its URL pathname set.
-export default async function handler(request) {
-  cachedHandler ??= (await import("./main.mjs")).default;
-  const url = new URL(request.url);
-  url.pathname = PROCESS_RUN_PATH;
-  // Read the body once and pass it through. GET/HEAD have no body.
-  const method = request.method || "POST";
-  const hasBody = method !== "GET" && method !== "HEAD";
-  const body = hasBody ? await request.text() : undefined;
-  const rewritten = new Request(url.toString(), {
-    method,
-    headers: request.headers,
-    body,
-  });
-  return cachedHandler(rewritten);
+export default async function handler(request, context) {
+  try {
+    cachedHandler ??= (await import("./main.mjs")).default;
+    const url = new URL(request.url);
+    url.pathname = PROCESS_RUN_PATH;
+    // Read the body once and pass it through. GET/HEAD have no body.
+    const method = request.method || "POST";
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const body = hasBody ? await request.text() : undefined;
+    const rewritten = new Request(url.toString(), {
+      method,
+      headers: request.headers,
+      body,
+    });
+    // Netlify Functions v2 invokes the handler as (request, context); the Nitro
+    // netlify handler accepts (request[, context]). Pass context through so a
+    // handler that uses it (e.g. waitUntil) does not trip over an undefined arg
+    // before it ever routes the request.
+    return await cachedHandler(rewritten, context);
+  } catch (err) {
+    // Netlify already returned 202 for this background invocation and DISCARDS
+    // this return, so a throw here is otherwise INVISIBLE — it would only surface
+    // downstream as the reaper's "worker never claimed the run". Log it loudly
+    // for the function log; the FOREGROUND circuit-breaker (production-agent.ts)
+    // is what recovers the run by executing it inline when no worker claims.
+    console.error(
+      "[agent-background] wrapper failed before reaching the route:",
+      (err && err.stack) || err,
+    );
+    throw err;
+  }
 }
 
 export const config = {

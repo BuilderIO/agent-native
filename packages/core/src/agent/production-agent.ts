@@ -109,6 +109,7 @@ import {
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   claimBackgroundRun,
+  readBackgroundRunClaim,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
 } from "./run-store.js";
@@ -4425,7 +4426,52 @@ export function createProductionAgentHandler(
         );
       }
 
+      // ─── Circuit-breaker: confirm the worker actually CLAIMED the run ───────
+      // A Netlify async background function returns 202 the instant it ENQUEUES
+      // the invocation — that is NOT proof the worker ran. If the generated
+      // background-function wrapper fails to import `./main.mjs` or hand off to
+      // the Nitro `_process-run` route, the worker never reaches
+      // `claimBackgroundRun`: the row sits at `dispatch_mode='background'` until
+      // the reaper errors it ("worker never claimed the run"). So after a
+      // successful dispatch we poll briefly for the claim; if no worker claims
+      // within the grace window we treat it exactly like a fast dispatch failure
+      // and recover with an inline run below — a dead worker degrades to a
+      // working synchronous turn instead of a reaped failure.
+      let workerClaimed = false;
       if (dispatched) {
+        // Long enough for a cold-start worker to win the claim (~1-2s typical),
+        // short enough to recover quickly and stay well within the foreground's
+        // ~40s soft-timeout.
+        const BACKGROUND_CLAIM_GRACE_MS = 8_000;
+        const claimDeadline = Date.now() + BACKGROUND_CLAIM_GRACE_MS;
+        for (;;) {
+          const claim = await readBackgroundRunClaim(runId).catch(() => null);
+          if (
+            claim &&
+            ((claim.dispatchMode && claim.dispatchMode !== "background") ||
+              (claim.status && claim.status !== "running"))
+          ) {
+            workerClaimed = true;
+            break;
+          }
+          if (Date.now() >= claimDeadline) break;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        if (!workerClaimed) {
+          console.error(
+            "[agent-chat] background worker did not claim the 202-dispatched " +
+              "run within grace; recovering inline:",
+            runId,
+          );
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.foregroundInlineRecovery,
+            "202 dispatched but no worker claimed within the foreground grace window",
+          ).catch(() => {});
+        }
+      }
+
+      if (dispatched && workerClaimed) {
         const stream = subscribeToRun(runId, 0);
         if (stream) {
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4441,7 +4487,11 @@ export function createProductionAgentHandler(
         return { error: "Failed to subscribe to background run" };
       }
 
-      // ─── Dispatch failed → degrade to a normal synchronous (inline) run ────
+      // ─── Dispatch failed OR worker never claimed → inline recovery ─────────
+      // We reach here when EITHER the dispatch fast-failed (fireInternalDispatch
+      // threw) OR it returned a 202 but no worker claimed the run within the
+      // circuit-breaker's grace window above. In both cases NO background worker
+      // owns this run, so the atomic claim below cannot double-execute.
       // `fireInternalDispatch` throws ONLY when the self-POST failed *fast*
       // (rejected the connection, or returned a non-2xx within the ~250ms settle
       // race). The `_process-run` route verifies the HMAC token and validates

@@ -379,6 +379,35 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
 }
 
 /**
+ * Read the claim/lifecycle state of a single run by id — for the foreground
+ * circuit-breaker that confirms a background worker actually CLAIMED a run that
+ * was dispatched with a Netlify async 202. A 202 only means the invocation was
+ * ENQUEUED; if the generated background-function wrapper fails to import/hand off
+ * to the route it never reaches `claimBackgroundRun`, leaving the row stuck at
+ * `dispatch_mode = 'background'`. `'background-processing'` means a worker won
+ * the claim; a terminal `status` means the run already resolved. Returns null if
+ * the row is missing.
+ */
+export async function readBackgroundRunClaim(
+  runId: string,
+): Promise<{ dispatchMode: string | null; status: string | null } | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT dispatch_mode, status FROM agent_runs WHERE id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as
+    | { dispatch_mode?: string | null; status?: string | null }
+    | undefined;
+  if (!row) return null;
+  return {
+    dispatchMode: row.dispatch_mode ?? null,
+    status: row.status ?? null,
+  };
+}
+
+/**
  * Atomically acquire a run lease for a thread. Succeeds (returns true) only
  * when no other run for the same thread is currently status='running' with a
  * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
@@ -481,6 +510,13 @@ export const RUN_DIAG_STAGE = {
   workerThrew: "worker_threw",
   /** The route handler caught an error from the worker invocation. */
   routeThrew: "route_threw",
+  /**
+   * The foreground circuit-breaker fired: a Netlify async 202 was returned but
+   * no background worker CLAIMED the run within the foreground grace window
+   * (the generated function wrapper never reached the route), so the foreground
+   * recovered by running the turn inline. The run still completes for the user.
+   */
+  foregroundInlineRecovery: "foreground_inline_recovery",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
