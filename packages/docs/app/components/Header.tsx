@@ -2,8 +2,9 @@ import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { IconMessage } from "@tabler/icons-react";
-import { FeedbackButton, useT } from "@agent-native/core/client";
+import { FeedbackButton, useLocale, useT } from "@agent-native/core/client";
 import DocsLanguagePicker from "./DocsLanguagePicker";
+import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
@@ -109,9 +110,13 @@ function useSearchModal() {
 export default function Header() {
   const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const isHome = useLocation().pathname === "/";
+  const location = useLocation();
+  const { locale } = useLocale();
+  const isHome =
+    sitePathForLocale(location.pathname, DEFAULT_DOCS_LOCALE) === "/";
   const [scrolled, setScrolled] = useState(false);
   const t = useT();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   useEffect(() => {
     if (!isHome) return;
@@ -151,7 +156,7 @@ export default function Header() {
         <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <Link
             data-an-prefetch="render"
-            to="/"
+            to={localizedPath("/")}
             aria-label="Agent-Native"
             className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
@@ -183,7 +188,7 @@ export default function Header() {
           <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -192,7 +197,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/templates"
+              to={localizedPath("/templates")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -201,7 +206,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/skills"
+              to={localizedPath("/skills")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -274,7 +279,7 @@ export default function Header() {
           <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
             <NavLink
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -284,7 +289,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/templates"
+              to={localizedPath("/templates")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -294,7 +299,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/skills"
+              to={localizedPath("/skills")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }

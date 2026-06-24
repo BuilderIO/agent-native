@@ -2,6 +2,7 @@ import { hasLocalizedDoc } from "./docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   DOCS_LOCALES,
+  docsLocaleFromPathname,
   docsPathForSlug,
   docsSlugFromPathname,
   type DocsLocale,
@@ -22,6 +23,13 @@ function normalizePath(pathname: string) {
 
 export function canonicalPathForPath(pathname: string) {
   const path = normalizePath(pathname);
+  const slug = docsSlugFromPathname(path);
+  if (slug === "getting-started") {
+    return docsPathForSlug(
+      "getting-started",
+      docsLocaleFromPathname(path) ?? DEFAULT_DOCS_LOCALE,
+    );
+  }
   return CANONICAL_ALIASES[path] ?? path;
 }
 
