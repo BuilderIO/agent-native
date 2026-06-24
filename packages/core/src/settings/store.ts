@@ -1,5 +1,10 @@
 import { EventEmitter } from "events";
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import {
+  getDbExec,
+  isPostgres,
+  intType,
+  widenIntColumnsToBigInt,
+} from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -25,6 +30,11 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL
         )
       `);
+      // Older deployments (created before INTEGER→BIGINT compat) have a 32-bit
+      // `updated_at`; on Postgres the `Date.now()` written on every setSetting
+      // overflows int4. Widen it in place (no-op once done / on fresh DBs).
+      // Pass the unqualified name — the helper scopes to the `public` schema.
+      await widenIntColumnsToBigInt("settings", ["updated_at"]);
       // Index for the poll watermark query: `SELECT MAX(updated_at) FROM settings`.
       // MAX on an indexed column avoids a full-table scan on every poll cycle.
       // IF NOT EXISTS makes it idempotent on existing databases.
