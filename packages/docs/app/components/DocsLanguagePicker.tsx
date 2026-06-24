@@ -45,9 +45,7 @@ export default function DocsLanguagePicker() {
       slug && targetLocale === DEFAULT_DOCS_LOCALE
         ? docsPathForSlug(slug, DEFAULT_DOCS_LOCALE)
         : localizedDocsPath(location.pathname, targetLocale);
-    navigate(
-      `${path}${location.search}${location.hash}`,
-    );
+    navigate(`${path}${location.search}${location.hash}`);
   }
 
   return (

@@ -1,8 +1,4 @@
-import {
-  redirect,
-  useLoaderData,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import DocsLayout from "../components/DocsLayout";
 import DocContent from "../components/DocContent";
 import { getDoc, type DocEntry } from "../components/docs-content";

@@ -166,7 +166,7 @@ export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
   if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.has(slug);
   return Boolean(
     localizedDocs.get(docsLocale)?.has(slug) ||
-      localizedMdLoaders[localizedDocKey(docsLocale, slug)],
+    localizedMdLoaders[localizedDocKey(docsLocale, slug)],
   );
 }
 
