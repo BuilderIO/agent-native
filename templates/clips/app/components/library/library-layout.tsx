@@ -45,7 +45,7 @@ import {
   useSpaces,
   useOrganizations,
   useCreateFolder,
-  useRecordings,
+  useRecordingsCount,
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
@@ -124,10 +124,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item, deduped with the library page's
-  // own `list-recordings` query.
-  const { data: libraryRecordings } = useRecordings({ view: "library" });
-  const libraryCount = libraryRecordings?.total;
+  // Clip count for the "Library" nav item — count-only, no row payload or
+  // title polling across the app shell.
+  const { data: libraryCount } = useRecordingsCount({ view: "library" });
 
   const libFolderList: FolderNode[] = useMemo(
     () =>

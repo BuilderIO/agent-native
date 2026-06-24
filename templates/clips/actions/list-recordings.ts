@@ -55,6 +55,15 @@ export default defineAction({
       .describe("Sort order"),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
+    countOnly: z
+      // Robust coercion: a GET query param arrives as the string "true"/"false",
+      // and z.coerce.boolean would treat "false" as true. Map strings explicitly.
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
+      .default(false)
+      .describe("Return only the total count, skipping the row payload"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -135,6 +144,20 @@ export default defineAction({
       );
     }
 
+    // True total for the same filters, ignoring limit/offset, so callers
+    // aren't stuck with the page-capped row count.
+    const totalRows = await db
+      .select({ count: sql<number>`COUNT(1)` })
+      .from(schema.recordings)
+      .where(and(...whereClauses));
+    const total = Number(totalRows[0]?.count ?? 0);
+
+    // Count-only callers (e.g. the sidebar badge) skip the row select, joins,
+    // and tag/view subqueries entirely.
+    if (args.countOnly) {
+      return { recordings: [], total };
+    }
+
     // Sort
     const viewCountOrder = sql<number>`(
       SELECT COUNT(1)
@@ -206,14 +229,6 @@ export default defineAction({
       .orderBy(...orderBy)
       .limit(args.limit)
       .offset(args.offset);
-
-    // True total for the same filters, ignoring limit/offset, so callers
-    // aren't stuck with the page-capped row count.
-    const totalRows = await db
-      .select({ count: sql<number>`COUNT(1)` })
-      .from(schema.recordings)
-      .where(and(...whereClauses));
-    const total = Number(totalRows[0]?.count ?? 0);
 
     const ids = rows.map((r) => r.recording.id);
 
