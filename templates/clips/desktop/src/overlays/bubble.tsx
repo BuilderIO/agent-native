@@ -679,8 +679,9 @@ export function Bubble() {
   };
 
   return (
-    // The ENTIRE wrapper catches mousedown and calls `startDragging()`
-    // directly. No `data-tauri-drag-region` — see `handleBubbleMouseDown`.
+    // The ENTIRE wrapper is the drag surface — pointer-down drives the manual
+    // clamp-before-move drag loop. No `startDragging()`, no
+    // `data-tauri-drag-region` — see `handleBubblePointerDown` above.
     <div
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
@@ -725,7 +726,7 @@ export function Bubble() {
           }
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
-            `data-no-drag` so mousedown here does NOT call startDragging;
+            `data-no-drag` so pointer-down here does NOT start a drag;
             onClick fires normally. */}
         <button
           type="button"

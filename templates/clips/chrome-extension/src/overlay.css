@@ -372,3 +372,56 @@ body {
     margin-left: 100%;
   }
 }
+
+/* Bubble size dots (small / large), revealed on hover — desktop-style. */
+.bubble-sizes {
+  position: absolute;
+  bottom: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(9, 9, 11, 0.55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.bubble:hover .bubble-sizes {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bubble-size-dot {
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.1s ease;
+}
+
+.bubble-size-dot:hover {
+  background: #fff;
+}
+
+.bubble-size-dot:active {
+  transform: scale(0.9);
+}
+
+.bubble-size-sm {
+  width: 8px;
+  height: 8px;
+}
+
+.bubble-size-lg {
+  width: 13px;
+  height: 13px;
+}
