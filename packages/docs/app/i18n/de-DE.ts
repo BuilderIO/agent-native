@@ -56,6 +56,139 @@ const deDE = {
     genericTitle: "Etwas ist schiefgelaufen",
     genericBody: "Ein unerwarteter Fehler ist aufgetreten.",
   },
+  home: {
+    hero: {
+      badge: "Open-Source-Framework",
+      titleLine1: "Agentic Applications",
+      titleAccent: "in deinem Besitz",
+      body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
+      primaryCta: "Mit Chat starten",
+      secondaryCta: "Docs ansehen",
+    },
+    code: {
+      quickStartComment: "Starte mit einer Chat-first app",
+      skillInstallComment:
+        "Füge Agent-Native-Planung zu einem coding agent hinzu, den du bereits nutzt",
+      frameworkComment:
+        "Ein action treibt agent, UI, HTTP, MCP, A2A und CLI an.",
+      frameworkDescription: "Sage Hallo aus dem lokalen app-agent loop.",
+    },
+    framework: {
+      title: "Das Framework für agent-native apps",
+      body1:
+        "Agent-Native ist ein Open-Source-Framework, um agents als echte Software zu bauen: Starte mit Chat oder headless agents und ergänze dann UI, jobs und Zusammenarbeit rund um dieselben actions.",
+      body2:
+        "Bring deine eigene Datenbank, deinen Hosting-Anbieter, deinen Model-Stack und deinen app-Code mit.",
+      cta: "Framework-Guide lesen",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "Definiere Arbeit einmal. Nutze sie aus agent, UI, API, MCP und A2A.",
+        },
+        sharedState: {
+          title: "Geteilter Zustand",
+          description:
+            "SQL-gestützter app-Zustand hält Menschen, agents und Sessions synchron.",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "Der app-agent loop, tools, skills, memory, jobs und Observability werden gemeinsam ausgeliefert.",
+        },
+        backendAgnostic: {
+          title: "Backend-agnostisch",
+          description:
+            "Schließe jede von Drizzle unterstützte SQL-Datenbank und jeden Nitro-kompatiblen Host an.",
+        },
+      },
+    },
+    templates: {
+      title: "Forke und passe eine voll ausgestattete app an",
+      eyebrow: "100 % kostenlos und Open Source",
+      body: "Wenn ein action Screens braucht, starte mit einer geprüften app, die du anpassen kannst. Chat ist das minimale app scaffold; Domain-Templates ergänzen Produkt-workflows, Beispieldaten und agent-ready actions.",
+      cta: "Alle Templates ansehen",
+    },
+    skills: {
+      title: "Mit einem skill ausprobieren",
+      body: "Füge visuelle Planung und PR recaps mit einem Befehl zu Claude Code, Codex, Cursor, Pi, OpenCode oder VS Code hinzu.",
+      planBody:
+        "Reviewbare Pläne mit Diagrammen, Wireframes, Dateikarten und Kommentaren vor Codeänderungen.",
+      recapBody:
+        "Eine visuelle Zusammenfassung eines PR oder diff, damit Reviewers die Form vor den rohen Zeilen sehen.",
+      cta: "Skills Guide durchsuchen",
+    },
+    connected: {
+      title: "Agents und UI, vollständig verbunden",
+      body: "Der agent und die UI sind gleichberechtigte Teile desselben Systems. Jeder action funktioniert in beide Richtungen: klicken oder danach fragen.",
+      tabs: {
+        agentSees: {
+          title: "Der agent sieht alles",
+          description:
+            "Er kann jede UI, alle Daten und jeden Zustand in der Anwendung lesen und aktualisieren.",
+        },
+        uiTalks: {
+          title: "Die UI spricht mit dem agent",
+          description:
+            "Buttons, Formulare und workflows senden strukturierte Inhalte an den agent und schaffen geführte Abläufe, die alle durch den agent laufen, einschließlich skills, rules und instructions.",
+        },
+        agentUpdates: {
+          title: "Der agent aktualisiert seinen eigenen Code",
+          description:
+            "Er kann die app selbst ändern, um features und Funktionalität anzupassen. Deine tools werden mit der Zeit besser.",
+        },
+        everything: {
+          title: "Alles funktioniert in beide Richtungen",
+          description:
+            "Jeder action, der in der UI verfügbar ist, steht auch dem agent zur Verfügung. Du kannst klicken, um etwas zu tun, oder den agent bitten, es zu tun.",
+        },
+      },
+    },
+    comparison: {
+      title: "Das Beste aus beiden Welten",
+      body: "SaaS-Tools sind starr und setzen AI nachträglich oben drauf. Raw AI Agents sind mächtig, haben aber keine UI. Agent-native apps kombinieren beides.",
+      columns: {
+        saas: "SaaS-Tools",
+        agents: "Raw AI Agents",
+        internal: "Interne Tools",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Anpassung",
+        ownership: "Eigentum",
+      },
+      cells: {
+        polishedButRigid: "Ausgereift, aber starr",
+        none: "Keine",
+        mixedQuality: "Gemischte Qualität",
+        fullUi: "Volle UI, fork & go",
+        boltedOn: "Nachträglich angebaut",
+        powerful: "Mächtig",
+        shallowlyConnected: "Oberflächlich verbunden",
+        agentFirst: "Agent-first, integriert",
+        cant: "Geht nicht",
+        instructionsAndSkills: "Instructions und skills",
+        fullHighMaintenance: "Vollständig, aber wartungsintensiv",
+        agentModifies: "Agent verändert die app",
+        rented: "Gemietet",
+        somewhatYours: "Teilweise deins",
+        youOwnCode: "Der Code gehört dir",
+      },
+    },
+    quickStart: {
+      title: "Mit Chat starten",
+      body: "Ein Befehl erstellt eine lokale Chat app mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+    },
+    finalCta: {
+      title: "Software, die dir gehört, gebaut für die agentic era",
+      body: "Starte mit Chat oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
+      primaryCta: "Mit einem Action starten",
+      secondaryCta: "Docs lesen",
+      githubCta: "Auf GitHub ansehen",
+    },
+  },
   nav: {
     overview: "Überblick",
     coreArchitecture: "Kernarchitektur",

@@ -156,7 +156,10 @@ export async function loadDoc(
       cacheLocalizedDoc(docsLocale, entry);
       return entry;
     })
-    .catch(() => undefined);
+    .catch((error) => {
+      localizedDocPromises.delete(key);
+      throw error;
+    });
   localizedDocPromises.set(key, promise);
   return promise;
 }
@@ -207,7 +210,12 @@ function buildSearchIndexFromDocs(
   const docsLocale = normalizeDocsLocale(locale);
 
   for (const doc of docsList) {
-    const path = docsPathForSlug(doc.slug, docsLocale);
+    const pathLocale =
+      docsLocale !== DEFAULT_DOCS_LOCALE &&
+      !hasLocalizedDoc(docsLocale, doc.slug)
+        ? DEFAULT_DOCS_LOCALE
+        : docsLocale;
+    const path = docsPathForSlug(doc.slug, pathLocale);
     const lines = doc.body.split("\n");
     const sections: { id: string; label: string; startLine: number }[] = [];
 

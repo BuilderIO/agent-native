@@ -47,6 +47,7 @@ function findCatalogDirs(): string[] {
       "app",
       "i18n",
     ),
+    path.join(rootDir, "packages", "docs", "app", "i18n"),
     ...safeReadDir(path.join(rootDir, "templates"))
       .filter((entry) =>
         existsSync(path.join(rootDir, "templates", entry, "app", "i18n")),

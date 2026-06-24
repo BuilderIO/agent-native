@@ -14,7 +14,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentNativeI18nProvider,
   AgentSidebar,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
   configureTracking,
+  getLocaleInitScript,
+  normalizeLocalizationPreference,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -22,6 +27,7 @@ import Footer from "./components/Footer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsLocaleFromPathname,
+  isDocsPath,
   localeDirection,
 } from "./components/docs-locale";
 import {
@@ -34,6 +40,7 @@ import { defaultSocialImageMeta } from "./seo";
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -82,6 +89,28 @@ const JSON_LD = JSON.stringify({
   ],
 });
 
+function getSiteLocaleInitScript() {
+  return `(function(){try{var supported=${JSON.stringify(
+    SUPPORTED_LOCALES,
+  )};function valid(x){return supported.indexOf(x)>=0}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}var stored=storageGet(${JSON.stringify(
+    LOCALE_STORAGE_KEY,
+  )});var pref=stored==='system'||valid(stored)?stored:'system';var locale=pref&&pref!=='system'?canon(pref):null;if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
+    DEFAULT_DOCS_LOCALE,
+  )};var dir=locale==='ar-SA'?'rtl':'ltr';var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',dir);root.setAttribute('data-locale',locale);window[${JSON.stringify(
+    LOCALE_HYDRATION_GLOBAL,
+  )}]={locale:locale,preference:{locale:pref},dir:dir};}catch(e){}})();`;
+}
+
+function readClientLocalePreference() {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    return stored ? normalizeLocalizationPreference(stored).locale : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
@@ -123,15 +152,18 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
 
 function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const routeLocale =
-    docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const docsPath = isDocsPath(location.pathname);
+  const routeLocale = docsPath
+    ? (docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE)
+    : undefined;
+  const sitePreference = docsPath ? undefined : readClientLocalePreference();
 
   return (
     <AgentNativeI18nProvider
-      key={routeLocale}
+      key={routeLocale ?? "site"}
       catalog={docsI18nCatalog}
       initialLocale={routeLocale}
-      initialPreference={routeLocale}
+      initialPreference={routeLocale ?? sitePreference}
       persistPreference={false}
     >
       {children}
@@ -280,8 +312,18 @@ function ScrollManager() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const docsPath = isDocsPath(location.pathname);
   const locale =
     docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
+  const localeInitScript =
+    typeof document !== "undefined"
+      ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
+          ?.innerHTML ?? getSiteLocaleInitScript())
+      : docsPath
+        ? getLocaleInitScript({
+            locale,
+          })
+        : getSiteLocaleInitScript();
 
   return (
     <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
@@ -289,6 +331,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
         <script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"

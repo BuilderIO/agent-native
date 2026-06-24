@@ -56,6 +56,139 @@ const jaJP = {
     genericTitle: "問題が発生しました",
     genericBody: "予期しないエラーが発生しました。",
   },
+  home: {
+    hero: {
+      badge: "オープンソース framework",
+      titleLine1: "Agentic Applications",
+      titleAccent: "あなたが所有する",
+      body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
+      primaryCta: "Chat から始める",
+      secondaryCta: "ドキュメントを見る",
+    },
+    code: {
+      quickStartComment: "Chat-first app から始める",
+      skillInstallComment:
+        "すでに使っている coding agent に Agent-Native の計画機能を追加する",
+      frameworkComment:
+        "1 つの action が agent、UI、HTTP、MCP、A2A、CLI を動かします。",
+      frameworkDescription: "ローカルの app-agent loop から hello を返します。",
+    },
+    framework: {
+      title: "agent-native apps のための framework",
+      body1:
+        "Agent-Native は、agents を実際のソフトウェアとして構築するためのオープンソース framework です。Chat または headless agents から始め、同じ actions を中心に UI、jobs、コラボレーションを追加できます。",
+      body2:
+        "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
+      cta: "framework ガイドを読む",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "作業を一度だけ定義します。agent、UI、API、MCP、A2A から使えます。",
+        },
+        sharedState: {
+          title: "共有状態",
+          description:
+            "SQL-backed app state が、人、agents、sessions の同期を保ちます。",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "app-agent loop、tools、skills、memory、jobs、observability が一緒に出荷されます。",
+        },
+        backendAgnostic: {
+          title: "バックエンド非依存",
+          description:
+            "Drizzle 対応の任意の SQL データベースと Nitro 互換ホストを接続できます。",
+        },
+      },
+    },
+    templates: {
+      title: "機能豊富な app を fork してカスタマイズ",
+      eyebrow: "100% 無料でオープンソース",
+      body: "action に画面が必要なときは、カスタマイズ可能な検証済み app から始めます。Chat は最小の app scaffold です。ドメインテンプレートは、プロダクト workflows、サンプルデータ、agent-ready actions を追加します。",
+      cta: "すべてのテンプレートを見る",
+    },
+    skills: {
+      title: "skill で試す",
+      body: "1 つのコマンドで、Claude Code、Codex、Cursor、Pi、OpenCode、VS Code にビジュアル計画と PR recaps を追加できます。",
+      planBody:
+        "コード変更の前に、図、ワイヤーフレーム、ファイルマップ、コメント付きのレビュー可能な plans を作成します。",
+      recapBody:
+        "PR や diff の形を reviewers が生の行を見る前に理解できる、ビジュアルな要約です。",
+      cta: "Skills Guide を見る",
+    },
+    connected: {
+      title: "agents と UI が完全に接続",
+      body: "agent と UI は同じシステムの対等な存在です。すべての action は双方向に動作し、クリックしても依頼しても実行できます。",
+      tabs: {
+        agentSees: {
+          title: "agent はすべてを見る",
+          description:
+            "アプリケーション内のあらゆる UI、データ、状態を読み取り、更新できます。",
+        },
+        uiTalks: {
+          title: "UI が agent と会話する",
+          description:
+            "ボタン、フォーム、workflows は構造化コンテンツを agent に送り、skills、rules、instructions を含むすべてのガイド付きフローを agent 経由にします。",
+        },
+        agentUpdates: {
+          title: "agent が自分のコードを更新する",
+          description:
+            "app 自体を変更して features や機能を変えられます。あなたの tools は時間とともに良くなります。",
+        },
+        everything: {
+          title: "すべてが双方向に動作",
+          description:
+            "UI で利用できるすべての action は agent からも利用できます。クリックして実行することも、agent に依頼することもできます。",
+        },
+      },
+    },
+    comparison: {
+      title: "両方の良さをひとつに",
+      body: "SaaS ツールは硬直的で、AI は後付けになりがちです。生の AI Agents は強力ですが UI がありません。agent-native apps はその両方を組み合わせます。",
+      columns: {
+        saas: "SaaS ツール",
+        agents: "生の AI Agents",
+        internal: "内部ツール",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "カスタマイズ",
+        ownership: "所有権",
+      },
+      cells: {
+        polishedButRigid: "洗練されているが硬直的",
+        none: "なし",
+        mixedQuality: "品質がまちまち",
+        fullUi: "完全な UI、fork してすぐ使える",
+        boltedOn: "後付け",
+        powerful: "強力",
+        shallowlyConnected: "浅く接続",
+        agentFirst: "Agent-first、統合済み",
+        cant: "できない",
+        instructionsAndSkills: "instructions と skills",
+        fullHighMaintenance: "完全だが保守負荷が高い",
+        agentModifies: "Agent が app を変更",
+        rented: "借り物",
+        somewhatYours: "一部は自分のもの",
+        youOwnCode: "コードはあなたのもの",
+      },
+    },
+    quickStart: {
+      title: "Chat から始める",
+      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル Chat app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
+    },
+    finalCta: {
+      title: "agentic era のために作られた、あなたが所有するソフトウェア",
+      body: "Chat または durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
+      primaryCta: "Action から始める",
+      secondaryCta: "ドキュメントを読む",
+      githubCta: "GitHub で見る",
+    },
+  },
   nav: {
     overview: "概要",
     coreArchitecture: "コアアーキテクチャ",

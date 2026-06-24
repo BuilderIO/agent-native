@@ -56,6 +56,134 @@ const zhCN = {
     genericTitle: "出现问题",
     genericBody: "发生了意外错误。",
   },
+  home: {
+    hero: {
+      badge: "开源框架",
+      titleLine1: "Agentic 应用",
+      titleAccent: "由你掌控",
+      body: "从 Chat-first app 和 app-agent loop 开始。随着你的 agent 成长，添加 actions、界面、jobs 和 workflows。",
+      primaryCta: "从 Chat 开始",
+      secondaryCta: "查看文档",
+    },
+    code: {
+      quickStartComment: "从 Chat-first app 开始",
+      skillInstallComment: "把 Agent-Native 规划加入你已经使用的 coding agent",
+      frameworkComment: "一个 action 驱动 agent、UI、HTTP、MCP、A2A 和 CLI。",
+      frameworkDescription: "从本地 app-agent loop 打招呼。",
+    },
+    framework: {
+      title: "面向 agent-native apps 的框架",
+      body1:
+        "Agent-Native 是一个开源框架，用来把 agents 构建成真正的软件：从 Chat 或 headless agents 开始，再围绕同一组 actions 添加 UI、jobs 和协作。",
+      body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
+      cta: "阅读框架指南",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description: "只定义一次工作。从 agent、UI、API、MCP 和 A2A 使用它。",
+        },
+        sharedState: {
+          title: "共享状态",
+          description:
+            "由 SQL 支撑的 app 状态让人、agents 和 sessions 保持同步。",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "app-agent loop、tools、skills、memory、jobs 和可观测性一起交付。",
+        },
+        backendAgnostic: {
+          title: "后端无关",
+          description:
+            "接入任何 Drizzle 支持的 SQL 数据库和 Nitro 兼容的托管环境。",
+        },
+      },
+    },
+    templates: {
+      title: "Fork 并定制一个功能完整的 app",
+      eyebrow: "100% 免费且开源",
+      body: "当一个 action 需要界面时，从可定制的 vetted app 开始。Chat 是最小的 app scaffold；领域模板会加入产品 workflows、示例数据和 agent-ready actions。",
+      cta: "查看所有模板",
+    },
+    skills: {
+      title: "用一个 skill 试试",
+      body: "用一条命令，把可视化规划和 PR recaps 加到 Claude Code、Codex、Cursor、Pi、OpenCode 或 VS Code。",
+      planBody:
+        "在改代码之前，先查看带有图表、线框、文件地图和评论的可审阅 plans。",
+      recapBody:
+        "用 PR 或 diff 的可视化摘要，让 reviewers 在原始代码行之前先看清整体形状。",
+      cta: "浏览 Skills Guide",
+    },
+    connected: {
+      title: "agent 和 UI 完全连接",
+      body: "agent 和 UI 是同一系统里的平等成员。每个 action 都双向可用：点击它，或直接提出请求。",
+      tabs: {
+        agentSees: {
+          title: "agent 能看到一切",
+          description: "它可以读取和更新应用中的任何 UI、任何数据、任何状态。",
+        },
+        uiTalks: {
+          title: "UI 与 agent 对话",
+          description:
+            "按钮、表单和 workflows 会把结构化内容推给 agent，让所有引导流程都通过 agent，包括 skills、rules 和 instructions。",
+        },
+        agentUpdates: {
+          title: "agent 更新自己的代码",
+          description:
+            "它可以修改 app 本身来改变 features 和功能。你的 tools 会越来越好。",
+        },
+        everything: {
+          title: "一切都双向工作",
+          description:
+            "UI 中可用的每个 action 也都可供 agent 使用。你可以点击来做事，也可以让 agent 去做。",
+        },
+      },
+    },
+    comparison: {
+      title: "两种优势兼得",
+      body: "SaaS 工具很僵硬，AI 往往只是后加的补丁。原始 AI agents 很强大，但没有 UI。Agent-native apps 把二者结合起来。",
+      columns: {
+        saas: "SaaS 工具",
+        agents: "原始 AI Agents",
+        internal: "内部工具",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "定制",
+        ownership: "所有权",
+      },
+      cells: {
+        polishedButRigid: "精致但僵硬",
+        none: "无",
+        mixedQuality: "质量参差",
+        fullUi: "完整 UI，fork 即用",
+        boltedOn: "后加上去",
+        powerful: "强大",
+        shallowlyConnected: "浅层连接",
+        agentFirst: "Agent-first，已集成",
+        cant: "不能",
+        instructionsAndSkills: "instructions 和 skills",
+        fullHighMaintenance: "完整，但维护成本高",
+        agentModifies: "Agent 修改 app",
+        rented: "租来的",
+        somewhatYours: "部分属于你",
+        youOwnCode: "代码归你所有",
+      },
+    },
+    quickStart: {
+      title: "从 Chat 开始",
+      body: "一条命令会创建一个本地 Chat app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
+    },
+    finalCta: {
+      title: "你拥有的软件，为 agentic 时代而建",
+      body: "从 Chat 或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
+      primaryCta: "从 Action 开始",
+      secondaryCta: "阅读文档",
+      githubCta: "在 GitHub 查看",
+    },
+  },
   nav: {
     overview: "概览",
     coreArchitecture: "核心架构",
