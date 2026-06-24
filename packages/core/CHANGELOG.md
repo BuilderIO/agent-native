@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.76.6
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+- c294aaa: Document the authenticated extension data API and enforce extension sharing
+  roles server-side for direct `/_agent-native/extensions/data/*` calls.
+
 ## 0.76.5
 
 ### Patch Changes

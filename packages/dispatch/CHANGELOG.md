@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.12.2
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+
 ## 0.12.1
 
 ### Patch Changes
