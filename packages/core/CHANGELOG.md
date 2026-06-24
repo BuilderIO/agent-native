@@ -1,5 +1,43 @@
 # @agent-native/core
 
+## 0.72.0
+
+### Minor Changes
+
+- 9a984f2: Add a framework audit log: a durable, complete, access-scoped, append-only record of who mutated what app data, when, from where, and — when it was the agent — in which run. Capture is automatic at the `defineAction` seam (default-on for mutating actions; read-only actions opt in via `audit.onRead`), with credential redaction, agent-vs-human actor attribution, and agent thread/turn linkage. Reads go through two new core actions every app inherits — `list-audit-events` and `get-audit-event` — scoped in SQL to the caller's identity and org. Stored in `agent_audit_log` (provider-agnostic), with a retention purge configurable via `AGENT_NATIVE_AUDIT_RETENTION_DAYS` (default 365) and a global kill switch `AGENT_NATIVE_AUDIT_ENABLED=false`. Distinct from observability (sampled telemetry) and tracking (fire-and-forget analytics).
+
+### Patch Changes
+
+- 9a984f2: Relax the default `Permissions-Policy` from `camera=()` to `camera=*` so media-capture UI is no longer blocked at the policy level. `camera=()` disabled the camera for the page **and every iframe inside it**, which broke same-page recording UI and the Clips browser extension's camera bubble (injected as a cross-origin iframe, so it can't be re-enabled per-frame). Microphone stays `self`, geolocation and wake-lock stay disabled, and the browser still gates actual camera/mic use behind a per-origin permission prompt — this only removes the policy-level block, not user consent.
+- 9a984f2: Fix a chat crash where the agent transcript could fail to render with
+  "MessageRepository(performOp/link): A message with the same id already exists in
+  the parent tree". Thread repositories whose message list contained a repeated id
+  (from optimistic+echo races, streaming reconnect replays, or multi-tab merges)
+  were imported into assistant-ui verbatim, and its `MessageRepository` throws on a
+  duplicate id. The import path now collapses duplicate ids to their most recent
+  copy before handing the repository to assistant-ui, so the throw can't occur. The
+  no-duplicate case is an exact no-op, leaving normal threads unchanged.
+- 9a984f2: Fix `value "<ms epoch>" is out of range for type integer` on long-lived
+  Postgres/Neon databases — most visibly, agent chat failing on **every** prompt.
+  Millisecond `Date.now()` timestamps are written into columns that, on databases
+  created before the Postgres BIGINT-compatibility shim, are physically 32-bit
+  `INTEGER` (int4, max 2,147,483,647); a millisecond epoch like `1782269273204`
+  overflows. The source had since switched to `BIGINT`, but `CREATE TABLE IF NOT
+EXISTS` can't re-type an existing column, so those databases kept the int4
+  column and writes kept failing (`insertRun()` runs at the start of every turn,
+  so the agent chat aborted as a `connection_error`).
+
+  Adds a `widenIntColumnsToBigInt()` helper (new module
+  `@agent-native/core/db/widen-columns`) that, on Postgres only, widens such
+  columns in place to `BIGINT` once via each store's existing `ensureTable()`
+  bootstrap. It is idempotent (only ALTERs columns still typed `integer`, so
+  already-bigint tables are never rewritten), non-destructive (int4 → int8
+  widening), and a no-op on SQLite. Applied to the millisecond-timestamp columns
+  of `agent_runs`, `agent_tool_ledger`, `chat_threads`, `application_state`,
+  `token_usage`, `settings`, `oauth_tokens`, `resources`, `sessions`, and
+  `custom_api_providers`. (`staged_datasets` already self-heals via its own
+  widener.)
+
 ## 0.71.0
 
 ### Minor Changes
