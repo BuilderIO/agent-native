@@ -40,6 +40,7 @@ import { MediaDeviceRow } from "./components/MediaDeviceRow";
 import { Switch } from "./components/Switch";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import {
+  CalendarIcon,
   CamIcon,
   ClockIcon,
   CloseIcon,
@@ -85,6 +86,17 @@ interface RecordingSummary {
   durationMs: number;
   thumbnailUrl: string | null;
   updatedAt: string;
+}
+
+interface TodayMeeting {
+  id: string;
+  title: string | null;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+  joinUrl: string | null;
+  recordingId: string | null;
 }
 
 interface PendingNativeUpload {
@@ -569,6 +581,9 @@ export function App() {
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [showMeetings, setShowMeetings] = useState(false);
+  const [todayMeetings, setTodayMeetings] = useState<TodayMeeting[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
@@ -941,6 +956,43 @@ export function App() {
     selectedMicId,
     selectedMicLabel,
   });
+
+  const fetchTodayMeetings = useCallback(async () => {
+    setMeetingsLoading(true);
+    try {
+      const result = await callClipsAction<{ meetings: TodayMeeting[] }>(
+        "list-meetings",
+        { view: "all", limit: 100, includeLiveCalendar: true },
+        { method: "GET" },
+      );
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date();
+      dayEnd.setHours(23, 59, 59, 999);
+      const filtered = (result.meetings ?? []).filter((m) => {
+        const t = m.scheduledStart ? Date.parse(m.scheduledStart) : null;
+        return t !== null && t >= dayStart.getTime() && t <= dayEnd.getTime();
+      });
+      filtered.sort((a, b) => {
+        const ta = a.scheduledStart ? Date.parse(a.scheduledStart) : 0;
+        const tb = b.scheduledStart ? Date.parse(b.scheduledStart) : 0;
+        return ta - tb;
+      });
+      setTodayMeetings(filtered);
+    } catch {
+      setTodayMeetings([]);
+    } finally {
+      setMeetingsLoading(false);
+    }
+  }, [callClipsAction]);
+
+  const toggleMeetings = useCallback(() => {
+    setShowRecent(false);
+    setShowMeetings((prev) => {
+      if (!prev) fetchTodayMeetings();
+      return !prev;
+    });
+  }, [fetchTodayMeetings]);
 
   // OAuth (Google) opens in the system browser — the popover WebView can't
   // share a cookie jar with a separate Tauri WebviewWindow, and the old
@@ -2274,6 +2326,12 @@ export function App() {
           onClick={() => openInBrowser("/")}
         />
         <BottomButton
+          icon="meetings"
+          label="Meetings"
+          active={showMeetings}
+          onClick={toggleMeetings}
+        />
+        <BottomButton
           icon="settings"
           label="Settings"
           onClick={() => setShowSettings(true)}
@@ -2282,9 +2340,64 @@ export function App() {
           icon="recent"
           label="Recent"
           badge={undefined}
-          onClick={() => setShowRecent((v) => !v)}
+          active={showRecent}
+          onClick={() => {
+            setShowMeetings(false);
+            setShowRecent((v) => !v);
+          }}
         />
       </div>
+
+      {showMeetings ? (
+        <div className="meetings-panel">
+          {meetingsLoading ? (
+            <div className="meetings-empty">Loading…</div>
+          ) : todayMeetings.length === 0 ? (
+            <div className="meetings-empty">No meetings scheduled for today</div>
+          ) : (
+            todayMeetings.map((m) => {
+              const title = m.title ?? "Meeting";
+              const isLive = !!m.actualStart && !m.actualEnd;
+              const isDone = !!m.actualEnd;
+              const startLabel = m.scheduledStart
+                ? new Date(m.scheduledStart).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                : null;
+              const endLabel = m.scheduledEnd
+                ? new Date(m.scheduledEnd).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                : null;
+              const timeLabel =
+                startLabel && endLabel
+                  ? `${startLabel} – ${endLabel}`
+                  : (startLabel ?? "");
+              const status = isLive ? "live" : isDone ? "done" : "upcoming";
+              return (
+                <button
+                  key={m.id}
+                  className="meeting-row"
+                  onClick={() => openInBrowser(`/meetings/${m.id}`)}
+                >
+                  <span
+                    className="meeting-status-dot"
+                    data-status={status}
+                  />
+                  <span className="meeting-row-meta">
+                    <span className="meeting-row-title">{title}</span>
+                    {timeLabel && (
+                      <span className="meeting-row-time">{timeLabel}</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
 
       {showRecent && recordings.length > 0 ? (
         <div className="recent-list">
@@ -2820,18 +2933,25 @@ function BottomButton({
   icon,
   label,
   badge,
+  active,
   onClick,
 }: {
-  icon: "library" | "settings" | "recent";
+  icon: "library" | "settings" | "recent" | "meetings";
   label: string;
   badge?: string;
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
-    <button className="bottom-btn" onClick={onClick}>
+    <button
+      className={`bottom-btn${active ? " bottom-btn--active" : ""}`}
+      onClick={onClick}
+    >
       <span className="bottom-icon">
         {icon === "library" ? (
           <LibraryIcon />
+        ) : icon === "meetings" ? (
+          <CalendarIcon />
         ) : icon === "settings" ? (
           <SettingsIcon />
         ) : (

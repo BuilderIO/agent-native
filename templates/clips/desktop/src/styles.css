@@ -1096,7 +1096,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .bottom-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
 }
 
@@ -1119,6 +1119,14 @@ body[data-clips-route="recording-pill"] #root {
 .bottom-btn:hover {
   background: var(--surface-hover);
   color: var(--fg);
+}
+
+.bottom-btn--active {
+  color: var(--fg);
+}
+
+.bottom-btn--active .bottom-icon {
+  color: var(--brand);
 }
 
 .bottom-icon {
@@ -1220,6 +1228,84 @@ body[data-clips-route="recording-pill"] #root {
 .recent-sub {
   font-size: 11px;
   color: var(--fg-subtle);
+  margin-top: 1px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Today's meetings panel (collapsible)                                       */
+/* ------------------------------------------------------------------------- */
+
+.meetings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.meetings-empty {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.meeting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 120ms;
+}
+
+.meeting-row:hover {
+  background: var(--surface-hover);
+}
+
+.meeting-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.meeting-status-dot[data-status="live"] {
+  background: #22c55e;
+}
+
+.meeting-status-dot[data-status="done"] {
+  background: var(--fg-subtle);
+}
+
+.meeting-status-dot[data-status="upcoming"] {
+  background: var(--brand);
+}
+
+.meeting-row-meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-row-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-row-time {
+  font-size: 11px;
+  color: var(--fg-muted);
   margin-top: 1px;
 }
 
