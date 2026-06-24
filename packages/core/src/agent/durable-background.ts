@@ -77,7 +77,10 @@ export function isHostedRuntimeForDurableBackground(): boolean {
 }
 
 function isFlagEnabled(): boolean {
-  const raw = process.env[AGENT_CHAT_DURABLE_BACKGROUND_ENV];
+  // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
+  // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
+  // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
+  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
   return (
