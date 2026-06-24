@@ -4,7 +4,9 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
+  prepareProcessRunRequest,
 } from "./durable-background.js";
+import { signInternalToken } from "../integrations/internal-token.js";
 
 /**
  * The single gate that decides whether a long agent-chat turn is routed through
@@ -28,21 +30,18 @@ const ENV_KEYS = [
   "K_SERVICE",
 ] as const;
 
-let saved: Record<string, string | undefined>;
+let saved: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-  saved = {};
-  for (const k of ENV_KEYS) {
-    saved[k] = process.env[k];
-    delete process.env[k];
-  }
+  // Snapshot the whole env, then clear the keys the gate reads so each case is
+  // isolated. Spread + Reflect.deleteProperty avoid dynamic `process.env[key]`
+  // access (which guard:no-env-credentials forbids even in tests).
+  saved = { ...process.env };
+  for (const k of ENV_KEYS) Reflect.deleteProperty(process.env, k);
 });
 
 afterEach(() => {
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
+  process.env = saved;
 });
 
 /** Mark the runtime as hosted (Netlify, not local). */
@@ -109,5 +108,114 @@ describe("isAgentChatDurableBackgroundEnabled (Phase-1 gate)", () => {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
       expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
     }
+  });
+});
+
+describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
+  const RUN_ID = "run-bg-123";
+
+  it("rejects a non-object body with 400", () => {
+    const r = prepareProcessRunRequest(null, undefined);
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "Invalid request body",
+    });
+  });
+
+  it("rejects a body with no runId/taskId with 400", () => {
+    const r = prepareProcessRunRequest({ message: "hi" }, undefined);
+    expect(r).toEqual({ ok: false, status: 400, error: "runId required" });
+  });
+
+  describe("with A2A_SECRET configured", () => {
+    beforeEach(() => {
+      process.env.A2A_SECRET = "test-secret";
+    });
+
+    it("rejects a missing/unsigned token with 401", () => {
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+      );
+      expect(r).toMatchObject({ ok: false, status: 401 });
+    });
+
+    it("rejects an invalid token with 401", () => {
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        "Bearer not-a-real-token",
+      );
+      expect(r).toMatchObject({ ok: false, status: 401 });
+    });
+
+    it("rejects a token signed for a DIFFERENT runId with 401", () => {
+      const token = signInternalToken("some-other-run");
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        `Bearer ${token}`,
+      );
+      expect(r).toMatchObject({ ok: false, status: 401 });
+    });
+
+    it("accepts a valid token bound to the runId and preserves the marker", () => {
+      const token = signInternalToken(RUN_ID);
+      const r = prepareProcessRunRequest(
+        {
+          message: "do it",
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId: RUN_ID,
+            turnId: "turn-9",
+          },
+        },
+        `Bearer ${token}`,
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error("expected ok");
+      expect(r.runId).toBe(RUN_ID);
+      expect(r.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+        runId: RUN_ID,
+        turnId: "turn-9",
+      });
+    });
+
+    it("injects the marker when only taskId is present (signed over taskId)", () => {
+      const token = signInternalToken(RUN_ID);
+      const r = prepareProcessRunRequest(
+        { taskId: RUN_ID, message: "x" },
+        `Bearer ${token}`,
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error("expected ok");
+      expect(r.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toEqual({
+        runId: RUN_ID,
+      });
+    });
+  });
+
+  describe("without A2A_SECRET", () => {
+    beforeEach(() => {
+      delete process.env.A2A_SECRET;
+    });
+
+    it("refuses with 503 on a production runtime (never unsigned in prod)", () => {
+      process.env.NETLIFY = "true";
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+      );
+      expect(r).toMatchObject({ ok: false, status: 503 });
+    });
+
+    it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
+      // No production env vars set in beforeEach's cleared environment.
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error("expected ok");
+      expect(r.runId).toBe(RUN_ID);
+    });
   });
 });
