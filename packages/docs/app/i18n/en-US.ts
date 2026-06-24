@@ -55,6 +55,139 @@ const enUS = {
     genericTitle: "Something went wrong",
     genericBody: "An unexpected error occurred.",
   },
+  home: {
+    hero: {
+      badge: "Open source framework",
+      titleLine1: "Agentic Applications",
+      titleAccent: "You Own",
+      body: "Start with a chat-first app and the app-agent loop. Add actions, screens, jobs, and workflows as your agent grows.",
+      primaryCta: "Start with Chat",
+      secondaryCta: "View the Docs",
+    },
+    code: {
+      quickStartComment: "Start with a chat-first app",
+      skillInstallComment:
+        "Add agent-native planning to a coding agent you already use",
+      frameworkComment:
+        "One action powers the agent, UI, HTTP, MCP, A2A, and CLI.",
+      frameworkDescription: "Say hello from the local app-agent loop.",
+    },
+    framework: {
+      title: "The framework for agent-native apps",
+      body1:
+        "Agent-Native is an open-source framework for building agents as real software: start with chat or headless agents, then add UI, jobs, and collaboration around the same actions.",
+      body2:
+        "Bring your own database, hosting provider, model stack, and app code.",
+      cta: "Read the framework guide",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "Define work once. Use it from agent, UI, API, MCP, and A2A.",
+        },
+        sharedState: {
+          title: "Shared state",
+          description:
+            "SQL-backed app state keeps humans, agents, and sessions in sync.",
+        },
+        agentRuntime: {
+          title: "Agent runtime",
+          description:
+            "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
+        },
+        backendAgnostic: {
+          title: "Backend agnostic",
+          description:
+            "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+        },
+      },
+    },
+    templates: {
+      title: "Fork and customize a fully-featured app",
+      eyebrow: "100% free and open source",
+      body: "When an action needs screens, start from a vetted app you can customize. Chat is the minimal app scaffold; domain templates add product workflows, example data, and agent-ready actions.",
+      cta: "View all templates",
+    },
+    skills: {
+      title: "Try it with a skill",
+      body: "Add visual planning and PR recaps to Claude Code, Codex, Cursor, Pi, OpenCode, or VS Code with one command.",
+      planBody:
+        "Reviewable plans with diagrams, wireframes, file maps, and comments before code changes.",
+      recapBody:
+        "A visual summary of a PR or diff so reviewers see the shape before the raw lines.",
+      cta: "Browse the Skills Guide",
+    },
+    connected: {
+      title: "Agents and UIs — fully connected",
+      body: "The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.",
+      tabs: {
+        agentSees: {
+          title: "The agent sees everything",
+          description:
+            "It can read and update any UI, any data, any state in the application.",
+        },
+        uiTalks: {
+          title: "The UI talks to the agent",
+          description:
+            "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
+        },
+        agentUpdates: {
+          title: "The agent updates its own code",
+          description:
+            "It can modify the app itself to change features and functionality. Your tools get better over time.",
+        },
+        everything: {
+          title: "Everything works both ways",
+          description:
+            "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
+        },
+      },
+    },
+    comparison: {
+      title: "The best of both worlds",
+      body: "SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI. Agent-native apps combine both.",
+      columns: {
+        saas: "SaaS Tools",
+        agents: "Raw AI Agents",
+        internal: "Internal Tools",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Customization",
+        ownership: "Ownership",
+      },
+      cells: {
+        polishedButRigid: "Polished but rigid",
+        none: "None",
+        mixedQuality: "Mixed quality",
+        fullUi: "Full UI, fork & go",
+        boltedOn: "Bolted on",
+        powerful: "Powerful",
+        shallowlyConnected: "Shallowly connected",
+        agentFirst: "Agent-first, integrated",
+        cant: "Can't",
+        instructionsAndSkills: "Instructions and skills",
+        fullHighMaintenance: "Full, but high maintenance",
+        agentModifies: "Agent modifies the app",
+        rented: "Rented",
+        somewhatYours: "Somewhat yours",
+        youOwnCode: "You own the code",
+      },
+    },
+    quickStart: {
+      title: "Start with Chat",
+      body: "One command creates a local chat app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
+    },
+    finalCta: {
+      title: "Software you own, built for the agentic era",
+      body: "Start with chat or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
+      primaryCta: "Start with an Action",
+      secondaryCta: "Read the Docs",
+      githubCta: "View on GitHub",
+    },
+  },
   nav: {
     overview: "Overview",
     coreArchitecture: "Core Architecture",

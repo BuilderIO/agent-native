@@ -56,6 +56,139 @@ const hiIN = {
     genericTitle: "कुछ गलत हुआ",
     genericBody: "एक अनपेक्षित त्रुटि हुई।",
   },
+  home: {
+    hero: {
+      badge: "ओपन सोर्स framework",
+      titleLine1: "Agentic Applications",
+      titleAccent: "जिन पर आपका अधिकार है",
+      body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
+      primaryCta: "Chat से शुरू करें",
+      secondaryCta: "दस्तावेज़ देखें",
+    },
+    code: {
+      quickStartComment: "Chat-first app से शुरू करें",
+      skillInstallComment:
+        "जिस coding agent का आप पहले से उपयोग करते हैं उसमें Agent-Native planning जोड़ें",
+      frameworkComment:
+        "एक action agent, UI, HTTP, MCP, A2A और CLI को चलाता है।",
+      frameworkDescription: "स्थानीय app-agent loop से hello कहें।",
+    },
+    framework: {
+      title: "agent-native apps के लिए framework",
+      body1:
+        "Agent-Native एक ओपन सोर्स framework है जो agents को वास्तविक software की तरह बनाने के लिए है: Chat या headless agents से शुरू करें, फिर उन्हीं actions के आसपास UI, jobs और सहयोग जोड़ें।",
+      body2:
+        "अपना database, hosting provider, model stack और app code साथ लाएं।",
+      cta: "framework guide पढ़ें",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "काम को एक बार define करें। इसे agent, UI, API, MCP और A2A से इस्तेमाल करें।",
+        },
+        sharedState: {
+          title: "साझा state",
+          description:
+            "SQL-backed app state humans, agents और sessions को sync में रखता है।",
+        },
+        agentRuntime: {
+          title: "agent runtime",
+          description:
+            "app-agent loop, tools, skills, memory, jobs और observability साथ में ship होते हैं।",
+        },
+        backendAgnostic: {
+          title: "Backend agnostic",
+          description:
+            "किसी भी Drizzle-supported SQL database और Nitro-compatible host को plug in करें।",
+        },
+      },
+    },
+    templates: {
+      title: "पूरी तरह featured app को fork और customize करें",
+      eyebrow: "100% मुफ्त और ओपन सोर्स",
+      body: "जब किसी action को screens चाहिए हों, तो ऐसी vetted app से शुरू करें जिसे आप customize कर सकें। Chat सबसे छोटा app scaffold है; domain templates product workflows, example data और agent-ready actions जोड़ते हैं।",
+      cta: "सभी templates देखें",
+    },
+    skills: {
+      title: "skill के साथ आज़माएं",
+      body: "एक command से Claude Code, Codex, Cursor, Pi, OpenCode या VS Code में visual planning और PR recaps जोड़ें।",
+      planBody:
+        "Code changes से पहले diagrams, wireframes, file maps और comments वाले reviewable plans।",
+      recapBody:
+        "PR या diff का visual summary, ताकि reviewers raw lines से पहले उसका आकार देख सकें।",
+      cta: "Skills Guide देखें",
+    },
+    connected: {
+      title: "agents और UI पूरी तरह connected",
+      body: "agent और UI एक ही system के बराबर हिस्से हैं। हर action दोनों तरफ काम करता है: क्लिक करें या मांगें।",
+      tabs: {
+        agentSees: {
+          title: "agent सब कुछ देखता है",
+          description:
+            "यह application में किसी भी UI, किसी भी data और किसी भी state को पढ़ और update कर सकता है।",
+        },
+        uiTalks: {
+          title: "UI agent से बात करता है",
+          description:
+            "Buttons, forms और workflows structured content को agent तक भेजते हैं, जिससे guided flows सभी agent के जरिए जाते हैं, जिनमें skills, rules और instructions शामिल हैं।",
+        },
+        agentUpdates: {
+          title: "agent अपना code update करता है",
+          description:
+            "यह features और functionality बदलने के लिए app को खुद modify कर सकता है। आपके tools समय के साथ बेहतर होते हैं।",
+        },
+        everything: {
+          title: "सब कुछ दोनों तरफ काम करता है",
+          description:
+            "UI में उपलब्ध हर action agent के लिए भी उपलब्ध है। आप कुछ करने के लिए क्लिक कर सकते हैं, या agent से करने को कह सकते हैं।",
+        },
+      },
+    },
+    comparison: {
+      title: "दोनों दुनिया की बेहतरीन बातें",
+      body: "SaaS tools कठोर होते हैं और AI को बाद में जोड़ा जाता है। Raw AI Agents शक्तिशाली होते हैं, पर उनके पास UI नहीं होता। agent-native apps दोनों को जोड़ते हैं।",
+      columns: {
+        saas: "SaaS Tools",
+        agents: "Raw AI Agents",
+        internal: "Internal Tools",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Customization",
+        ownership: "Ownership",
+      },
+      cells: {
+        polishedButRigid: "साफ-सुथरे लेकिन कठोर",
+        none: "कोई नहीं",
+        mixedQuality: "मिली-जुली quality",
+        fullUi: "Full UI, fork और go",
+        boltedOn: "ऊपर से जोड़ा गया",
+        powerful: "शक्तिशाली",
+        shallowlyConnected: "ऊपरी तौर पर connected",
+        agentFirst: "Agent-first, integrated",
+        cant: "नहीं कर सकते",
+        instructionsAndSkills: "Instructions और skills",
+        fullHighMaintenance: "पूरा, लेकिन high maintenance",
+        agentModifies: "Agent app को modify करता है",
+        rented: "किराए पर",
+        somewhatYours: "कुछ हद तक आपका",
+        youOwnCode: "code आपका है",
+      },
+    },
+    quickStart: {
+      title: "Chat से शुरू करें",
+      body: "एक command actions, durable threads और SQLite पर backed स्थानीय Chat app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
+    },
+    finalCta: {
+      title: "आपका अपना software, agentic era के लिए बना",
+      body: "Chat या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
+      primaryCta: "Action से शुरू करें",
+      secondaryCta: "दस्तावेज़ पढ़ें",
+      githubCta: "GitHub पर देखें",
+    },
+  },
   nav: {
     overview: "ओवरव्यू",
     coreArchitecture: "कोर आर्किटेक्चर",

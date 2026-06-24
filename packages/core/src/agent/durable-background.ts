@@ -18,16 +18,17 @@
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
  * path. The gate is true only when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is not explicitly disabled. It is
- *      DEFAULT-ON: unset/empty/unknown counts as enabled; set it to a falsy
- *      value (`false`/`0`/`no`/`off`) to opt a specific app back out.
+ *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled. It is
+ *      DEFAULT-OFF (opt-in): unset/empty/unknown counts as disabled; set it to a
+ *      truthy value (`true`/`1`/`yes`/`on`) to opt a specific app in.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
  *      the background dispatch; without it the dispatch can't be trusted).
  *
- * Default-on is safe because a *dispatch failure degrades to an inline run*: if
- * the self-dispatch self-POST can't be delivered (fast connection error or
+ * Opt-in keeps the blast radius small while the worker path is still being
+ * proven. And even when enabled, a *dispatch failure degrades to an inline run*:
+ * if the self-dispatch self-POST can't be delivered (fast connection error or
  * fast non-2xx), the foreground handler runs the turn synchronously instead of
  * erroring (see `production-agent.ts` — the inline fallback claims the run row
  * atomically so a delayed delivery can never double-execute). So an app where
@@ -140,8 +141,8 @@ export function resolveAgentChatProcessRunDispatchPath(): string {
 }
 
 /**
- * Env flag for durable background runs. DEFAULT-ON: unset means enabled; an app
- * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`).
+ * Env flag for durable background runs. DEFAULT-OFF (opt-in): unset means
+ * disabled; an app opts IN with an explicit truthy value (`true`/`1`/`yes`/`on`).
  */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";
@@ -237,30 +238,34 @@ function isFlagEnabled(): boolean {
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
   //
-  // DEFAULT-ON: durable background runs are the desired behavior for every
-  // hosted app. So an unset/empty/unknown flag means ON; an app opts OUT only
-  // with an explicit falsy value. This still composes with the hosted +
-  // A2A_SECRET gates below, so non-hosted / unconfigured apps stay synchronous.
-  // Safety net: a failed dispatch degrades to a synchronous inline run (see
-  // production-agent.ts), so default-on cannot break chat even if the
-  // self-dispatch can't be delivered on a given app.
+  // DEFAULT-OFF (opt-in): durable background runs are still being hardened. A
+  // premature fleet-wide default-on caused real-user incidents (Assets/Analytics
+  // hit "Failed to dispatch" + stalls, 2026-06-24) because the async background
+  // worker path is not yet proven end-to-end and the deploy-time env opt-out is
+  // not reliably baked into a given deploy. So an unset/empty/unknown flag means
+  // OFF; an app opts IN only with an explicit truthy value
+  // (AGENT_CHAT_DURABLE_BACKGROUND=true). This still composes with the hosted +
+  // A2A_SECRET gates below. Flip back to default-on only after the 15-min
+  // background-function worker is verified live in production (see the
+  // project_durable_bg_prod_verified memory).
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return true;
+  if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
-  return !(
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
   );
 }
 
 /**
- * The single gate. True when the flag is not explicitly disabled (default-on)
+ * The single gate. True when the flag is explicitly enabled (opt-in/default-off)
  * AND the runtime is hosted AND A2A_SECRET is configured. False otherwise — and
  * false means the current synchronous behavior is used, unchanged. So a local /
- * non-hosted / unconfigured app stays synchronous even with the flag defaulting
- * on; durable only engages where the runtime actually supports it.
+ * non-hosted / unconfigured app stays synchronous, and an app that has not opted
+ * in stays synchronous; durable only engages where it is explicitly enabled and
+ * the runtime actually supports it.
  */
 export function isAgentChatDurableBackgroundEnabled(): boolean {
   return (
@@ -285,7 +290,36 @@ export type ProcessRunPreparation =
       status: number;
       /** Error payload. */
       error: string;
+      /**
+       * The run id parsed from the body, when present. Carried even on failure
+       * so the route can RECORD the auth/validation failure ONTO the run
+       * (diag_stage) before returning the error status — otherwise a 401/503 in
+       * the unreadable Netlify background function would leave the run to time
+       * out with no clue why. Null when no run id could be parsed.
+       */
+      runId: string | null;
     };
+
+/**
+ * Parse the run id from a `_process-run` request body without authenticating.
+ * Mirrors the precedence in `prepareProcessRunRequest` (marker.runId, then
+ * top-level taskId). Returns null when neither is a usable string. Used so the
+ * route can attach a diagnostic to the run even on an auth/validation failure.
+ */
+export function extractProcessRunId(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const marker = record[AGENT_CHAT_BACKGROUND_RUN_FIELD] as
+    | { runId?: unknown }
+    | undefined;
+  if (marker && typeof marker.runId === "string" && marker.runId) {
+    return marker.runId;
+  }
+  if (typeof record.taskId === "string" && record.taskId) {
+    return record.taskId;
+  }
+  return null;
+}
 
 /**
  * Pure, transport-agnostic core of the `_process-run` route: validate the body,
@@ -308,7 +342,12 @@ export function prepareProcessRunRequest(
   authHeader: string | undefined,
 ): ProcessRunPreparation {
   if (!body || typeof body !== "object") {
-    return { ok: false, status: 400, error: "Invalid request body" };
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid request body",
+      runId: null,
+    };
   }
   const record = body as Record<string, unknown>;
   const marker = record[AGENT_CHAT_BACKGROUND_RUN_FIELD] as
@@ -321,7 +360,7 @@ export function prepareProcessRunRequest(
         ? (record.taskId as string)
         : "";
   if (!runId) {
-    return { ok: false, status: 400, error: "runId required" };
+    return { ok: false, status: 400, error: "runId required", runId: null };
   }
 
   if (hasConfiguredA2ASecret()) {
@@ -331,6 +370,7 @@ export function prepareProcessRunRequest(
         ok: false,
         status: 401,
         error: "Invalid or expired processor token",
+        runId,
       };
     }
   } else if (isA2AProductionRuntime()) {
@@ -339,6 +379,7 @@ export function prepareProcessRunRequest(
       status: 503,
       error:
         "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
+      runId,
     };
   }
 

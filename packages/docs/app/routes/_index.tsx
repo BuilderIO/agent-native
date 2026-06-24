@@ -6,6 +6,7 @@ import {
   IconRoute,
   IconServer,
 } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
@@ -15,31 +16,8 @@ import {
   trackEvent,
 } from "../components/TemplateCard";
 
-const quickStartCode = `# Start with a chat-first app
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm action hello --name Builder
-pnpm agent "Call hello for Builder"`;
-
-const skillInstallCode = `# Add agent-native planning to a coding agent you already use
-npx @agent-native/core@latest skills add visual-plan`;
-
-const frameworkCode = `// One action powers the agent, UI, HTTP, MCP, A2A, and CLI.
-export default defineAction({
-  description: "Say hello from the local app-agent loop.",
-  schema: z.object({
-    name: z.string().default("world"),
-  }),
-  http: { method: "GET" },
-  readOnly: true,
-  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
-});`;
-
-function TerminalCommand() {
+function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
-  const command =
-    "npx @agent-native/core@latest create my-chat-app --template chat";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);
@@ -91,59 +69,44 @@ function TerminalCommand() {
   );
 }
 
-const bidirectionalTabs = [
+const BIDIRECTIONAL_TABS = [
   {
-    title: "The agent sees everything",
-    description:
-      "It can read and update any UI, any data, any state in the application.",
+    key: "agentSees",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "The UI talks to the agent",
-    description:
-      "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
+    key: "uiTalks",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "The agent updates its own code",
-    description:
-      "It can modify the app itself to change features and functionality. Your tools get better over time.",
+    key: "agentUpdates",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true", // ggignore: public Builder CDN media token
   },
   {
-    title: "Everything works both ways",
-    description:
-      "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
+    key: "everything",
     video:
       "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f", // ggignore: public Builder CDN media token
   },
 ];
 
-const frameworkPrimitives = [
+const FRAMEWORK_PRIMITIVES = [
   {
-    title: "Actions",
-    description: "Define work once. Use it from agent, UI, API, MCP, and A2A.",
+    key: "actions",
     icon: IconRoute,
   },
   {
-    title: "Shared state",
-    description:
-      "SQL-backed app state keeps humans, agents, and sessions in sync.",
+    key: "sharedState",
     icon: IconDatabase,
   },
   {
-    title: "Agent runtime",
-    description:
-      "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
+    key: "agentRuntime",
     icon: IconBrain,
   },
   {
-    title: "Backend agnostic",
-    description:
-      "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+    key: "backendAgnostic",
     icon: IconServer,
   },
 ];
@@ -161,7 +124,323 @@ const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
   featuredTemplates.filter((template) => template.slug === slug),
 );
 
+const featureCloudRows = [
+  {
+    className: "-translate-x-10",
+    words: [
+      {
+        label: "Notifications",
+        className: "text-base uppercase opacity-[0.18]",
+      },
+      {
+        label: "Recurring jobs",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { label: "Actions", className: "text-5xl opacity-[0.95]" },
+      {
+        label: "Agent teams",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        label: "Monorepos",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-12",
+    words: [
+      { label: "Permissions", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "RBAC", className: "text-lg uppercase opacity-[0.18]" },
+      { label: "Organizations", className: "text-2xl opacity-[0.24]" },
+      {
+        label: "Workspace secrets",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { label: "Docs search", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Source search", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "translate-x-8",
+    words: [
+      {
+        label: "Context awareness",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Observability", className: "text-4xl opacity-[0.86]" },
+      {
+        label: "Realtime sync",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "SQL state", className: "text-4xl opacity-[0.86]" },
+      {
+        label: "Multi-tenancy",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      { label: "Data loaders", className: "text-lg uppercase opacity-[0.18]" },
+      { label: "Live queries", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "-translate-x-14",
+    words: [
+      {
+        label: "Agent instructions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Provider grants",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { label: "Notifications", className: "text-2xl opacity-[0.24]" },
+      { label: "Comments", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Review links", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "Privacy controls",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "-translate-x-4",
+    words: [
+      {
+        label: "Skills",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "Security", className: "text-3xl opacity-[0.58]" },
+      { label: "Audit logs", className: "text-3xl opacity-[0.54]" },
+      { label: "Workspaces", className: "text-3xl opacity-[0.46]" },
+      {
+        label: "Voice input",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        label: "MCP apps",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { label: "Tool calls", className: "text-2xl opacity-[0.26]" },
+      { label: "Agent sidebar", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "feature-cloud-center-row",
+    words: [
+      { label: "Shared actions", className: "text-2xl opacity-[0.30]" },
+      { label: "UI surfaces", className: "text-xl uppercase opacity-[0.20]" },
+      { label: "i18n", className: "text-5xl opacity-[0.92]" },
+      { label: "MCP Auth", className: "text-2xl opacity-[0.44]" },
+      {
+        label: "Battle-tested components",
+        className:
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-[var(--docs-accent)] bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-4xl",
+      },
+      { label: "MCP + A2A", className: "text-5xl opacity-[0.92]" },
+      { label: "External agents", className: "text-2xl opacity-[0.32]" },
+      { label: "A2A handoffs", className: "text-xl uppercase opacity-[0.20]" },
+    ],
+  },
+  {
+    className: "translate-x-6",
+    words: [
+      { label: "Human handoff", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Agent context", className: "text-2xl opacity-[0.26]" },
+      {
+        label: "Durable resume",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Extensions", className: "text-3xl opacity-[0.48]" },
+      { label: "Sharing & privacy", className: "text-2xl opacity-[0.34]" },
+      {
+        label: "Real-time collaboration",
+        className: "text-2xl opacity-[0.30]",
+      },
+      { label: "SSO", className: "text-2xl opacity-[0.44]" },
+      {
+        label: "OAuth",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "MCP servers", className: "text-2xl opacity-[0.28]" },
+      { label: "Agent teams", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "-translate-x-8",
+    words: [
+      { label: "Scoped access", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "DB adapters",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { label: "Auth", className: "text-4xl opacity-[0.84]" },
+      { label: "Approvals", className: "text-3xl opacity-[0.44]" },
+      { label: "Automations", className: "text-3xl opacity-[0.46]" },
+      { label: "Governance", className: "text-3xl opacity-[0.48]" },
+      { label: "Jobs", className: "text-4xl opacity-[0.84]" },
+      {
+        label: "AG-UI",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { label: "Dispatch", className: "text-2xl opacity-[0.28]" },
+      {
+        label: "Background runs",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-4",
+    words: [
+      { label: "Rate limits", className: "text-lg uppercase opacity-[0.16]" },
+      { label: "Queues", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "Cron schedules",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Analytics", className: "text-2xl opacity-[0.28]" },
+      { label: "Experiments", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        label: "Feedback loops",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-12",
+    words: [
+      {
+        label: "File uploads",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { label: "Evals", className: "text-2xl opacity-[0.46]" },
+      { label: "Templates", className: "text-5xl opacity-[0.92]" },
+      { label: "Provider APIs", className: "text-2xl opacity-[0.36]" },
+      {
+        label: "Agent web surfaces",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Template skills",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "One-click forks", className: "text-2xl opacity-[0.24]" },
+    ],
+  },
+  {
+    className: "-translate-x-2",
+    words: [
+      {
+        label: "Local file mode",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Memory",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        label: "Webhooks",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        label: "HTTP",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      {
+        label: "Self-editing code",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "CLI",
+        className: "text-xl uppercase opacity-[0.24]",
+      },
+      {
+        label: "Cross-app SSO",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-16",
+    words: [
+      {
+        label: "Schema migrations",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "Hosted deploys",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        label: "Environment setup",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        label: "OAuth callbacks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { label: "Exports", className: "text-xl uppercase opacity-[0.18]" },
+      { label: "Dashboards", className: "text-2xl opacity-[0.24]" },
+    ],
+  },
+];
+
+function FeatureWordCloud({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`feature-cloud pointer-events-none overflow-hidden bg-white dark:bg-black ${className}`}
+      aria-hidden="true"
+    >
+      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[860px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[1080px] sm:scale-[0.78] sm:gap-8 lg:w-[1740px] lg:scale-[0.68] lg:gap-10">
+        {featureCloudRows.map((row, rowIndex) => (
+          <div
+            key={rowIndex}
+            className={`feature-cloud-row flex max-w-none items-center justify-center gap-x-7 gap-y-3 whitespace-nowrap sm:gap-x-9 lg:gap-x-11 ${row.className}`}
+          >
+            {row.words.map((word) => (
+              <span
+                key={word.label}
+                className={`feature-cloud-word font-semibold leading-none text-neutral-950 dark:text-white ${word.className}`}
+              >
+                {word.label}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BatteriesIncludedCloud() {
+  return (
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:min-h-[680px] lg:py-36">
+      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden lg:block" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
+
+      <div className="relative z-10 mx-auto max-w-[1200px]">
+        <div className="max-w-[410px] text-left">
+          <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
+            Batteries included
+            <span className="block text-[var(--docs-accent)]">
+              battle-tested
+            </span>
+          </h2>
+          <p className="mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58">
+            Instead of starting from a blank prompt and a pile of improvised
+            code, Agent-Native gives agents the battle-tested parts and best
+            practices they need to build real app software.
+          </p>
+        </div>
+
+        <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
+      </div>
+    </section>
+  );
+}
+
 function BidirectionalTabs() {
+  const t = useT();
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -217,7 +496,7 @@ function BidirectionalTabs() {
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
-      return (i + 1) % bidirectionalTabs.length;
+      return (i + 1) % BIDIRECTIONAL_TABS.length;
     });
   };
 
@@ -227,7 +506,7 @@ function BidirectionalTabs() {
         ref={tabContainerRef}
         className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0"
       >
-        {bidirectionalTabs.map((tab, i) => (
+        {BIDIRECTIONAL_TABS.map((tab, i) => (
           <button
             key={i}
             ref={(el) => {
@@ -248,20 +527,20 @@ function BidirectionalTabs() {
             }`}
           >
             <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
-              {tab.title}
+              {t(`home.connected.tabs.${tab.key}.title`)}
             </div>
             <p
               className={`m-0 text-sm leading-relaxed text-[var(--fg-secondary)] ${
                 i === activeTab ? "hidden md:block" : "hidden"
               }`}
             >
-              {tab.description}
+              {t(`home.connected.tabs.${tab.key}.description`)}
             </p>
           </button>
         ))}
       </div>
       <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) => (
+        {BIDIRECTIONAL_TABS.map((tab, i) => (
           <video
             key={i}
             ref={(el) => {
@@ -283,6 +562,28 @@ function BidirectionalTabs() {
 }
 
 export default function Home() {
+  const t = useT();
+  const chatCommand =
+    "npx @agent-native/core@latest create my-chat-app --template chat";
+  const quickStartCode = `# ${t("home.code.quickStartComment")}
+${chatCommand}
+cd my-chat-app
+pnpm install
+pnpm action hello --name Builder
+pnpm agent "Call hello for Builder"`;
+  const skillInstallCode = `# ${t("home.code.skillInstallComment")}
+npx @agent-native/core@latest skills add visual-plan`;
+  const frameworkCode = `// ${t("home.code.frameworkComment")}
+export default defineAction({
+  description: "${t("home.code.frameworkDescription")}",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
+});`;
+
   return (
     <>
       <main className="docs-home-page">
@@ -313,17 +614,18 @@ export default function Home() {
           <div className="relative z-10 hero-content">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
               <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-              Open source framework
+              {t("home.hero.badge")}
             </div>
 
             <h1 className="mx-auto max-w-3xl">
-              Agentic Applications <br className="hidden md:inline" />
-              <span className="hero-gradient-text">You Own</span>
+              {t("home.hero.titleLine1")} <br className="hidden md:inline" />
+              <span className="hero-gradient-text">
+                {t("home.hero.titleAccent")}
+              </span>
             </h1>
 
             <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Start with a chat-first app and the app-agent loop. Add actions,
-              screens, jobs, and workflows as your agent grows.
+              {t("home.hero.body")}
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-4">
@@ -338,7 +640,7 @@ export default function Home() {
                   })
                 }
               >
-                Start with Chat
+                {t("home.hero.primaryCta")}
                 <svg
                   width="16"
                   height="16"
@@ -364,11 +666,11 @@ export default function Home() {
                   })
                 }
               >
-                View the Docs
+                {t("home.hero.secondaryCta")}
               </Link>
             </div>
 
-            <TerminalCommand />
+            <TerminalCommand command={chatCommand} />
           </div>
         </section>
 
@@ -378,16 +680,13 @@ export default function Home() {
             <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
               <div>
                 <h2 className="mb-4 max-w-[370px] text-3xl font-bold tracking-tight md:text-4xl">
-                  The framework for agent-native apps
+                  {t("home.framework.title")}
                 </h2>
                 <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Agent-Native is an open-source framework for building agents
-                  as real software: start with chat or headless agents, then add
-                  UI, jobs, and collaboration around the same actions.
+                  {t("home.framework.body1")}
                 </p>
                 <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  Bring your own database, hosting provider, model stack, and
-                  app code.
+                  {t("home.framework.body2")}
                 </p>
                 <Link
                   data-an-prefetch="render"
@@ -400,7 +699,7 @@ export default function Home() {
                     })
                   }
                 >
-                  Read the framework guide
+                  {t("home.framework.cta")}
                   <svg
                     width="16"
                     height="16"
@@ -423,11 +722,11 @@ export default function Home() {
             </div>
 
             <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {frameworkPrimitives.map((primitive) => {
+              {FRAMEWORK_PRIMITIVES.map((primitive) => {
                 const PrimitiveIcon = primitive.icon;
                 return (
                   <div
-                    key={primitive.title}
+                    key={primitive.key}
                     className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5"
                   >
                     <div className="mb-2 flex items-center gap-3">
@@ -437,11 +736,13 @@ export default function Home() {
                         aria-hidden="true"
                       />
                       <h3 className="m-0 text-base font-semibold">
-                        {primitive.title}
+                        {t(`home.framework.primitives.${primitive.key}.title`)}
                       </h3>
                     </div>
                     <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                      {primitive.description}
+                      {t(
+                        `home.framework.primitives.${primitive.key}.description`,
+                      )}
                     </p>
                   </div>
                 );
@@ -457,15 +758,13 @@ export default function Home() {
         >
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Fork and customize a fully-featured app
+              {t("home.templates.title")}
             </h2>
             <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              100% free and open source
+              {t("home.templates.eyebrow")}
             </p>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              When an action needs screens, start from a vetted app you can
-              customize. Chat is the minimal app scaffold; domain templates add
-              product workflows, example data, and agent-ready actions.
+              {t("home.templates.body")}
             </p>
           </div>
 
@@ -487,7 +786,7 @@ export default function Home() {
                 })
               }
             >
-              View all templates
+              {t("home.templates.cta")}
               <svg
                 width="16"
                 height="16"
@@ -505,16 +804,17 @@ export default function Home() {
           </div>
         </section>
 
+        <BatteriesIncludedCloud />
+
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
             <div className="min-w-0">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Try it with a skill
+                {t("home.skills.title")}
               </h2>
               <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                Add visual planning and PR recaps to Claude Code, Codex, Cursor,
-                Pi, OpenCode, or VS Code with one command.
+                {t("home.skills.body")}
               </p>
 
               <CodeBlock code={skillInstallCode} lang="bash" />
@@ -525,8 +825,7 @@ export default function Home() {
                     /visual-plan
                   </h3>
                   <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    Reviewable plans with diagrams, wireframes, file maps, and
-                    comments before code changes.
+                    {t("home.skills.planBody")}
                   </p>
                 </div>
                 <div className="rounded-xl border border-[var(--docs-border)] p-5">
@@ -534,8 +833,7 @@ export default function Home() {
                     /visual-recap
                   </h3>
                   <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    A visual summary of a PR or diff so reviewers see the shape
-                    before the raw lines.
+                    {t("home.skills.recapBody")}
                   </p>
                 </div>
               </div>
@@ -552,7 +850,7 @@ export default function Home() {
                     })
                   }
                 >
-                  Browse the Skills Guide
+                  {t("home.skills.cta")}
                   <svg
                     width="16"
                     height="16"
@@ -578,11 +876,10 @@ export default function Home() {
         <section className="border-t border-[var(--docs-border)] px-6 py-20">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Agents and UIs — fully connected
+              {t("home.connected.title")}
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
+              {t("home.connected.body")}
             </p>
           </div>
 
@@ -596,12 +893,10 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                The best of both worlds
+                {t("home.comparison.title")}
               </h2>
               <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                SaaS tools are rigid and bolting AI on as an afterthought. Raw
-                AI agents are powerful but have no UI. Agent-native apps combine
-                both.
+                {t("home.comparison.body")}
               </p>
             </div>
 
@@ -613,80 +908,86 @@ export default function Home() {
                       <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                         <th className="approaches-th approaches-col-dim"></th>
                         <th className="approaches-th approaches-col-muted">
-                          SaaS Tools
+                          {t("home.comparison.columns.saas")}
                         </th>
                         <th className="approaches-th approaches-col-muted">
-                          Raw AI Agents
+                          {t("home.comparison.columns.agents")}
                         </th>
                         <th className="approaches-th approaches-col-muted">
-                          Internal Tools
+                          {t("home.comparison.columns.internal")}
                         </th>
-                        <th className="approaches-th">Agent-Native</th>
+                        <th className="approaches-th">
+                          {t("home.comparison.columns.native")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">UI</td>
+                        <td className="approaches-td approaches-td--dim">
+                          {t("home.comparison.rows.ui")}
+                        </td>
                         <td className="approaches-td approaches-td--good">
-                          Polished but rigid
+                          {t("home.comparison.cells.polishedButRigid")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          None
+                          {t("home.comparison.cells.none")}
                         </td>
                         <td className="approaches-td approaches-td--warn">
-                          Mixed quality
+                          {t("home.comparison.cells.mixedQuality")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          Full UI, fork &amp; go
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">AI</td>
-                        <td className="approaches-td approaches-td--bad">
-                          Bolted on
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Powerful
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Shallowly connected
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Agent-first, integrated
+                          {t("home.comparison.cells.fullUi")}
                         </td>
                       </tr>
                       <tr className="border-b border-[var(--docs-border)]">
                         <td className="approaches-td approaches-td--dim">
-                          Customization
+                          {t("home.comparison.rows.ai")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          Can't
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Instructions and skills
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Full, but high maintenance
+                          {t("home.comparison.cells.boltedOn")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          Agent modifies the app
+                          {t("home.comparison.cells.powerful")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.shallowlyConnected")}
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          {t("home.comparison.cells.agentFirst")}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-[var(--docs-border)]">
+                        <td className="approaches-td approaches-td--dim">
+                          {t("home.comparison.rows.customization")}
+                        </td>
+                        <td className="approaches-td approaches-td--bad">
+                          {t("home.comparison.cells.cant")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.instructionsAndSkills")}
+                        </td>
+                        <td className="approaches-td approaches-td--warn">
+                          {t("home.comparison.cells.fullHighMaintenance")}
+                        </td>
+                        <td className="approaches-td approaches-td--good">
+                          {t("home.comparison.cells.agentModifies")}
                         </td>
                       </tr>
                       <tr>
                         <td className="approaches-td approaches-td--dim">
-                          Ownership
+                          {t("home.comparison.rows.ownership")}
                         </td>
                         <td className="approaches-td approaches-td--bad">
-                          Rented
+                          {t("home.comparison.cells.rented")}
                         </td>
                         <td className="approaches-td approaches-td--warn">
-                          Somewhat yours
+                          {t("home.comparison.cells.somewhatYours")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          You own the code
+                          {t("home.comparison.cells.youOwnCode")}
                         </td>
                         <td className="approaches-td approaches-td--good">
-                          You own the code
+                          {t("home.comparison.cells.youOwnCode")}
                         </td>
                       </tr>
                     </tbody>
@@ -700,12 +1001,10 @@ export default function Home() {
           <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Start with Chat
+                {t("home.quickStart.title")}
               </h2>
               <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                One command creates a local chat app backed by actions, durable
-                threads, and SQLite. Use `--headless` instead when you want no
-                browser UI yet.
+                {t("home.quickStart.body")}
               </p>
             </div>
 
@@ -717,12 +1016,10 @@ export default function Home() {
           {/* Bottom CTA */}
           <section className="border-t border-[var(--docs-border)] py-20 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Software you own, built for the agentic era
+              {t("home.finalCta.title")}
             </h2>
             <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-              Start with chat or a durable action, run it through the app-agent
-              loop, then grow it into UI, jobs, and collaboration without
-              rewriting the operation. Open source. Forkable. Yours.
+              {t("home.finalCta.body")}
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
@@ -736,7 +1033,7 @@ export default function Home() {
                   })
                 }
               >
-                Start with an Action
+                {t("home.finalCta.primaryCta")}
                 <svg
                   width="16"
                   height="16"
@@ -762,7 +1059,7 @@ export default function Home() {
                   })
                 }
               >
-                Read the Docs
+                {t("home.finalCta.secondaryCta")}
               </Link>
               <a
                 href="https://github.com/BuilderIO/agent-native"
@@ -776,7 +1073,7 @@ export default function Home() {
                   })
                 }
               >
-                View on GitHub
+                {t("home.finalCta.githubCta")}
               </a>
             </div>
           </section>

@@ -109,6 +109,8 @@ import {
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   claimBackgroundRun,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -4599,6 +4601,30 @@ export function createProductionAgentHandler(
       isBackgroundWorker || baseHandleRunComplete
         ? async (run: ActiveRun) => {
             try {
+              // DIAGNOSTIC: a background worker that completed in an errored
+              // state threw inside the loop. Record it (with the last error
+              // event's message when available) so the failure cause is
+              // readable from the client. Skipped for clean completions and for
+              // recoverable soft-timeout boundaries (those chain a continuation
+              // below, they did not "throw").
+              if (
+                isBackgroundWorker &&
+                run.status === "errored" &&
+                !endsAtInternalContinuationBoundary(run)
+              ) {
+                const errEvent = [...run.events]
+                  .reverse()
+                  .find((e) => e.event.type === "error")?.event as
+                  | { error?: string; errorCode?: string }
+                  | undefined;
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  errEvent?.errorCode || errEvent?.error
+                    ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
+                    : "run ended in errored state",
+                ).catch(() => {});
+              }
               // Persist the (partial) assistant turn to thread_data FIRST — the
               // server-driven continuation below rebuilds from it, so it must be
               // committed before we re-fire.
@@ -4689,6 +4715,17 @@ export function createProductionAgentHandler(
     // on entry so a slow cold-start doesn't leave the row looking stale to the
     // reaper before startRun's 1.5s heartbeat timer takes over.
     if (isBackgroundWorker) {
+      // DIAGNOSTIC: the re-entered handler recognized itself as the background
+      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
+      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
+      // this isolate; recording the ACTUAL resolved value reveals whether the
+      // worker is on the 13-min `-background` budget or the 40s clamp. This is
+      // the proof the worker reached its own code (vs. dying at auth before it).
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerEntered,
+        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+      ).catch(() => {});
       // A chained continuation chunk's runId was minted by the prior chunk and
       // never inserted, so insert its background row now (idempotently — a
       // duplicate Netlify delivery that already inserted it just PK-collides and
@@ -4703,8 +4740,16 @@ export function createProductionAgentHandler(
       if (!won) {
         // Already claimed by an earlier delivery — return a benign ack so
         // Netlify doesn't retry a successful handoff.
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
+          () => {},
+        );
         return { ok: true, skipped: "already-claimed" };
       }
+      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
+      // ever stalls at this stage it means the loop below failed to start.
+      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
+        () => {},
+      );
       await updateRunHeartbeat(runId).catch(() => {});
     }
 
@@ -4718,6 +4763,15 @@ export function createProductionAgentHandler(
         };
 
         send({ type: "activity", label: "Starting agent" });
+
+        // DIAGNOSTIC: the agent loop body actually started running. For a
+        // background worker, a run that is claimed but never reaches this stage
+        // died between claiming and loop start. Best-effort, background only.
+        if (isBackgroundWorker) {
+          await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerStarted).catch(
+            () => {},
+          );
+        }
 
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {

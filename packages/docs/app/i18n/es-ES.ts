@@ -56,6 +56,139 @@ const esES = {
     genericTitle: "Algo salió mal",
     genericBody: "Ocurrió un error inesperado.",
   },
+  home: {
+    hero: {
+      badge: "Framework open source",
+      titleLine1: "Aplicaciones agentic",
+      titleAccent: "que son tuyas",
+      body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
+      primaryCta: "Empezar con Chat",
+      secondaryCta: "Ver la documentación",
+    },
+    code: {
+      quickStartComment: "Empieza con una Chat-first app",
+      skillInstallComment:
+        "Añade planificación Agent-Native a un coding agent que ya uses",
+      frameworkComment:
+        "Un action impulsa el agent, la UI, HTTP, MCP, A2A y CLI.",
+      frameworkDescription: "Di hola desde el app-agent loop local.",
+    },
+    framework: {
+      title: "El framework para apps agent-native",
+      body1:
+        "Agent-Native es un framework open source para construir agents como software real: empieza con Chat o agents headless, y luego añade UI, jobs y colaboración alrededor de las mismas actions.",
+      body2:
+        "Trae tu propia base de datos, proveedor de hosting, stack de modelos y código de app.",
+      cta: "Leer la guía del framework",
+      primitives: {
+        actions: {
+          title: "Actions",
+          description:
+            "Define el trabajo una vez. Úsalo desde agent, UI, API, MCP y A2A.",
+        },
+        sharedState: {
+          title: "Estado compartido",
+          description:
+            "El estado de app respaldado por SQL mantiene sincronizados a personas, agents y sesiones.",
+        },
+        agentRuntime: {
+          title: "Runtime de agent",
+          description:
+            "El app-agent loop, las tools, skills, memory, jobs y observabilidad se entregan juntos.",
+        },
+        backendAgnostic: {
+          title: "Independiente del backend",
+          description:
+            "Conecta cualquier base de datos SQL compatible con Drizzle y cualquier host compatible con Nitro.",
+        },
+      },
+    },
+    templates: {
+      title: "Haz fork y personaliza una app completa",
+      eyebrow: "100% gratis y open source",
+      body: "Cuando un action necesita pantallas, empieza con una app validada que puedas personalizar. Chat es el scaffold mínimo de app; las plantillas de dominio añaden workflows de producto, datos de ejemplo y actions listas para agent.",
+      cta: "Ver todas las plantillas",
+    },
+    skills: {
+      title: "Pruébalo con un skill",
+      body: "Añade planificación visual y PR recaps a Claude Code, Codex, Cursor, Pi, OpenCode o VS Code con un solo comando.",
+      planBody:
+        "Planes revisables con diagramas, wireframes, mapas de archivos y comentarios antes de cambiar código.",
+      recapBody:
+        "Un resumen visual de un PR o diff para que los reviewers vean la forma antes de las líneas crudas.",
+      cta: "Explorar la guía de Skills",
+    },
+    connected: {
+      title: "Agents y UI, completamente conectados",
+      body: "El agent y la UI son ciudadanos iguales del mismo sistema. Cada action funciona en ambas direcciones: haz clic o pídelo.",
+      tabs: {
+        agentSees: {
+          title: "El agent lo ve todo",
+          description:
+            "Puede leer y actualizar cualquier UI, cualquier dato y cualquier estado de la aplicación.",
+        },
+        uiTalks: {
+          title: "La UI habla con el agent",
+          description:
+            "Botones, formularios y workflows envían contenido estructurado al agent, creando flujos guiados que pasan por el agent, incluidos skills, rules e instructions.",
+        },
+        agentUpdates: {
+          title: "El agent actualiza su propio código",
+          description:
+            "Puede modificar la app para cambiar features y funcionalidad. Tus tools mejoran con el tiempo.",
+        },
+        everything: {
+          title: "Todo funciona en ambas direcciones",
+          description:
+            "Cada action disponible en la UI también está disponible para el agent. Puedes hacer clic para hacer algo o pedirle al agent que lo haga.",
+        },
+      },
+    },
+    comparison: {
+      title: "Lo mejor de ambos mundos",
+      body: "Las herramientas SaaS son rígidas y añaden AI como parche tardío. Los AI agents crudos son potentes, pero no tienen UI. Las apps agent-native combinan ambas cosas.",
+      columns: {
+        saas: "Herramientas SaaS",
+        agents: "AI Agents crudos",
+        internal: "Herramientas internas",
+        native: "Agent-Native",
+      },
+      rows: {
+        ui: "UI",
+        ai: "AI",
+        customization: "Personalización",
+        ownership: "Propiedad",
+      },
+      cells: {
+        polishedButRigid: "Pulidas pero rígidas",
+        none: "Ninguna",
+        mixedQuality: "Calidad irregular",
+        fullUi: "UI completa, fork y listo",
+        boltedOn: "Añadida encima",
+        powerful: "Potente",
+        shallowlyConnected: "Conexión superficial",
+        agentFirst: "Agent-first, integrada",
+        cant: "No se puede",
+        instructionsAndSkills: "Instructions y skills",
+        fullHighMaintenance: "Completa, pero de alto mantenimiento",
+        agentModifies: "El Agent modifica la app",
+        rented: "Alquilada",
+        somewhatYours: "Algo tuya",
+        youOwnCode: "El código es tuyo",
+      },
+    },
+    quickStart: {
+      title: "Empieza con Chat",
+      body: "Un comando crea una Chat app local respaldada por actions, durable threads y SQLite. Usa `--headless` cuando aún no quieras UI de navegador.",
+    },
+    finalCta: {
+      title: "Software que es tuyo, construido para la era agentic",
+      body: "Empieza con Chat o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
+      primaryCta: "Empezar con un Action",
+      secondaryCta: "Leer la documentación",
+      githubCta: "Ver en GitHub",
+    },
+  },
   nav: {
     overview: "Visión general",
     coreArchitecture: "Arquitectura central",

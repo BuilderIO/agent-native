@@ -60,7 +60,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 aria-label={t("sidebar.expandSidebar")}
                 className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -125,7 +125,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 aria-label={t("sidebar.collapseSidebar")}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
               >
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("sidebar.collapseSidebar")}</TooltipContent>
