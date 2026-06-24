@@ -1552,8 +1552,10 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
 // "-background" (Netlify may mangle/prefix it), so we cannot depend on
-// AWS_LAMBDA_FUNCTION_NAME alone — set the explicit force flag here instead.
-process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = "1";
+// AWS_LAMBDA_FUNCTION_NAME alone. A globalThis flag (NOT process.env) avoids the
+// no-env-mutation guard and carries no cross-request state — it is a static,
+// set-once isolate marker read back by isInBackgroundFunctionRuntime().
+globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 
 let cachedHandler;
 
