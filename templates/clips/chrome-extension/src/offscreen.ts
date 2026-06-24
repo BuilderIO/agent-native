@@ -717,6 +717,27 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         : new Error(String(rejected.reason));
     }
     const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
+    // Surface WHY a finalize might fail before the server's cryptic "No chunks
+    // found": 0 chunks means the recorder emitted no non-empty data (empty
+    // capture / never started), which is a different problem than an auth 401.
+    if (recording.chunkIndex === 0) {
+      console.warn(
+        "[clips-offscreen] finalizing with 0 chunks — empty recording.",
+        "recorderStarted:",
+        recording.startedAtMs > 0,
+        "durationMs:",
+        durationMs,
+        "hadAuth:",
+        Boolean(recording.authToken),
+      );
+    } else {
+      console.log(
+        "[clips-offscreen] finalizing",
+        recording.chunkIndex,
+        "chunk(s), durationMs:",
+        durationMs,
+      );
+    }
     const result = await uploadChunk(
       recording,
       new Blob([], { type: recording.mimeType }),
