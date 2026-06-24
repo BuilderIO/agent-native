@@ -75,12 +75,62 @@ function send(type: string, extra: Record<string, unknown> = {}): void {
 
 /* ---------------------------------------------------------------- bubble --- */
 
+function postBubble(kind: string, extra: Record<string, unknown> = {}): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind, part: "bubble", ...extra },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
 async function initBubble(): Promise<void> {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   const ring = document.createElement("div");
   ring.className = "bubble-ring";
   bubble.appendChild(ring);
+
+  // Drag: the content script owns the iframe position, so we just signal the
+  // start of a drag and it captures the pointer page-wide.
+  bubble.style.cursor = "grab";
+  bubble.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    e.preventDefault();
+    bubble.style.cursor = "grabbing";
+    postBubble("bubble-drag-start");
+    const restore = (): void => {
+      bubble.style.cursor = "grab";
+      window.removeEventListener("pointerup", restore);
+    };
+    window.addEventListener("pointerup", restore);
+  });
+
+  // Size dots (small / large), revealed on hover — like the desktop bubble.
+  const sizes = document.createElement("div");
+  sizes.className = "bubble-sizes";
+  sizes.setAttribute("data-no-drag", "");
+  for (const key of ["sm", "lg"] as const) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = `bubble-size-dot bubble-size-${key}`;
+    dot.title = key === "sm" ? "Small" : "Large";
+    dot.setAttribute(
+      "aria-label",
+      key === "sm" ? "Small bubble" : "Large bubble",
+    );
+    dot.setAttribute("data-no-drag", "");
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      postBubble("bubble-size", { size: key });
+    });
+    sizes.appendChild(dot);
+  }
+  bubble.appendChild(sizes);
+
   root.appendChild(bubble);
 
   try {
