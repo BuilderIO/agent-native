@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.11.9
+
+### Patch Changes
+
+- 4a0d3c4: Clarify Builder code-change handoff fallbacks when cloud agents are unavailable.
+
 ## 0.11.8
 
 ### Patch Changes

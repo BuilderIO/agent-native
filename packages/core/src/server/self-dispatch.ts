@@ -150,7 +150,14 @@ export async function fireInternalDispatch(
     }
   });
   dispatchPromise.catch((err) => {
-    console.error(`[self-dispatch] dispatch to ${options.path} failed:`, err);
+    // Include the resolved base URL: a self-dispatch failure is almost always
+    // about *which* host we POST to (custom domain behind an edge/auth wall vs
+    // the deploy URL), and that is invisible from the error alone. Keeps prod
+    // logs diagnostic without changing the URL resolution order.
+    console.error(
+      `[self-dispatch] dispatch to ${options.path} (base ${baseUrl}) failed:`,
+      err,
+    );
   });
 
   const settleMs = options.settleMs ?? DEFAULT_DISPATCH_SETTLE_MS;
