@@ -197,22 +197,34 @@ itself checkpoint).
 
 ### Phased plan
 
+> Status: **Phase 0 shipped. Phase 1 + Phase 2 implemented** (the host-agnostic
+> durable-background worker and the Netlify 15-min `-background` optimization),
+> behind `AGENT_CHAT_DURABLE_BACKGROUND`, off by default. Internal per-step
+> checkpointing (the Option A core of Phase 1) is recommended-not-yet-built; the
+> worker today gets its durability from the long single invocation plus
+> server-chained continuations rather than per-step idempotent checkpoints. See
+> [Final layered architecture](#final-layered-architecture).
+
 1. **Phase 0 — Stop hitting the ceiling so often (near-term, cheapest).** Land
    the mitigations in the Tie-in below (one-call atomic primitives,
    self-documenting actions, loud termination, proof-of-done verification).
    These don't fix the ceiling but sharply cut how often multi-step loops are
    even attempted, and make the failures that remain _loud and truthful_ instead
    of silent. Capture the agent-facing half as the `reliable-mutations` skill.
+   _(Shipped.)_
 2. **Phase 1 — Checkpointed continuation (Option A).** Add a SQL-backed progress
    checkpoint for long operations and make their steps idempotent/resumable so
    each `auto_continue` chunk advances committed progress instead of replanning.
    Drive terminal state ("N of N", or "M of N + remainder") from the checkpoint.
-   This is the primary reliability win.
+   This is the primary reliability win. _(The durable-background worker +
+   host-agnostic self-dispatch/SQL-event/reconnect baseline is implemented;
+   per-step idempotent checkpointing is still recommended-not-built.)_
 3. **Phase 2 — Durable background execution (Option B).** For operations that
    can exceed any reasonable number of continuation chunks, enqueue them onto the
    core background infrastructure, have the durable worker run them to completion
    (checkpointing internally per Phase 1), and stream truthful progress back to
-   the foreground run and UI.
+   the foreground run and UI. _(Implemented: host-agnostic worker baseline +
+   Netlify 15-min `-background` per-host optimization, flagged off by default.)_
 
 ## Tie-in: cheaper near-term mitigations reduce, but do not replace, the fix
 
@@ -236,19 +248,119 @@ checkpointed and durable runs remove the ceiling itself.
 
 ---
 
-# Concrete implementation: route the main chat through a Netlify background function (Option B, Netlify-specific)
+# Final layered architecture
 
-Status: ready-to-implement
+Status: implemented (flagged, off by default)
 Owner: core / run-manager + deploy
-Target host: Netlify (kept — no host migration)
 
-This section turns Option B above into a concrete plan for the **main in-app
-agent chat** (`/_agent-native/agent-chat`), reusing the framework's existing
-background-run machinery and Netlify's **background functions** (async, up to
-**15 minutes**). It is deliberately not a from-scratch system: ~90% of the
-required plumbing already ships for Agent Teams, A2A, and integration webhooks.
+Durable background runs ship as **two layers**. Both are gated behind
+`AGENT_CHAT_DURABLE_BACKGROUND` and default off; when off, the agent-chat run
+path and the deploy output are byte-for-byte the pre-existing synchronous
+behavior.
 
-## Why Netlify background functions change the math
+### Layer 1 (portable baseline) — host-agnostic durable execution
+
+This is the actual durability mechanism and it is **not tied to any host**:
+
+- **Self-dispatch worker.** The foreground POST claims the run slot, inserts the
+  run row, and `fireInternalDispatch`es (`server/self-dispatch.ts`) an
+  HMAC-signed request to a sibling worker route,
+  `AGENT_CHAT_PROCESS_RUN_PATH = /_agent-native/agent-chat/_process-run`
+  (`agent/durable-background.ts`). The worker re-enters the same agent-chat
+  handler set as the background worker and runs the full multi-step
+  `runAgentLoop` (`agent/production-agent.ts`).
+- **SQL event log as the transport.** The worker persists every event to
+  `agent_run_events` (`run-store.ts`, idempotent on `(run_id, seq)`). The
+  browser streams those events through the existing `subscribeToRun` →
+  cross-isolate SQL-poll path (`run-manager.ts subscribeFromSQL`), so the client
+  needs no change and reconnect/leave-and-return already works
+  (`GET /runs/active`, `GET /runs/:id/events?after=N`).
+- **Idempotent claim + auth.** The worker claims the run with a conditional
+  update (`claimBackgroundRun`) so a duplicate delivery no-ops, and verifies the
+  HMAC token (`prepareProcessRunRequest`) exactly like the agent-teams / A2A /
+  webhook processors.
+- **Continuation by self-chaining, not by the browser.** If a worker chunk hits
+  its soft-timeout unfinished, it emits `auto_continue` and **re-fires another
+  background dispatch** (mode `continue`) instead of bouncing back to the client.
+  On a host with a short invocation budget this just produces more chunks; the
+  run still completes, server-driven. This is what makes the baseline portable:
+  it degrades to chained self-dispatch on any host that can re-invoke itself.
+
+Nothing in Layer 1 assumes Netlify, a 15-minute budget, or a particular preset.
+It is the host-agnostic Option B worker with a SQL fan-in.
+
+### Layer 2 (per-host optimization) — Netlify 15-min `-background` function
+
+On Netlify, Layer 1's worker invocation can be made to run for up to **15
+minutes** in a single shot, eliminating almost all re-hydration (the costly
+part). This is purely an optimization of _where_ Layer 1's worker runs:
+
+- **Deploy emit (build-time gated).** When the flag is set at build time, the
+  deploy emits a **second** Netlify function whose name ends in `-background`,
+  re-exporting the **same** `main.mjs` handler bundle, with a `config.path` of
+  the process-run route. Netlify invokes any function whose deployed name ends in
+  `-background` asynchronously (202 immediately, up to 15-min budget). Single
+  template: `emitSingleTemplateNetlifyBackgroundFunction` (`deploy/build.ts`).
+  Workspace: `emitNetlifyBackgroundFunction` (`deploy/workspace-deploy.ts`),
+  per app with a base-path-scoped `config.path`. **When the flag is not set at
+  build time, neither emit runs and the single-function output is byte-identical
+  to today** (see [Build-time gate](#build-time-gate-byte-identical-when-off)).
+- **Raised soft-timeout on that invocation only.** When the worker is running
+  inside the background function it calls
+  `startRun(..., { backgroundFunction: true })`, which lifts
+  `resolveRunSoftTimeoutMs`'s hosted ceiling from 40s to
+  `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` (~13 min, ~2 min under Netlify's 15-min
+  hard kill) for that invocation. The interactive/foreground 40s clamp is
+  unchanged (see Guardrail).
+
+If Layer 2 is absent (or its routing resolves to the synchronous function),
+Layer 1 still works — the run just completes via more, shorter, server-chained
+chunks. **No regression, only a missed optimization.**
+
+### Other hosts
+
+Any host that can re-invoke itself runs Layer 1 unchanged (chained
+self-dispatch). A host-specific Layer 2 would mirror the Netlify pattern: emit
+or configure a long-lived async worker invocation and pass
+`backgroundFunction: true` to `startRun` on that path. No such layer is built for
+non-Netlify hosts yet; they get the portable baseline.
+
+## Build-time gate (byte-identical when off)
+
+The safety-critical claim is that with `AGENT_CHAT_DURABLE_BACKGROUND` **unset at
+build time**, the emitted Netlify deploy output is unchanged. How it is
+guaranteed:
+
+- The only code that produces the `-background` artifact is the two emit
+  functions above, and each is reached **only** through a call site guarded by
+  `isDurableBackgroundDeployEnabled()` (single template: `deploy/build.ts`,
+  inside the `preset === "netlify"` block; workspace:
+  `deploy/workspace-deploy.ts`, inside `copyNetlifyFunctionIntoWorkspace`).
+  `isDurableBackgroundDeployEnabled()` returns `false` for an unset or
+  non-truthy flag, so when the flag is absent the emit functions are **never
+  invoked** — no second function directory, no extra entry file, no extra
+  `config.path` route is written. The deploy walks exactly the same code path it
+  does today and emits exactly one function per app.
+- The gate reads the flag at **build time** (in the deploy process env), so a
+  build produced without the flag can never contain the artifact regardless of
+  runtime env.
+- This is covered by tests that run the real deploy path with the flag unset and
+  assert that no `*-agent-background` directory exists, and with the flag set and
+  assert that exactly one does (`deploy/workspace-deploy.spec.ts`,
+  `deploy/build.spec.ts`).
+
+---
+
+# Netlify Layer 2: concrete implementation notes
+
+This section details the Netlify-specific Layer 2 optimization (the deploy emit
+and the 15-min budget), reusing the framework's existing background-run
+machinery and Netlify's **background functions** (async, up to **15 minutes**).
+It is deliberately not a from-scratch system: ~90% of the required plumbing
+already ships for Agent Teams, A2A, and integration webhooks — and the
+host-agnostic Layer 1 above is what actually carries the run.
+
+## Why a 15-min background invocation changes the math
 
 The whole `auto_continue` / 40s soft-timeout dance exists to stay under the
 **serverless function wall** (~60–65s synchronous on Netlify), not under any
@@ -272,8 +384,9 @@ function there is no ~60s wall, so:
   [Per-model-call gateway cap](#per-model-call-gateway-cap) — but the _run_ is no
   longer chopped into 40s chunks.
 
-This is exactly Option B with a concrete worker: Netlify itself is the durable
-worker, reached through the existing self-dispatch primitive.
+This is exactly the Layer 1 worker with a concrete long-lived host: Netlify is
+the durable worker, reached through the existing self-dispatch primitive — the
+same primitive that, absent this layer, just chains shorter invocations.
 
 ## What already exists and is reused verbatim
 
@@ -486,6 +599,16 @@ Already strong; make the new claim match:
   a killed one reports `errored` with what was committed — never a false success.
 
 ## Phased implementation plan (smallest working slice first)
+
+> Status: \*\*Slices 0–1 implemented and the Slice-3 background-aware stale window
+>
+> - background→background continuation chaining are implemented\*\*, all behind
+>   `AGENT_CHAT_DURABLE_BACKGROUND` (off by default). The host-agnostic baseline
+>   (Layer 1) carries the run on any host; the Netlify `-background` emit (Layer 2)
+>   is the deploy-time optimization. Slice 2's richer reconnect-first client UX and
+>   the internal per-step checkpointing (Option A) remain follow-ups; Slice 4
+>   (raising the per-call gateway cap) is intentionally out of scope (see
+>   [Per-model-call gateway cap](#per-model-call-gateway-cap)).
 
 **Slice 0 — prove async dispatch on Netlify (no chat yet).**
 Emit one extra `-background` function in the deploy build that re-exports the
