@@ -56,11 +56,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -111,12 +106,6 @@ import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
-  IMAGE_MODELS,
-  IMAGE_SIZES,
-  VIDEO_ASPECT_RATIOS,
-  VIDEO_DURATIONS,
-  VIDEO_MODELS,
-  VIDEO_RESOLUTIONS,
   type AspectRatio,
   type ImageCategory,
   type ImageRole,
@@ -371,7 +360,6 @@ export default function LibraryPage() {
   const prepareSessionContinuation = useActionMutation(
     "prepare-generation-session-continuation",
   );
-  const { data: variants } = useVariantState();
   const { data: presetData } = useActionQuery("list-generation-presets", {
     libraryId,
   }) as any;
@@ -379,7 +367,6 @@ export default function LibraryPage() {
     libraryId,
   }) as any;
   const queryClient = useQueryClient();
-  const [generateOpen, setGenerateOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
@@ -412,7 +399,6 @@ export default function LibraryPage() {
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const refreshingVariantRunIdsRef = useRef<Set<string>>(new Set());
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
@@ -509,41 +495,6 @@ export default function LibraryPage() {
     if (activeFolderId === null) return !upload.folderId;
     return upload.folderId === activeFolderId;
   });
-
-  const pendingVariants =
-    variants?.libraryId === libraryId
-      ? (variants.slots ?? [])
-          .filter(
-            (slot: any) =>
-              !slot.assetId || !finishedVariantAssetIds.has(slot.assetId),
-          )
-          .sort(compareVariantSlotsNewestFirst)
-      : [];
-
-  useEffect(() => {
-    if (refreshGeneration.isPending) return;
-    const runId = pendingVariants
-      .map(stalePendingVariantRunId)
-      .find((id: string | null): id is string =>
-        Boolean(id && !refreshingVariantRunIdsRef.current.has(id)),
-      );
-    if (!runId) return;
-    refreshingVariantRunIdsRef.current.add(runId);
-    refreshGeneration.mutate(
-      { runId },
-      {
-        onSettled: () => {
-          window.setTimeout(() => {
-            refreshingVariantRunIdsRef.current.delete(runId);
-          }, 30_000);
-          void queryClient.invalidateQueries({
-            queryKey: ["app-state", "asset-variants"],
-            refetchType: "active",
-          });
-        },
-      },
-    );
-  }, [pendingVariants, queryClient, refreshGeneration]);
 
   function markAssetsOptimisticallyDeleted(ids: string[]) {
     setOptimisticallyDeletedAssetIds((current) => {
@@ -982,61 +933,6 @@ export default function LibraryPage() {
     }
   }
 
-  function generate(prompt: string, options: GenerateOptions) {
-    const selectedPreset = options.presetId
-      ? generationPresets.find((preset) => preset.id === options.presetId)
-      : null;
-    const trimmedPrompt = prompt.trim();
-    const chatMessage =
-      trimmedPrompt ||
-      (options.mediaType === "video"
-        ? "Generate a video for this library."
-        : "Generate images for this library.");
-    const context = [
-      "## Assets library context",
-      options.mediaType === "video"
-        ? "Requested output: 1 video candidate for this library"
-        : `Requested output: ${options.count} image candidate${options.count === 1 ? "" : "s"} for this library`,
-      `User prompt: ${trimmedPrompt || "(no text prompt provided)"}`,
-      options.presetId ? `Preset ID: ${options.presetId}` : "Preset ID: none",
-      `Aspect ratio: ${options.aspectRatio}`,
-      options.mediaType === "video"
-        ? `Duration: ${options.durationSeconds}s\nResolution: ${options.resolution}`
-        : `Image size: ${options.imageSize}`,
-      `Model: ${options.model}`,
-      activeFolderId && activeFolderId !== "all"
-        ? `Folder ID: ${activeFolderId}`
-        : "Folder ID: none",
-      `Reference categories: ${options.category}`,
-      `Include canonical logo: ${options.includeLogo ? "yes" : "no"}`,
-      "",
-      "## Selected library",
-      `Library: ${library.title} (${library.id})`,
-      `Description: ${library.description || ""}`,
-      `Folder: ${activeFolderId && activeFolderId !== "all" ? folders.find((folder) => folder.id === activeFolderId)?.title : "All assets"}`,
-      `References: ${references.length}`,
-      `Saved assets: ${saved.length}`,
-      `Style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
-      customInstructions
-        ? `Custom instructions: ${customInstructions}`
-        : "Custom instructions: none",
-      selectedPreset
-        ? `Generation preset: ${selectedPreset.title} (${selectedPreset.id}); ${selectedPreset.aspectRatio}; text policy: ${selectedPreset.textPolicy || "none"}`
-        : "Generation preset: none",
-      "",
-      options.mediaType === "video"
-        ? "Use generate-video, then call refresh-generation-run until the run completes and returns a video asset. Use save-generated-asset when the user approves it."
-        : "Use the asset generation actions. If a generation preset ID is present, pass presetId to generate-image or generate-image-batch. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
-    ].join("\n");
-    sendToAgentChat({
-      message: chatMessage,
-      context,
-      submit: true,
-      newTab: true,
-    });
-    setGenerateOpen(false);
-  }
-
   function continueSession(sessionId: string) {
     prepareSessionContinuation.mutate(
       { id: sessionId },
@@ -1149,13 +1045,6 @@ export default function LibraryPage() {
               <IconFolderPlus className="h-4 w-4" />
               Folder
             </Button>
-            <GeneratePopover
-              open={generateOpen}
-              onOpenChange={setGenerateOpen}
-              onSubmit={generate}
-              hasLogo={!!library.canonicalLogoAssetId}
-              presets={generationPresets}
-            />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1310,16 +1199,6 @@ export default function LibraryPage() {
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
-            <CandidateStage
-              candidates={candidateAssets}
-              pendingVariants={pendingVariants}
-              libraryId={libraryId}
-              folders={folders}
-              savingCandidateKeys={savingCandidateKeys}
-              onSaveCandidate={(slot) => {
-                void handleSaveCandidate(slot);
-              }}
-            />
             <section className="space-y-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1574,19 +1453,6 @@ export default function LibraryPage() {
     </div>
   );
 }
-
-type GenerateOptions = {
-  mediaType: "image" | "video";
-  presetId?: string;
-  count: number;
-  aspectRatio: string;
-  imageSize: string;
-  durationSeconds: number;
-  resolution: string;
-  model: string;
-  category: string;
-  includeLogo: boolean;
-};
 
 type PendingUpload = {
   id: string;
@@ -1934,252 +1800,6 @@ function SessionCard({
         ) : null}
       </div>
     </article>
-  );
-}
-
-function GeneratePopover({
-  open,
-  onOpenChange,
-  onSubmit,
-  hasLogo,
-  presets,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (prompt: string, options: GenerateOptions) => void;
-  hasLogo: boolean;
-  presets: any[];
-}) {
-  const [prompt, setPrompt] = useState("");
-  const [mediaType, setMediaType] = useState<"image" | "video">("image");
-  const [presetId, setPresetId] = useState("none");
-  const [count, setCount] = useState(3);
-  const [aspectRatio, setAspectRatio] = useState("16:9");
-  const [imageSize, setImageSize] = useState("2K");
-  const [durationSeconds, setDurationSeconds] = useState(8);
-  const [resolution, setResolution] = useState("720p");
-  const [model, setModel] = useState("gemini-3.1-flash-image");
-  const [category, setCategory] = useState("hero");
-  const [includeLogo, setIncludeLogo] = useState(false);
-  const selectedPreset = presets.find((preset) => preset.id === presetId);
-
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button className="gap-2">
-          <IconMessageCircle className="h-4 w-4" />
-          Generate
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-[420px] max-w-[calc(100vw-2rem)]"
-      >
-        <div className="space-y-4">
-          <div>
-            <div className="text-sm font-semibold">Generate with chat</div>
-          </div>
-          {presets.length ? (
-            <Select
-              value={presetId}
-              onValueChange={(value) => {
-                setPresetId(value);
-                const preset = presets.find((item) => item.id === value);
-                if (!preset) return;
-                setMediaType(preset.mediaType === "video" ? "video" : "image");
-                setAspectRatio(preset.aspectRatio || "16:9");
-                setImageSize(preset.imageSize || "2K");
-                setModel(preset.model || "gemini-3.1-flash-image");
-                setCategory(preset.category || "hero");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Preset" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No preset</SelectItem>
-                {presets.map((preset) => (
-                  <SelectItem key={preset.id} value={preset.id}>
-                    {preset.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          {selectedPreset?.textPolicy ? (
-            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-              {selectedPreset.textPolicy}
-            </p>
-          ) : null}
-          <Select
-            value={mediaType}
-            onValueChange={(value) => {
-              const next = value as "image" | "video";
-              setMediaType(next);
-              setModel(
-                next === "video"
-                  ? "veo-3.1-generate-preview"
-                  : "gemini-3.1-flash-image",
-              );
-              setCategory(next === "video" ? "video" : "hero");
-              setAspectRatio(next === "video" ? "16:9" : aspectRatio);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="image">Image candidates</SelectItem>
-              <SelectItem value="video">Video candidate</SelectItem>
-            </SelectContent>
-          </Select>
-          <Textarea
-            autoGrow
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={
-              mediaType === "video"
-                ? "Eight-second product reveal with slow camera push-in"
-                : "Blog hero for an article about cold-start latency"
-            }
-            className="min-h-28 max-h-48 resize-none overflow-y-auto"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            {mediaType === "image" ? (
-              <Select
-                value={String(count)}
-                onValueChange={(v) => setCount(Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n} variants
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select
-                value={String(durationSeconds)}
-                onValueChange={(v) => setDurationSeconds(Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VIDEO_DURATIONS.map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}s
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={aspectRatio} onValueChange={setAspectRatio}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(mediaType === "video"
-                  ? VIDEO_ASPECT_RATIOS
-                  : ASPECT_RATIOS
-                ).map((ratio) => (
-                  <SelectItem key={ratio} value={ratio}>
-                    {ratio}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {mediaType === "image" ? (
-              <Select value={imageSize} onValueChange={setImageSize}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMAGE_SIZES.map((size) => (
-                    <SelectItem key={size} value={size}>
-                      {size}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select value={resolution} onValueChange={setResolution}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VIDEO_RESOLUTIONS.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {IMAGE_CATEGORIES.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Select value={model} onValueChange={setModel}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(mediaType === "video" ? VIDEO_MODELS : IMAGE_MODELS).map(
-                (item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ),
-              )}
-            </SelectContent>
-          </Select>
-          {mediaType === "image" && (
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={includeLogo}
-                disabled={!hasLogo}
-                onCheckedChange={(checked) => setIncludeLogo(checked === true)}
-              />
-              Composite canonical logo
-            </label>
-          )}
-          <Button
-            className="w-full"
-            disabled={!prompt.trim()}
-            onClick={() =>
-              onSubmit(prompt, {
-                mediaType,
-                presetId: presetId === "none" ? undefined : presetId,
-                count,
-                aspectRatio,
-                imageSize,
-                durationSeconds,
-                resolution,
-                model,
-                category,
-                includeLogo,
-              })
-            }
-          >
-            Open chat
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 

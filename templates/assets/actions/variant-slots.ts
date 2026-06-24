@@ -6,13 +6,16 @@ import {
 import { nowIso } from "../server/lib/json.js";
 import type { AssetVariantState } from "../shared/api.js";
 
-type VariantSlotInput = {
+type VariantScopeInput = {
   runId: string;
   batchId?: string | null;
   libraryId: string;
   collectionId?: string | null;
   presetId?: string | null;
   sessionId?: string | null;
+};
+
+type VariantSlotInput = VariantScopeInput & {
   prompt: string;
   slotId: string;
   status: "pending" | "ready" | "failed";
@@ -55,19 +58,20 @@ export async function wasVariantSlotDismissed(
 export async function upsertVariantSlot(input: VariantSlotInput) {
   await withVariantStateLock(async () => {
     const previous = await readVariantStateUnlocked();
-    const state = isSameVariantScope(previous, input)
-      ? previous
-      : {
-          runId: input.runId,
-          batchId: input.batchId ?? null,
-          libraryId: input.libraryId,
-          collectionId: input.collectionId,
-          presetId: input.presetId ?? null,
-          sessionId: input.sessionId ?? null,
-          prompt: input.prompt,
-          slots: [],
-          updatedAt: nowIso(),
-        };
+    const state =
+      previous && isSameVariantScope(previous, input)
+        ? previous
+        : {
+            runId: input.runId,
+            batchId: input.batchId ?? null,
+            libraryId: input.libraryId,
+            collectionId: input.collectionId,
+            presetId: input.presetId ?? null,
+            sessionId: input.sessionId ?? null,
+            prompt: input.prompt,
+            slots: [],
+            updatedAt: nowIso(),
+          };
 
     state.runId = input.runId;
     state.batchId = input.batchId ?? null;
@@ -100,10 +104,24 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
   });
 }
 
+export async function assertCanReplaceVariantSlots(input: VariantScopeInput) {
+  await withVariantStateLock(async () => {
+    const previous = await readVariantStateUnlocked();
+    if (!previous || isSameVariantScope(previous, input)) return;
+    const activeSlots = previous.slots.filter(
+      (slot) => slot.status === "pending" || slot.status === "ready",
+    );
+    if (activeSlots.length === 0) return;
+    throw new Error(
+      "The generation tray already has unsaved candidates. Save, delete, or clear them before starting a new generation.",
+    );
+  });
+}
+
 function isSameVariantScope(
   previous: AssetVariantState | null,
-  input: VariantSlotInput,
-): previous is AssetVariantState {
+  input: VariantScopeInput,
+): boolean {
   if (!previous) return false;
 
   // The batch/run id is the generation boundary: batch slots may have distinct

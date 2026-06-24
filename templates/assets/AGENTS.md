@@ -35,6 +35,14 @@ Detailed library, generation, image, embed, and engine rules live in
 - `navigation` exposes library, asset, generation, picker, embed, and selection
   context. Picker state includes media type, selected library, query, prompt, and
   aspect ratio when available.
+- `generation-context` is the authoritative default for the next image
+  generation request: `{ libraryId, presetId, model, aspectRatio, imageSize,
+count, mediaType }`. Treat it as the visible composer selection for Brand kit
+  / Preset / Format, and omit those action args only when you intend to use the
+  selected defaults.
+- `asset-variants` is the shared live generation tray state. New image
+  candidates should appear there through `generate-image` or
+  `generate-image-batch`; do not invent page-local progress surfaces.
 - `navigate` moves the UI to picker, library, generation, asset, and settings
   surfaces.
 

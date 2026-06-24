@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
+const readGenerationContextDefaultsMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 
@@ -34,6 +35,10 @@ vi.mock("./_helpers.js", () => ({
   requireGenerationSessionInLibrary: requireGenerationSessionInLibraryMock,
 }));
 
+vi.mock("./_generation-context.js", () => ({
+  readGenerationContextDefaults: readGenerationContextDefaultsMock,
+}));
+
 vi.mock("./generate-image.js", () => ({
   default: {
     run: generateImageRunMock,
@@ -56,6 +61,7 @@ describe("generate-image-batch", () => {
     requireGenerationSessionInLibraryMock.mockResolvedValue({
       id: "session-1",
     });
+    readGenerationContextDefaultsMock.mockResolvedValue({});
     generateImageRunMock.mockResolvedValue({ assetId: "asset-1" });
     getDbMock.mockReturnValue(createDb());
   });

@@ -10,7 +10,10 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 
 ## Rules
 
-- Start from the current library. Call `view-screen` when the user says "this
+- Start from `application_state.generation-context` when the user is using the
+  Assets chat composer. It carries the visible Brand kit / Preset / Format
+  defaults: `libraryId`, `presetId`, `model`, `aspectRatio`, `imageSize`,
+  `count`, and `mediaType`. Call `view-screen` when the user says "this
   library" or "this image" and you need fresh IDs.
 - Use category-tagged references. Blog heroes should prefer `hero`; diagrams
   should prefer `diagram`; product imagery should include `product` and `logo`
@@ -20,15 +23,17 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   `assets.metadata.isStyleAnchor` before sampling other relevant references.
 - Honor library custom instructions. They are persistent prompt guidance and
   should be updated when the user wants durable generation behavior.
-- Generate 2-4 candidates for open-ended requests. Use `generate-image-batch`
-  with stable `slotId`s so the UI can show live slots.
+- Generate the selected candidate count for open-ended requests, usually 2-4.
+  Use `generate-image-batch` with stable `slotId`s so the shared generation tray
+  can show live slots.
 - `generate-image` and `generate-image-batch` are synchronous for images. One
   batch call should produce the requested candidates and return their asset
   IDs/URLs; do not follow it with `get-generation-run`,
   `refresh-generation-run`, or more generation unless the user asks for another
   direction or the returned slot has `ok: false`.
-- For repeatable deliverables, call `list-generation-presets` and pass the
-  selected `presetId` to `generate-image`, `generate-image-batch`,
+- For repeatable deliverables, honor the selected `presetId` from
+  `generation-context` or call `list-generation-presets` when choosing one.
+  Pass the preset through `generate-image`, `generate-image-batch`,
   `refine-image`, or `rerun-generation-run`.
 - For designer handoff, preserve `sessionId` and call
   `update-generation-session` after each new candidate so the active asset,

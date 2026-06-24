@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import {
-  readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
@@ -42,7 +41,12 @@ import {
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
-import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
+import {
+  assertCanReplaceVariantSlots,
+  upsertVariantSlot,
+  wasVariantSlotDismissed,
+} from "./variant-slots.js";
+import { readGenerationContextDefaults } from "./_generation-context.js";
 
 function resolveModelForTier(
   tier: ImageQualityTier | undefined,
@@ -56,33 +60,16 @@ function resolveModelForTier(
     : "gemini-3.1-flash-image";
 }
 
-/**
- * The user's default image model, chosen from the composer's model picker and
- * persisted in per-user application state. Used as a fallback when no explicit
- * model, tier, or preset model is supplied. Returns undefined when unset or
- * invalid so the hardcoded default still applies.
- */
-async function readUserDefaultImageModel(): Promise<ImageModel | undefined> {
-  try {
-    const stored = await readAppState("imageGenerationModel");
-    const model = stored?.model;
-    if (
-      typeof model === "string" &&
-      (IMAGE_MODELS as readonly string[]).includes(model)
-    ) {
-      return model as ImageModel;
-    }
-  } catch {
-    // No request context or read failure — fall back to defaults below.
-  }
-  return undefined;
-}
-
 export default defineAction({
   description:
     "Generate one brand-consistent image from a library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
-    libraryId: z.string(),
+    libraryId: z
+      .string()
+      .optional()
+      .describe(
+        "Brand kit/library ID. When omitted, uses application_state.generation-context.libraryId.",
+      ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
     sessionId: z.string().optional(),
@@ -134,7 +121,21 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async (args) => {
+  run: async (input) => {
+    const generationDefaults = await readGenerationContextDefaults();
+    const libraryId = input.libraryId ?? generationDefaults.libraryId;
+    if (!libraryId) {
+      throw new Error(
+        "No brand kit selected. Choose a brand kit in the generation context bar or pass libraryId.",
+      );
+    }
+    const args = {
+      ...input,
+      libraryId,
+      presetId: input.presetId ?? generationDefaults.presetId,
+      aspectRatio: input.aspectRatio ?? generationDefaults.aspectRatio,
+      imageSize: input.imageSize ?? generationDefaults.imageSize,
+    };
     await assertAccess("asset-library", args.libraryId, "editor");
     const db = getDb();
     const [library] = await db
@@ -247,9 +248,9 @@ export default defineAction({
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
     const resolvedModel = (args.model ??
+      generationDefaults.model ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
-      (await readUserDefaultImageModel()) ??
       "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??
@@ -302,6 +303,15 @@ export default defineAction({
     });
     const runId = nanoid();
     const now = nowIso();
+    const slotId = args.slotId ?? runId;
+    await assertCanReplaceVariantSlots({
+      runId,
+      batchId: args.variantBatchId ?? null,
+      libraryId: args.libraryId,
+      collectionId: resolvedCollectionId ?? null,
+      presetId: preset?.id ?? null,
+      sessionId: session?.id ?? null,
+    });
     // Capture identity at insert time so the org-admin audit log can filter
     // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;
@@ -341,7 +351,6 @@ export default defineAction({
       sessionId: session?.id ?? null,
       customInstructions: library.customInstructions ?? "",
     };
-    const slotId = args.slotId ?? runId;
     const dismissibleSlot = args.dismissible !== false && Boolean(slotId);
     const baseMetadata = {
       slotId,

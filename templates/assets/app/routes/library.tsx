@@ -11,10 +11,13 @@ import {
   getEmbedAuthToken,
   isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
+  sendToAgentChat,
   sendMcpAppHostMessage,
+  setAgentChatContextItem,
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  writeClientAppState,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -36,6 +39,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  GENERATION_CONTEXT_STATE_KEY,
+  generationContextPromptBlock,
+  normalizeGenerationContext,
+} from "@/lib/generation-context";
 import {
   Select,
   SelectContent,
@@ -122,6 +130,7 @@ type GenerationPreset = {
   mediaType?: string | null;
   aspectRatio?: string | null;
   imageSize?: string | null;
+  model?: string | null;
 };
 
 type HostConfig = {
@@ -861,47 +870,6 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
-  const generateBatch = useActionMutation(
-    "generate-image-batch" as any,
-    {
-      onSuccess: (result: any) => {
-        const images = Array.isArray(result?.images) ? result.images : [];
-        const generatedCount = images.filter((image: any) => image?.ok).length;
-        const failedCount = images.length - generatedCount;
-        setVisibleCandidateRunIds(
-          images
-            .map((image: any) =>
-              image?.ok && typeof image.runId === "string" ? image.runId : null,
-            )
-            .filter((runId: string | null): runId is string => Boolean(runId)),
-        );
-        if (generatedCount > 0) {
-          toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
-            {
-              description:
-                failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
-            },
-          );
-          setQuery("");
-        } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
-        }
-      },
-      onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
-      },
-    } as any,
-  );
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
@@ -1051,30 +1019,113 @@ export default function AssetPicker() {
       },
     } as any,
   );
+  const generateBatch = useActionMutation(
+    "generate-image-batch" as any,
+    {
+      onSuccess: (result: any) => {
+        const images = Array.isArray(result?.images) ? result.images : [];
+        const generatedCount = images.filter((image: any) => image?.ok).length;
+        const failedCount = images.length - generatedCount;
+        setVisibleCandidateRunIds(
+          images
+            .map((image: any) =>
+              image?.ok && typeof image.runId === "string" ? image.runId : null,
+            )
+            .filter((runId: string | null): runId is string => Boolean(runId)),
+        );
+        if (generatedCount > 0) {
+          toast.success(
+            `Generated ${generatedCount} image candidate${
+              generatedCount === 1 ? "" : "s"
+            }`,
+            {
+              description:
+                failedCount > 0
+                  ? `${failedCount} candidate${
+                      failedCount === 1 ? "" : "s"
+                    } failed.`
+                  : "Pick the one you want to send back.",
+            },
+          );
+          setQuery("");
+        } else {
+          toast.error(
+            images[0]?.error ||
+              "Image generation finished without usable candidates.",
+          );
+        }
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || "Image generation failed");
+      },
+    } as any,
+  );
 
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
     setVisibleCandidateRunIds([]);
-    generateBatch.mutate({
+    const nextGenerationContext = normalizeGenerationContext({
       libraryId: selectedLibraryId,
-      presetId: selectedPreset?.id,
-      slots: Array.from({ length: count }, (_, index) => ({
-        slotId: `picker-candidate-${index + 1}`,
-        prompt: prompt.trim(),
-        aspectRatio: effectiveAspectRatio,
-        imageSize: selectedPreset?.imageSize || "2K",
-        dismissible: false,
-      })),
-      tier: hostConfig.tier,
-      styleStrength: hostConfig.styleStrength ?? "balanced",
-      includeLogo: hostConfig.includeLogo ?? false,
-      source: "ui",
-      callerAppId: hostConfig.callerAppId,
-    } as any);
+      presetId: selectedPreset?.id ?? null,
+      model: selectedPreset?.model ?? "gemini-3.1-flash-image",
+      aspectRatio: effectiveAspectRatio,
+      imageSize: selectedPreset?.imageSize || "2K",
+      count,
+      mediaType: "image",
+    });
+    if (embedded) {
+      void writeClientAppState(
+        GENERATION_CONTEXT_STATE_KEY,
+        nextGenerationContext,
+      ).catch(() => {});
+      generateBatch.mutate({
+        libraryId: selectedLibraryId,
+        presetId: selectedPreset?.id,
+        slots: Array.from({ length: count }, (_, index) => ({
+          slotId: `picker-candidate-${index + 1}`,
+          prompt: prompt.trim(),
+          aspectRatio: effectiveAspectRatio,
+          imageSize: selectedPreset?.imageSize || "2K",
+          dismissible: false,
+        })),
+        tier: hostConfig.tier,
+        styleStrength: hostConfig.styleStrength ?? "balanced",
+        includeLogo: hostConfig.includeLogo ?? false,
+        source: "ui",
+        callerAppId: hostConfig.callerAppId,
+      } as any);
+      return;
+    }
+    void (async () => {
+      await writeClientAppState(
+        GENERATION_CONTEXT_STATE_KEY,
+        nextGenerationContext,
+      ).catch(() => {});
+      setAgentChatContextItem({
+        key: "assets-generation-context",
+        title: "Assets Generation Context",
+        context: generationContextPromptBlock({
+          context: nextGenerationContext,
+          libraryTitle:
+            displayLibraries.find((library) => library.id === selectedLibraryId)
+              ?.title ?? null,
+          presetTitle: selectedPreset?.title ?? null,
+        }),
+        openSidebar: false,
+      });
+      sendToAgentChat({
+        message: prompt.trim(),
+        submit: true,
+        openSidebar: true,
+        newTab: true,
+      });
+    })();
   }, [
     count,
+    displayLibraries,
     effectiveAspectRatio,
+    embedded,
     generateBatch,
     hostConfig.callerAppId,
     hostConfig.includeLogo,
@@ -1173,7 +1224,7 @@ export default function AssetPicker() {
     !usingStarterLibrary &&
     Boolean(prompt.trim()) &&
     !waitingForRequestedPreset &&
-    !generateBatch.isPending;
+    !(embedded && generateBatch.isPending);
   const setupNeeded = mediaType === "image" && config?.configured === false;
   const setupMessage =
     typeof config?.lastIssue?.message === "string"
@@ -1196,21 +1247,24 @@ export default function AssetPicker() {
     (waitingForLibraries ||
       needsGenerationLibrary ||
       preparingGenerationLibrary);
-  const generationButtonLabel = generateBatch.isPending
-    ? "Generating..."
-    : waitingForRequestedPreset
-      ? "Loading preset..."
-      : setupNeeded
-        ? "Setup needed"
-        : preparingAutoLibrary
-          ? "Preparing..."
-          : "Generate";
-  const generationStatus = generateBatch.isPending
-    ? "Generating candidates..."
-    : preparingAutoLibrary
-      ? waitingForLibraries
-        ? "Checking image libraries..."
-        : "Preparing an image library..."
+  const generationButtonLabel =
+    embedded && generateBatch.isPending
+      ? "Generating..."
+      : waitingForRequestedPreset
+        ? "Loading preset..."
+        : setupNeeded
+          ? "Setup needed"
+          : preparingAutoLibrary
+            ? "Preparing..."
+            : embedded
+              ? "Generate"
+              : "Open chat";
+  const generationStatus = preparingAutoLibrary
+    ? waitingForLibraries
+      ? "Checking image libraries..."
+      : "Preparing an image library..."
+    : embedded && generateBatch.isPending
+      ? "Generating candidates..."
       : waitingForRequestedPreset
         ? "Loading the requested preset..."
         : null;
@@ -1246,7 +1300,8 @@ export default function AssetPicker() {
   useEffect(() => {
     if (!hostConfig.autoGenerate) return;
     if (!prompt.trim() || mediaType !== "image") return;
-    if (!canGenerate || setupNeeded || generateBatch.isPending) return;
+    if (!canGenerate || setupNeeded || (embedded && generateBatch.isPending))
+      return;
     if (waitingForRequestedPreset) return;
     const key = [
       selectedLibraryId,
@@ -1261,6 +1316,7 @@ export default function AssetPicker() {
   }, [
     canGenerate,
     count,
+    embedded,
     effectiveAspectRatio,
     generateBatch.isPending,
     hostConfig.autoGenerate,

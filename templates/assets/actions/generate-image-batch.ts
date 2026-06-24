@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import generateImage from "./generate-image.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
+import { readGenerationContextDefaults } from "./_generation-context.js";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 import {
@@ -22,7 +23,12 @@ export default defineAction({
   description:
     "Generate several brand-consistent images in parallel from one library. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
-    libraryId: z.string(),
+    libraryId: z
+      .string()
+      .optional()
+      .describe(
+        "Brand kit/library ID. When omitted, uses application_state.generation-context.libraryId.",
+      ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
     sessionId: z.string().optional(),
@@ -59,7 +65,20 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({ slots, ...base }) => {
+  run: async ({ slots, ...inputBase }) => {
+    const generationDefaults = await readGenerationContextDefaults();
+    const libraryId = inputBase.libraryId ?? generationDefaults.libraryId;
+    if (!libraryId) {
+      throw new Error(
+        "No brand kit selected. Choose a brand kit in the generation context bar or pass libraryId.",
+      );
+    }
+    const base = {
+      ...inputBase,
+      libraryId,
+      presetId: inputBase.presetId ?? generationDefaults.presetId,
+      model: inputBase.model ?? generationDefaults.model,
+    };
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {
       await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);

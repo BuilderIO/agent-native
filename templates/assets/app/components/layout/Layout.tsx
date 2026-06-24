@@ -14,6 +14,7 @@ import {
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,15 @@ export function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
+  const activeBrandKitId = (() => {
+    const match = location.pathname.match(/^\/brand-kits\/([^/]+)/);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  })();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -132,6 +142,9 @@ export function Layout({ children }: LayoutProps) {
           "Make an 8-second product reveal video",
           "Match the style of my reference assets",
         ]}
+        composerToolbarSlot={
+          <GenerationContextBar activeLibraryId={activeBrandKitId} />
+        }
       >
         {appFrame}
       </AgentSidebar>
