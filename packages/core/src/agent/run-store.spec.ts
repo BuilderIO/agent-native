@@ -59,6 +59,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => "INTEGER",
   isPostgres: () => false,
+  widenIntColumnsToBigInt: async () => {},
 }));
 
 vi.mock("../server/capture-error.js", () => ({

@@ -347,10 +347,12 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export async function widenIntColumnsToBigInt(
   table: string,
   columns: string[],
+  // Injectable for tests; production callers use the configured client.
+  injectedClient?: DbExec,
 ): Promise<void> {
   if (!isPostgres() || columns.length === 0) return;
   if (!PLAIN_IDENTIFIER.test(table)) return;
-  const client = getDbExec();
+  const client = injectedClient ?? getDbExec();
   let int4Columns: Set<string>;
   try {
     const { rows } = await client.execute({

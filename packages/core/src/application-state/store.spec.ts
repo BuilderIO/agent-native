@@ -27,6 +27,7 @@ vi.mock("../db/client.js", () => ({
   intType: () => "INTEGER",
   isConnectionError: () => false,
   isPostgres: () => false,
+  widenIntColumnsToBigInt: async () => {},
 }));
 
 vi.mock("./emitter.js", () => ({

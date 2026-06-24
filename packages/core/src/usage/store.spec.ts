@@ -27,6 +27,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
   intType: () => "INTEGER",
   isPostgres: () => false,
+  widenIntColumnsToBigInt: async () => {},
 }));
 
 const {
