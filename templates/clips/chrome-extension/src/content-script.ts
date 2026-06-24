@@ -221,11 +221,12 @@
         zIndex: "2",
       });
     } else if (part === "saving") {
+      // Compact card: caption + a single indeterminate bar (no circular spinner).
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
-        width: "264px",
-        height: "96px",
+        width: "240px",
+        height: "64px",
         zIndex: "2",
       });
     } else {
