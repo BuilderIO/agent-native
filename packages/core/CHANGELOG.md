@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.71.0
+
+### Minor Changes
+
+- 38266fc: Add opt-in durable background agent-chat runs (off by default, host-agnostic). Behind `AGENT_CHAT_DURABLE_BACKGROUND` (active only when hosted AND `A2A_SECRET` is set AND the flag is truthy), a long in-app agent-chat turn is routed through a server-driven background worker via the framework's portable self-dispatch instead of completing synchronously under the ~40s interactive soft-timeout: the foreground POST claims the run slot, inserts the run row, fires an HMAC-signed self-dispatch to a new `/_agent-native/agent-chat/_process-run` route, and returns the existing `subscribeToRun` SSE stream so the client streams the same events via the cross-isolate SQL-poll path with no client change. The background worker idempotently claims the run, runs the full multi-step loop to completion under a host-natural soft-timeout (`backgroundFunction` mode lifts the 40s clamp for that invocation only — the foreground/interactive clamp is unchanged), and chains a server-driven continuation if a chunk hits its budget unfinished. A background-aware stale window (`dispatch_mode`) prevents a cold-starting background run from being falsely reaped. With the flag off, the agent-chat run path is byte-for-byte the current synchronous behavior.
+
+  As a per-host optimization layered on the portable baseline, the Netlify deploy build emits a second function whose name ends in `-background` (re-exporting the same `main.mjs` handler bundle, with a `config.path` of the process-run route) so the `_process-run` POST runs on Netlify's async 15-minute budget and a long turn completes in one invocation; on that invocation the worker's soft-timeout is raised to ~13 min (`backgroundFunction` mode) instead of 40s. This emit is build-time gated on the same `AGENT_CHAT_DURABLE_BACKGROUND` flag for both the single-template (`deploy/build.ts`) and workspace (`deploy/workspace-deploy.ts`) deploy paths: when the flag is unset at build time the emit functions are never invoked, so the deploy output (functions, routing, config) is byte-identical to today and the default single-function deploy is unchanged.
+
+### Patch Changes
+
+- 38266fc: Move "Collapse sidebar" to the top of the agent panel's options menu (the `⋯` dropdown in the sidebar header), above All chats / Agent runs / Settings, with a separator below it. Makes the most common dismiss action the first item in the list.
+- 38266fc: Fix inline MCP App embeds being hard-killed on `resources/read`. The inline-embed kill switch was enforced inside the shared `resolveMcpAppResource` resolver, which also backs `resources/read` — so when a host read a `ui://` URI it already held (e.g. a cached descriptor) while embeds were disabled, it got a hard `-32603` instead of the shell. The switch is now enforced only at the advertisement/render sites (`tools/list` descriptor meta, `tools/call` result meta, `resources/list`), so disabled embeds are never advertised while `resources/read` still degrades gracefully to the served shell.
+
 ## 0.70.3
 
 ### Patch Changes
