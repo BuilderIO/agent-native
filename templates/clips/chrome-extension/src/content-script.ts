@@ -194,7 +194,7 @@
       position: "absolute",
       border: "none",
       background: "transparent",
-      colorScheme: "normal",
+      colorScheme: "dark",
       pointerEvents: "auto",
     });
     frame.setAttribute("allowtransparency", "true");
@@ -217,21 +217,30 @@
       });
     } else if (part === "toolbar") {
       // Left-edge vertical pill (desktop layout). Height grows on hover via the
-      // resize message below.
+      // resize message below. Clipped to the pill's radius (the pill fills the
+      // iframe) so the opaque canvas can't show as a box; shadow on the iframe so
+      // the clip doesn't cut it.
       Object.assign(frame.style, {
         left: "16px",
         top: "calc(50% - 77px)",
         width: "68px",
         height: "154px",
+        borderRadius: "20px",
+        overflow: "hidden",
+        boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
         zIndex: "2",
       });
     } else if (part === "saving") {
       // Compact card: caption + a single indeterminate bar (no circular spinner).
+      // Clipped to the card radius (card fills the iframe) so no canvas box shows.
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
         width: "240px",
         height: "64px",
+        borderRadius: "14px",
+        overflow: "hidden",
+        boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
         zIndex: "2",
       });
     } else {
