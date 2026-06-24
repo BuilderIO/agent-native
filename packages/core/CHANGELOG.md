@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.72.3
+
+### Patch Changes
+
+- 6605885: Add opt-in URL sync for durable chat threads and route chat-first templates (chat, assets, and Dispatch) through `/chat/:threadId` deep links.
+
 ## 0.72.2
 
 ### Patch Changes
