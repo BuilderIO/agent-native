@@ -29,6 +29,39 @@ function valueAsString(val: unknown): string {
   return String(val);
 }
 
+/** Drop the protocol for a cleaner table cell; the full URL stays the link href. */
+function formatPageUrl(url: string): string {
+  return url.replace(/^https?:\/\//, "");
+}
+
+/**
+ * Only http(s) URLs are safe to use as an anchor href. Page URLs arrive from
+ * client `_meta` and could be spoofed by a direct POST, so reject other schemes
+ * (e.g. `javascript:`) to avoid a self-XSS when the owner clicks the cell.
+ */
+function safeHttpUrl(value: string): string | null {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Friendly label for the client-surface token forwarded by feedback embeds. */
+function formatClientSurface(surface: string): string {
+  switch (surface) {
+    case "electron":
+      return "Desktop (Electron)";
+    case "tauri":
+      return "Desktop (Tauri)";
+    case "web":
+      return "Web";
+    default:
+      return surface;
+  }
+}
+
 function compareValues(a: unknown, b: unknown): number {
   // Empty values sort last regardless of direction.
   const aEmpty = a === undefined || a === null || a === "";
@@ -66,8 +99,21 @@ export function ResponsesPage() {
     () => responses.some((r: any) => valueAsString(r.submitterEmail).trim()),
     [responses],
   );
+  const hasPageUrl = useMemo(
+    () => responses.some((r: any) => valueAsString(r.pageUrl).trim()),
+    [responses],
+  );
+  const hasClientSurface = useMemo(
+    () => responses.some((r: any) => valueAsString(r.clientSurface).trim()),
+    [responses],
+  );
   const responseTableMinWidth =
-    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
+    64 +
+    160 +
+    (hasSubmitterEmail ? 224 : 0) +
+    (hasPageUrl ? 256 : 0) +
+    (hasClientSurface ? 160 : 0) +
+    Math.max(fields.length, 1) * 320;
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -86,6 +132,16 @@ export function ResponsesPage() {
         if (valueAsString(r.submitterEmail).toLowerCase().includes(q)) {
           return true;
         }
+        if (valueAsString(r.pageUrl).toLowerCase().includes(q)) {
+          return true;
+        }
+        if (
+          formatClientSurface(valueAsString(r.clientSurface))
+            .toLowerCase()
+            .includes(q)
+        ) {
+          return true;
+        }
         for (const f of fields) {
           if (valueAsString(r.data[f.id]).toLowerCase().includes(q))
             return true;
@@ -100,6 +156,10 @@ export function ResponsesPage() {
           new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime();
       } else if (sortKey === "_email") {
         cmp = compareValues(a.submitterEmail, b.submitterEmail);
+      } else if (sortKey === "_page") {
+        cmp = compareValues(a.pageUrl, b.pageUrl);
+      } else if (sortKey === "_source") {
+        cmp = compareValues(a.clientSurface, b.clientSurface);
       } else {
         cmp = compareValues(a.data[sortKey], b.data[sortKey]);
       }
@@ -113,11 +173,21 @@ export function ResponsesPage() {
     const headers = [
       "Submitted At",
       ...(hasSubmitterEmail ? ["Submitter Email"] : []),
+      ...(hasPageUrl ? ["Page URL"] : []),
+      ...(hasClientSurface ? ["Source"] : []),
       ...fields.map((f) => f.label),
     ];
     const rows = filteredSorted.map((r) => [
       r.submittedAt,
       ...(hasSubmitterEmail ? [valueAsString(r.submitterEmail)] : []),
+      ...(hasPageUrl ? [valueAsString(r.pageUrl)] : []),
+      ...(hasClientSurface
+        ? [
+            valueAsString(r.clientSurface)
+              ? formatClientSurface(valueAsString(r.clientSurface))
+              : "",
+          ]
+        : []),
       ...fields.map((f) => valueAsString(r.data[f.id])),
     ]);
 
@@ -282,6 +352,8 @@ export function ResponsesPage() {
                 <col className="w-16" />
                 <col className="w-40" />
                 {hasSubmitterEmail ? <col className="w-56" /> : null}
+                {hasPageUrl ? <col className="w-64" /> : null}
+                {hasClientSurface ? <col className="w-40" /> : null}
                 {fields.map((f) => (
                   <col key={f.id} className="w-80" />
                 ))}
@@ -306,6 +378,22 @@ export function ResponsesPage() {
                       active={sortKey === "_email"}
                       dir={sortDir}
                       onClick={() => toggleSort("_email")}
+                    />
+                  ) : null}
+                  {hasPageUrl ? (
+                    <SortableHeader
+                      label="Page"
+                      active={sortKey === "_page"}
+                      dir={sortDir}
+                      onClick={() => toggleSort("_page")}
+                    />
+                  ) : null}
+                  {hasClientSurface ? (
+                    <SortableHeader
+                      label="Source"
+                      active={sortKey === "_source"}
+                      dir={sortDir}
+                      onClick={() => toggleSort("_source")}
                     />
                   ) : null}
                   {fields.map((f) => (
@@ -334,6 +422,55 @@ export function ResponsesPage() {
                     {hasSubmitterEmail ? (
                       <td className="w-56 px-4 py-3 align-top text-xs text-muted-foreground whitespace-normal break-words">
                         {valueAsString(response.submitterEmail) || "-"}
+                      </td>
+                    ) : null}
+                    {hasPageUrl ? (
+                      <td className="w-64 px-4 py-3 align-top text-xs whitespace-normal break-words">
+                        {(() => {
+                          const raw = valueAsString(response.pageUrl);
+                          if (!raw)
+                            return (
+                              <span className="text-muted-foreground">-</span>
+                            );
+                          const safe = safeHttpUrl(raw);
+                          return safe ? (
+                            <a
+                              href={safe}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                              title={raw}
+                              className="text-primary hover:underline"
+                            >
+                              {formatPageUrl(raw)}
+                            </a>
+                          ) : (
+                            <span title={raw} className="text-muted-foreground">
+                              {formatPageUrl(raw)}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    ) : null}
+                    {hasClientSurface ? (
+                      <td className="w-40 px-4 py-3 align-top text-xs whitespace-nowrap">
+                        {(() => {
+                          const surface = valueAsString(response.clientSurface);
+                          if (!surface)
+                            return (
+                              <span className="text-muted-foreground">-</span>
+                            );
+                          const label = formatClientSurface(surface);
+                          // Make desktop submissions pop; web stays muted text.
+                          return surface === "web" ? (
+                            <span className="text-muted-foreground">
+                              {label}
+                            </span>
+                          ) : (
+                            <Badge variant="secondary" className="font-normal">
+                              {label}
+                            </Badge>
+                          );
+                        })()}
                       </td>
                     ) : null}
                     {fields.map((f) => {

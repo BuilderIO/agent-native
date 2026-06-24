@@ -47,6 +47,13 @@ export function registerFrameworkSecrets(): void {
         "Enables the web-search agent tool via Exa. Used as fallback when Brave and Tavily are not set and before Builder-managed search.",
       docsUrl: "https://exa.ai/",
     },
+    {
+      key: "FIRECRAWL_API_KEY",
+      label: "Firecrawl API Key",
+      description:
+        "Enables the web-search agent tool via Firecrawl. Used as fallback when Brave, Tavily, and Exa are not set and before Builder-managed search.",
+      docsUrl: "https://firecrawl.dev/",
+    },
   ];
 
   for (const entry of webSearchKeys) {

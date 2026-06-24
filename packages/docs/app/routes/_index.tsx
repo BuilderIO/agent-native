@@ -385,11 +385,6 @@ export default function Home() {
                   as real software: start with chat or headless agents, then add
                   UI, jobs, and collaboration around the same actions.
                 </p>
-                <p className="mb-5 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                  It gives you primitives for product-grade agentic software:
-                  shared actions, SQL-backed state, identity, tools, skills,
-                  jobs, observability, and UI surfaces that all work together.
-                </p>
                 <p className="mb-6 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
                   Bring your own database, hosting provider, model stack, and
                   app code.

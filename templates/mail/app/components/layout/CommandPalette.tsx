@@ -25,6 +25,7 @@ import { CommandMenu } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { getResolvedTheme } from "@/lib/theme";
+import changelog from "../../../CHANGELOG.md?raw";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -91,6 +92,8 @@ export function CommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       placeholder="Type a command or ask AI..."
+      changelog={changelog}
+      changelogKey="mail"
     >
       <CommandMenu.Group heading="Actions">
         <CommandMenu.Item

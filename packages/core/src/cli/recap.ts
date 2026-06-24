@@ -1932,7 +1932,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(`</a>`);
     lines.push("");
   }
-  lines.push(`**[Open the full interactive recap](${safeUrl})**`);
+  lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
     lines.push("");
     lines.push(
@@ -2546,6 +2546,25 @@ const RECAP_SHOT_VIEWPORT = {
 };
 const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
 
+/**
+ * Identity shim for esbuild's `__name` helper, injected into the browser before
+ * any screenshot init script or `page.evaluate` payload.
+ *
+ * esbuild/tsx `keepNames` (on by default) rewrites a named inner function — e.g.
+ * `const readHeights = (…) => {…}` inside a `page.evaluate` callback — into
+ * `__name(() => {…}, "readHeights")`. Playwright serializes that callback with
+ * `Function.prototype.toString` and runs it in the page, where `__name` does not
+ * exist, throwing `ReferenceError: __name is not defined` and silently dropping
+ * the recap's inline PR-comment screenshot. CI's trusted-workspace path runs this
+ * CLI through `tsx` (esbuild), so it fires there even though the tsc-built
+ * published package never emits `__name`. Defining `__name` as an identity
+ * function (esbuild's helper returns the target unchanged) makes every main-world
+ * payload safe regardless of how the CLI was transpiled. Kept as a raw string so
+ * esbuild can't rewrite the shim itself.
+ */
+const RECAP_SHOT_NAME_SHIM =
+  "globalThis.__name = globalThis.__name || function (value) { return value; };";
+
 type PlaywrightModule = { chromium: import("playwright").BrowserType };
 
 async function defaultImportPlaywright(): Promise<PlaywrightModule> {
@@ -2704,6 +2723,10 @@ export async function runShot(
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
       ...(theme ? { colorScheme: theme } : {}),
     });
+    // Must run before the theme init script and every page.evaluate below so
+    // esbuild/tsx `keepNames` wrappers don't throw `__name is not defined` in
+    // the browser (see RECAP_SHOT_NAME_SHIM).
+    await context.addInitScript(RECAP_SHOT_NAME_SHIM);
     if (theme) {
       await context.addInitScript(
         ({ background, nextTheme }) => {

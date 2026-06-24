@@ -32,6 +32,13 @@ export const responses = table("responses", {
   submittedAt: text("submitted_at").notNull(),
   ip: text("ip"),
   submitterEmail: text("submitter_email"),
+  // URL of the page the respondent was on, forwarded by trusted embeds (e.g.
+  // the framework FeedbackButton) as a hidden pass-through field. Client-scrubbed
+  // of sensitive query params. NULL for direct fills that send no page context.
+  pageUrl: text("page_url"),
+  // Runtime shell the feedback was sent from: "web", "electron", or "tauri".
+  // Hidden pass-through field forwarded by trusted embeds. NULL when unknown.
+  clientSurface: text("client_surface"),
 });
 
 export const formShares = createSharesTable("form_shares");

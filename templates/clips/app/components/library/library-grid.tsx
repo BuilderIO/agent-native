@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import {
   useFolders,
   useRecordings,
@@ -34,7 +33,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { IconChecks } from "@tabler/icons-react";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 
 interface LibraryGridProps {
@@ -107,7 +105,7 @@ export function LibraryGrid({
 }: LibraryGridProps) {
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selectionMode, setSelectionMode] = useState(false);
+  const selectionMode = selected.size > 0;
   const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
@@ -202,7 +200,6 @@ export function LibraryGrid({
 
   const clearSelection = () => {
     setSelected(new Set());
-    setSelectionMode(false);
   };
 
   const moveSelected = async (targetFolderId: string | null) => {
@@ -337,22 +334,6 @@ export function LibraryGrid({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {extraActions}
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            className={cn(
-              "h-8 gap-1.5",
-              selectionMode &&
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
-            onClick={() => {
-              setSelectionMode((v) => !v);
-              if (selectionMode) setSelected(new Set());
-            }}
-          >
-            <IconChecks className="h-3.5 w-3.5" />
-            Select
-          </Button>
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>

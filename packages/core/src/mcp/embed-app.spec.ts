@@ -58,6 +58,7 @@ describe("embedApp", () => {
     expect(html).toContain('typeof result.frame === "string"');
     expect(html).toContain("isChatGptSandboxHost");
     expect(html).toContain("oaiusercontent");
+    expect(html).toContain("(?:[^.]+\\.)?web-sandbox");
     expect(html).toContain('appParam === "chatgpt"');
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
@@ -103,6 +104,18 @@ describe("embedApp", () => {
     expect(html).toContain(
       "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
     );
+    // Standards-track MCP Apps hosts (Codex, Cursor, the SDK App fallback, and
+    // our own renderer) connect through the postMessage `ui/*` bridge rather
+    // than ChatGPT's `window.openai` global. They render the resource in a
+    // strict opaque-origin sandbox where self-navigation tears the host bridge
+    // down and shows a permanent / flashing loading state, so they must
+    // transplant the app document like Claude does.
+    expect(html).toContain("function isNativeMcpAppsBridgeHost()");
+    expect(html).toContain("return !!app && !openAiBridge;");
+    expect(html).toContain("isNativeMcpAppsBridgeHost() ||");
+    expect(html).toContain(
+      'message.method === "ui/notifications/host-context-changed"',
+    );
     expect(html).toContain("if (shouldTransplantAppDocument())");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
@@ -123,8 +136,13 @@ describe("embedApp", () => {
       "if (response.status === 401 && isEmbedStartUrl(src))",
     );
     expect(html).toContain("await mountTransplantedHtml(html, appUrl)");
+    expect(html).toContain("installExternalOpenControl(appUrl)");
+    expect(html).toContain("externalOpenUrlForAppUrl");
+    expect(html).toContain("agent-native-external-open-control");
+    expect(html).toContain("Open in new tab");
     expect(html).toContain('openStartUrl = "";');
     expect(html).toContain("app.requestDisplayMode");
+    expect(html).toContain('rpcRequest("ui/open-link"');
     expect(html).toContain("function openLinkRecordFrom(value)");
     expect(html).toContain("return withChatBridgeParam(value)");
     expect(html).not.toContain("shouldDirectRenderEmbed");
@@ -267,6 +285,7 @@ describe("embedApp", () => {
     expect(html).toContain(
       'new URLSearchParams(window.location.search).get("app") === "chatgpt"',
     );
+    expect(html).toContain("web-sandbox\\.oaiusercontent\\.com");
     expect(html).toContain("openAiBridgePollMs = 50");
   });
 
@@ -344,6 +363,7 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("app.connect()");
     expect(fixture.html).toContain("app.callServerTool");
     expect(fixture.html).toContain("app.openLink");
+    expect(fixture.html).toContain('rpcRequest("ui/open-link"');
     expect(fixture.html).toContain("app.updateModelContext");
     expect(fixture.html).toContain("app.requestDisplayMode");
     expect(fixture.html).toContain("app.sendMessage");
@@ -370,6 +390,7 @@ describe("embedApp", () => {
       'url.searchParams.set(chatBridgeParam, "1")',
     );
     expect(fixture.html).toContain("Open this app in its own tab");
+    expect(fixture.html).toContain("App did not load");
     expect(fixture.html).toContain("use the URL below");
     expect(fixture.html).toContain("name: startTool");
     expect(fixture.html).toContain("arguments: args");

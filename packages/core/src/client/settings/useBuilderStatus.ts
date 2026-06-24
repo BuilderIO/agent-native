@@ -195,6 +195,8 @@ const BUILDER_STATE_PARAM = "_an_state";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
+const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
+const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 const BUILDER_SIGNUP_SOURCE = "agent-native";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
 
@@ -224,42 +226,102 @@ function inferBuilderConnectTrackingFlow(source: string | undefined): string {
   return "connect_llm";
 }
 
+function normalizeTrackingSlug(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const unscoped = trimmed.startsWith("@")
+    ? (trimmed.split("/").pop() ?? trimmed)
+    : trimmed;
+  const slug = unscoped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || null;
+}
+
+function inferBuilderConnectTrackingIdentity(options: {
+  app?: string;
+  template?: string;
+}): { app: string | null; template: string | null } {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const app =
+    normalizeTrackingSlug(options.app) ??
+    normalizeTrackingSlug(env.VITE_AGENT_NATIVE_APP) ??
+    (typeof window !== "undefined"
+      ? normalizeTrackingSlug(window.location.hostname.split(".")[0])
+      : null);
+  const template =
+    normalizeTrackingSlug(options.template) ??
+    normalizeTrackingSlug(env.VITE_AGENT_NATIVE_TEMPLATE) ??
+    normalizeTrackingSlug(env.VITE_APP_TEMPLATE) ??
+    (app?.startsWith("agent-native-")
+      ? normalizeTrackingSlug(app.slice("agent-native-".length))
+      : app && app !== "localhost"
+        ? app
+        : null);
+
+  return { app, template };
+}
+
+function applyBuilderConnectTrackingParams(
+  params: URLSearchParams,
+  tracking: {
+    source?: string | null;
+    flow: string;
+    app?: string | null;
+    template?: string | null;
+  },
+) {
+  params.set(BUILDER_SIGNUP_SOURCE_PARAM, BUILDER_SIGNUP_SOURCE);
+  params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, tracking.flow);
+  if (tracking.source) {
+    params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, tracking.source);
+  }
+  if (tracking.app) {
+    params.set(BUILDER_AGENT_NATIVE_APP_PARAM, tracking.app);
+  }
+  if (tracking.template) {
+    params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, tracking.template);
+  }
+}
+
 export function withBuilderConnectTrackingParams(
   url: string,
-  options: { source?: string; flow?: string } = {},
+  options: {
+    source?: string;
+    flow?: string;
+    app?: string;
+    template?: string;
+  } = {},
 ): string {
   const source = cleanTrackingParam(options.source);
   const flow =
     cleanTrackingParam(options.flow) ??
     inferBuilderConnectTrackingFlow(source ?? undefined);
+  const { app, template } = inferBuilderConnectTrackingIdentity(options);
   const origin =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
 
   try {
     const parsed = new URL(url, origin);
-    parsed.searchParams.set(BUILDER_SIGNUP_SOURCE_PARAM, BUILDER_SIGNUP_SOURCE);
-    parsed.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
-    if (source) {
-      parsed.searchParams.set(
-        BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
-        source,
-      );
-    }
+    applyBuilderConnectTrackingParams(parsed.searchParams, {
+      source,
+      flow,
+      app,
+      template,
+    });
 
     const redirectUrl = parsed.searchParams.get("redirect_url");
     if (redirectUrl) {
       const parsedRedirect = new URL(redirectUrl);
-      parsedRedirect.searchParams.set(
-        BUILDER_SIGNUP_SOURCE_PARAM,
-        BUILDER_SIGNUP_SOURCE,
-      );
-      parsedRedirect.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
-      if (source) {
-        parsedRedirect.searchParams.set(
-          BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
-          source,
-        );
-      }
+      applyBuilderConnectTrackingParams(parsedRedirect.searchParams, {
+        source,
+        flow,
+        app,
+        template,
+      });
       parsed.searchParams.set("redirect_url", parsedRedirect.toString());
     }
 

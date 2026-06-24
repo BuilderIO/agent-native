@@ -327,8 +327,8 @@ function AssetsChatsSection() {
                       {threadTitle(thread)}
                     </span>
                   </button>
-                  <div className="relative flex size-7 shrink-0 items-center justify-end pr-1">
-                    <span className="text-[11px] text-muted-foreground/75 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                  <div className="relative flex w-auto min-w-7 shrink-0 items-center justify-end pr-1">
+                    <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground/75 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
                       {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
                     </span>
                     <DropdownMenu>

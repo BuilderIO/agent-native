@@ -32,6 +32,7 @@ import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -665,6 +666,126 @@ function copyNetlifyFunctionIntoWorkspace(
   fs.rmSync(dest, { recursive: true, force: true });
   copyDir(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
+
+  // Durable background agent runs (off by default). Additive ONLY: when the
+  // flag is off this emits nothing and the single-function deploy is unchanged.
+  if (isDurableBackgroundDeployEnabled()) {
+    emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
+  }
+}
+
+/**
+ * Deploy-time gate for emitting the second `-background` Netlify function. Reads
+ * the same env flag the runtime gate uses (`AGENT_CHAT_DURABLE_BACKGROUND`).
+ * Off by default — when off, the deploy emits exactly one function per app
+ * (today's behavior, byte-for-byte).
+ */
+function isDurableBackgroundDeployEnabled(): boolean {
+  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  if (raw == null) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/**
+ * Emit a SECOND Netlify function for `app` whose name ends in `-background`,
+ * re-exporting the SAME `main.mjs` handler bundle. Netlify invokes any function
+ * whose deployed name ends in `-background` asynchronously (202 immediately, up
+ * to 15-min budget), which is exactly what the durable-background chat
+ * dispatch (`fireInternalDispatch` → AGENT_CHAT_PROCESS_RUN_PATH) needs.
+ *
+ * The function is given a `config.path` of the chat process-run route so
+ * Netlify routes that POST to this async function instead of the synchronous
+ * `<app>-server` function. It shares the same bundle (`includedFiles: ["**"]`)
+ * so `A2A_SECRET`, the DB URL, and the rest of the env/bundle are present.
+ *
+ * ⚠️ REAL-DEPLOY VERIFICATION REQUIRED. The exact Netlify routing/precedence
+ * between this `-background` function's `config.path` and the synchronous
+ * `<app>-server` function's broader `config.path` (which also matches
+ * `/_agent-native/*` for the dispatch app, or `/<app>/*` otherwise) cannot be
+ * verified in this environment. It is emitted additively and only under the
+ * flag; if Netlify resolves the overlap to the wrong function, the dispatch
+ * would land on the synchronous function (no 15-min budget) — the run would
+ * still work via the existing 40s soft-timeout path, just without the durable
+ * win. See packages/core/docs/design/durable-agent-runs.md.
+ */
+function emitNetlifyBackgroundFunction(
+  workspaceRoot: string,
+  app: string,
+  srcServerDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  // Name MUST end in `-background` for Netlify async invocation.
+  const backgroundName = `${app}-agent-background`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(srcServerDir, dest);
+
+  const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
+  // Only the chat process-run route needs the async function. Keeping the path
+  // narrow avoids stealing any other traffic from the synchronous function.
+  // The dispatch URL is app-base-path-prefixed (same as the agent-teams
+  // processor dispatch), so the route Netlify must map to this async function
+  // is `/<app>/_agent-native/agent-chat/_process-run`.
+  const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
+  const pathConfig = [processRunPath];
+  const server = `const basePath = ${JSON.stringify(basePath)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+setBasePathEnv();
+
+let cachedHandler;
+
+export default async function handler(...args) {
+  setBasePathEnv();
+  cachedHandler ??= (await import("./main.mjs")).default;
+  return cachedHandler(...args);
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} agent background handler`)},
+  generator: "agent-native workspace deploy",
+  path: ${JSON.stringify(pathConfig)},
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  // Remove the original Nitro entry (server.mjs) so only our background entry
+  // is the function entrypoint, mirroring patchNetlifyFunctionEntry.
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+  fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
+  console.log(
+    `[workspace-deploy] Emitted durable-background function "${backgroundName}" ` +
+      `for app "${app}" (path ${processRunPath}). ` +
+      `REQUIRES real-deploy verification of Netlify async routing — see ` +
+      `docs/design/durable-agent-runs.md.`,
+  );
 }
 
 function patchNetlifyFunctionEntry(

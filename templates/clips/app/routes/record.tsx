@@ -53,6 +53,10 @@ import {
   compressBlobIfTooLarge,
   formatMb,
 } from "@/lib/compress";
+import {
+  loadRecorderPreferences,
+  saveRecorderPreferences,
+} from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -482,6 +486,65 @@ function captureThumbnailFromPreview(
     });
 }
 
+/** Resolve once the off-screen video has a decoded frame, or after a timeout. */
+function waitForVideoFrame(
+  video: HTMLVideoElement,
+  timeoutMs: number,
+): Promise<void> {
+  if (video.videoWidth > 0 && video.readyState >= 2) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onReady = () => {
+      if (video.videoWidth > 0 && video.readyState >= 2) finish();
+    };
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
+    const timer = setTimeout(finish, timeoutMs);
+    onReady();
+  });
+}
+
+/**
+ * Capture a thumbnail from a MediaStream that isn't bound to a visible element
+ * — used for the screen+camera composite so the thumbnail includes the camera
+ * bubble. Best effort: if it misses, the player's backfill path (which reads
+ * the recorded file, also composited) still produces a face thumbnail.
+ */
+function captureThumbnailFromStream(
+  stream: MediaStream,
+  recordingId: string,
+): void {
+  const video = document.createElement("video");
+  video.srcObject = stream;
+  video.muted = true;
+  video.playsInline = true;
+  void (async () => {
+    try {
+      await video.play().catch(() => {});
+      await waitForVideoFrame(video, 1500);
+      const blob = await captureVideoThumbnailBlob(video);
+      if (blob) await uploadRecordingThumbnail(recordingId, blob);
+    } catch {
+      // best effort — the player has a backfill path if this misses.
+    } finally {
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      video.srcObject = null;
+    }
+  })();
+}
+
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -718,7 +781,14 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>("md");
+  const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
+    () => loadRecorderPreferences().cameraSize ?? "md",
+  );
+  // Remember the bubble size across visits alongside the panel's selections.
+  const handleCameraSizeChange = useCallback((size: CameraBubbleSize) => {
+    setCameraSize(size);
+    saveRecorderPreferences({ cameraSize: size });
+  }, []);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   // The capture surface the user actually picked in the browser's native screen
   // picker (authority over the requested `displaySurface` hint). Drives whether
@@ -1013,7 +1083,14 @@ export default function RecordRoute() {
         // chose a specific mic, do not start a parallel system-default mic
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
-        if (wantsMic && !opts.micDeviceId && liveTranscription.supported) {
+        //
+        // The one exception is when a stale saved mic forced the engine to
+        // fall back to the system default during acquire(): the recording is
+        // now on the default device, so live transcription would use the same
+        // mic and is safe to start.
+        const usingDefaultMic =
+          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
 
@@ -1662,10 +1739,17 @@ export default function RecordRoute() {
     }
     setUiState("uploading");
     try {
-      // Capture a still-frame thumbnail from the preview while the stream is
-      // still live — otherwise the library would show a blank card until the
-      // owner opens the recording and triggers the player's backfill path.
-      captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+      // Capture a still-frame thumbnail while the stream is still live —
+      // otherwise the library would show a blank card until the owner opens the
+      // recording and triggers the player's backfill path. In screen+camera
+      // mode the visible preview is screen-only, so grab the composited stream
+      // (screen + camera bubble) to keep the presenter's face in the thumbnail.
+      const compositeStream = engine.getCompositeStream();
+      if (compositeStream) {
+        captureThumbnailFromStream(compositeStream, pending.id);
+      } else {
+        captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+      }
 
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -2058,7 +2142,7 @@ export default function RecordRoute() {
                   onImportLoom={importLoom}
                   importingLoom={loomImporting}
                   cameraSize={cameraSize}
-                  onCameraSizeChange={setCameraSize}
+                  onCameraSizeChange={handleCameraSizeChange}
                 />
               ) : (
                 <StorageSetupCard
@@ -2137,7 +2221,7 @@ export default function RecordRoute() {
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
-          onSizeChange={setCameraSize}
+          onSizeChange={handleCameraSizeChange}
           hidden={
             (uiState !== "recording" && uiState !== "countdown") ||
             hideBubbleForFullScreenCapture

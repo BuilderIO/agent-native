@@ -32,6 +32,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { captureError } from "./capture-error.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -145,6 +146,7 @@ import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
+import { getDbExec } from "../db/client.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
@@ -158,6 +160,40 @@ import {
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+
+/** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
+export interface DbHealthProbeResult {
+  /** The serverless function is live and served the request. */
+  ok: true;
+  /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
+  db: boolean;
+  /** Round-trip time of the probe in milliseconds. */
+  ms: number;
+}
+
+/**
+ * Run a trivial `SELECT 1` to confirm the database is reachable and, as a side
+ * effect, keep a scale-to-zero serverless database (e.g. Neon) warm. Touching
+ * the DB on a schedule prevents the multi-second cold-start that otherwise
+ * stalls the next real user request.
+ *
+ * Always resolves: an app with no database (or a momentarily unreachable one)
+ * is still live, so the probe reports `db: false` rather than throwing. The
+ * `exec` parameter is injectable purely for tests.
+ */
+export async function runDbHealthProbe(
+  exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
+): Promise<DbHealthProbeResult> {
+  const startedAt = Date.now();
+  let db = false;
+  try {
+    await exec().execute("SELECT 1");
+    db = true;
+  } catch {
+    // Live even when the DB is unreachable or the app has no database.
+  }
+  return { ok: true, db, ms: Date.now() - startedAt };
+}
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
 const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
 const BUILDER_WAITLIST_FORM_SOURCE = "connect_builder_card";
@@ -550,6 +586,8 @@ export interface CoreRoutesPluginOptions {
   disableSSE?: boolean;
   /** Disable the /_agent-native/ping health check. */
   disablePing?: boolean;
+  /** Disable the /_agent-native/health DB liveness + warmup probe. */
+  disableHealth?: boolean;
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -594,6 +632,7 @@ export interface CoreRoutesPluginOptions {
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
  *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
  *   GET    /_agent-native/application-state/:key        — read application state
@@ -716,6 +755,20 @@ export function createCoreRoutesPlugin(
         );
       } catch {
         // Observability module not available — skip
+      }
+
+      // Audit log — durable, append-only record of who mutated what app data,
+      // when, and (for the agent) in which run. Capture is automatic at the
+      // action seam; here we just ensure the table exists and start the
+      // retention purge. Best-effort so a missing DB never crashes boot.
+      try {
+        const { ensureAuditTables } = await import("../audit/store.js");
+        const { startAuditCleanupJob } =
+          await import("../audit/cleanup-job.js");
+        ensureAuditTables().catch(() => {});
+        startAuditCleanupJob();
+      } catch {
+        // Audit module not available — skip
       }
 
       const P = FRAMEWORK_ROUTE_PREFIX;
@@ -922,6 +975,20 @@ export function createCoreRoutesPlugin(
           defineEventHandler(() => ({
             message: process.env.PING_MESSAGE ?? "pong",
           })),
+        );
+      }
+
+      // Health + DB warmup — liveness probe that touches the database so
+      // uptime monitors and the keep-warm cron prevent a scale-to-zero
+      // serverless DB (e.g. Neon) from cold-starting on the next real
+      // request. Public, side-effect free, and never cached.
+      if (!options.disableHealth) {
+        getH3App(nitroApp).use(
+          `${P}/health`,
+          defineEventHandler(async (event) => {
+            setResponseHeader(event, "cache-control", "no-store");
+            return runDbHealthProbe();
+          }),
         );
       }
 
@@ -1691,6 +1758,12 @@ export function createCoreRoutesPlugin(
                 agentNativeConnectSource:
                   connectTracking.agentNativeConnectSource ??
                   pending.tracking.agentNativeConnectSource,
+                agentNativeApp:
+                  connectTracking.agentNativeApp ??
+                  pending.tracking.agentNativeApp,
+                agentNativeTemplate:
+                  connectTracking.agentNativeTemplate ??
+                  pending.tracking.agentNativeTemplate,
               };
             }
             if (
@@ -3102,6 +3175,83 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/embed/start`,
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
+        );
+
+        // POST /_agent-native/mcp/embed-error — telemetry sink for MCP App
+        // embed shells. The shell runs in a sandboxed, opaque-origin iframe
+        // (Codex, Cursor, ChatGPT, Claude) with no session cookie or CSRF
+        // token, so this endpoint is intentionally unauthenticated and
+        // CORS-open to the SAME sandbox origins as /embed/start. It forwards a
+        // small, bounded diagnostic payload to Sentry via captureError so we
+        // can see *why* an inline embed failed (handshake timeout, transplant
+        // fetch status/CORS, auth, CSP) per host. Best-effort: always 204,
+        // never throws, body capped, no client-trusted identity.
+        getH3App(nitroApp).use(
+          `${P}/mcp/embed-error`,
+          defineEventHandler(async (event: H3Event) => {
+            const origin = getHeader(event, "origin");
+            if (origin && isMcpEmbedCorsOrigin(origin)) {
+              setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+              setResponseHeader(event, "Vary", "Origin");
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Methods",
+                "POST,OPTIONS",
+              );
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Headers",
+                MCP_EMBED_CORS_ALLOW_HEADERS,
+              );
+            }
+            const method = getMethod(event);
+            if (method === "OPTIONS") {
+              setResponseStatus(event, 204);
+              return "";
+            }
+            if (method !== "POST") {
+              setResponseStatus(event, 405);
+              return { error: "Method not allowed" };
+            }
+            const body = await readBody(event).catch(() => undefined);
+            const rec =
+              body && typeof body === "object" && !Array.isArray(body)
+                ? (body as Record<string, unknown>)
+                : {};
+            const str = (value: unknown, max: number): string | undefined =>
+              typeof value === "string" && value
+                ? value.slice(0, max)
+                : undefined;
+            const message = str(rec.message, 500) ?? "MCP embed failed";
+            try {
+              captureError(new Error(message), {
+                route: `${P}/mcp/embed-error`,
+                method: "POST",
+                userAgent:
+                  str(rec.userAgent, 300) ?? getHeader(event, "user-agent"),
+                tags: {
+                  source: "mcp-embed-shell",
+                  embed_stage: str(rec.stage, 60),
+                  embed_render_mode: str(rec.renderMode, 40),
+                  embed_host: str(rec.host, 160),
+                  embed_bridge: str(rec.bridge, 40),
+                },
+                extra: {
+                  embedUrl: str(rec.url, 600),
+                  httpStatus:
+                    typeof rec.status === "number"
+                      ? rec.status
+                      : str(rec.status, 40),
+                  detail: str(rec.detail, 1200),
+                  origin,
+                },
+              });
+            } catch {
+              // Observability must never throw back into the request path.
+            }
+            setResponseStatus(event, 204);
+            return "";
+          }),
         );
       }
 

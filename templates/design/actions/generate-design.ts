@@ -29,6 +29,10 @@ export default defineAction({
     "The agent calls this after generating HTML/CSS/JSX content to persist it " +
     "as files in the design project. Creates or updates files as needed. " +
     "Returns the saved files and design URL path for iframe rendering. " +
+    "Keep the first save compact and working; for large designs, persist a minimal " +
+    "version then refine individual files with `edit-design` (search/replace) rather " +
+    "than resending a big multi-file payload — a single oversized payload can get cut " +
+    "off mid-stream and stall the turn. " +
     "Do not report a design as ready until this action succeeds.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),

@@ -29,12 +29,14 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
 
   // Analytics has two distinct "primary resources" — dashboards
-  // (`/adhoc/:id`) and ad-hoc analyses (`/analyses/:id`). Each binds the
-  // chat to that artifact so a dashboard chat doesn't leak into a
-  // different analysis (and vice versa). The list pages and overview
-  // leave scope null so general data questions still work.
+  // (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
+  // (`/analyses/:id`). Each binds the chat to that artifact so a dashboard
+  // chat doesn't leak into a different analysis (and vice versa). The list
+  // pages and overview leave scope null so general data questions still work.
   const analyticsScope = useMemo(() => {
-    const dashMatch = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    const dashMatch = location.pathname.match(
+      /^\/(?:adhoc|dashboards)\/([^/]+)/,
+    );
     if (dashMatch?.[1]) {
       return { type: "dashboard" as const, id: dashMatch[1] };
     }

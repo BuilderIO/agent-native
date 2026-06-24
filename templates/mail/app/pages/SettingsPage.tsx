@@ -6,8 +6,10 @@ import {
   useActionMutation,
   useChatModels,
   useChangeVersions,
+  ChangelogSettingsCard,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import {
   IconUsers,
   IconPlus,
@@ -24,6 +26,7 @@ import {
   IconSignature,
   IconFilter,
   IconInfoCircle,
+  IconHistory,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1379,9 +1382,31 @@ function SlackIntakeSection() {
   );
 }
 
+// ─── What's New Section ──────────────────────────────────────────────────────
+
+function WhatsNewSection() {
+  return (
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">
+          What's new
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          Recent user-facing changes to Agent-Native Mail.
+        </p>
+      </div>
+
+      <div className="max-w-2xl">
+        <ChangelogSettingsCard markdown={changelog} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
 type SettingsSection =
+  | "whats-new"
   | "drafting"
   | "automations"
   | "gmail-filters"
@@ -1395,6 +1420,7 @@ const navItems: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
+  { id: "whats-new", label: "What's new", icon: IconHistory },
   { id: "drafting", label: "Drafting", icon: IconSignature },
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "gmail-filters", label: "Gmail Filters", icon: IconFilter },
@@ -1464,6 +1490,7 @@ export function SettingsPage() {
 
       {/* Right content panel */}
       <div className="flex flex-1 overflow-hidden bg-background">
+        {activeSection === "whats-new" && <WhatsNewSection />}
         {activeSection === "drafting" && <DraftingSection />}
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "gmail-filters" && <GmailFiltersSection />}

@@ -131,7 +131,7 @@ describe("demo dashboards", () => {
       tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
     });
     expect(result.defaultDashboardPath).toBe(
-      `/adhoc/${result.defaultDashboardId}?${params.toString()}`,
+      `/dashboards/${result.defaultDashboardId}?${params.toString()}`,
     );
     expect(result.dashboards).toHaveLength(1);
     expect(result.dashboards.every((dashboard) => dashboard.created)).toBe(

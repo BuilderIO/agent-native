@@ -1,6 +1,6 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
-const TRAFFIC_DASHBOARD_PATH = "/adhoc/agent-native-templates-first-party";
+const TRAFFIC_DASHBOARD_PATH = "/dashboards/agent-native-templates-first-party";
 
 function target(request: Request): string {
   const url = new URL(request.url);

@@ -112,9 +112,9 @@ describe("agent-native skills", () => {
       "utf-8",
     );
 
-    expect(source).toContain("Hosted plans, shareable links");
+    expect(source).toContain("Hosted plans, shareable links (recommended)");
     expect(source).toContain(
-      "Recommended. 100% free and open source. Stores plans at plan.agent-native.com with sharing, comments, and browser editor.",
+      "100% free and open source. Supports comments, browser editor, and sharing.",
     );
   });
 

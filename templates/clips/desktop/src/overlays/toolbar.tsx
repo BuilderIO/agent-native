@@ -14,7 +14,10 @@ import {
 const OVERLAY_SHADOW_GUTTER = 18;
 const TOOLBAR_CONTENT_WIDTH = 72;
 const TOOLBAR_COLLAPSED_HEIGHT = 150;
-const TOOLBAR_EXPANDED_HEIGHT = 234;
+// Collapsed content box (150 − 20 padding = 130) holds the centered primary
+// zone; the expanded height must fit that fixed 130 zone + the 88px hover
+// actions (+2 margin) + 20 vertical padding so nothing clips on hover.
+const TOOLBAR_EXPANDED_HEIGHT = 240;
 const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
 const TOOLBAR_COLLAPSED_WINDOW_HEIGHT =
   TOOLBAR_COLLAPSED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
@@ -225,51 +228,58 @@ export function Toolbar() {
       onFocusCapture={() => resizeToolbarWindow(true)}
       onBlurCapture={handleToolbarBlur}
     >
-      <button
-        className="toolbar-v-stop"
-        onClick={stop}
-        disabled={!!pendingAction || !enabled}
-        aria-label={
-          pendingAction === "stop" ? "Stopping recording" : "Stop recording"
-        }
-        title={
-          pendingAction === "stop"
-            ? pendingActionLabel
-            : enabled
-              ? "Stop recording"
-              : "Recording not started yet"
-        }
-        data-no-drag
-      >
-        {pendingAction === "stop" ? (
-          <IconLoader2 className="toolbar-v-spinner" size={18} />
-        ) : (
-          <span className="toolbar-v-stop-square" />
-        )}
-      </button>
-      <div className="toolbar-v-time">{formatTime(elapsed)}</div>
-      <button
-        className="toolbar-v-pause"
-        onClick={togglePause}
-        disabled={!enabled || !!pendingAction}
-        aria-label={paused ? "Resume" : "Pause"}
-        title={
-          pendingAction
-            ? pendingActionLabel
-            : enabled
-              ? paused
-                ? "Resume"
-                : "Pause"
-              : "Recording not started yet"
-        }
-        data-no-drag
-      >
-        {paused ? (
-          <IconPlayerPlayFilled size={18} />
-        ) : (
-          <IconPlayerPauseFilled size={18} />
-        )}
-      </button>
+      {/* Primary controls live in a fixed-height zone so they stay pinned
+          to the same vertical position whether or not the pill is hovered.
+          Centering happens INSIDE this zone (not on the pill), so the
+          collapsed→expanded `justify-content` change can't nudge the Stop
+          button up — only the hover actions below grow into the new space. */}
+      <div className="toolbar-v-primary">
+        <button
+          className="toolbar-v-stop"
+          onClick={stop}
+          disabled={!!pendingAction || !enabled}
+          aria-label={
+            pendingAction === "stop" ? "Stopping recording" : "Stop recording"
+          }
+          title={
+            pendingAction === "stop"
+              ? pendingActionLabel
+              : enabled
+                ? "Stop recording"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {pendingAction === "stop" ? (
+            <IconLoader2 className="toolbar-v-spinner" size={18} />
+          ) : (
+            <span className="toolbar-v-stop-square" />
+          )}
+        </button>
+        <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+        <button
+          className="toolbar-v-pause"
+          onClick={togglePause}
+          disabled={!enabled || !!pendingAction}
+          aria-label={paused ? "Resume" : "Pause"}
+          title={
+            pendingAction
+              ? pendingActionLabel
+              : enabled
+                ? paused
+                  ? "Resume"
+                  : "Pause"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {paused ? (
+            <IconPlayerPlayFilled size={18} />
+          ) : (
+            <IconPlayerPauseFilled size={18} />
+          )}
+        </button>
+      </div>
       <div
         className="toolbar-v-hover-actions"
         role="group"

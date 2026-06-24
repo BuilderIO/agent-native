@@ -1,3 +1,5 @@
+import { scheduleReadyChime } from "@shared/recording-audio";
+
 export interface CountdownAudioCue {
   play(): Promise<void>;
   cleanup(): void;
@@ -7,38 +9,6 @@ const noopCountdownAudioCue: CountdownAudioCue = {
   async play() {},
   cleanup() {},
 };
-
-function scheduleCountdownTone(ctx: AudioContext): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const startedAt = ctx.currentTime + 0.005;
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, startedAt);
-    oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.14);
-
-    gain.gain.setValueAtTime(0.0001, startedAt);
-    gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
-
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const timer = window.setTimeout(finish, 500);
-    oscillator.addEventListener("ended", finish, { once: true });
-
-    oscillator.start(startedAt);
-    oscillator.stop(startedAt + 0.2);
-  });
-}
 
 export function createCountdownAudioCue(): CountdownAudioCue {
   try {
@@ -69,7 +39,7 @@ export function createCountdownAudioCue(): CountdownAudioCue {
       try {
         if (ctx.state !== "running") await ctx.resume();
         if (closed) return;
-        await scheduleCountdownTone(ctx);
+        await scheduleReadyChime(ctx);
       } catch (err) {
         console.warn("[recorder] countdown cue unavailable:", err);
         cleanup();

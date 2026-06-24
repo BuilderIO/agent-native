@@ -21,6 +21,12 @@ export interface SignInPromptDialogProps {
    * fires there and forwards to `returnTo` once the viewer is signed in.
    */
   returnTo?: string;
+  /**
+   * Fired when the viewer activates the "Sign in" button, before navigation.
+   * Used by the public share page to emit the signin funnel event. Must not
+   * change navigation behavior.
+   */
+  onSignIn?: () => void;
 }
 
 function buildSignInHref(returnTo: string | undefined): string {
@@ -34,6 +40,7 @@ export function SignInPromptDialog({
   onOpenChange,
   intent,
   returnTo,
+  onSignIn,
 }: SignInPromptDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -51,6 +58,7 @@ export function SignInPromptDialog({
           </Button>
           <Button
             onClick={() => {
+              onSignIn?.();
               window.location.href = buildSignInHref(returnTo);
             }}
           >

@@ -86,6 +86,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   TiptapComposer,
   type ComposerSubmitIntent,
+  type ComposerImageModelMenu,
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
@@ -150,6 +151,7 @@ import {
   getRepoMessages,
   getRepoMessage,
   shouldImportServerThreadData,
+  dedupeRepoMessagesById,
 } from "./chat/repo-helpers.js";
 
 export {
@@ -712,6 +714,11 @@ export interface AssistantChatProps {
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /**
+   * Optional secondary model menu (e.g. an image-generation model) shown inside
+   * the composer's model picker. Opt-in; chat-only apps omit it.
+   */
+  imageModelMenu?: ComposerImageModelMenu;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   /** Override Builder/provider connect routing for embedded hosts. */
@@ -823,6 +830,11 @@ export function clearChatStorage(tabId?: string) {
  * messages missing these fields crash.
  */
 function ensureMessageMetadata(repo: any): any {
+  // Drop duplicate message ids before import — assistant-ui's MessageRepository
+  // throws "performOp/link: A message with the same id already exists in the
+  // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
+  // for the normal no-duplicate case. See dedupeRepoMessagesById.
+  repo = dedupeRepoMessagesById(repo);
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
   for (const entry of repo.messages) {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
@@ -977,6 +989,7 @@ const AssistantChatInner = forwardRef<
     availableModels,
     onModelChange,
     onEffortChange,
+    imageModelMenu,
     onForkChat,
     onConnectProvider,
     plusMenuMode = "full",
@@ -3392,6 +3405,7 @@ const AssistantChatInner = forwardRef<
                     availableModels={availableModels}
                     onModelChange={onModelChange}
                     onEffortChange={onEffortChange}
+                    imageModelMenu={imageModelMenu}
                     onConnectProvider={onConnectProvider}
                     toolbarSlot={composerToolbarSlot}
                     contextItems={composerContextItems}

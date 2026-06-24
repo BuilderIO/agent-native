@@ -1,19 +1,22 @@
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   addImmutableAssetRouteRulesForClientBuild,
   copyDir,
+  emitSingleTemplateNetlifyBackgroundFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   runNitroBuildPipeline,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -1029,5 +1032,102 @@ describe("runNitroBuildPipeline", () => {
         cwd,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("durable-background Netlify function emit (single-template, flag-gated)", () => {
+  const dirs: string[] = [];
+  let previousFlag: string | undefined;
+
+  beforeEach(() => {
+    previousFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  });
+
+  afterEach(() => {
+    if (previousFlag === undefined)
+      delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    else process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousFlag;
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  // Reproduce the Nitro `netlify` preset layout the emit reads:
+  // .netlify/functions-internal/server/{main.mjs,server.mjs}
+  function setupNetlifyOutput(): string {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "main.mjs"), "export default {};\n");
+    fs.writeFileSync(
+      path.join(serverDir, "server.mjs"),
+      'export { default } from "./main.mjs";\n',
+    );
+    return cwd;
+  }
+
+  function backgroundDir(cwd: string): string {
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-agent-background",
+    );
+  }
+
+  it("is OFF by default (flag unset) and for non-truthy values", () => {
+    expect(isDurableBackgroundDeployEnabled()).toBe(false);
+    for (const value of ["", "0", "false", "no", "off", "nope"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+      expect(isDurableBackgroundDeployEnabled()).toBe(false);
+    }
+  });
+
+  it("is ON only for truthy flag values", () => {
+    for (const value of ["1", "true", "TRUE", " yes ", "on"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+      expect(isDurableBackgroundDeployEnabled()).toBe(true);
+    }
+  });
+
+  it("emits the second -background function with the process-run config.path", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const dest = backgroundDir(cwd);
+    // The function name MUST end in -background for Netlify async invocation.
+    expect(path.basename(dest).endsWith("-background")).toBe(true);
+    // Shares the SAME built handler bundle (re-exports ./main.mjs).
+    expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
+    // The original Nitro entry is dropped so our entry is the entrypoint.
+    expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
+
+    const entry = fs.readFileSync(
+      path.join(dest, "server-agent-background.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain('await import("./main.mjs")');
+    // Routes ONLY the chat process-run POST to the async function.
+    expect(entry).toContain(JSON.stringify([AGENT_CHAT_PROCESS_RUN_PATH]));
+    expect(entry).toContain('includedFiles: ["**"]');
+  });
+
+  it("skips emit (no -background artifact) when Nitro output is missing", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+    // No .netlify/functions-internal/server/main.mjs present.
+
+    expect(() =>
+      emitSingleTemplateNetlifyBackgroundFunction(cwd),
+    ).not.toThrow();
+    expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
   });
 });

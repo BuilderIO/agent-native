@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  ChangelogSettingsCard,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import {
   IconAdjustments,
   IconBuilding,
@@ -146,6 +151,8 @@ export default function SettingsRoute() {
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
         <main className="grid gap-5">
+          <ChangelogSettingsCard markdown={changelog} />
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">

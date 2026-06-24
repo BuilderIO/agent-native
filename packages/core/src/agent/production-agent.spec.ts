@@ -11,15 +11,19 @@ import {
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
   resolveAgentOwnerEmail,
   resolveSkillReferenceContent,
   runAgentLoop,
+  shouldChainBackgroundContinuation,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
+import type { ActiveRun } from "./run-manager.js";
+import type { AgentChatEvent, RunEvent } from "./types.js";
 import { AgentActionStopError } from "../action.js";
 import {
   getRequestRunContext,
@@ -3969,5 +3973,95 @@ describe("trimOldToolResults", () => {
       i % 2 === 0 ? userTextMsg(`u${i}`) : assistantTextMsg(`a${i}`),
     );
     expect(trimOldToolResults(messages, 10)).toBeNull();
+  });
+});
+
+describe("shouldChainBackgroundContinuation (server-driven background chain)", () => {
+  function makeRun(
+    events: AgentChatEvent[],
+    status: ActiveRun["status"] = "completed",
+  ): ActiveRun {
+    const runEvents: RunEvent[] = events.map((event, seq) => ({ seq, event }));
+    return {
+      runId: "r1",
+      threadId: "t1",
+      turnId: "turn1",
+      events: runEvents,
+      status,
+      subscribers: new Set(),
+      abort: new AbortController(),
+      startedAt: Date.now(),
+    };
+  }
+
+  it("does NOT chain a foreground (non-background-worker) run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain a clean run that ended with a terminal done", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "text", text: "all done" }, { type: "done" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("CHAINS a background run that ended at an auto_continue boundary", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("CHAINS a background run that ended at a loop_limit boundary", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "loop_limit" } as AgentChatEvent]),
+        continuationCount: 3,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT chain an aborted/user-stopped background run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun(
+          [{ type: "auto_continue", reason: "run_timeout" }],
+          "aborted",
+        ),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain once the continuation budget is exhausted", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS,
+      }),
+    ).toBe(false);
+    // One below the cap still chains.
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
+      }),
+    ).toBe(true);
   });
 });

@@ -16,6 +16,7 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockGetDb = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -67,7 +68,31 @@ vi.mock("../../../lib/share-password.js", () => ({
   verifySharePassword: vi.fn(() => false),
 }));
 
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn(),
+}));
+
+vi.mock("../../../db/index.js", () => ({
+  getDb: (...args: unknown[]) => mockGetDb(...args),
+  schema: {
+    recordings: { id: "recordings.id", visibility: "recordings.visibility" },
+  },
+}));
+
 import handler from "./[recordingId].get";
+
+function createDbWithSelectResult(rows: unknown[]) {
+  return {
+    select: vi.fn(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => rows),
+      };
+      return builder;
+    }),
+  };
+}
 
 function makeEvent() {
   return {
@@ -123,6 +148,7 @@ describe("/api/video/:recordingId route", () => {
         videoUrl: "https://cdn.example.com/clip.mp4",
       },
     });
+    mockGetDb.mockReturnValue(createDbWithSelectResult([]));
   });
 
   it("returns a controlled media fetch error when upstream fetch throws", async () => {
@@ -206,5 +232,133 @@ describe("/api/video/:recordingId route", () => {
         secure: false,
       }),
     );
+  });
+
+  it("serves a public recording to anonymous viewers without a share grant", async () => {
+    // Anonymous viewer on a public share page: no session, no grant.
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue(null);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        {
+          visibility: "public",
+          password: null,
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+          ownerEmail: "owner@example.com",
+        },
+      ]),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("media", {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(event.status).not.toBe(403);
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("forbids anonymous viewers on a non-public recording with no grant", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue(null);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        {
+          visibility: "private",
+          password: null,
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+          ownerEmail: "owner@example.com",
+        },
+      ]),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(403);
+    expect(result).toEqual({ error: "Forbidden" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when no grant and the recording does not exist", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue(null);
+    mockGetDb.mockReturnValue(createDbWithSelectResult([]));
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toEqual({ error: "Not found" });
+  });
+
+  it("still enforces the password gate for anonymous viewers of public clips", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue(null);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        {
+          visibility: "public",
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+          ownerEmail: "owner@example.com",
+        },
+      ]),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(401);
+    expect(result).toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not 500 when application-state is unavailable for anonymous viewers", async () => {
+    // Reproduces the production bug: `resolveAccess` grants public clips to
+    // anonymous viewers, but `readAppState` throws without an authenticated
+    // identity ("Application state access requires an authenticated request
+    // context"). The route must swallow that and fall through to the provider
+    // media URL instead of surfacing an unhandled 500.
+    mockGetSession.mockResolvedValue(null);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+    mockReadAppState.mockRejectedValue(
+      new Error(
+        "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+      ),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("media", {
+        status: 206,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const event = makeEvent();
+    event.headers.set("range", "bytes=0-2047");
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(event.status).not.toBe(500);
+    expect(fetch).toHaveBeenCalled();
   });
 });

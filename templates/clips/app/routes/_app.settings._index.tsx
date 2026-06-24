@@ -16,10 +16,18 @@ import {
   appApiPath,
   openBuilderConnectPopup,
   useActionQuery,
+  ChangelogSettingsCard,
 } from "@agent-native/core/client";
+import changelog from "../../CHANGELOG.md?raw";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/library/page-header";
@@ -389,6 +397,8 @@ export default function SettingsIndexRoute() {
           Preferences and connected services for this Clips workspace.
         </p>
 
+        <ChangelogSettingsCard markdown={changelog} />
+
         <Card id="video-storage" className="scroll-mt-16">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -462,6 +472,10 @@ export default function SettingsIndexRoute() {
               <IconBrandSlack className="size-4 text-primary" />
               Agent-Native Clips for Slack
             </CardTitle>
+            <CardDescription>
+              Share a public clip, paste the link in Slack, and it plays inline
+              — no extra steps for viewers. Connect each workspace once.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">

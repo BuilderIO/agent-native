@@ -19,6 +19,15 @@ import {
   createCameraCompositeStream,
   type CameraCompositeHandle,
 } from "@/lib/camera-composite";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  pickMimeTypeCandidates,
+} from "@shared/recording-core";
+
+// Re-exported for existing callers; the canonical impls live in
+// @shared/recording-core and are shared with the Chrome extension recorder.
+export { pickMimeType, pickMimeTypeCandidates };
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
@@ -162,8 +171,14 @@ const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
 const SCREEN_CAPTURE_FRAME_RATE = 24;
 const SCREEN_CAPTURE_MAX_WIDTH = 1920;
 const SCREEN_CAPTURE_MAX_HEIGHT = 1080;
-const RECORDING_VIDEO_BITRATE_BPS = 1_200_000;
-const RECORDING_AUDIO_BITRATE_BPS = 96_000;
+// Capture quality for the browser MediaRecorder. We no longer shrink files
+// client-side (ffmpeg.wasm re-encode is disabled — see COMPRESSION_ENABLED in
+// `@/lib/compress`) and the upload provider streams large files directly, so we
+// capture at a crisp 1080p bitrate instead of a tight budget. 1.2 Mbps left
+// dense UI (fine text, Figma, code) visibly fuzzy; 8 Mbps keeps it sharp.
+// Dial down here if file sizes become a concern for a deployment.
+const RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
+const RECORDING_AUDIO_BITRATE_BPS = 128_000;
 type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
 
 const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -184,6 +199,17 @@ function voiceFocusedAudioConstraints(
 
 function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
+}
+
+// getUserMedia failed because the requested device is gone (unplugged / stale
+// saved id), not a permission error — recoverable by retrying with the default.
+function isDeviceUnavailableError(err: unknown): boolean {
+  const name = errorName(err);
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
 }
 
 function errorMessage(err: unknown): string {
@@ -262,34 +288,6 @@ function isScreenPickerDismissal(err: unknown): boolean {
     return true;
   }
   return false;
-}
-
-/** Pick a MediaRecorder mimeType the current browser actually supports. */
-export function pickMimeTypeCandidates(): string[] {
-  // Chrome can report MP4 support but still reject the encoder configuration
-  // for some display-capture streams. Prefer the WebM combinations that are
-  // broadly supported by MediaRecorder, then fall back to MP4/Safari.
-  return [
-    "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8",
-    "video/webm;codecs=vp9",
-    "video/webm",
-    "video/mp4;codecs=avc1",
-    "video/mp4",
-  ];
-}
-
-export function pickMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "video/webm";
-  for (const type of pickMimeTypeCandidates()) {
-    try {
-      if (MediaRecorder.isTypeSupported(type)) return type;
-    } catch {
-      // continue
-    }
-  }
-  return "";
 }
 
 function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
@@ -409,6 +407,13 @@ export class RecorderEngine {
    */
   private cameraDisconnectNotified = false;
   private micDisconnectNotified = false;
+  /**
+   * Set when a stale/unavailable `micDeviceId` forces a fallback to the system
+   * default mic during `acquire()`. The recording then runs on the default
+   * device, so live transcription (which can only ever use the default mic) is
+   * safe to start even though a specific mic was originally requested.
+   */
+  private micFellBackToDefault = false;
 
   private state: RecorderState = "idle";
 
@@ -437,8 +442,28 @@ export class RecorderEngine {
     return this.cameraStream;
   }
 
+  /**
+   * True when `acquire()` had to fall back from the requested `micDeviceId` to
+   * the system default mic. Lets the UI start live transcription for this
+   * session even though a specific mic was originally selected.
+   */
+  didMicFallBackToDefault(): boolean {
+    return this.micFellBackToDefault;
+  }
+
   getPreviewStream(): MediaStream | null {
     return this.previewStream;
+  }
+
+  /**
+   * The composited screen+camera canvas stream that actually gets recorded
+   * (screen with the camera bubble drawn in), or `null` for screen-only /
+   * camera-only modes where the visible preview already matches the recording.
+   * Used to grab a thumbnail that includes the presenter's camera — the raw
+   * preview stream in screen+camera mode is screen-only and has no face.
+   */
+  getCompositeStream(): MediaStream | null {
+    return this.cameraComposite?.stream ?? null;
   }
 
   getElapsedMs(): number {
@@ -504,6 +529,7 @@ export class RecorderEngine {
     const wantsCamera =
       this.opts.mode === "camera" || this.opts.mode === "screen+camera";
     const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
+    this.micFellBackToDefault = false;
 
     try {
       if (!isBrowserSecureContext()) {
@@ -592,7 +618,20 @@ export class RecorderEngine {
             audio: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "camera");
+          // Stale/unplugged cameraDeviceId — retry with the default camera
+          // instead of failing the recording.
+          if (this.opts.cameraDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "camera");
+            }
+          } else {
+            throw this.friendlyError(err, "camera");
+          }
         }
       }
 
@@ -603,7 +642,22 @@ export class RecorderEngine {
             video: false,
           });
         } catch (err) {
-          throw this.friendlyError(err, "microphone");
+          // Same stale-device fallback as the camera — retry default mic.
+          if (this.opts.micDeviceId && isDeviceUnavailableError(err)) {
+            try {
+              this.micStream = await navigator.mediaDevices.getUserMedia({
+                audio: voiceFocusedAudioConstraints(),
+                video: false,
+              });
+              // Recording is now on the system default mic, so live
+              // transcription can run for this session after all.
+              this.micFellBackToDefault = true;
+            } catch (retryErr) {
+              throw this.friendlyError(retryErr, "microphone");
+            }
+          } else {
+            throw this.friendlyError(err, "microphone");
+          }
         }
       }
 
@@ -1516,21 +1570,17 @@ export class RecorderEngine {
       signal?: AbortSignal;
     } = {},
   ): Promise<Record<string, unknown> | undefined> {
-    const params = new URLSearchParams();
-    params.set("index", String(index));
-    if (extra.total !== undefined) params.set("total", String(extra.total));
-    params.set("isFinal", extra.isFinal ? "1" : "0");
-    if (extra.mimeType) params.set("mimeType", extra.mimeType);
-    if (extra.durationMs !== undefined)
-      params.set("durationMs", String(Math.round(extra.durationMs)));
-    if (extra.width !== undefined) params.set("width", String(extra.width));
-    if (extra.height !== undefined) params.set("height", String(extra.height));
-    if (extra.hasAudio !== undefined)
-      params.set("hasAudio", extra.hasAudio ? "1" : "0");
-    if (extra.hasCamera !== undefined)
-      params.set("hasCamera", extra.hasCamera ? "1" : "0");
-
-    const url = `${this.opts.uploadUrl}?${params.toString()}`;
+    const url = chunkUploadUrl(this.opts.uploadUrl, {
+      index,
+      total: extra.total,
+      isFinal: extra.isFinal,
+      mimeType: extra.mimeType,
+      durationMs: extra.durationMs,
+      width: extra.width,
+      height: extra.height,
+      hasAudio: extra.hasAudio,
+      hasCamera: extra.hasCamera,
+    });
 
     const body = await blob.arrayBuffer();
     let res: Response | null = null;

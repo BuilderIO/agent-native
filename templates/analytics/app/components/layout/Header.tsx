@@ -15,16 +15,15 @@ const pageTitles: Record<string, string> = {
   "/data-dictionary": "Data Dictionary",
   "/catalog": "Template Catalog",
   "/analyses": "Analyses",
-  "/adhoc/explorer": "Explorer",
+  "/dashboards/explorer": "Explorer",
   "/team": "Team",
   "/settings": "Settings",
-  "/about": "About",
 };
 
 function resolveTitle(pathname: string): ReactNode {
   if (pageTitles[pathname]) return pageTitles[pathname];
 
-  const adhocMatch = pathname.match(/^\/adhoc\/(.+)$/);
+  const adhocMatch = pathname.match(/^\/(?:adhoc|dashboards)\/(.+)$/);
   if (adhocMatch) {
     const id = adhocMatch[1];
     const dash = dashboards.find((d) => d.id === id);

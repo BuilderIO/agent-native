@@ -417,6 +417,11 @@ export interface TiptapComposerProps {
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
+  /**
+   * Optional secondary model menu (e.g. an image-generation model) rendered as
+   * an extra section inside the model picker. Opt-in; omit for chat-only apps.
+   */
+  imageModelMenu?: ComposerImageModelMenu;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /** Keyed context nuggets staged for the next submitted prompt. */
@@ -669,6 +674,24 @@ function latestModelsOnly(models: string[]): string[] {
   });
 }
 
+/**
+ * Optional secondary model menu for apps that drive a separate generation model
+ * alongside the chat LLM (e.g. the Assets app's image-generation model). When
+ * provided, the model picker renders an extra collapsible section so the user
+ * can see and pick both "what reasons about my request" (the chat model) and
+ * "what produces the output" (this model). Opt-in — omit it and nothing changes.
+ */
+export interface ComposerImageModelMenu {
+  /** Currently-selected model id for this secondary menu. */
+  value: string;
+  /** Selectable options (stable id + human label). */
+  options: Array<{ value: string; label: string }>;
+  /** Invoked when the user picks a different option. */
+  onChange: (value: string) => void;
+  /** Section header. Defaults to "Image model". */
+  label?: string;
+}
+
 function ModelSelector({
   model,
   effort = "auto",
@@ -677,6 +700,7 @@ function ModelSelector({
   onEffortChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
+  imageModel,
 }: {
   model: string;
   effort?: ReasoningEffort;
@@ -690,6 +714,7 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
+  imageModel?: ComposerImageModelMenu;
 }) {
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
@@ -743,6 +768,24 @@ function ModelSelector({
       return next;
     });
   }, []);
+
+  // The reasoning effort list is collapsed by default — it's a secondary
+  // control most users don't touch, so it stays tucked behind a header that
+  // reveals the current effort at a glance. Reset to collapsed on each open.
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  useEffect(() => {
+    if (open) setReasoningExpanded(false);
+  }, [open]);
+
+  // The optional image-model section follows the same collapsed-by-default
+  // pattern; the current selection shows next to the header.
+  const [imageExpanded, setImageExpanded] = useState(false);
+  useEffect(() => {
+    if (open) setImageExpanded(false);
+  }, [open]);
+  const imageModelLabel =
+    imageModel?.options.find((option) => option.value === imageModel.value)
+      ?.label ?? imageModel?.value;
 
   // When Builder.io isn't connected, surface a one-click connect path —
   // it unlocks every model family (Claude, OpenAI, Gemini) without the
@@ -832,6 +875,52 @@ function ModelSelector({
                 </span>
               </span>
             </button>
+            <div className="my-1 border-t border-border" />
+          </>
+        )}
+        {imageModel && imageModel.options.length > 0 && (
+          <>
+            <div className="flex items-center hover:bg-accent/30">
+              <button
+                type="button"
+                aria-expanded={imageExpanded}
+                onClick={() => setImageExpanded((prev) => !prev)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
+              >
+                {imageExpanded ? (
+                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                  {imageModel.label ?? "Image model"}
+                </span>
+                {!imageExpanded && imageModelLabel && (
+                  <span className="text-[11px] text-muted-foreground/80 truncate">
+                    {imageModelLabel}
+                  </span>
+                )}
+              </button>
+            </div>
+            {imageExpanded &&
+              imageModel.options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    imageModel.onChange(option.value);
+                    setImageExpanded(false);
+                  }}
+                  className="flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {option.label}
+                  </span>
+                  {option.value === imageModel.value && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
             <div className="my-1 border-t border-border" />
           </>
         )}
@@ -930,24 +1019,44 @@ function ModelSelector({
         {effortOptions.length > 0 && (
           <>
             <div className="my-1 border-t border-border" />
-            <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Reasoning
-            </div>
-            {effortOptions.map((option) => (
+            <div className="flex items-center hover:bg-accent/30">
               <button
-                key={option}
                 type="button"
-                onClick={() => onEffortChange?.(option)}
-                className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                aria-expanded={reasoningExpanded}
+                onClick={() => setReasoningExpanded((prev) => !prev)}
+                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-left"
               >
-                <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                  {reasoningEffortLabel(option)}
+                {reasoningExpanded ? (
+                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                  Reasoning
                 </span>
-                {option === effort && (
-                  <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                {!reasoningExpanded && (
+                  <span className="text-[11px] text-muted-foreground/80 truncate">
+                    {reasoningEffortLabel(effort)}
+                  </span>
                 )}
               </button>
-            ))}
+            </div>
+            {reasoningExpanded &&
+              effortOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onEffortChange?.(option)}
+                  className="flex w-full items-center gap-3 pl-7 pr-3 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {reasoningEffortLabel(option)}
+                  </span>
+                  {option === effort && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
           </>
         )}
       </PopoverContent>
@@ -994,6 +1103,7 @@ export function TiptapComposer({
   onEffortChange,
   providerConnectStatusEnabled,
   onConnectProvider,
+  imageModelMenu,
   draftScope,
   contextItems = [],
   onRemoveContextItem,
@@ -2091,6 +2201,7 @@ export function TiptapComposer({
             onEffortChange={onEffortChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
+            imageModel={imageModelMenu}
           />
         )}
         {execMode && onExecModeChange && (

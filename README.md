@@ -21,18 +21,6 @@ export default defineAction({
 - **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
 - **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 
-## Agents and UIs, Fully Connected
-
-The agent and the UI are equal citizens of one system. Every action works both ways: click it or ask for it.
-
-![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
-
-- **Everything syncs**: One database, one state. Changes from either side show up instantly on the other.
-- **Real-time multiplayer**: Humans and agents edit the same document together, with the agent as a first-class peer.
-- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
-- **Agents call agents**: Tag another agent from any app and they coordinate over A2A.
-- **Self-improving**: The agent can add features, fix bugs, and refine the UI over time.
-
 ## Templates
 
 Start with a full featured template. Each one is a complete, 100% free and open-source SaaS app: cloneable, not scaffolded, except you own the code and can customize everything.
@@ -43,11 +31,11 @@ Start with a full featured template. Each one is a complete, 100% free and open-
 
 **Clips**
 
-<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F678be5a501a14ab8a508e5f7bc92c468?format=webp&width=800" alt="Clips template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F189ebd9b2f2b4f0ead3b33138d4e4c10?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
-**Agent-Native Loom**
+**Agent-Native Loom + Jam**
 
-Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
+Record your screen with auto-transcripts and captured browser debug logs, share a link, and let an agent read the transcript, see timestamped frames, and fix the bug.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -111,6 +99,18 @@ Connect analytics data sources, prompt for real charts, and build reusable dashb
 </table>
 
 View the full template gallery at **[agent-native.com/templates](https://agent-native.com/templates)**.
+
+## Agents and UIs, Fully Connected
+
+The agent and the UI are equal citizens of one system. Every action works both ways: click it or ask for it.
+
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
+
+- **Everything syncs**: One database, one state. Changes from either side show up instantly on the other.
+- **Real-time multiplayer**: Humans and agents edit the same document together, with the agent as a first-class peer.
+- **Context-aware**: The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
+- **Agents call agents**: Tag another agent from any app and they coordinate over A2A.
+- **Self-improving**: The agent can add features, fix bugs, and refine the UI over time.
 
 ## Try it with a skill
 

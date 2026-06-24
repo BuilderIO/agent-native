@@ -38,9 +38,9 @@ const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 // Mirror of the shared `MAX_UPLOAD_BYTES` limit (see
-// `templates/clips/shared/upload-limits.ts`). Same default (256 MB) and same
+// `templates/clips/shared/upload-limits.ts`). Same default (2 GB) and same
 // env var (CLIPS_MAX_UPLOAD_BYTES) so desktop and web stay in lockstep.
-const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;

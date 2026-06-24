@@ -48,6 +48,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -995,53 +996,107 @@ export default function SqlDashboardPage() {
             </Button>
           </AddPanelPopover>
         ) : null}
-        {canEdit || canManage ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Dashboard actions"
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Dashboard details and actions"
+                >
+                  <IconDots className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Details</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                {dashboardUpdatedAt && (
+                  <span className="flex items-center gap-1.5">
+                    <IconClock className="h-3 w-3" />
+                    Updated{" "}
+                    {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                )}
+                {dashboardOwner && (
+                  <span className="flex items-center gap-1.5">
+                    <IconUser className="h-3 w-3" />
+                    {dashboardOwner.split("@")[0]}
+                  </span>
+                )}
+                {dashboardVisibility ? (
+                  <span
+                    className={`flex items-center gap-1.5 font-medium ${
+                      dashboardVisibility === "public"
+                        ? "text-green-600"
+                        : dashboardVisibility === "org"
+                          ? "text-blue-600"
+                          : "text-yellow-600"
+                    }`}
                   >
-                    <IconDots className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>More actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-44">
-              {canEdit && !archivedAt ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleArchive();
-                  }}
-                >
-                  <IconArchive className="mr-2 h-3.5 w-3.5" />
-                  Archive
-                </DropdownMenuItem>
-              ) : null}
-              {canEdit && !archivedAt && canManage ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              {canManage ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setConfirmDeleteOpen(true);
-                  }}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash className="mr-2 h-3.5 w-3.5" />
-                  Delete permanently
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        dashboardVisibility === "public"
+                          ? "bg-green-500"
+                          : dashboardVisibility === "org"
+                            ? "bg-blue-500"
+                            : "bg-yellow-500"
+                      }`}
+                    />
+                    {dashboardVisibility === "public"
+                      ? "Public"
+                      : dashboardVisibility === "org"
+                        ? "Shared with org"
+                        : "Private"}
+                  </span>
+                ) : null}
+                {hiddenAt && (
+                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                    <IconEyeOff className="h-3 w-3" />
+                    Hidden
+                  </span>
+                )}
+              </div>
+            </DropdownMenuLabel>
+            {(canEdit && !archivedAt) || canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleArchive();
+                }}
+              >
+                <IconArchive className="mr-2 h-3.5 w-3.5" />
+                Archive
+              </DropdownMenuItem>
+            ) : null}
+            {canEdit && !archivedAt && canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canManage ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setConfirmDeleteOpen(true);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconTrash className="mr-2 h-3.5 w-3.5" />
+                Delete permanently
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {canManage ? (
           <AlertDialog
             open={confirmDeleteOpen}
@@ -1152,59 +1207,6 @@ export default function SqlDashboardPage() {
           </Button>
         </Alert>
       ) : null}
-      {/* Author, last updated, and visibility metadata */}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {hiddenAt && (
-          <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-            <IconEyeOff className="h-3 w-3" />
-            Hidden
-          </span>
-        )}
-        {dashboardUpdatedAt && (
-          <span className="flex items-center gap-1">
-            <IconClock className="h-3 w-3" />
-            Updated{" "}
-            {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })}
-          </span>
-        )}
-        {dashboardOwner && (
-          <span className="flex items-center gap-1">
-            <IconUser className="h-3 w-3" />
-            {dashboardOwner.split("@")[0]}
-          </span>
-        )}
-        {dashboardVisibility ? (
-          <span
-            className={`flex items-center gap-1.5 font-medium ${
-              dashboardVisibility === "public"
-                ? "text-green-600"
-                : dashboardVisibility === "org"
-                  ? "text-blue-600"
-                  : "text-yellow-600"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                dashboardVisibility === "public"
-                  ? "bg-green-500"
-                  : dashboardVisibility === "org"
-                    ? "bg-blue-500"
-                    : "bg-yellow-500"
-              }`}
-            />
-            {dashboardVisibility === "public"
-              ? "Public"
-              : dashboardVisibility === "org"
-                ? "Shared with org"
-                : "Private"}
-          </span>
-        ) : null}
-      </div>
-
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea

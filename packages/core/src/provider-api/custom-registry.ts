@@ -21,6 +21,7 @@
  */
 
 import { getDbExec, isPostgres } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,13 @@ async function ensureTable(): Promise<void> {
         ? CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
         : CREATE_SQL;
       await client.execute(sql);
+      // Fresh Postgres tables get BIGINT via the replace above, but tables
+      // created before that compat existed kept int4 timestamp columns; widen
+      // them so `Date.now()` writes don't overflow. No-op once done.
+      await widenIntColumnsToBigInt("custom_api_providers", [
+        "created_at",
+        "updated_at",
+      ]);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
