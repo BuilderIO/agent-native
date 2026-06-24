@@ -7,10 +7,16 @@
 // of truth for which "parts" are visible and pushes them here.
 
 (function clipsOverlayHost() {
-  type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
+  type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving" | "border";
 
   const CONTAINER_ID = "clips-recorder-overlay-root";
-  const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
+  const ALL_PARTS: OverlayPart[] = [
+    "bubble",
+    "countdown",
+    "toolbar",
+    "saving",
+    "border",
+  ];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
   // ----- Draggable, resizable camera bubble ---------------------------------
@@ -210,11 +216,9 @@
         height: `${size}px`,
         // Clip the IFRAME itself to a circle so the iframe's opaque canvas (which
         // a declared color-scheme always paints, dark or white) can never show as
-        // a square box around the bubble. Shadow lives here too so it isn't
-        // clipped by the overflow.
+        // a square box around the bubble.
         borderRadius: "50%",
         overflow: "hidden",
-        boxShadow: "0 6px 18px rgba(9, 9, 11, 0.4)",
         zIndex: "3",
       });
     } else if (part === "toolbar") {
@@ -249,6 +253,22 @@
 
   function mountPart(container: HTMLDivElement, part: OverlayPart): void {
     if (document.getElementById(partFrameId(part))) return;
+    // The recording-border is a plain glow div (no UI, no camera) — far lighter
+    // than an iframe. An inset blue shadow with blur + spread reads as "we're
+    // recording", like the desktop app / Codex / Claude.
+    if (part === "border") {
+      const glow = document.createElement("div");
+      glow.id = partFrameId(part);
+      Object.assign(glow.style, {
+        position: "absolute",
+        inset: "0",
+        pointerEvents: "none",
+        boxShadow: "inset 0 0 34px 7px rgba(59, 130, 246, 0.85)",
+        zIndex: "1",
+      });
+      container.appendChild(glow);
+      return;
+    }
     const frame = document.createElement("iframe");
     frame.id = partFrameId(part);
     if (part === "bubble") frame.allow = "camera; microphone";
