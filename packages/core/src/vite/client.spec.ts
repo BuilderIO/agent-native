@@ -417,6 +417,65 @@ describe("Vite MCP embed headers", () => {
     );
   });
 
+  it("adds COEP-compatible headers to originless mounted CSS requests in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/app/global.css?url", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", "*");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("does not classify mounted app pages as originless static assets in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/library", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "Access-Control-Allow-Origin",
+      "*",
+    );
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
   it("answers null-origin sandbox preflights before Nitro dev middleware", () => {
     const plugin = findPlugin("agent-native-embed-dev-frame-headers");
     let middleware: Function | null = null;
@@ -567,6 +626,35 @@ describe("Vite CSS build defaults", () => {
       cssMinify: "esbuild",
       cssTarget: ["es2020", "safari18"],
     });
+  });
+});
+
+describe("Vite SSR stubs", () => {
+  it("exports common browser-only names from the generated stub module", async () => {
+    const plugins = (defineConfig({ ssrStubs: ["yjs"] }).plugins ?? [])
+      .flat()
+      .filter(Boolean) as any[];
+    const plugin = plugins.find(
+      (entry) => entry?.name === "agent-native-ssr-stub-heavy-libs",
+    );
+
+    expect(plugin).toBeDefined();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: true })).toBe(
+      "\0agent-native-ssr-stub",
+    );
+    expect(
+      await plugin.resolveId("react", undefined, { ssr: true }),
+    ).toBeNull();
+    expect(await plugin.resolveId("yjs", undefined, { ssr: false })).toBeNull();
+
+    const code = await plugin.load("\0agent-native-ssr-stub");
+    expect(code).toContain("export const Doc = stub;");
+    expect(code).toContain("export const Map = stub;");
+    expect(code).toContain("export const encodeStateVector = stub;");
+    expect(code).toContain("export const encodeStateAsUpdate = stub;");
+    expect(code).toContain("export const mergeUpdates = stub;");
+    expect(code).toContain("export const EditorContent = stub;");
+    expect(code).toContain("export const format = stub;");
   });
 });
 

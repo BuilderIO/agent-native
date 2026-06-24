@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -26,11 +28,23 @@ use crate::util::{
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+// Geometry of the two circular cancel/skip buttons that flank the countdown
+// number. These MUST stay in sync with the CSS in
+// `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
+// its center sits ±200px logical from the window center). A few px of slop is
+// added to each hit-rect so edge clicks register.
+const COUNTDOWN_CONTROL_OFFSET_X: f64 = 200.0;
+const COUNTDOWN_CONTROL_DIAMETER: f64 = 64.0;
+const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
+// Guards the single cursor-poll loop that toggles click-through on the
+// countdown overlay so only the button zones are interactive.
+static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
+const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -203,6 +217,36 @@ fn clamp_existing_bubble_window(app: &AppHandle, window: &WebviewWindow) {
     }
 }
 
+/// True while the user is hand-dragging the bubble through the JS pointer
+/// handlers (`bubble_drag_start` / `bubble_drag_move` / `bubble_drag_end`).
+///
+/// While this is set, the bubble's `Moved` event handler skips its own clamp.
+/// That handler used to re-clamp on EVERY move — including the OS-native drag's
+/// interpolated moves — calling `set_position` to snap the window back inside
+/// the screen. During a drag the OS keeps shoving the window back out toward the
+/// cursor, so the snap-back and the OS fought each frame and the bubble
+/// visibly jittered. Now the drag-move command is the sole authority on
+/// position during a drag and clamps every frame itself, so the handler must
+/// yield to it.
+static BUBBLE_DRAGGING: AtomicBool = AtomicBool::new(false);
+
+/// Anchor captured at the start of a hand-drag: the global cursor position and
+/// the bubble window's top-left, both in physical px with a desktop top-left
+/// origin (the same space `cursor_position()` / `outer_position()` report in).
+/// Each move computes `win_start + (cursor_now - cursor_start)` so the bubble
+/// tracks the cursor 1:1, then clamps to the monitor BEFORE moving.
+struct BubbleDragAnchor {
+    cursor_x: i32,
+    cursor_y: i32,
+    win_x: i32,
+    win_y: i32,
+}
+
+fn bubble_drag_anchor() -> &'static Mutex<Option<BubbleDragAnchor>> {
+    static ANCHOR: OnceLock<Mutex<Option<BubbleDragAnchor>>> = OnceLock::new();
+    ANCHOR.get_or_init(|| Mutex::new(None))
+}
+
 /// Path to the JSON blob that stores the last-known bubble position on disk.
 /// Lives in the Tauri app-data dir (platform-specific — `~/Library/Application
 /// Support/<bundle-id>/` on macOS). Returns None if the app-data dir cannot be
@@ -303,6 +347,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+        stop_countdown_control_tracking();
         let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
@@ -339,8 +384,66 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     configure_overlay_behavior(&win);
     let _ = win.show();
     let _ = app.emit("clips:countdown-shortcuts-active", true);
+    start_countdown_control_tracking(&app);
     dlog!("[clips-tray] countdown shown");
     Ok(())
+}
+
+/// True when the global cursor sits inside either circular cancel/skip button
+/// zone of the countdown overlay. The controls row is centered in the window;
+/// each button's center is `COUNTDOWN_CONTROL_OFFSET_X` logical px to the
+/// left/right of the window center, vertically at the window center. Cursor,
+/// window position, and window size all come from Tauri in physical px with a
+/// desktop top-left origin, so we convert the logical button geometry using the
+/// window's scale factor and do a plain point-in-rect test.
+fn cursor_over_countdown_control(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s), Ok(scale)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+        window.scale_factor(),
+    ) else {
+        return false;
+    };
+    let center_x = p.x as f64 + s.width as f64 / 2.0;
+    let center_y = p.y as f64 + s.height as f64 / 2.0;
+    let half = (COUNTDOWN_CONTROL_DIAMETER / 2.0 + COUNTDOWN_CONTROL_HIT_PAD) * scale;
+    let offset = COUNTDOWN_CONTROL_OFFSET_X * scale;
+    let in_button = |bx: f64| -> bool {
+        c.x >= bx - half && c.x <= bx + half && c.y >= center_y - half && c.y <= center_y + half
+    };
+    in_button(center_x - offset) || in_button(center_x + offset)
+}
+
+/// Poll the cursor against the two button zones while the countdown overlay is
+/// alive, toggling `set_ignore_cursor_events` so the buttons are clickable only
+/// when the cursor is over them and the rest of the screen stays click-through.
+/// Idempotent; mirrors `start_pill_hover_tracking` in `recording_indicator.rs`.
+fn start_countdown_control_tracking(app: &AppHandle) {
+    if COUNTDOWN_CONTROL_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev_interactive = false;
+        while COUNTDOWN_CONTROL_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(COUNTDOWN_LABEL) else {
+                break;
+            };
+            let over = cursor_over_countdown_control(&win);
+            if over != prev_interactive {
+                prev_interactive = over;
+                // ignore_cursor_events(false) => clicks land on the buttons.
+                let _ = win.set_ignore_cursor_events(!over);
+            }
+            tokio::time::sleep(Duration::from_millis(70)).await;
+        }
+        COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn stop_countdown_control_tracking() {
+    COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
 }
 
 /// Full-screen transparent overlay that shows compact bottom-left progress
@@ -443,6 +546,65 @@ pub async fn show_region_guides(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn hide_region_guides(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// Live border framing the region currently being recorded. Like the region
+/// guides this is a full-screen, click-through, capture-excluded overlay — but
+/// the rect is ephemeral (it belongs to one recording, not the saved preset),
+/// so it's handed in via the URL query rather than read from config. The React
+/// view paints only an OUTWARD frame so the stroke stays out of the captured
+/// pixels. The recording flow owns this window; it's torn down by
+/// `hide_recording_chrome` / `hide_overlays` when capture stops.
+#[tauri::command]
+pub async fn show_region_record_border(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if !(width > 0.0 && height > 0.0) {
+        return Ok(());
+    }
+    if let Some(existing) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
+        let _ = existing.close();
+    }
+
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let url = WebviewUrl::App(
+        format!("index.html?region={x:.6},{y:.6},{width:.6},{height:.6}#region-record-border")
+            .into(),
+    );
+    let win = WebviewWindowBuilder::new(&app, REGION_RECORD_BORDER_LABEL, url)
+        .title("Clips Recording Region")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(false)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] region record border build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
+    crate::util::show_without_activation(&win);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_region_record_border(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
         let _ = w.close();
     }
     Ok(())
@@ -711,6 +873,13 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
                 | tauri::WindowEvent::Resized(_)
                 | tauri::WindowEvent::ScaleFactorChanged { .. }
         ) {
+            // During a hand-drag the move command owns the position and clamps
+            // every frame; re-clamping here would race that loop and bring back
+            // the edge jitter, so yield until the drag ends (which runs a final
+            // clamp of its own).
+            if BUBBLE_DRAGGING.load(Ordering::SeqCst) {
+                return;
+            }
             clamp_existing_bubble_window(&app_for_bounds, &win_for_bounds);
         }
     });
@@ -740,6 +909,7 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 
 #[tauri::command]
 pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+    stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
     for label in [
         COUNTDOWN_LABEL,
@@ -748,6 +918,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
         FINALIZING_LABEL,
         FLOW_BAR_LABEL,
         REGION_GUIDES_LABEL,
+        REGION_RECORD_BORDER_LABEL,
     ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -766,13 +937,16 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
 /// popover-close).
 #[tauri::command]
 pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+    stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
     // The countdown + toolbar always tear down on recording stop. The region
     // guides only tear down when they aren't pinned on-screen via the always-on
     // toggle — otherwise we'd flicker close→reopen right after stop.
     let g = crate::config::feature_config(&app).region_guides;
     let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
-    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL];
+    // The recording-region border belongs to a single recording (never pinned),
+    // so it always tears down here alongside the countdown + toolbar.
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_RECORD_BORDER_LABEL];
     if !keep_region_guides {
         labels.push(REGION_GUIDES_LABEL);
     }
@@ -807,6 +981,7 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
 /// MediaRecorder doesn't touch the camera after start.
 #[tauri::command]
 pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
         dlog!("[clips-tray] close_bubble — destroying bubble webview");
         let _ = w.close();
@@ -1437,6 +1612,9 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {
         let _ = w.close();
     }
+    if let Some(w) = app.get_webview_window(REGION_RECORD_BORDER_LABEL) {
+        let _ = w.close();
+    }
     if let Some(window) = app.get_webview_window("popover") {
         // Restore normal size in case the window was shrunk to a pinhole
         // during recording — otherwise it would reappear as a 2×2 dot.
@@ -1545,6 +1723,81 @@ pub async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), 
         // Best-effort cleanup of the tmp file so it doesn't linger.
         let _ = std::fs::remove_file(&tmp);
         return Ok(());
+    }
+    Ok(())
+}
+
+/// Begin a Loom-style hand-drag of the bubble. The JS pointer handler calls
+/// this on pointer-down. We snapshot the current cursor and window position as
+/// the drag anchor and flip `BUBBLE_DRAGGING` so the bounds handler yields to
+/// the drag loop.
+///
+/// We deliberately do NOT use Tauri's native `startDragging()`: the OS window
+/// server owns the position during a native drag, so clamping it to the screen
+/// edge means fighting the OS every frame (the jitter/snap-back the user saw).
+/// Driving the move ourselves lets us clamp BEFORE moving, so the bubble stops
+/// dead at the edge like a puck hitting a wall.
+#[tauri::command]
+pub async fn bubble_drag_start(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(BUBBLE_LABEL) else {
+        return Ok(());
+    };
+    let (Ok(cursor), Ok(pos)) = (window.cursor_position(), window.outer_position()) else {
+        return Ok(());
+    };
+    *bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner()) = Some(BubbleDragAnchor {
+        cursor_x: cursor.x.round() as i32,
+        cursor_y: cursor.y.round() as i32,
+        win_x: pos.x,
+        win_y: pos.y,
+    });
+    BUBBLE_DRAGGING.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Move the bubble to follow the cursor for the active hand-drag. The JS
+/// pointer handler calls this once per animation frame while dragging.
+///
+/// The new top-left is `win_start + (cursor_now - cursor_start)` — a 1:1
+/// follow in physical px — then clamped to the target monitor BEFORE the move.
+/// Because we clamp first, the window never overshoots the edge, so there is
+/// nothing to snap back from: the cursor can keep travelling past the edge
+/// while the bubble sits pinned against it. No-op if no drag is in progress.
+#[tauri::command]
+pub async fn bubble_drag_move(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(BUBBLE_LABEL) else {
+        return Ok(());
+    };
+    let Ok(cursor) = window.cursor_position() else {
+        return Ok(());
+    };
+    let target = {
+        let guard = bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(anchor) = guard.as_ref() else {
+            return Ok(());
+        };
+        (
+            anchor.win_x + (cursor.x.round() as i32 - anchor.cursor_x),
+            anchor.win_y + (cursor.y.round() as i32 - anchor.cursor_y),
+        )
+    };
+    let Ok(size) = window.outer_size() else {
+        return Ok(());
+    };
+    let (x, y) = clamp_bubble_window_position(&app, target.0, target.1, size.width, size.height);
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+    Ok(())
+}
+
+/// End the hand-drag: clear the anchor, drop the dragging flag, and run one
+/// final clamp so the resting position is guaranteed in-bounds. The JS
+/// `onMoved` listener persists the final spot via `save_bubble_position`.
+#[tauri::command]
+pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
+    *bubble_drag_anchor().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    BUBBLE_DRAGGING.store(false, Ordering::SeqCst);
+    if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
+        clamp_existing_bubble_window(&app, &window);
     }
     Ok(())
 }

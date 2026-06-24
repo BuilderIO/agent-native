@@ -70,8 +70,10 @@ import {
   retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -260,6 +262,12 @@ export interface AuthOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Optional email signup legal copy for the built-in login page.
+   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * pass false to suppress, or pass URLs for custom/self-hosted policies.
+   */
+  signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
@@ -868,6 +876,10 @@ async function ensureSessionTable(): Promise<void> {
       } catch {
         // Column already exists
       }
+      // Older deployments have a 32-bit `created_at`; on Postgres the
+      // `Date.now()` written on session create overflows int4. Widen in place
+      // (no-op once done / on fresh DBs).
+      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;
@@ -1007,6 +1019,7 @@ function getOnboardingHtmlOptions(
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
+    signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
@@ -1795,6 +1808,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    // Liveness probe: always public so uptime monitors and the keep-warm cron
+    // can reach the DB-warmup route without a session. It exposes no per-user
+    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
+    // the gate below 401s anonymous /_agent-native/* requests before any DB
+    // query, so the database would never get warmed.
+    if (p === "/_agent-native/health") return;
     if (isPublicPath(normalizedUrl, publicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
@@ -2462,11 +2481,8 @@ async function mountBetterAuthRoutes(
   // Auto-add Google OAuth routes when credentials are configured. Templates
   // that need broader product scopes (mail/calendar) opt out and provide
   // their own Nitro routes at these paths.
-  if (
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET &&
-    options.mountGoogleOAuthRoutes !== false
-  ) {
+  const googleSignInCredentials = resolveGoogleSignInCredentials();
+  if (googleSignInCredentials && options.mountGoogleOAuthRoutes !== false) {
     setGenericGoogleOAuthRoutesEnabled(app, true);
     for (const gp of [
       "/_agent-native/google/callback",
@@ -2535,7 +2551,7 @@ async function mountBetterAuthRoutes(
             process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
         });
         const params = new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_id: googleSignInCredentials.clientId,
           redirect_uri: redirectUri,
           response_type: "code",
           scope: googleScopes,
@@ -2647,8 +2663,8 @@ async function mountBetterAuthRoutes(
             },
             body: new URLSearchParams({
               code,
-              client_id: process.env.GOOGLE_CLIENT_ID!,
-              client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+              client_id: googleSignInCredentials.clientId,
+              client_secret: googleSignInCredentials.clientSecret,
               redirect_uri: redirectUri,
               grant_type: "authorization_code",
             }),

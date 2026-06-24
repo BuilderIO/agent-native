@@ -34,6 +34,36 @@ function silentStream(): ReadableStream<Uint8Array> {
   });
 }
 
+function keepaliveThenDoneStream(
+  keepaliveAtMs: number,
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setTimeout(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, keepaliveAtMs);
+    },
+    cancel() {
+      if (timer) clearTimeout(timer);
+    },
+  });
+}
+
 function eventStream(events: unknown[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -108,6 +138,24 @@ describe("SSE event processor no-progress recovery", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("stream_keepalive events reset the no-progress watchdog", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        keepaliveThenDoneStream(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS - 5_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(donePromise).resolves.toBeDefined();
   });
 
   it("turns raw comment-only live streams into an auto-continuation signal", async () => {
@@ -887,6 +935,66 @@ describe("SSE event processor error classification", () => {
 
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+  });
+
+  it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const giveUpMessage =
+      "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
+      "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
+      "Please retry, ideally as a single bulk action.";
+
+    // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: giveUpMessage,
+            errorCode: "run_budget_exhausted",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-budget",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    // recoverable:true survives so the recovery banner reads
+    // "stopped before finishing".
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message: giveUpMessage,
+          errorCode: "run_budget_exhausted",
+          recoverable: true,
+        }),
+      }),
+    );
   });
 });
 

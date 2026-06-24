@@ -22,6 +22,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  getBrowserTabId,
 } from "@agent-native/core/client";
 import {
   InvitationBanner,
@@ -52,6 +53,10 @@ import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { PageHeaderSlotProvider } from "./page-header";
 import { CreateSpaceDialog } from "./create-space-dialog";
+import {
+  CaptureInstallButton,
+  CaptureInstallInlineLink,
+} from "@/components/capture-install-options";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { toast } from "sonner";
 import {
@@ -221,6 +226,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           "Remove filler words from this clip",
         ]}
         scope={recordingScope}
+        browserTabId={getBrowserTabId()}
       >
         <div className="flex h-full w-full">
           {/* Mobile backdrop */}
@@ -475,13 +481,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               <>
                 <div className="shrink-0 space-y-1.5 border-t border-border px-2 py-1.5">
                   {shouldShowSidebarLink && (
-                    <NavLink
-                      to="/download"
-                      className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60"
-                    >
+                    <CaptureInstallInlineLink className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
                       <IconAppWindow className="h-4 w-4" />
                       Get desktop app
-                    </NavLink>
+                    </CaptureInstallInlineLink>
                   )}
                   <SearchBar />
                 </div>
@@ -530,9 +533,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     Record from the menu bar, global shortcut, auto-updates.
                   </span>
                 </div>
-                <Button asChild size="sm" className="shrink-0">
-                  <NavLink to="/download">Download</NavLink>
-                </Button>
+                <CaptureInstallButton size="sm" className="shrink-0">
+                  Download
+                </CaptureInstallButton>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button

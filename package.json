@@ -63,7 +63,7 @@
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
     "changeset:publish": "pnpm -r build && changeset publish",
-    "prep": "concurrently -n fmt,types,test,guard -c blue,cyan,green,yellow \"pnpm fmt:check\" \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
+    "prep": "pnpm fmt && concurrently -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
     "dev:lazy": "node scripts/dev-lazy.ts",
     "dev:desktop": "node scripts/dev-lazy.ts --desktop --electron",
     "dev:lazy:desktop": "node scripts/dev-lazy.ts --desktop --electron",

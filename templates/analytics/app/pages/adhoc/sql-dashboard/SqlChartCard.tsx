@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   IconGripVertical,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
   IconDotsVertical,
+  IconMaximize,
   IconPencil,
   IconTrash,
   IconCode,
@@ -32,9 +31,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { SqlChart } from "@/components/dashboard/SqlChart";
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 import type { SqlPanel } from "./types";
 
@@ -42,13 +47,6 @@ interface SqlChartCardProps {
   panel: SqlPanel;
   resolvedSql?: string;
   onRemove: () => void;
-  /** Toggle between "span 1 column" and "span all columns of the current
-   *  section". Optional because section panels never expose this control. */
-  onToggleWidth?: () => void;
-  /** Number of columns in the section this panel currently lives in. Used to
-   *  decide the toggle label / icon: when the panel already spans the full
-   *  row, we offer to shrink; otherwise we offer to expand. */
-  gridColumns?: number;
   onEdit?: () => void;
   /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
    *  validation failure so the popover can stay open and surface the error. */
@@ -60,8 +58,6 @@ export function SqlChartCard({
   panel,
   resolvedSql,
   onRemove,
-  onToggleWidth,
-  gridColumns,
   onEdit,
   onSaveSql,
   editable = true,
@@ -76,6 +72,7 @@ export function SqlChartCard({
   } = useSortable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     panel.chartType === "section",
@@ -229,7 +226,9 @@ export function SqlChartCard({
     );
   }
 
-  const showPanelMenu = editable || panel.chartType === "table";
+  // Every non-section panel exposes at least the Full screen view action, so the
+  // options menu always renders — including on read-only / shared dashboards.
+  const showPanelMenu = true;
 
   return (
     <div
@@ -259,6 +258,13 @@ export function SqlChartCard({
                   <TooltipContent>Panel options</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onSelect={() => setExpanded(true)}>
+                    <IconMaximize className="h-4 w-4 mr-2" />
+                    Full screen
+                  </DropdownMenuItem>
+                  {editable || panel.chartType === "table" ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
                   {panel.chartType === "table" && (
                     <DropdownMenuItem
                       disabled={!exportCsv}
@@ -283,21 +289,6 @@ export function SqlChartCard({
                       </DropdownMenuItem>
                     </ViewSqlPopover>
                   ) : null}
-                  {editable && onToggleWidth && (gridColumns ?? 2) > 1 && (
-                    <DropdownMenuItem onSelect={onToggleWidth}>
-                      {panel.width >= (gridColumns ?? 2) ? (
-                        <>
-                          <IconArrowsMinimize className="h-4 w-4 mr-2" />
-                          Span 1 column
-                        </>
-                      ) : (
-                        <>
-                          <IconArrowsMaximize className="h-4 w-4 mr-2" />
-                          Span full row
-                        </>
-                      )}
-                    </DropdownMenuItem>
-                  )}
                   {editable ? <DropdownMenuSeparator /> : null}
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
@@ -345,6 +336,19 @@ export function SqlChartCard({
           />
         </CardContent>
       </Card>
+
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
+          <DialogHeader className="shrink-0 pr-8 text-left">
+            <DialogTitle className="truncate">{panel.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <ChartFillHeight>
+              <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+            </ChartFillHeight>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

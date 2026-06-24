@@ -4,6 +4,7 @@ description: >-
   How to keep the UI in sync with agent changes via SSE plus polling fallback.
   Use when wiring query invalidation for new data models, debugging UI not
   updating, or understanding jitter prevention.
+scope: dev
 metadata:
   internal: true
 ---

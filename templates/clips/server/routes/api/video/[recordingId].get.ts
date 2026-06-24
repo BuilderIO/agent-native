@@ -12,7 +12,8 @@
  *
  * Access rules (match `/api/public-recording.get.ts`):
  *   - public visibility: anyone can fetch, but a password (if set) must be
- *     supplied via `?password=<pw>` — otherwise 401.
+ *     supplied via `?password=<pw>`, `?t=<token>`, or the protected media
+ *     cookie renewed by this route — otherwise 401.
  *   - non-public: caller must have a share grant (owner / viewer / editor /
  *     admin) via `resolveAccess`. Password is still enforced on top.
  *   - expired recordings 410.
@@ -31,13 +32,16 @@
 
 import {
   defineEventHandler,
+  getCookie,
   getRouterParam,
   getRequestHeader,
   getQuery,
   setResponseHeader,
   setResponseStatus,
+  setCookie,
   type H3Event,
 } from "h3";
+import { eq } from "drizzle-orm";
 import { readAppState } from "@agent-native/core/application-state";
 import {
   createSsrfSafeDispatcher,
@@ -46,8 +50,10 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
+  captureRouteError,
   getSession,
   runWithRequestContext,
+  signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
 import {
@@ -57,6 +63,7 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
+import { getDb, schema } from "../../../db/index.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
@@ -75,6 +82,57 @@ const PROXIED_HEADER_NAMES = [
   "etag",
   "last-modified",
 ] as const;
+const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
+const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
+const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
+
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
+function protectedMediaCookieName(recordingId: string): string {
+  return `${PROTECTED_MEDIA_COOKIE_PREFIX}${recordingId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
+function protectedMediaCookiePath(recordingId: string): string {
+  return appPath(`/api/video/${encodeURIComponent(recordingId)}`);
+}
+
+function isHttpsRequest(event: H3Event): boolean {
+  try {
+    const xfProto = getRequestHeader(event, "x-forwarded-proto");
+    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
+      return true;
+    }
+    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    if (appUrl.startsWith("https://")) return true;
+  } catch {
+    // keep plain-http dev behavior if request metadata is unavailable
+  }
+  return false;
+}
+
+function setProtectedMediaAccessCookie(
+  event: H3Event,
+  recordingId: string,
+): void {
+  const token = signShortLivedToken({
+    resourceId: recordingId,
+    ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+  });
+  const secure = isHttpsRequest(event);
+  setCookie(event, protectedMediaCookieName(recordingId), token, {
+    httpOnly: true,
+    sameSite: secure ? "none" : "lax",
+    secure,
+    ...(secure ? { partitioned: true } : {}),
+    path: protectedMediaCookiePath(recordingId),
+    maxAge: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
+  });
+}
 
 function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   try {
@@ -110,7 +168,20 @@ async function fetchProviderMedia(
     };
     if (dispatcher) fetchOptions.dispatcher = dispatcher;
 
-    const upstream = await fetch(currentUrl, fetchOptions);
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+    );
+    let upstream: Response;
+    try {
+      upstream = await fetch(currentUrl, {
+        ...fetchOptions,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (upstream.status < 300 || upstream.status >= 400) return upstream;
 
     const location = upstream.headers.get("location");
@@ -139,6 +210,22 @@ function providerResponse(upstream: Response): Response {
     statusText: upstream.statusText,
     headers,
   });
+}
+
+function statusCodeForProviderFetchError(err: unknown): number {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) return 403;
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) return 504;
+  return 502;
+}
+
+function messageForProviderFetchError(err: unknown): string {
+  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) {
+    return "Recording media URL is blocked by server safety policy.";
+  }
+  if (err instanceof Error && /abort|timeout/i.test(err.name)) {
+    return "Recording media fetch timed out.";
+  }
+  return "Recording media could not be fetched.";
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -216,12 +303,39 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session?.email, orgId },
     async () => {
+      // Resolve via share grants first (owner / org / shared viewers). When
+      // there is no grant — e.g. an anonymous viewer on a public share/embed
+      // page — fall back to the public-visibility gate so public clips stay
+      // playable without signing in. This mirrors the visibility check in
+      // `/api/public-recording.get.ts` (which hands the player its videoUrl) so
+      // the metadata endpoint and this media endpoint never disagree about who
+      // can play a clip. Without this, anonymous viewers hit a 403 here and the
+      // player fails with "Could not start playback. Try again."
       const access = await resolveAccess("recording", recordingId);
-      if (!access) {
-        setResponseStatus(event, 403);
-        return { error: "Forbidden" };
+      let recRow: RecordingRow | null =
+        (access?.resource as RecordingRow | undefined) ?? null;
+      let role: string | null = access?.role ?? null;
+
+      if (!recRow) {
+        const db = getDb();
+        const [row] = await db
+          .select()
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, recordingId))
+          .limit(1);
+        if (!row) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (row.visibility !== "public") {
+          setResponseStatus(event, 403);
+          return { error: "Forbidden" };
+        }
+        recRow = row as RecordingRow;
+        role = "viewer";
       }
-      const rec = access.resource as RecordingRow;
+
+      const rec = recRow;
 
       if (rec.expiresAt) {
         const expires = new Date(rec.expiresAt).getTime();
@@ -234,10 +348,12 @@ export default defineEventHandler(async (event: H3Event) => {
       // Password gate — owners skip it (they set it). Same behavior as
       // public-recording.get.ts so the two endpoints don't disagree.
       // Accepts either:
-      //   - `?t=<token>` — preferred. Short-lived HMAC token minted by
-      //     public-recording.get.ts after the password check passed; keeps
-      //     the plaintext password out of the video URL (and therefore out
-      //     of browser history / CDN logs / Referer headers).
+      //   - protected media cookie — preferred. It is httpOnly, scoped to this
+      //     recording's video route, and renewed while playback/range requests
+      //     continue.
+      //   - `?t=<token>` — fallback for contexts that cannot use the cookie
+      //     immediately. Minted by public-recording.get.ts after the password
+      //     check passes; keeps the plaintext password out of the video URL.
       //   - `?password=<pw>` — legacy fallback so existing share pages /
       //     bookmarks keep working during rollout.
       // (audit 11 F-07)
@@ -246,13 +362,19 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: string;
         t?: string;
       };
-      if (rec.password && access.role !== "owner") {
+      if (rec.password && role !== "owner") {
         const token = typeof q.t === "string" ? q.t : "";
+        const cookieToken =
+          getCookie(event, protectedMediaCookieName(recordingId)) ?? "";
         const supplied = typeof q.password === "string" ? q.password : "";
 
         let allowed = false;
         if (token) {
           const result = verifyShortLivedToken(token, recordingId);
+          if (result.ok) allowed = true;
+        }
+        if (!allowed && cookieToken) {
+          const result = verifyShortLivedToken(cookieToken, recordingId);
           if (result.ok) allowed = true;
         }
         if (
@@ -266,6 +388,7 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
+        setProtectedMediaAccessCookie(event, recordingId);
       }
 
       if (isLoomEmbedBackedRecording(rec)) {
@@ -282,7 +405,15 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`);
+      // The `recording-blob-*` fallback only exists for local/dev recordings
+      // (production uses provider storage), and `readAppState` THROWS when there
+      // is no authenticated identity in context. An anonymous viewer of a public
+      // clip therefore has no blob to read anyway — swallow the missing-context
+      // error and fall through to the provider media URL instead of surfacing an
+      // unhandled 500 ("Could not start playback. Try again." in the player).
+      const blob = await readAppState(`recording-blob-${recordingId}`).catch(
+        () => null,
+      );
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 
@@ -300,12 +431,67 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Blob not found" };
         }
 
-        const upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+        let upstream: Response | { error: string; status: number };
+        try {
+          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+        } catch (err) {
+          setResponseStatus(event, statusCodeForProviderFetchError(err));
+          return { error: messageForProviderFetchError(err) };
+        }
         if (!(upstream instanceof Response)) {
           setResponseStatus(event, upstream.status);
           return { error: upstream.error };
         }
-        return providerResponse(upstream);
+        // The provider answered, but with a server error (e.g. the CDN asset is
+        // broken and returns 5xx). Don't proxy an opaque upstream error — and
+        // don't risk reconstructing a Response from it, which previously threw
+        // and surfaced as an unhandled 500 on every request. Capture it so the
+        // broken asset is diagnosable, and return a clean 502.
+        if (upstream.status >= 500) {
+          captureRouteError(
+            new Error(
+              `Storage provider returned ${upstream.status} for recording media`,
+            ),
+            {
+              route: "api/video",
+              tags: {
+                mediaPath: "provider-proxy",
+                upstreamStatus: String(upstream.status),
+              },
+              extra: { recordingId },
+            },
+          );
+          setResponseStatus(event, 502);
+          setResponseHeader(
+            event,
+            "Cache-Control",
+            "private, max-age=0, no-store",
+          );
+          return {
+            error: "The recording's media could not be loaded from storage.",
+            upstreamStatus: upstream.status,
+          };
+        }
+        try {
+          return providerResponse(upstream);
+        } catch (err) {
+          // Reconstructing the proxied Response should not happen, but if it
+          // does, fail cleanly instead of as an unhandled 500.
+          captureRouteError(err, {
+            route: "api/video",
+            tags: { mediaPath: "provider-proxy-response" },
+            extra: { recordingId, upstreamStatus: String(upstream.status) },
+          });
+          setResponseStatus(event, 502);
+          setResponseHeader(
+            event,
+            "Cache-Control",
+            "private, max-age=0, no-store",
+          );
+          return {
+            error: "The recording's media could not be loaded from storage.",
+          };
+        }
       }
       const mimeType =
         typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";

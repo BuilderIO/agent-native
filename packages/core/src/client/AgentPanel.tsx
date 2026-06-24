@@ -75,11 +75,12 @@ const MultiTabAssistantChatLazy = lazy(() =>
     default: m.MultiTabAssistantChat,
   })),
 );
-import type { MultiTabAssistantChatHeaderProps } from "./MultiTabAssistantChat.js";
-import {
-  assistantUiRecoverableRenderErrorKind,
-  type AssistantChatProps,
-} from "./AssistantChat.js";
+import type {
+  MultiTabAssistantChatHeaderProps,
+  MultiTabAssistantChatProps,
+} from "./MultiTabAssistantChat.js";
+import type { AssistantChatProps } from "./AssistantChat.js";
+import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -149,9 +150,11 @@ const SetupButton = lazy(() =>
   })),
 );
 
-// Setup/onboarding widget appears above chat until required setup is complete,
-// and can be reopened from the header after dismissal.
-const SHOW_ONBOARDING = true;
+// The setup/onboarding checklist that used to appear above chat is disabled
+// for every app — setup (AI engine, image/video gen, asset storage, email,
+// GitHub, etc.) is surfaced in better places (the settings panel and the
+// per-feature setup affordances). Keep this off; do not re-enable globally.
+const SHOW_ONBOARDING = false;
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
@@ -254,8 +257,16 @@ type ChatHeaderRenderer = (
 
 function ChatLoadingSkeleton({
   renderHeader,
+  centerComposerWhenEmpty = false,
+  composerSlot,
+  composerAreaClassName,
+  composerLayoutVariant = "default",
 }: {
   renderHeader?: ChatHeaderRenderer;
+  centerComposerWhenEmpty?: boolean;
+  composerSlot?: React.ReactNode;
+  composerAreaClassName?: string;
+  composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
   // Provide empty no-op implementations so renderHeader can render the real
   // tab/mode buttons without needing actual chat state.
@@ -275,6 +286,49 @@ function ChatLoadingSkeleton({
     tabCount: 0,
     toggleHistory: noop,
   };
+  if (centerComposerWhenEmpty) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0">
+        {renderHeader ? renderHeader(stubProps) : null}
+        <div
+          data-agent-empty-state="centered"
+          className="relative flex flex-1 flex-col h-full min-h-0 text-foreground"
+        >
+          <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <div className="agent-empty-state sr-only" aria-busy="true">
+              Loading chat...
+            </div>
+          </div>
+          {composerSlot}
+          <div
+            className={cn(
+              "agent-composer-area shrink-0 px-3 py-2",
+              composerLayoutVariant !== "default" &&
+                `agent-composer-area--${composerLayoutVariant}`,
+              composerAreaClassName,
+            )}
+          >
+            <div
+              className={cn(
+                "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                composerLayoutVariant !== "default" &&
+                  `agent-composer-root--${composerLayoutVariant}`,
+              )}
+            >
+              <div className="px-3 pt-3">
+                <div className="h-5 w-3/5 rounded bg-muted animate-pulse" />
+              </div>
+              <div className="mt-auto flex items-center gap-2 px-3 py-2">
+                <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse" />
+                <div className="h-7 w-7 rounded-md bg-muted animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {renderHeader ? renderHeader(stubProps) : null}
@@ -467,6 +521,8 @@ export interface AgentPanelProps extends Omit<
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
+  /** Keep chat thread selection in URL state. */
+  threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
   /** Show the chat thread tab row when the panel header is hidden. Default: true. */
@@ -585,6 +641,7 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   browserTabId,
+  threadUrlSync,
   chatNotice,
   showTabBar = true,
   codeAccess,
@@ -1021,6 +1078,18 @@ function AgentPanelInner({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+            {onCollapse && (
+              <>
+                <DropdownMenuItem onSelect={onCollapse}>
+                  <IconLayoutSidebarRightCollapse
+                    size={14}
+                    className="shrink-0"
+                  />
+                  Collapse sidebar
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem onSelect={toggleHistory}>
                 <IconHistory size={14} className="shrink-0" />
@@ -1080,15 +1149,6 @@ function AgentPanelInner({
                   <IconArrowsMaximize size={14} className="shrink-0" />
                 )}
                 {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              </DropdownMenuItem>
-            )}
-            {onCollapse && (
-              <DropdownMenuItem onSelect={onCollapse}>
-                <IconLayoutSidebarRightCollapse
-                  size={14}
-                  className="shrink-0"
-                />
-                Collapse sidebar
               </DropdownMenuItem>
             )}
             {((mode === "chat" && activeTabId) ||
@@ -1507,6 +1567,12 @@ function AgentPanelInner({
             fallback={
               <ChatLoadingSkeleton
                 renderHeader={showHeader ? renderChatHeader : undefined}
+                centerComposerWhenEmpty={
+                  assistantChatProps.centerComposerWhenEmpty
+                }
+                composerSlot={assistantChatProps.composerSlot}
+                composerAreaClassName={assistantChatProps.composerAreaClassName}
+                composerLayoutVariant={assistantChatProps.composerLayoutVariant}
               />
             }
           >
@@ -1529,6 +1595,7 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               browserTabId={browserTabId}
+              threadUrlSync={threadUrlSync}
             />
           </Suspense>
         )}
@@ -2180,6 +2247,8 @@ export interface AgentSidebarProps {
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
+  /** Keep chat thread selection in URL state. */
+  threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
 }
 
 /**
@@ -2202,6 +2271,7 @@ export function AgentSidebar({
   onFullscreenRequest,
   scope,
   browserTabId,
+  threadUrlSync,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() =>
@@ -2670,6 +2740,7 @@ export function AgentSidebar({
           storageKey={storageKey}
           scope={scope}
           browserTabId={browserTabId}
+          threadUrlSync={threadUrlSync}
         />
       </div>
       {showResizeHandle && isLeft && (

@@ -10,8 +10,14 @@ import {
   IconUpload,
   IconAlertTriangle,
   IconLogout,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   agentNativePath,
   isInBuilderFrame,
@@ -21,7 +27,9 @@ import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
+  useGoogleDesktopAuth,
   useDisconnectGoogle,
+  type DesktopAuthIssue,
 } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
@@ -66,15 +74,6 @@ interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
 
-interface DesktopAuthIssue {
-  error?: string;
-  message?: string;
-  code?: string;
-  accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
-}
-
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
@@ -93,75 +92,22 @@ export function GoogleConnectBanner({
   const hasAccounts = accounts.length > 0;
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
-  const useDesktopAuth = useMemo(
-    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
-    [isBuilderFrame],
-  );
-  const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onError: setDesktopAuthIssue,
+    onSuccess: () => window.location.reload(),
+  });
   useEffect(() => {
     return () => {
-      if (desktopPollRef.current) clearInterval(desktopPollRef.current);
       if (authPollRef.current) clearInterval(authPollRef.current);
       if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
-
-  function signInViaDesktopBrowser(addAccount = false) {
-    setDesktopAuthIssue(null);
-    const flowId =
-      crypto.randomUUID?.() ||
-      Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const origin = window.location.origin;
-    const endpoint = addAccount
-      ? "/_agent-native/google/add-account/auth-url"
-      : "/_agent-native/google/auth-url";
-    const redirectUri = encodeURIComponent(
-      oauthRedirectUri("/_agent-native/google/callback"),
-    );
-    window.open(
-      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-      "_blank",
-    );
-    const start = Date.now();
-    if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-    desktopPollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-          ),
-        );
-        const data = await res.json();
-        if (data?.error) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          setDesktopAuthIssue(data);
-        } else if (data?.token) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          await fetch(
-            agentNativePath(
-              `/_agent-native/auth/session?_session=${data.token}`,
-            ),
-            {
-              credentials: "include",
-            },
-          );
-          window.location.reload();
-        } else if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      } catch {
-        if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      }
-    }, 1500);
-  }
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -293,16 +239,19 @@ export function GoogleConnectBanner({
 
   function handleConnect() {
     setDesktopAuthIssue(null);
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser();
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({ previousAccountCount: accounts.length });
       return;
     }
     setWantAuthUrl(true);
   }
 
   function handleAddAccount() {
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser(true);
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        addAccount: true,
+        previousAccountCount: accounts.length,
+      });
       return;
     }
     setWantAddAccount(true);
@@ -377,7 +326,11 @@ export function GoogleConnectBanner({
           size="sm"
           className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
           onClick={handleConnect}
-          disabled={authUrl.isLoading || authUrl.isFetching}
+          disabled={
+            authUrl.isLoading ||
+            authUrl.isFetching ||
+            isGoogleDesktopAuthPending
+          }
         >
           <GoogleIcon className="h-3.5 w-3.5" />
           {authUrl.isLoading
@@ -388,6 +341,8 @@ export function GoogleConnectBanner({
                 ? "Connect Google"
                 : "Connect Google"}
         </Button>
+
+        <GoogleVerificationNotice className="mt-3" />
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -458,7 +413,11 @@ export function GoogleConnectBanner({
             ))}
             <button
               onClick={handleAddAccount}
-              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+              disabled={
+                addAccountUrl.isLoading ||
+                addAccountUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
               className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
             >
               + Add account
@@ -488,15 +447,18 @@ export function GoogleConnectBanner({
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
       <div className="flex items-center justify-between gap-3 px-4 py-2">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/[0.06]">
             <IconCalendarCheck className="h-3 w-3 text-white/40" />
           </div>
-          <p className="text-[13px] font-medium leading-tight text-foreground/80">
-            {allConfigured
-              ? "Ready to connect — sign in with your Google account"
-              : "Connect Google to sync your calendar"}
-          </p>
+          <div className="flex min-w-0 flex-col">
+            <p className="text-[13px] font-medium leading-tight text-foreground/80">
+              {allConfigured
+                ? "Ready to connect — sign in with your Google account"
+                : "Connect Google to sync your calendar"}
+            </p>
+            <GoogleVerificationNotice className="mt-0.5" />
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
@@ -515,7 +477,11 @@ export function GoogleConnectBanner({
               size="sm"
               className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
               <GoogleIcon className="h-3 w-3" />
               {authUrl.isLoading ? "Connecting..." : "Sign in with Google"}
@@ -526,7 +492,11 @@ export function GoogleConnectBanner({
               variant="outline"
               className="gap-1.5 text-xs h-7 font-medium"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
               {authUrl.isLoading ? "..." : "Connect Google"}
             </Button>
@@ -572,6 +542,49 @@ export function GoogleConnectBanner({
         </div>
       )}
     </div>
+  );
+}
+
+// Heads-up popover: Google shows a "hasn't verified this app" warning during
+// the OAuth consent flow because the connection runs through the user's own
+// Google Cloud project (External + Testing), not a Google-reviewed public app.
+// This explains that the warning is expected and how to safely continue.
+function GoogleVerificationNotice({ className = "" }: { className?: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground ${className}`}
+        >
+          <IconInfoCircle className="h-3 w-3" />
+          Google may show a warning
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-72 text-left">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+            <IconAlertTriangle className="h-3.5 w-3.5" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-foreground">
+              “Google hasn’t verified this app”
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              You’ll see this screen because the calendar connects through your
+              own Google Cloud project, not a Google-reviewed public app. It’s
+              safe to continue: click{" "}
+              <span className="font-medium text-foreground">Advanced</span>,
+              then{" "}
+              <span className="font-medium text-foreground">
+                “Go to … (unsafe)”
+              </span>{" "}
+              to finish connecting.
+            </p>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

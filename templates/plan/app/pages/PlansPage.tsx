@@ -68,6 +68,7 @@ import {
   useAgentEngineConfigured,
   useActionQuery,
   useSession,
+  track,
   emailToColor,
   emailToName,
   type AgentSidebarStateChangeDetail,
@@ -219,6 +220,11 @@ import {
   type PlanVersionDetail,
   type PlanVersionSummary,
 } from "@shared/types";
+import {
+  PLAN_SHARE_SURFACE,
+  readPlanShareAttribution,
+  withPlanShareAttribution,
+} from "@shared/share-attribution";
 import {
   diffPlanVersions,
   formatVersionDiffSummary,
@@ -3783,13 +3789,92 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     if (!selectedId) return undefined;
     const base = bundle?.plan.kind === "recap" ? "recaps" : "plans";
-    return `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
+    const url = `${window.location.origin}${appPath(`/${base}/${selectedId}`)}`;
+    // Viral attribution: tag the shared/public plan link so signups arriving
+    // from it can be attributed even when `document.referrer` is empty. `via`
+    // is a non-PII owner id and is only set when the current viewer is the
+    // owner (the only person whose session userId is the plan owner's id).
+    const ownerViaId =
+      effectivePlanAccessRole === "owner" ? (session?.userId ?? null) : null;
+    return withPlanShareAttribution(url, ownerViaId);
   }, [
     bundle?.plan.kind,
+    effectivePlanAccessRole,
     localPlanMode,
     localPlanRepoPath,
     localPlanSlug,
     selectedId,
+    session?.userId,
+  ]);
+
+  // Viral attribution: read the `ref`/`via` the visitor arrived on (from a
+  // tagged share link) so funnel events carry the same attribution the
+  // framework first-touch cookie captured. Read once from the URL on mount.
+  const shareAttribution = useMemo(
+    () =>
+      readPlanShareAttribution(
+        typeof window === "undefined" ? "" : window.location.search,
+      ),
+    [],
+  );
+
+  // A logged-out visitor looking at a public plan/recap is the share funnel
+  // audience. Their CTAs (comment, sign in) route through `openSignIn`.
+  const isLoggedOutPublicPlanView =
+    !sessionLoading &&
+    !session &&
+    !localPlanMode &&
+    Boolean(selectedId) &&
+    effectivePlanVisibility === "public";
+
+  // share_cta_click — fire alongside (never instead of) the real navigation.
+  // `track` is non-throwing, but guard anyway so analytics can never break a
+  // CTA. Only fires for the logged-out public-plan funnel audience.
+  const fireShareCtaClick = useCallback(
+    (cta: string) => {
+      if (!isLoggedOutPublicPlanView) return;
+      try {
+        void track("share_cta_click", {
+          surface: PLAN_SHARE_SURFACE,
+          plan_id: selectedId ?? "",
+          cta,
+          ref: shareAttribution.ref,
+          via: shareAttribution.via,
+        });
+      } catch {
+        // Never let analytics break a CTA.
+      }
+    },
+    [
+      isLoggedOutPublicPlanView,
+      selectedId,
+      shareAttribution.ref,
+      shareAttribution.via,
+    ],
+  );
+
+  // share_view — fire once when a logged-out visitor views a public plan. The
+  // ref guard prevents double-fire across re-renders / StrictMode double-invoke.
+  const shareViewFiredRef = useRef(false);
+  useEffect(() => {
+    if (!isLoggedOutPublicPlanView) return;
+    if (shareViewFiredRef.current) return;
+    shareViewFiredRef.current = true;
+    try {
+      void track("share_view", {
+        surface: PLAN_SHARE_SURFACE,
+        plan_id: selectedId ?? "",
+        ref: shareAttribution.ref,
+        via: shareAttribution.via,
+      });
+    } catch {
+      // Never let analytics break the page render.
+    }
+  }, [
+    isLoggedOutPublicPlanView,
+    selectedId,
+    shareAttribution.ref,
+    shareAttribution.via,
   ]);
 
   useEffect(() => {
@@ -5474,6 +5559,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
+              viewerEmail={session?.email ?? null}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
               onArchive={handleArchivePlan}
@@ -6226,11 +6312,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   {!session ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
-                      onSignIn={() =>
+                      onSignIn={() => {
+                        // share funnel: logged-out viewer of a public plan
+                        // clicking the "create account to comment" CTA.
+                        fireShareCtaClick("comment_signin");
                         openSignIn(
                           window.location.pathname + window.location.search,
-                        )
-                      }
+                        );
+                      }}
                       onCancel={closeInlineComment}
                     />
                   ) : (
@@ -6668,9 +6757,12 @@ function PlanShareControl({
     effectivePublishedUrl && hostedPlanOnCurrentOrigin && effectiveHostedPlanId
       ? effectiveHostedPlanId
       : planId;
+  // Viral attribution: the owner is the one publishing/managing the share here,
+  // so `via` is their non-PII session userId. `localShareUrl` is already tagged
+  // upstream; tag the hosted/public URL too so both paths self-attribute.
   const managedShareUrl =
     effectivePublishedUrl && hostedPlanOnCurrentOrigin
-      ? effectivePublishedUrl
+      ? withPlanShareAttribution(effectivePublishedUrl, session?.userId ?? null)
       : localShareUrl;
 
   useEffect(() => {
@@ -6712,11 +6804,20 @@ function PlanShareControl({
             hostedPlanId: result.hostedPlanId,
           });
           setAuthPrompt(null);
-          copyPublishedUrl(result.hostedPlanUrl ?? result.url);
+          // Tag the freshly-minted public link so signups from it are
+          // attributed. The publisher is the owner, so `via` is their userId.
+          copyPublishedUrl(
+            withPlanShareAttribution(
+              result.hostedPlanUrl ?? result.url,
+              session?.userId ?? null,
+            ) ??
+              result.hostedPlanUrl ??
+              result.url,
+          );
         },
       },
     );
-  }, [copyPublishedUrl, planId, publishPlan]);
+  }, [copyPublishedUrl, planId, publishPlan, session?.userId]);
 
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
@@ -6937,7 +7038,7 @@ const PLAN_SKELETON_FILL = {
 function PlanCanvasSkeleton() {
   return (
     <section
-      className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
+      className="plan-canvas relative flex min-h-[65vh] flex-col overflow-hidden border-b border-plan-line"
       aria-hidden="true"
     >
       <div
@@ -6957,13 +7058,17 @@ function PlanCanvasSkeleton() {
         <PlanSkeletonIcon />
       </div>
 
-      <div className="absolute inset-x-4 bottom-20 top-24 mx-auto flex max-w-5xl items-center gap-7 overflow-hidden px-1 sm:px-6">
-        <div className="min-w-0 flex-[1_1_44rem]">
-          <DesktopArtboardSkeleton />
-        </div>
+      {/* Normal flow + flex-1 so the canvas grows to contain the artboards on
+          short viewports (the surface scrolls) instead of clipping them. */}
+      <div className="relative z-0 flex flex-1 items-center justify-center px-4 py-16 sm:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-7">
+          <div className="min-w-0 flex-[1_1_44rem]">
+            <DesktopArtboardSkeleton />
+          </div>
 
-        <div className="hidden w-[15rem] shrink-0 lg:block">
-          <PhoneArtboardSkeleton />
+          <div className="hidden w-[15rem] shrink-0 lg:block">
+            <PhoneArtboardSkeleton />
+          </div>
         </div>
       </div>
 
@@ -7838,6 +7943,7 @@ type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 function PlansOverview({
   plans,
   isLoading,
+  viewerEmail,
   onCreate,
   canCreate,
   onArchive,
@@ -7847,6 +7953,7 @@ function PlansOverview({
 }: {
   plans: PlanSummary[];
   isLoading: boolean;
+  viewerEmail?: string | null;
   onCreate: () => void;
   canCreate: boolean;
   onArchive: (planId: string, archived: boolean) => void;
@@ -7856,6 +7963,7 @@ function PlansOverview({
 }) {
   const [filter, setFilter] = useState<OverviewFilter>("all");
   const [search, setSearch] = useState("");
+  const [author, setAuthor] = useState<string>("all");
 
   if (isLoading) {
     return <PlansOverviewSkeleton />;
@@ -7866,13 +7974,41 @@ function PlansOverview({
 
   const activePlans = plans.filter((p) => !p.deletedAt);
   const deletedPlans = plans.filter((p) => p.deletedAt);
+  const ownedEmail = plans.find((p) => p.canDelete)?.ownerEmail?.trim() || null;
+  const normalizedViewerEmail =
+    (ownedEmail ?? viewerEmail)?.trim().toLowerCase() || null;
+  const authorEmails = Array.from(
+    new Set(
+      plans
+        .map((p) => p.ownerEmail?.trim())
+        .filter((email): email is string => Boolean(email)),
+    ),
+  ).sort((a, b) => emailToName(a).localeCompare(emailToName(b)));
+  const hasMine =
+    normalizedViewerEmail !== null &&
+    authorEmails.some((email) => email.toLowerCase() === normalizedViewerEmail);
   const visibleBeforeSearch = plans.filter((p) => {
-    if (filter === "deleted") return Boolean(p.deletedAt);
-    if (p.deletedAt) return false;
-    if (filter === "archived") return p.status === "archived";
-    if (p.status === "archived") return false;
-    if (filter === "plans") return p.kind === "plan";
-    if (filter === "recaps") return p.kind === "recap";
+    if (filter === "deleted") {
+      if (!p.deletedAt) return false;
+    } else {
+      if (p.deletedAt) return false;
+      if (filter === "archived") {
+        if (p.status !== "archived") return false;
+      } else {
+        if (p.status === "archived") return false;
+        if (filter === "plans" && p.kind !== "plan") return false;
+        if (filter === "recaps" && p.kind !== "recap") return false;
+      }
+    }
+    if (author === "me") {
+      return Boolean(
+        normalizedViewerEmail &&
+        p.ownerEmail?.trim().toLowerCase() === normalizedViewerEmail,
+      );
+    }
+    if (author !== "all") {
+      return p.ownerEmail?.trim() === author;
+    }
     return true;
   });
 
@@ -7930,6 +8066,31 @@ function PlansOverview({
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+
+            {authorEmails.length > 1 && (
+              <Select value={author} onValueChange={setAuthor}>
+                <SelectTrigger className="h-9 w-[170px] text-sm">
+                  <SelectValue placeholder="Created by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All authors</SelectItem>
+                  {hasMine && <SelectItem value="me">Me</SelectItem>}
+                  {authorEmails
+                    .filter(
+                      (email) =>
+                        !(
+                          hasMine &&
+                          email.toLowerCase() === normalizedViewerEmail
+                        ),
+                    )
+                    .map((email) => (
+                      <SelectItem key={email} value={email}>
+                        {emailToName(email)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <div className="relative min-w-0 flex-1">
               <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -8002,6 +8163,33 @@ function PlansOverview({
                         </>
                       ) : null}
                       {!isDeleted && <span>{shortDate(plan.updatedAt)}</span>}
+                      {plan.ownerEmail && (
+                        <>
+                          <span>·</span>
+                          <span
+                            className="flex min-w-0 items-center gap-1.5"
+                            title={plan.ownerEmail}
+                          >
+                            <Avatar className="size-5">
+                              <AvatarFallback
+                                className="text-[9px] font-semibold text-white"
+                                style={{
+                                  backgroundColor: emailToColor(
+                                    plan.ownerEmail,
+                                  ),
+                                }}
+                              >
+                                {commentAuthorInitials(
+                                  emailToName(plan.ownerEmail),
+                                )}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="truncate">
+                              {emailToName(plan.ownerEmail)}
+                            </span>
+                          </span>
+                        </>
+                      )}
                     </div>
                   </>
                 );
@@ -8181,6 +8369,12 @@ function PlanHistorySheet({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null,
   );
+  // Version id pending a confirm before restore. Set from the per-row "Restore
+  // this version" action in the list so restore is reachable without first
+  // opening the detail preview.
+  const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
+    null,
+  );
   const versionsQuery = usePlanVersions(planId, open);
   const versionQuery = usePlanVersion(open ? planId : null, selectedVersionId);
   const restoreVersion = useRestorePlanVersion();
@@ -8213,14 +8407,12 @@ function PlanHistorySheet({
     onOpenChange(nextOpen);
   };
 
-  const restoreSelectedVersion = async () => {
-    if (!selectedVersionId) return;
+  const restoreVersionById = async (versionId: string | null) => {
+    if (!versionId) return;
     try {
-      await restoreVersion.mutateAsync({
-        planId,
-        versionId: selectedVersionId,
-      });
+      await restoreVersion.mutateAsync({ planId, versionId });
       toast.success("Plan version restored.");
+      setRestoreCandidateId(null);
       close(false);
     } catch (error) {
       toast.error(
@@ -8230,209 +8422,279 @@ function PlanHistorySheet({
       );
     }
   };
+  const restoreCandidate =
+    versions.find((version) => version.id === restoreCandidateId) ?? null;
 
   return (
-    <Sheet open={open} onOpenChange={close}>
-      <SheetContent side="right" className="w-[92vw] max-w-[720px] p-0">
-        <SheetHeader className="px-4 pt-4 pb-0">
-          <SheetTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-            {selectedVersionId ? (
-              <button
-                type="button"
-                onClick={() => setSelectedVersionId(null)}
-                className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <IconArrowLeft className="size-4" />
-                <span>Back to history</span>
-              </button>
-            ) : (
-              <>
-                <IconHistory className="size-4 text-primary" />
-                <span>Plan history</span>
-              </>
-            )}
-          </SheetTitle>
-          <SheetDescription className="sr-only">
-            Browse saved plan versions and restore a previous snapshot.
-          </SheetDescription>
-        </SheetHeader>
-        <Separator className="mt-3" />
-
-        {selectedVersionId ? (
-          <div className="flex h-[calc(100%-60px)] min-h-0 flex-col">
-            <div className="border-b border-border px-4 py-3">
-              {versionQuery.isLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-2/3" />
-                  <Skeleton className="h-3 w-1/3" />
-                </div>
+    <>
+      <Sheet open={open} onOpenChange={close}>
+        <SheetContent side="right" className="w-[92vw] max-w-[720px] p-0">
+          <SheetHeader className="px-4 pt-4 pb-0">
+            <SheetTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              {selectedVersionId ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedVersionId(null)}
+                  className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <IconArrowLeft className="size-4" />
+                  <span>Back to history</span>
+                </button>
               ) : (
                 <>
-                  <p className="truncate text-sm font-medium">
-                    {selectedVersion?.title || "Untitled plan"}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {selectedVersion
-                      ? `${shortDate(selectedVersion.createdAt)} · ${planVersionSurfaceLabel(selectedVersion)}`
-                      : "Snapshot unavailable"}
-                  </p>
+                  <IconHistory className="size-4 text-primary" />
+                  <span>Plan history</span>
                 </>
               )}
-            </div>
-            <ScrollArea className="min-h-0 flex-1 bg-plan-document">
-              {versionQuery.isLoading ? (
-                <div className="space-y-3 p-4">
-                  <Skeleton className="h-48 w-full rounded-lg" />
-                  <Skeleton className="h-28 w-full rounded-lg" />
-                  <Skeleton className="h-28 w-full rounded-lg" />
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              Browse saved plan versions and restore a previous snapshot.
+            </SheetDescription>
+          </SheetHeader>
+          <Separator className="mt-3" />
+
+          {selectedVersionId ? (
+            <div className="flex h-[calc(100%-60px)] min-h-0 flex-col">
+              <div className="border-b border-border px-4 py-3">
+                {versionQuery.isLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium">
+                      {selectedVersion?.title || "Untitled plan"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {selectedVersion
+                        ? `${shortDate(selectedVersion.createdAt)} · ${planVersionSurfaceLabel(selectedVersion)}`
+                        : "Snapshot unavailable"}
+                    </p>
+                  </>
+                )}
+              </div>
+              <ScrollArea className="min-h-0 flex-1 bg-plan-document">
+                {versionQuery.isLoading ? (
+                  <div className="space-y-3 p-4">
+                    <Skeleton className="h-48 w-full rounded-lg" />
+                    <Skeleton className="h-28 w-full rounded-lg" />
+                    <Skeleton className="h-28 w-full rounded-lg" />
+                  </div>
+                ) : selectedVersion?.plan.content ? (
+                  <PlanContentRenderer
+                    content={selectedVersion.plan.content}
+                    fallbackTitle={selectedVersion.plan.title}
+                    fallbackBrief={selectedVersion.plan.brief}
+                    contentUpdatedAt={selectedVersion.plan.updatedAt}
+                    editingDisabled
+                    isRecap={selectedVersion.plan.kind === "recap"}
+                    planId={null}
+                  />
+                ) : selectedVersion?.html ? (
+                  <iframe
+                    title="Plan version preview"
+                    srcDoc={selectedVersion.html}
+                    // Stored plan HTML is agent-authored and may carry
+                    // prompt-injected markup. Match the main document iframe
+                    // (search "allow-forms allow-scripts"): run scripts only in
+                    // an opaque origin — never allow-same-origin — so a malicious
+                    // snapshot cannot reach the app origin's cookies, DOM, or
+                    // actions.
+                    sandbox="allow-forms allow-scripts"
+                    className="h-[calc(100vh-142px)] w-full border-0 bg-background"
+                  />
+                ) : (
+                  <div className="px-6 py-14 text-center text-sm text-muted-foreground">
+                    This snapshot has no previewable content.
+                  </div>
+                )}
+              </ScrollArea>
+              {canRestore ? (
+                <div className="border-t border-border p-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    onClick={() => void restoreVersionById(selectedVersionId)}
+                    disabled={
+                      restoreVersion.isPending || versionQuery.isLoading
+                    }
+                  >
+                    {restoreVersion.isPending ? (
+                      <IconLoader2 className="size-4 animate-spin" />
+                    ) : (
+                      <IconRestore className="size-4" />
+                    )}
+                    Restore this version
+                  </Button>
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                    Your current version is saved to history first.
+                  </p>
                 </div>
-              ) : selectedVersion?.plan.content ? (
-                <PlanContentRenderer
-                  content={selectedVersion.plan.content}
-                  fallbackTitle={selectedVersion.plan.title}
-                  fallbackBrief={selectedVersion.plan.brief}
-                  contentUpdatedAt={selectedVersion.plan.updatedAt}
-                  editingDisabled
-                  isRecap={selectedVersion.plan.kind === "recap"}
-                  planId={null}
-                />
-              ) : selectedVersion?.html ? (
-                <iframe
-                  title="Plan version preview"
-                  srcDoc={selectedVersion.html}
-                  // Stored plan HTML is agent-authored and may carry
-                  // prompt-injected markup. Match the main document iframe
-                  // (search "allow-forms allow-scripts"): run scripts only in
-                  // an opaque origin — never allow-same-origin — so a malicious
-                  // snapshot cannot reach the app origin's cookies, DOM, or
-                  // actions.
-                  sandbox="allow-forms allow-scripts"
-                  className="h-[calc(100vh-142px)] w-full border-0 bg-background"
-                />
+              ) : null}
+            </div>
+          ) : (
+            <ScrollArea className="h-[calc(100%-60px)]">
+              {versionsQuery.isLoading ? (
+                <div className="space-y-2 p-3">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <Skeleton key={index} className="h-20 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : versions.length ? (
+                <div className="p-2">
+                  {versions.map((version, index) => {
+                    // Compute a diff summary when both this version and its
+                    // predecessor have been loaded into the cache. Versions are
+                    // ordered newest-first, so index+1 is the older snapshot.
+                    // The oldest entry (no predecessor) shows "Initial version".
+                    const cache = versionDetailCache.current;
+                    const thisDetail = cache.get(version.id);
+                    const olderVersion = versions[index + 1];
+                    const olderDetail = olderVersion
+                      ? cache.get(olderVersion.id)
+                      : undefined;
+                    // Show a diff when: this version's detail is loaded AND
+                    // (it's the oldest OR the older neighbour's detail is loaded).
+                    const isOldest = index === versions.length - 1;
+                    const diffSummary =
+                      thisDetail && (isOldest || olderDetail)
+                        ? formatVersionDiffSummary(
+                            diffPlanVersions(
+                              {
+                                content: thisDetail.plan.content,
+                                sections: thisDetail.sections,
+                                html: thisDetail.html,
+                              },
+                              isOldest
+                                ? null
+                                : {
+                                    content: olderDetail!.plan.content,
+                                    sections: olderDetail!.sections,
+                                    html: olderDetail!.html,
+                                  },
+                            ),
+                          )
+                        : null;
+
+                    return (
+                      <div
+                        key={version.id}
+                        className="group relative rounded-lg transition-colors hover:bg-accent"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedVersionId(version.id)}
+                          className="w-full rounded-lg px-3 py-2.5 text-left"
+                        >
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/45">
+                              <IconHistory className="size-4 text-muted-foreground" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-2 pr-7">
+                                <p className="truncate text-sm font-medium">
+                                  {version.title || "Untitled plan"}
+                                </p>
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  {planVersionSurfaceLabel(version)}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {shortDate(version.createdAt)}
+                                {version.label ? ` · ${version.label}` : ""}
+                              </p>
+                              {diffSummary ? (
+                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+                                  {diffSummary}
+                                </p>
+                              ) : version.preview ? (
+                                <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
+                                  {version.preview}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                        {canRestore ? (
+                          <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  aria-label="Version actions"
+                                >
+                                  <IconDots className="size-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-52">
+                                <DropdownMenuItem
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setRestoreCandidateId(version.id);
+                                  }}
+                                >
+                                  <IconRestore className="size-4" />
+                                  Restore this version
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="px-6 py-14 text-center text-sm text-muted-foreground">
-                  This snapshot has no previewable content.
+                <div className="px-6 py-14 text-center">
+                  <IconHistory className="mx-auto mb-3 size-6 text-muted-foreground/60" />
+                  <p className="text-sm font-medium">No saved versions yet</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Versions are saved automatically before future plan edits.
+                  </p>
                 </div>
               )}
             </ScrollArea>
-            {canRestore ? (
-              <div className="border-t border-border p-3">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={() => void restoreSelectedVersion()}
-                  disabled={restoreVersion.isPending || versionQuery.isLoading}
-                >
-                  {restoreVersion.isPending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : (
-                    <IconRestore className="size-4" />
-                  )}
-                  Restore this version
-                </Button>
-                <p className="mt-2 text-center text-[11px] text-muted-foreground">
-                  Your current version is saved to history first.
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <ScrollArea className="h-[calc(100%-60px)]">
-            {versionsQuery.isLoading ? (
-              <div className="space-y-2 p-3">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <Skeleton key={index} className="h-20 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : versions.length ? (
-              <div className="p-2">
-                {versions.map((version, index) => {
-                  // Compute a diff summary when both this version and its
-                  // predecessor have been loaded into the cache. Versions are
-                  // ordered newest-first, so index+1 is the older snapshot.
-                  // The oldest entry (no predecessor) shows "Initial version".
-                  const cache = versionDetailCache.current;
-                  const thisDetail = cache.get(version.id);
-                  const olderVersion = versions[index + 1];
-                  const olderDetail = olderVersion
-                    ? cache.get(olderVersion.id)
-                    : undefined;
-                  // Show a diff when: this version's detail is loaded AND
-                  // (it's the oldest OR the older neighbour's detail is loaded).
-                  const isOldest = index === versions.length - 1;
-                  const diffSummary =
-                    thisDetail && (isOldest || olderDetail)
-                      ? formatVersionDiffSummary(
-                          diffPlanVersions(
-                            {
-                              content: thisDetail.plan.content,
-                              sections: thisDetail.sections,
-                              html: thisDetail.html,
-                            },
-                            isOldest
-                              ? null
-                              : {
-                                  content: olderDetail!.plan.content,
-                                  sections: olderDetail!.sections,
-                                  html: olderDetail!.html,
-                                },
-                          ),
-                        )
-                      : null;
-
-                  return (
-                    <button
-                      key={version.id}
-                      type="button"
-                      onClick={() => setSelectedVersionId(version.id)}
-                      className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
-                    >
-                      <div className="flex min-w-0 items-start gap-3">
-                        <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/45">
-                          <IconHistory className="size-4 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <p className="truncate text-sm font-medium">
-                              {version.title || "Untitled plan"}
-                            </p>
-                            <span className="shrink-0 text-[10px] text-muted-foreground">
-                              {planVersionSurfaceLabel(version)}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {shortDate(version.createdAt)}
-                            {version.label ? ` · ${version.label}` : ""}
-                          </p>
-                          {diffSummary ? (
-                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
-                              {diffSummary}
-                            </p>
-                          ) : version.preview ? (
-                            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
-                              {version.preview}
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="px-6 py-14 text-center">
-                <IconHistory className="mx-auto mb-3 size-6 text-muted-foreground/60" />
-                <p className="text-sm font-medium">No saved versions yet</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Versions are saved automatically before future plan edits.
-                </p>
-              </div>
-            )}
-          </ScrollArea>
-        )}
-      </SheetContent>
-    </Sheet>
+          )}
+        </SheetContent>
+      </Sheet>
+      <AlertDialog
+        open={Boolean(restoreCandidateId)}
+        onOpenChange={(next) => {
+          if (!next) setRestoreCandidateId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This replaces the current plan with the snapshot
+              {restoreCandidate
+                ? ` from ${shortDate(restoreCandidate.createdAt)}`
+                : ""}
+              . Your current version is saved to history first, so you can undo
+              this.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreVersion.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void restoreVersionById(restoreCandidateId);
+              }}
+              disabled={restoreVersion.isPending}
+            >
+              {restoreVersion.isPending ? "Restoring…" : "Restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

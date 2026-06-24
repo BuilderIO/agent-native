@@ -122,7 +122,8 @@ cd templates/content && pnpm action <name> [args]
 | `configure-document-property`               | `--documentId <id> [--id <propertyId>] --name <name> --type <type> [--visibility always_show\|hide_when_empty\|always_hide]`             | Create or update a property definition                                                                                                  |
 | `duplicate-document-property`               | `--documentId <id> --propertyId <propertyId>`                                                                                            | Duplicate a property definition and its stored values                                                                                   |
 | `delete-document-property`                  | `--documentId <id> --propertyId <propertyId>`                                                                                            | Delete a property definition and its stored values                                                                                      |
-| `set-document-property`                     | `--documentId <id> --propertyId <propertyId> --value <json>`                                                                             | Set a document property value                                                                                                           |
+| `set-document-property`                     | `--documentId <id> --propertyId <propertyId> --value <json>`                                                                             | Set a document property value (for a `blocks` field, the value is its markdown content)                                                 |
+| `reorder-document-property`                 | `--documentId <id> --propertyId <propertyId> --targetPropertyId <id> [--position before\|after]`                                         | Reorder a property definition within its database (used to reorder Blocks fields on the page)                                           |
 | `set-document-discoverability`              | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                                                                 | Hide/show an org-accessible document in Organization/search while keeping link access                                                   |
 | `move-document`                             | `--id <id> [--parentId] [--position]`                                                                                                    | Move or reorder a document in the page tree                                                                                             |
 | `delete-document`                           | `--id <id>`                                                                                                                              | Delete with recursive children                                                                                                          |
@@ -413,10 +414,26 @@ Document properties are SQL-backed, Notion-style structured metadata rather
 than YAML embedded in the markdown body. Database property definitions support
 `text`, `number`, `select`, `multi_select`, `status`, `date`, `person`,
 `place`, `files_media` (`Files & media`), `checkbox`, `url`, `email`,
-`phone`, plus computed `formula`, `id`, `created_time`, `created_by`, and
+`phone`, `blocks` (Capacities-style rich-text body field), plus computed
+`formula`, `id`, `created_time`, `created_by`, and
 `last_edited_time`, `last_edited_by`, plus property visibility (`always_show`,
 `hide_when_empty`, `always_hide`). The value table stores per-row-document JSON
-values. Formula properties store their expression in property options and support
+values.
+
+**Blocks fields.** A `blocks` field is independent rich-text content per row —
+NOT YAML and NOT a pointer to the body. Every database is seeded with one
+primary "Content" Blocks field whose content is backed by `documents.content`
+(so it reuses the collaborative TipTap/Yjs body editor and existing data
+migrates for free). Each additional Blocks field stores its own content in
+`document_block_field_contents`, keyed by `(document_id, property_id)`, so no
+two Blocks fields ever share content — adding a second Blocks field creates a
+new, empty, independent field. On the page: one Blocks field renders chromeless
+(no header, just the body); two or more each show their name as a header and are
+collapsible and reorderable (the surviving lone field keeps its stored name).
+In table views a Blocks column shows a word count (e.g. "412 words"), not the
+body. A Blocks field can only be deleted from the database view's column menu
+(not from the page body); deleting the last Blocks field warns that it removes
+the body for every object of the type. Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
 Database views support multiple named table, list, gallery, board, calendar, and timeline views saved in
 `content_databases.view_config_json`. Each view has its own stacked sorts,

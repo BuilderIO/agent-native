@@ -233,7 +233,13 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // same wall. This used to send the chat into a 32-continuation runaway
     // (each turn cleared+regenerated visible content) for users hitting a
     // misbehaving Builder route. Surface the error instead.
-    code === "builder_gateway_error"
+    code === "builder_gateway_error" ||
+    // The hosted run exhausted its in-invocation continuation budget without
+    // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
+    // the recovery banner reads "stopped before finishing", but it must NOT
+    // auto-continue: another POST would hit the same ~40s wall and churn. The
+    // user retries deliberately (ideally as a single bulk action).
+    code === "run_budget_exhausted"
   ) {
     return false;
   }
@@ -355,6 +361,10 @@ export function processEvent(
       action: "yield",
       result: { content: [...content] } as ChatModelRunResult,
     };
+  }
+
+  if (ev.type === "stream_keepalive") {
+    return { action: "continue" };
   }
 
   if (ev.type === "activity") {
@@ -868,6 +878,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
+  onSeq?: (seq: number) => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -906,6 +917,10 @@ export async function readSSEStreamRaw(
         }
         sawDataEvent = true;
         lastMeaningfulEventAt = Date.now();
+
+        if (ev.seq !== undefined && onSeq) {
+          onSeq(ev.seq);
+        }
 
         const { action, autoContinue } = processEvent(
           ev,

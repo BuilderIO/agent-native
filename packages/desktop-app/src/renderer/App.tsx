@@ -135,6 +135,10 @@ export default function App() {
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
+  const [
+    pendingDesktopShortcutActivation,
+    setPendingDesktopShortcutActivation,
+  ] = useState<DesktopShortcutActivationRequest | null>(null);
 
   // Load apps from persistent store
   useEffect(() => {
@@ -324,6 +328,7 @@ export default function App() {
       const targetApp = enabledApps.find((app) => app.id === appId);
       if (!targetApp) return !loading;
 
+      window.electronAPI?.setActiveApp?.(appId);
       activateApp(appId);
       setShowSettings(false);
       setShowAddApp(false);
@@ -363,6 +368,32 @@ export default function App() {
   );
 
   useEffect(() => {
+    const bridge = {
+      getActiveAppId: () => activeSidebarAppId,
+      activate: (
+        request: DesktopShortcutActivationRequest,
+      ): DesktopShortcutActivationResult => {
+        const handled = handleDesktopOpenRequest(request);
+        const appId = handled ? request.app : undefined;
+        if (appId) {
+          window.electronAPI?.setActiveApp?.(appId);
+        }
+        return {
+          handled,
+          appId,
+          activeAppId: appId ?? activeSidebarAppId,
+        };
+      },
+    };
+    window.__agentNativeDesktopShortcutBridge = bridge;
+    return () => {
+      if (window.__agentNativeDesktopShortcutBridge === bridge) {
+        delete window.__agentNativeDesktopShortcutBridge;
+      }
+    };
+  }, [activeSidebarAppId, handleDesktopOpenRequest]);
+
+  useEffect(() => {
     if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
       return;
     }
@@ -392,6 +423,10 @@ export default function App() {
     },
     [activeSidebarAppId],
   );
+
+  const handleTabRefresh = useCallback((tabId: string) => {
+    webviewRefs.current.get(tabId)?.reload();
+  }, []);
 
   const handleTabClose = useCallback(
     (tabId: string) => {
@@ -662,11 +697,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const shortcutApi = window.electronAPI?.shortcuts;
+    if (!shortcutApi?.onActivate) return;
+    return shortcutApi.onActivate((request) => {
+      setPendingDesktopShortcutActivation(request);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!pendingDesktopOpenRequest) return;
     if (handleDesktopOpenRequest(pendingDesktopOpenRequest)) {
       setPendingDesktopOpenRequest(null);
     }
   }, [handleDesktopOpenRequest, pendingDesktopOpenRequest]);
+
+  useEffect(() => {
+    if (!pendingDesktopShortcutActivation) return;
+    const handled = handleDesktopOpenRequest(pendingDesktopShortcutActivation);
+    if (!handled) return;
+    const appId = pendingDesktopShortcutActivation.app;
+    if (appId) {
+      window.electronAPI?.setActiveApp?.(appId);
+    }
+    window.electronAPI?.shortcuts?.ackActivation(
+      pendingDesktopShortcutActivation.requestId,
+      appId,
+    );
+    setPendingDesktopShortcutActivation(null);
+  }, [handleDesktopOpenRequest, pendingDesktopShortcutActivation]);
 
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
@@ -822,6 +880,7 @@ export default function App() {
           }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
+          onTabRefresh={handleTabRefresh}
           onNewTab={handleNewTab}
         />
       )}

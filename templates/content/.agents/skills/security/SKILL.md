@@ -4,6 +4,7 @@ description: >-
   Secure coding practices for agent-native apps: input validation, SQL
   injection, XSS, secrets, data scoping, and auth. Use when writing any action,
   route, or component that touches user data or external input.
+scope: dev
 metadata:
   internal: true
 ---

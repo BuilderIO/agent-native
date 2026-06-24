@@ -1,5 +1,322 @@
 # @agent-native/core
 
+## 0.73.0
+
+### Minor Changes
+
+- d684bbf: Durable background agent runs are now **on by default** for hosted apps. Previously the `AGENT_CHAT_DURABLE_BACKGROUND` flag was opt-in (off unless set truthy); it is now opt-out — unset means enabled, and an app disables it with an explicit falsy value (`AGENT_CHAT_DURABLE_BACKGROUND=false`).
+
+  The gate still composes with the existing guards, so a run only goes durable when the runtime is hosted/serverless **and** `A2A_SECRET` is configured — local dev and unconfigured apps stay on the synchronous inline path unchanged. Default-on uses the server-driven agnostic continuation path (verified in prod: long multi-step runs complete past the 40s soft-timeout with no thrash and no int4 overflow). The Netlify 15-min `-background` function emit (`isDurableBackgroundDeployEnabled`) remains opt-in until its path is separately verified.
+
+### Patch Changes
+
+- d684bbf: Clarify the Clips "agent-readable clips" docs so the "see and hear" promise is
+  accurate: frame-viewing works in any image-capable agent (ChatGPT, Claude Code,
+  Cursor, Codex, MCP-connected agents), while text-only web chats fall back to the
+  transcript and can take an uploaded frame. Verified empirically — ChatGPT fetches
+  the JPEG frame URLs and describes the screen; claude.ai's web chat reads the
+  transcript only. Docs-only copy change; the agent-context/frame APIs are
+  unchanged.
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- d684bbf: Redesign the Google sign-in preflight notice on the onboarding/sign-in screen
+  to match the in-app connect popover: an amber warning-icon chip beside a bold
+  heading and muted body copy, with the close affordance moved to the top-right.
+  The `googleSignInNotice.body` already accepts a string array, so reassurance
+  like "It's safe to continue." now renders on its own line. The Continue /
+  Run-locally action buttons no longer wrap their labels (`white-space: nowrap`).
+  Purely presentational — the host-gating, Continue, and Run-locally behaviors are
+  unchanged.
+- d684bbf: Add a secondary hosted-app signup notice linking to the Agent-Native Terms and Privacy Policy.
+
+## 0.72.4
+
+### Patch Changes
+
+- 17b696f: Avoid credentialed cross-origin demo status checks from opaque embedded MCP app frames.
+- 17b696f: Mint a fresh MCP App embed session when cached host state contains an expired one-time embed ticket, and keep native MCP host shells alive so they can recover on refresh.
+- 17b696f: Handle asset picker selections from opaque MCP App parent frames and wait for native MCP host initialization before forwarding selected asset messages.
+- 17b696f: Inject per-request identity tokens for trusted first-party org-scoped remote MCP servers, preserving static headers for third-party remotes.
+- 17b696f: Bound MCP client connection and tools/list handshakes so stale org MCP servers do not stall dev-server startup after reloads.
+
+## 0.72.3
+
+### Patch Changes
+
+- 6605885: Add opt-in URL sync for durable chat threads and route chat-first templates (chat, assets, and Dispatch) through `/chat/:threadId` deep links.
+
+## 0.72.2
+
+### Patch Changes
+
+- cc21a1c: Build the audit-redaction test fixture from concatenated parts so Netlify's
+  secret scanner no longer flags a literal `sk-` token pattern and blocks the
+  deploy.
+
+## 0.72.1
+
+### Patch Changes
+
+- b2a5931: Fix `value "<ms epoch>" is out of range for type integer` aborting agent chat on
+  Postgres/Neon at the start of every turn.
+
+  The background-aware stale-run cutoff built SQL like
+  `COALESCE(heartbeat_at, started_at) >= (? - CASE WHEN dispatch_mode LIKE
+'background%' THEN 90000 ELSE 15000 END)` and bound `Date.now()` to the
+  parameter. Postgres infers an untyped parameter's type from its surrounding
+  expression, and because the `15000`/`90000` window literals are `int4`, it typed
+  the parameter as `int4` too — so a millisecond epoch like `1782295529106`
+  overflowed even though every column involved is already `BIGINT`. This is a
+  query-level type-inference bug, independent of column types, which is why the
+  `widenIntColumnsToBigInt()` shim could never fix it.
+
+  The cutoff now wraps the parameter in `CAST(? AS BIGINT)`, pinning it to int8 so
+  the subtraction stays 64-bit. SQLite treats `CAST(x AS BIGINT)` as INTEGER
+  affinity, so it is a no-op there. Fixes `tryClaimRunSlot`, `reapIfStale`,
+  `reapAllStaleRuns`, and `cleanupOldRuns`, which all share the cutoff.
+
+## 0.72.0
+
+### Minor Changes
+
+- 9a984f2: Add a framework audit log: a durable, complete, access-scoped, append-only record of who mutated what app data, when, from where, and — when it was the agent — in which run. Capture is automatic at the `defineAction` seam (default-on for mutating actions; read-only actions opt in via `audit.onRead`), with credential redaction, agent-vs-human actor attribution, and agent thread/turn linkage. Reads go through two new core actions every app inherits — `list-audit-events` and `get-audit-event` — scoped in SQL to the caller's identity and org. Stored in `agent_audit_log` (provider-agnostic), with a retention purge configurable via `AGENT_NATIVE_AUDIT_RETENTION_DAYS` (default 365) and a global kill switch `AGENT_NATIVE_AUDIT_ENABLED=false`. Distinct from observability (sampled telemetry) and tracking (fire-and-forget analytics).
+
+### Patch Changes
+
+- 9a984f2: Relax the default `Permissions-Policy` from `camera=()` to `camera=*` so media-capture UI is no longer blocked at the policy level. `camera=()` disabled the camera for the page **and every iframe inside it**, which broke same-page recording UI and the Clips browser extension's camera bubble (injected as a cross-origin iframe, so it can't be re-enabled per-frame). Microphone stays `self`, geolocation and wake-lock stay disabled, and the browser still gates actual camera/mic use behind a per-origin permission prompt — this only removes the policy-level block, not user consent.
+- 9a984f2: Fix a chat crash where the agent transcript could fail to render with
+  "MessageRepository(performOp/link): A message with the same id already exists in
+  the parent tree". Thread repositories whose message list contained a repeated id
+  (from optimistic+echo races, streaming reconnect replays, or multi-tab merges)
+  were imported into assistant-ui verbatim, and its `MessageRepository` throws on a
+  duplicate id. The import path now collapses duplicate ids to their most recent
+  copy before handing the repository to assistant-ui, so the throw can't occur. The
+  no-duplicate case is an exact no-op, leaving normal threads unchanged.
+- 9a984f2: Fix `value "<ms epoch>" is out of range for type integer` on long-lived
+  Postgres/Neon databases — most visibly, agent chat failing on **every** prompt.
+  Millisecond `Date.now()` timestamps are written into columns that, on databases
+  created before the Postgres BIGINT-compatibility shim, are physically 32-bit
+  `INTEGER` (int4, max 2,147,483,647); a millisecond epoch like `1782269273204`
+  overflows. The source had since switched to `BIGINT`, but `CREATE TABLE IF NOT
+EXISTS` can't re-type an existing column, so those databases kept the int4
+  column and writes kept failing (`insertRun()` runs at the start of every turn,
+  so the agent chat aborted as a `connection_error`).
+
+  Adds a `widenIntColumnsToBigInt()` helper (new module
+  `@agent-native/core/db/widen-columns`) that, on Postgres only, widens such
+  columns in place to `BIGINT` once via each store's existing `ensureTable()`
+  bootstrap. It is idempotent (only ALTERs columns still typed `integer`, so
+  already-bigint tables are never rewritten), non-destructive (int4 → int8
+  widening), and a no-op on SQLite. Applied to the millisecond-timestamp columns
+  of `agent_runs`, `agent_tool_ledger`, `chat_threads`, `application_state`,
+  `token_usage`, `settings`, `oauth_tokens`, `resources`, `sessions`, and
+  `custom_api_providers`. (`staged_datasets` already self-heals via its own
+  widener.)
+
+## 0.71.0
+
+### Minor Changes
+
+- 38266fc: Add opt-in durable background agent-chat runs (off by default, host-agnostic). Behind `AGENT_CHAT_DURABLE_BACKGROUND` (active only when hosted AND `A2A_SECRET` is set AND the flag is truthy), a long in-app agent-chat turn is routed through a server-driven background worker via the framework's portable self-dispatch instead of completing synchronously under the ~40s interactive soft-timeout: the foreground POST claims the run slot, inserts the run row, fires an HMAC-signed self-dispatch to a new `/_agent-native/agent-chat/_process-run` route, and returns the existing `subscribeToRun` SSE stream so the client streams the same events via the cross-isolate SQL-poll path with no client change. The background worker idempotently claims the run, runs the full multi-step loop to completion under a host-natural soft-timeout (`backgroundFunction` mode lifts the 40s clamp for that invocation only — the foreground/interactive clamp is unchanged), and chains a server-driven continuation if a chunk hits its budget unfinished. A background-aware stale window (`dispatch_mode`) prevents a cold-starting background run from being falsely reaped. With the flag off, the agent-chat run path is byte-for-byte the current synchronous behavior.
+
+  As a per-host optimization layered on the portable baseline, the Netlify deploy build emits a second function whose name ends in `-background` (re-exporting the same `main.mjs` handler bundle, with a `config.path` of the process-run route) so the `_process-run` POST runs on Netlify's async 15-minute budget and a long turn completes in one invocation; on that invocation the worker's soft-timeout is raised to ~13 min (`backgroundFunction` mode) instead of 40s. This emit is build-time gated on the same `AGENT_CHAT_DURABLE_BACKGROUND` flag for both the single-template (`deploy/build.ts`) and workspace (`deploy/workspace-deploy.ts`) deploy paths: when the flag is unset at build time the emit functions are never invoked, so the deploy output (functions, routing, config) is byte-identical to today and the default single-function deploy is unchanged.
+
+### Patch Changes
+
+- 38266fc: Move "Collapse sidebar" to the top of the agent panel's options menu (the `⋯` dropdown in the sidebar header), above All chats / Agent runs / Settings, with a separator below it. Makes the most common dismiss action the first item in the list.
+- 38266fc: Fix inline MCP App embeds being hard-killed on `resources/read`. The inline-embed kill switch was enforced inside the shared `resolveMcpAppResource` resolver, which also backs `resources/read` — so when a host read a `ui://` URI it already held (e.g. a cached descriptor) while embeds were disabled, it got a hard `-32603` instead of the shell. The switch is now enforced only at the advertisement/render sites (`tools/list` descriptor meta, `tools/call` result meta, `resources/list`), so disabled embeds are never advertised while `resources/read` still degrades gracefully to the served shell.
+
+## 0.70.3
+
+### Patch Changes
+
+- 3c80603: Document and regression-test that `useActionQuery` / `callAction` GET calls round-trip boolean and number params. Browser query params are serialized through `URLSearchParams`, which stringifies everything — so `useActionQuery("instrument-overview", { includeSeries: true, limit: 5 })` sends `includeSeries: "true"` / `limit: "5"`. Schema-aware coercion (added in 0.70.2) already restores native types before validation, but it was framed and tested only as a model-gateway concern. This adds an end-to-end regression test through the action route for the GET path and broadens the coercion doc comment so it is not narrowed to gateway-only and silently re-break browser GET calls. No runtime behavior change.
+
+## 0.70.2
+
+### Patch Changes
+
+- 2d36525: Add a sync helper for keeping Builder Agent Native Starter's standalone manifest aligned with the chat template scaffold output.
+
+## 0.70.1
+
+### Patch Changes
+
+- 8003c56: Coerce gateway-stringified tool arguments before action validation. Some model gateways (notably Builder's Gemini-backed gateway) hand structured tool-call arguments back as JSON strings — an array param arrives as `"[{...}]"`, a boolean as `"true"`. Standard Schema (zod) validation does not coerce, so these calls failed validation and the agent could thrash retrying different shapes (and hang). The validation wrapper now coerces a string value to the type its schema field declares (array/object via `JSON.parse`, boolean, number/integer) when — and only when — the schema expects a non-string type and the string parses cleanly to it; ambiguous or unparseable values are left untouched so the normal validation error still surfaces.
+- 8003c56: Composer model picker improvements. The picker now supports an optional secondary "image model" menu via a new `imageModelMenu` prop on `AgentChatSurface` / `AssistantChat` (opt-in; chat-only apps are unaffected) — apps that drive a separate generation model (e.g. Assets' image model) can surface it in the same dropdown so it's clear which model reasons about the request and which produces the output. The reasoning-effort list is now a collapsed-by-default accordion (matching the provider groups) instead of always-expanded, keeping the menu compact. Model catalog: the Builder gateway list now lists Opus 4.8 (was 4.7) and drops the retired GPT-5.1 Codex Mini entry.
+- 8003c56: Remove the setup/onboarding checklist that appeared above the agent chat (the
+  "Setup N of 5" panel with Connect an AI engine / image & video generation /
+  asset storage / email / GitHub steps) and its header "Setup" re-open button.
+  Setup is now surfaced in better places — the settings panel and per-feature
+  setup affordances — so the panel no longer takes up sidebar space in any app.
+- 8003c56: Feedback submissions now forward a `clientSurface` hint (web / electron / tauri)
+  alongside the existing page URL, so form owners can tell whether feedback came
+  from the Agent Native desktop app, a Tauri shell (e.g. Clips), or a browser.
+  Detection is exposed as a reusable `getClientSurface()` client helper and is
+  passed through as hidden metadata — it never appears as a visible form field.
+- 8003c56: Fix the "Sign in with Google" button getting stuck disabled when the OAuth
+  window is closed without finishing (e.g. to retry in a different browser
+  profile). The button was only ever re-enabled on an explicit OAuth error or
+  the 5-minute poll timeout, so a cancelled sign-in left the primary CTA greyed
+  out with no way to retry short of refreshing. The sign-in screen now re-enables
+  the button (and stops the pending exchange poll) when the window regains focus
+  or becomes visible again — mirroring the existing email-verification recovery.
+- 8003c56: Add observability and a safety valve for inline MCP App embeds, on top of the
+  Codex/Cursor transplant fix already shipped in 0.70.0.
+
+  When an inline embed cannot load in a host, the shell now reports a bounded,
+  structured diagnostic (stage, message, HTTP status, host, render mode, bridge
+  type) to a new CORS-open `POST /_agent-native/mcp/embed-error` route, which
+  forwards it to Sentry via `captureError` — so embed failures across Codex,
+  Cursor, ChatGPT, and Claude are inspectable instead of an opaque spinner. The
+  failure card also surfaces the specific cause (e.g. "Embedded app returned HTTP
+  500" / session-expired) and promotes "Open in new tab" to the primary action.
+
+  Adds a deploy-toggleable kill switch for inline MCP App embeds, **off by
+  default**. Set `AGENT_NATIVE_MCP_APPS_INLINE=1` to enable inline embeds for an
+  environment; while it is off, accounts listed in
+  `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+  them, so a fix can be verified in production before it reaches normal users.
+  When disabled, no `ui://` resource is advertised or referenced and tool results
+  fall back to their deep-link text — no skills/instructions change required.
+
+- 8003c56: Show a friendly "You're all set" confirmation page after authorizing an MCP
+  client whose redirect is a native deep link (cursor://, vscode://, …). Instead
+  of leaving the browser tab dangling on a blank page after the OS handed the code
+  to the app, the tab now shows a checkmark, a "return to your agent to continue"
+  message, and re-fires the deep link so the client still receives the code.
+  https/loopback callbacks keep the standard redirect.
+- 8003c56: Clarify the "Where should visual plans and recaps live?" install prompt: move
+  the "(recommended)" marker into the hosted option's label and tighten its
+  description to "100% free and open source. Supports comments, browser editor,
+  and sharing. Requires one-time browser sign-in."
+- 8003c56: When a hosted run is cut off mid-step and exhausts its in-invocation
+  continuation budget without finishing, the chat now ends with a loud,
+  unambiguous "stopped before finishing" terminal instead of a silent stall or a
+  misleading clean `done`. The terminal carries a machine-readable
+  `run_budget_exhausted` error code that is deliberately excluded from the
+  client's auto-recoverable allow-list, so the chain terminates rather than
+  looping another continuation into the same wall, and any half-streamed partial
+  text is cleared so the message stands alone.
+
+## 0.70.0
+
+### Minor Changes
+
+- b35c8cb: Add an in-app changelog ("What's new") surface. Every app can now ship a
+  user-facing `CHANGELOG.md` that renders in the command menu (Cmd+K) and in
+  settings. Core provides `<ChangelogDialog>`, `<ChangelogSettingsCard>`, a
+  `changelog` prop on `CommandMenu` (with an unseen-release dot), and an
+  `agent-native changelog add|release|list` CLI that authors changeset-style
+  pending entry files and rolls them up into the dated `CHANGELOG.md`.
+
+### Patch Changes
+
+- b35c8cb: Fix MCP app embeds for OpenAI's default web-sandbox origin and keep an Open in new tab fallback available when inline app loading fails.
+- b35c8cb: Return native redirect responses from web OAuth callbacks so successful sign-ins
+  land on the clean return URL instead of retaining provider callback query
+  parameters.
+- b35c8cb: Add a public `GET /_agent-native/health` route that runs a trivial `SELECT 1`
+  to report database liveness and, as a side effect, keep a scale-to-zero
+  serverless database (e.g. Neon) warm. A scheduled ping against this endpoint
+  prevents the multi-second cold-start that otherwise stalls the first request
+  to an idle app. The probe always responds (apps with no database report
+  `db: false` rather than failing) and is never cached. Disable it with the
+  `disableHealth` core-routes option.
+- b35c8cb: Fix MCP app embeds rendering only a flashing/permanent loading state in Codex
+  and Cursor. These standards-track hosts render the `ui://` resource in a strict
+  opaque-origin sandbox (`sandbox="allow-scripts"`) and talk to it over the
+  postMessage `ui/*` bridge. The shell's handshake was already correct, but for
+  these hosts it fell through to self-navigating the sandboxed iframe to the real
+  app origin, which tears down the host bridge and loses the opaque-origin auth
+  context. Any host connected through the native MCP Apps bridge (Codex, Cursor,
+  the SDK App fallback, our own renderer) now transplants the app document into
+  the shell — the same robust path Claude already uses — keeping the bridge alive
+  and loading via embed-token auth. Also handle the spec `host-context-changed`
+  notification and bump the cached resource shell version so hosts refetch.
+- b35c8cb: Fix the missing inline screenshot on PR Visual Recap comments. The `recap shot`
+  command runs `page.evaluate`/`addInitScript` payloads that contain named inner
+  functions; when the CLI is run through `tsx`/esbuild (CI's trusted-workspace
+  path), esbuild's `keepNames` wraps those functions in `__name(...)`, which
+  Playwright then serializes into the browser where `__name` is undefined —
+  throwing `ReferenceError: __name is not defined`, dropping the screenshot, and
+  falling back to a link-only comment. `runShot` now injects an identity `__name`
+  shim as the first browser init script, so every main-world payload is safe
+  regardless of how the CLI was transpiled (the tsc-built published package, which
+  never emits `__name`, is unaffected).
+- b35c8cb: When a long agent run is cut off mid-stream while assembling one large tool input (a generation that exceeds the ~40s soft-timeout window), the auto-continue nudge now points the resumed model at the incremental-edit path for that specific action instead of only handling `create-extension`. Designs (`generate-design` → `edit-design`), plans (`create-visual-plan`/`create-ui-plan` → `update-visual-plan`/`patch-visual-plan-source`), and dashboards (`update-dashboard` incremental `ops`) get tailored "ship a compact first version, then refine" guidance, with a generic compact-first fallback for any other large-payload action. This breaks the re-stream-the-same-oversized-payload thrash loop that could otherwise burn the whole continuation budget without making progress.
+- b35c8cb: Capture first-touch referral attribution and enrich the signup event (`referral_source`, `referrer_user`, UTM, `first_touch_path`) to measure app virality. The browser records an anonymous visitor's first-touch context (`ref`/`via`/`utm_*` params, landing path, and referring host) into an `an_attribution` localStorage key and a first-party `an_ft` cookie, and the server-side `signup` event is enriched from that cookie so every template can see where new users came from.
+
+## 0.69.0
+
+### Minor Changes
+
+- 530de18: Add Firecrawl as a BYOK backend for the web-search agent tool. When `FIRECRAWL_API_KEY` is configured (via app secrets or environment) the tool routes searches through Firecrawl's `/v2/search` API. It slots into the existing first-configured-wins chain after Brave, Tavily, and Exa, and before Builder-managed search, and is registered as an optional framework secret so it surfaces in every template's settings UI.
+
+## 0.68.3
+
+### Patch Changes
+
+- 9db3c12: Fix Cloudflare Pages worker bundling for content-heavy templates and add the published Clips Chrome extension URL defaults.
+
+## 0.68.2
+
+### Patch Changes
+
+- feaf633: Add a reusable CommandMenu docs group so apps can surface relevant Agent Native documentation from Cmd+K.
+- feaf633: Fix PR visual recap head fetching in private fork workflows without persisting checkout credentials.
+- feaf633: Submit Builder branch waitlist requests to the configured Forms endpoint on hosted Agent Native deployments.
+- feaf633: Try legacy Google OAuth client credentials during refresh after rotating product OAuth clients.
+- feaf633: Allow deployments to configure identity-only Google sign-in credentials separately from product Google OAuth credentials.
+
+## 0.68.1
+
+### Patch Changes
+
+- 48356d7: Forward Builder gateway heartbeat JSONL frames through the engine and agent SSE stream so long upstream silences (adaptive thinking, TTFT) do not trip the client no-progress timeout.
+- 48356d7: Fix guided question selection UX: preserve answers across poll refreshes, pause polling while a form is open, show clearer selected-state affordances (including `aria-pressed` on option buttons), and stop duplicate Explore/Decide injection in Design question flows.
+- 48356d7: Resume page-load chat reconnect from the last seen run event seq instead of replaying the full SSE history, preventing duplicated assistant turns after refresh.
+
+## 0.68.0
+
+### Minor Changes
+
+- a623ab6: Ship a generated source corpus with the core package and expose source-search so agents can inspect version-matched core and template patterns from installed apps.
+
+### Patch Changes
+
+- a623ab6: Add configurable agent tool controls for database and extension surfaces. `databaseTools` now accepts `"write"` (default), `"read"`, and `"off"` in addition to booleans, and `extensionTools: false` removes framework extension-management tools and prompt guidance.
+- a623ab6: Surface extension runtime errors that occur before the iframe error toast mounts.
+- a623ab6: Collapse question-form and visual-questions inputs after copying or sending answers to the agent, with an edit affordance to reopen them.
+- a623ab6: Reduce Sentry noise from expected agent-chat quota/rate-limit failures, auth-card recovery, and oversized document attachment validation.
+- a623ab6: Hide development-only skill files from runtime source-search results and direct corpus reads.
+- a623ab6: Improve PR Visual Recap coverage for agent-native PRs: trusted fork authors run through the fork-safe workflow automatically, trusted public same-repo instruction edits no longer false-skip, PR heads are fetched before diffing, and unhealthy Plan routes stop before the agent runs.
+
+## 0.67.1
+
+### Patch Changes
+
+- 7ceb907: Allow native/desktop IDE clients (Cursor, VS Code) to complete the remote MCP
+  OAuth flow. The Dynamic Client Registration endpoint previously rejected any
+  `redirect_uris` that were not `https://` or `http://localhost`, so IDEs that
+  register a private-use URI scheme callback (e.g. `cursor://…`, `vscode://…`,
+  permitted by RFC 8252 §7.1) failed at registration with
+  `invalid_client_metadata` and never obtained a token. Registration now also
+  accepts private-use schemes while still requiring PKCE and rejecting
+  script/file-capable schemes (`javascript:`, `data:`, `file:`, `blob:`,
+  `vbscript:`, `about:`), fragments, and embedded credentials.
+
+## 0.67.0
+
+### Minor Changes
+
+- 1b61a90: Add tab-scoped application-state helpers so multi-tab agents read the screen of the tab they were sent from.
+  - Server: `readAppStateForCurrentTab`, `writeAppStateForCurrentTab`, `appStateKeyForBrowserTab`, and `getCurrentRequestBrowserTabId` (from `@agent-native/core/application-state`). These resolve the requesting tab via `getRequestRunContext().browserTabId`, read the `key:<tabId>` value first, and fall back to the global key for CLI/external agents.
+  - Client: `getBrowserTabId` (from `@agent-native/core/client`), a stable per-tab id backed by sessionStorage.
+
+  The default app scaffold (`view-screen` action and `tab-id` helper) now uses these so newly generated apps are tab-correct by default.
+
+  Without tab scoping, `navigation` (and similar ambient UI state) was a single global key shared across browser tabs, so a chat in one tab could act on whatever clip/record another tab navigated to last.
+
 ## 0.66.9
 
 ### Patch Changes

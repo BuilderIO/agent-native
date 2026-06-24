@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.66.9",
+  "version": "0.73.0",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -70,6 +70,11 @@
     "./client/observability": "./dist/client/observability/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/settings/useBuilderStatus": "./dist/client/settings/useBuilderStatus.js",
+    "./embedding": "./dist/embedding/index.js",
+    "./embedding/agent": "./dist/embedding/agent.js",
+    "./embedding/bridge": "./dist/embedding/bridge.js",
+    "./embedding/protocol": "./dist/embedding/protocol.js",
+    "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
@@ -97,6 +102,7 @@
     "./org": "./dist/org/index.js",
     "./client/org": "./dist/client/org/index.js",
     "./client/db-admin": "./dist/client/db-admin/index.js",
+    "./audit": "./dist/audit/index.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
@@ -116,11 +122,6 @@
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
     "./a2a": "./dist/a2a/index.js",
-    "./embedding": "./dist/embedding/index.js",
-    "./embedding/react": "./dist/embedding/react.js",
-    "./embedding/bridge": "./dist/embedding/bridge.js",
-    "./embedding/agent": "./dist/embedding/agent.js",
-    "./embedding/protocol": "./dist/embedding/protocol.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp-client": "./dist/mcp-client/index.js",
     "./tracking": "./dist/tracking/index.js",
@@ -166,10 +167,14 @@
   "files": [
     "bin",
     "blueprints",
+    "corpus",
     "dist",
     "docs",
     "tsconfig.base.json",
-    "src/templates"
+    "src/templates/default",
+    "src/templates/headless",
+    "src/templates/workspace-core",
+    "src/templates/workspace-root"
   ],
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs",

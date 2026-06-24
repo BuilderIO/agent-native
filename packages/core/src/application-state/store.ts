@@ -4,6 +4,7 @@ import {
   isPostgres,
   intType,
 } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 
@@ -30,6 +31,10 @@ async function ensureTable(): Promise<void> {
           PRIMARY KEY (session_id, key)
         )
       `);
+      // Older deployments created `updated_at` as 32-bit `INTEGER`; on Postgres
+      // the `Date.now()` written by appStatePut() on every turn overflows int4.
+      // Widen it in place (no-op once done / on fresh BIGINT databases).
+      await widenIntColumnsToBigInt("application_state", ["updated_at"]);
       // Indexes for the two hot poll paths:
       //  - `SELECT … WHERE updated_at > ?` (watermark scan, every poll cycle)
       //  - `SELECT … WHERE key = ? … ORDER BY updated_at ASC` (marker lookups)

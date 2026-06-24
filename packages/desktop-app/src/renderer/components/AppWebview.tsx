@@ -68,6 +68,7 @@ export interface AppWebviewHandle {
   getUrl(): string | undefined;
   goBack(): void;
   goForward(): void;
+  reload(): void;
   toggleAgentSidebar(): void;
 }
 
@@ -278,6 +279,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         goForward() {
           const wv = webviewRef.current;
           if (wv?.canGoForward()) wv.goForward();
+        },
+        reload() {
+          const wv = webviewRef.current;
+          if (!wv || app.placeholder) return;
+          try {
+            wv.reloadIgnoringCache();
+          } catch {
+            wv.reload();
+          }
         },
         toggleAgentSidebar() {
           const wv = webviewRef.current;

@@ -1,7 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
-import { getAuthSecret } from "./better-auth-instance.js";
+import {
+  getAuthSecret,
+  resolveSignupTrackingIdentity,
+} from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -43,6 +46,8 @@ export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
   "agentNativeConnectSource";
+export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
+export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
@@ -51,6 +56,8 @@ export interface BuilderConnectTrackingParams {
   signupSource?: string;
   agentNativeFlow?: string;
   agentNativeConnectSource?: string;
+  agentNativeApp?: string;
+  agentNativeTemplate?: string;
 }
 
 function cleanTrackingParam(value: unknown): string | undefined {
@@ -72,6 +79,12 @@ export function getBuilderConnectTrackingParams(
     agentNativeConnectSource: cleanTrackingParam(
       params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM),
     ),
+    agentNativeApp: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_APP_PARAM),
+    ),
+    agentNativeTemplate: cleanTrackingParam(
+      params.get(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM),
+    ),
   };
 }
 
@@ -85,6 +98,12 @@ export function builderConnectTrackingProperties(
   }
   if (tracking.agentNativeConnectSource) {
     properties.agent_native_connect_source = tracking.agentNativeConnectSource;
+  }
+  if (tracking.agentNativeApp) {
+    properties.agent_native_app = tracking.agentNativeApp;
+  }
+  if (tracking.agentNativeTemplate) {
+    properties.agent_native_template = tracking.agentNativeTemplate;
   }
   return properties;
 }
@@ -101,6 +120,10 @@ function applyBuilderConnectTrackingParams(
   if (flow) params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
   const source = cleanTrackingParam(tracking.agentNativeConnectSource);
   if (source) params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, source);
+  const app = cleanTrackingParam(tracking.agentNativeApp);
+  if (app) params.set(BUILDER_AGENT_NATIVE_APP_PARAM, app);
+  const template = cleanTrackingParam(tracking.agentNativeTemplate);
+  if (template) params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, template);
 }
 
 export interface BuilderBrowserStatus {
@@ -524,8 +547,11 @@ export function buildBuilderCliAuthUrl(
   ) {
     callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
   }
+  const identity = resolveSignupTrackingIdentity();
   const tracking = {
     signupSource: BUILDER_SIGNUP_SOURCE,
+    agentNativeApp: identity.app,
+    agentNativeTemplate: identity.template,
     ...options.tracking,
   };
   applyBuilderConnectTrackingParams(callbackUrl.searchParams, tracking);

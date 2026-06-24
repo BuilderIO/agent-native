@@ -24,6 +24,8 @@ export {
 export {
   listRemoteServers,
   addRemoteServer,
+  addFirstPartyRemoteServer,
+  isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
   validateRemoteUrl,
   normalizeServerName,

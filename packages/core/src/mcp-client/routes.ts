@@ -97,6 +97,7 @@ function projectForClient(
     url: stored.url,
     headers: redactHeaders(stored.headers),
     description: stored.description,
+    firstParty: stored.firstParty === true,
     createdAt: stored.createdAt,
     mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
@@ -110,6 +111,7 @@ export interface ClientServer {
   url: string;
   headers?: Record<string, { set: true }>;
   description?: string;
+  firstParty?: boolean;
   createdAt: number;
   /** The key under which this server is registered in the running MCP manager. */
   mergedId: string;

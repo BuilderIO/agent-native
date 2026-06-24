@@ -1,5 +1,173 @@
 # @agent-native/skills
 
+## 0.2.69
+
+### Patch Changes
+
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+  - @agent-native/core@0.73.0
+
+## 0.2.68
+
+### Patch Changes
+
+- Updated dependencies [17b696f]
+- Updated dependencies [17b696f]
+- Updated dependencies [17b696f]
+- Updated dependencies [17b696f]
+- Updated dependencies [17b696f]
+  - @agent-native/core@0.72.4
+
+## 0.2.67
+
+### Patch Changes
+
+- Updated dependencies [6605885]
+  - @agent-native/core@0.72.3
+
+## 0.2.66
+
+### Patch Changes
+
+- Updated dependencies [cc21a1c]
+  - @agent-native/core@0.72.2
+
+## 0.2.65
+
+### Patch Changes
+
+- Updated dependencies [b2a5931]
+  - @agent-native/core@0.72.1
+
+## 0.2.64
+
+### Patch Changes
+
+- Updated dependencies [9a984f2]
+- Updated dependencies [9a984f2]
+- Updated dependencies [9a984f2]
+- Updated dependencies [9a984f2]
+  - @agent-native/core@0.72.0
+
+## 0.2.63
+
+### Patch Changes
+
+- Updated dependencies [38266fc]
+- Updated dependencies [38266fc]
+- Updated dependencies [38266fc]
+  - @agent-native/core@0.71.0
+
+## 0.2.62
+
+### Patch Changes
+
+- Updated dependencies [3c80603]
+  - @agent-native/core@0.70.3
+
+## 0.2.61
+
+### Patch Changes
+
+- Updated dependencies [2d36525]
+  - @agent-native/core@0.70.2
+
+## 0.2.60
+
+### Patch Changes
+
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+- Updated dependencies [8003c56]
+  - @agent-native/core@0.70.1
+
+## 0.2.59
+
+### Patch Changes
+
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+- Updated dependencies [b35c8cb]
+  - @agent-native/core@0.70.0
+
+## 0.2.58
+
+### Patch Changes
+
+- Updated dependencies [530de18]
+  - @agent-native/core@0.69.0
+
+## 0.2.57
+
+### Patch Changes
+
+- Updated dependencies [9db3c12]
+  - @agent-native/core@0.68.3
+
+## 0.2.56
+
+### Patch Changes
+
+- Updated dependencies [feaf633]
+- Updated dependencies [feaf633]
+- Updated dependencies [feaf633]
+- Updated dependencies [feaf633]
+- Updated dependencies [feaf633]
+  - @agent-native/core@0.68.2
+
+## 0.2.55
+
+### Patch Changes
+
+- Updated dependencies [48356d7]
+- Updated dependencies [48356d7]
+- Updated dependencies [48356d7]
+  - @agent-native/core@0.68.1
+
+## 0.2.54
+
+### Patch Changes
+
+- a623ab6: Refresh bundled workspace skill guidance for source-search and runtime/dev skill scope.
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+- Updated dependencies [a623ab6]
+  - @agent-native/core@0.68.0
+
+## 0.2.53
+
+### Patch Changes
+
+- Updated dependencies [7ceb907]
+  - @agent-native/core@0.67.1
+
+## 0.2.52
+
+### Patch Changes
+
+- Updated dependencies [1b61a90]
+  - @agent-native/core@0.67.0
+
 ## 0.2.51
 
 ### Patch Changes

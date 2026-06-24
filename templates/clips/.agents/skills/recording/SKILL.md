@@ -48,6 +48,23 @@ Loom iframe and the native Clips editor is hidden for those recordings. If the
 user needs Clips-native trimming, exports, frame extraction, or upload-based
 transcription, ask them to upload the original video file instead.
 
+## Browser diagnostics and recorder install options
+
+Browser recordings can save bounded, redacted diagnostics through
+`createBrowserDiagnosticsCapture`: console messages plus fetch/XHR method, URL,
+status, duration, and errors. The browser recorder only captures activity from
+the recorder page itself. The Clips Chrome extension is the active-tab path for
+browser logs: it launches `/record` with an extension capture session and passes
+`developerLogs=1/0`, then saves diagnostics with source `extension`.
+
+The Web Store listing is live, so the public Chrome extension option shows by
+default. UI prompts that otherwise say "Download desktop app" use the shared
+install-choice component (`CaptureInstallButton` / `CaptureInstallInlineLink`)
+to offer two options: Chrome extension for browser logs, and desktop app for the
+most seamless native capture. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=0` to hide
+the Chrome option again, or `VITE_CLIPS_CHROME_EXTENSION_URL` to point at a
+different listing.
+
 ## Pause / resume
 
 `MediaRecorder.pause()` / `.resume()` are supported in all evergreen browsers. Keep a single `MediaRecorder` instance across pauses — don't tear down the stream, or the permission prompt will fire again. While paused, the upload worker keeps draining its buffer so we catch up before the user stops.

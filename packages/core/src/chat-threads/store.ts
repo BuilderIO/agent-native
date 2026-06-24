@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getDbExec, intType } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -87,6 +88,15 @@ async function ensureTable(): Promise<void> {
           // Column already exists.
         }
       }
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
+      // overflows int4. No-op once widened / on fresh BIGINT databases.
+      await widenIntColumnsToBigInt("chat_threads", [
+        "created_at",
+        "updated_at",
+        "pinned_at",
+        "archived_at",
+      ]);
       // Indexes for the hot read paths. Both the sidebar list and the
       // scoped/per-resource list filter on owner_email (and optionally
       // scope) and sort by updated_at. Keep these dialect-agnostic (no

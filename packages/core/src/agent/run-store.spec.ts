@@ -189,7 +189,14 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs/i.test(call.sql) &&
-        /COALESCE\(heartbeat_at, started_at\) < \?/.test(call.sql) &&
+        // The heartbeat predicate now uses the background-aware cutoff fragment
+        // `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN
+        // ... END)` so a slow background cold-start isn't reaped early. Still one
+        // query, still covering both predicates.
+        /COALESCE\(heartbeat_at, started_at\) < \(CAST\(\? AS BIGINT\) -/.test(
+          call.sql,
+        ) &&
+        /dispatch_mode LIKE 'background%'/.test(call.sql) &&
         /OR started_at < \?/.test(call.sql),
     );
     expect(select).toBeDefined();
@@ -271,6 +278,23 @@ describe("run store", () => {
     expect(select).toBeDefined();
     // The heartbeat cutoff arg must be a recent timestamp
     expect(Number(select?.args[1])).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("tryClaimRunSlot casts the now param to BIGINT so a ms epoch can't be typed as int4", async () => {
+    // Regression: the default (background-aware) cutoff does `? - <int4
+    // literal>` in SQL. Without an explicit cast Postgres infers the parameter
+    // as int4 from the literal windows, and Date.now() overflows with
+    // `value "…" is out of range for type integer`, failing every chat turn.
+    claimSlotRows = [];
+    await tryClaimRunSlot("thread-cast");
+    const select = execCalls.find(
+      (call) =>
+        /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
+        /COALESCE\(heartbeat_at, started_at\) >=/i.test(call.sql),
+    );
+    expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)\s*-\s*CASE/i);
+    // And the bound value is a full ms epoch (would overflow int4).
+    expect(Number(select?.args[1])).toBeGreaterThan(2_147_483_647);
   });
 
   // Fix 1c: conditional terminal status write

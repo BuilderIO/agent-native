@@ -10,9 +10,11 @@ import {
   useCommandMenuShortcut,
   useDbSync,
   getThemeInitScript,
+  getBrowserTabId,
   configureTracking,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
+import changelog from "../CHANGELOG.md?raw";
 import { Toaster } from "@/components/ui/sonner";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
@@ -66,14 +68,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files", "design-variants"],
-    ignoreSource: TAB_ID,
+    ignoreSource: getBrowserTabId(),
   });
   return null;
 }
@@ -100,7 +100,12 @@ export default function Root() {
     <AppProviders queryClient={queryClient}>
       <DbSyncSetup />
       <Toaster richColors position="bottom-left" />
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="design"
+      >
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
         </CommandMenu.Group>

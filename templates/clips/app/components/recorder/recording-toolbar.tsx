@@ -25,6 +25,10 @@ export interface RecordingToolbarProps {
 
 const TOOLBAR_WIDTH = 276;
 const TOOLBAR_HEIGHT = 56;
+// Drop the toolbar just below the centered "Recording your screen…" status
+// text (which sits at the viewport's vertical center) so the controls don't
+// overlap it.
+const TOOLBAR_TOP_OFFSET = 48;
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -47,7 +51,7 @@ export function RecordingToolbar({
       ? { left: 16, top: 16, corner: "tl" }
       : {
           left: Math.max(16, (window.innerWidth - TOOLBAR_WIDTH) / 2),
-          top: Math.max(16, (window.innerHeight - TOOLBAR_HEIGHT) / 2),
+          top: Math.max(16, window.innerHeight / 2 + TOOLBAR_TOP_OFFSET),
           corner: "tl",
         },
   );

@@ -76,7 +76,7 @@ function dashboardPathForTemplate(
   if (template.id === "demo-node-exporter") {
     return demoNodeExporterDashboardPath(dashboardId, options);
   }
-  return `/adhoc/${dashboardId}`;
+  return `/dashboards/${dashboardId}`;
 }
 
 function sourceLabel(source: string): string {

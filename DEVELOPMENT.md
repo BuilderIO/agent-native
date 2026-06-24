@@ -81,13 +81,15 @@ pnpm typecheck    # type-check
 
 Templates read from `.env` in their own directory. Key variables:
 
-| Variable               | Purpose                                                          |
-| ---------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`         | Database connection string (see below)                           |
-| `ANTHROPIC_API_KEY`    | API key for Claude (required for agent chat)                     |
-| `ACCESS_TOKEN`         | Static bearer fallback for MCP/connect clients; not browser auth |
-| `GOOGLE_CLIENT_ID`     | Google OAuth client ID (for Gmail, Calendar integrations)        |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret                                       |
+| Variable                       | Purpose                                                          |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `DATABASE_URL`                 | Database connection string (see below)                           |
+| `ANTHROPIC_API_KEY`            | API key for Claude (required for agent chat)                     |
+| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth |
+| `GOOGLE_SIGN_IN_CLIENT_ID`     | Preferred low-scope Google client ID for app login               |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google client secret for app login           |
+| `GOOGLE_CLIENT_ID`             | Google API integration client ID, or legacy login fallback       |
+| `GOOGLE_CLIENT_SECRET`         | Google API integration secret, or legacy login fallback          |
 
 ### Database options
 

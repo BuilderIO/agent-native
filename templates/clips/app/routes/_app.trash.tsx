@@ -88,6 +88,16 @@ export default function TrashRoute() {
   };
 
   const selectedIds = Array.from(selected);
+  const allSelected =
+    recordings.length > 0 && selected.size === recordings.length;
+
+  const toggleSelectAll = () => {
+    setSelected((prev) =>
+      prev.size === recordings.length
+        ? new Set()
+        : new Set(recordings.map((r) => r.id)),
+    );
+  };
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -96,6 +106,17 @@ export default function TrashRoute() {
         <div className="ml-auto flex items-center gap-2">
           {selectedIds.length > 0 && (
             <>
+              <span className="text-sm text-muted-foreground">
+                {selectedIds.length} selected
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="gap-1.5"
+                onClick={toggleSelectAll}
+              >
+                {allSelected ? "Deselect all" : "Select all"}
+              </Button>
               <Button
                 size="sm"
                 variant="outline"

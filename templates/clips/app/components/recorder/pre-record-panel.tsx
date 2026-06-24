@@ -19,9 +19,10 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath, appPath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import {
   Popover,
   PopoverContent,
@@ -49,6 +50,10 @@ import {
   type RecordingMode,
 } from "./recorder-engine";
 import type { CameraBubbleSize } from "./camera-bubble";
+import {
+  loadRecorderPreferences,
+  saveRecorderPreferences,
+} from "@/lib/recorder-preferences";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
@@ -191,11 +196,14 @@ export function PreRecordPanel({
 }: PreRecordPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loomInputRef = useRef<HTMLInputElement>(null);
+  // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
+  // (initialMode/initialDisplaySurface) still takes precedence over them.
+  const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const [mode, setMode] = useState<RecordingMode>(
-    () => initialMode ?? "screen+camera",
+    () => initialMode ?? savedPrefs.mode ?? "screen+camera",
   );
   const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
-    () => initialDisplaySurface ?? "window",
+    () => initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
@@ -204,11 +212,17 @@ export function PreRecordPanel({
   const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [micId, setMicId] = useState<string>("default");
-  const [cameraId, setCameraId] = useState<string>("default");
-  const [cameraBlur, setCameraBlur] = useState(false);
+  const [micId, setMicId] = useState<string>(
+    () => savedPrefs.micId ?? "default",
+  );
+  const [cameraId, setCameraId] = useState<string>(
+    () => savedPrefs.cameraId ?? "default",
+  );
+  const [cameraBlur, setCameraBlur] = useState(
+    () => savedPrefs.cameraBlur ?? false,
+  );
   const [cameraBlurRadius, setCameraBlurRadius] = useState(
-    DEFAULT_CAMERA_BLUR_RADIUS,
+    () => savedPrefs.cameraBlurRadius ?? DEFAULT_CAMERA_BLUR_RADIUS,
   );
   const [enumError, setEnumError] = useState<string | null>(null);
   const [micAccessStatus, setMicAccessStatus] =
@@ -285,12 +299,64 @@ export function PreRecordPanel({
     [mics],
   );
 
+  // Reset to "default" only once a populated list genuinely excludes the saved
+  // device — an empty list means "not enumerated yet", and resetting then would
+  // wipe a restored preference before devices load.
   useEffect(() => {
     if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
-    if (!mics.some((mic) => mic.deviceId === micId)) {
+    if (mics.length > 0 && !mics.some((mic) => mic.deviceId === micId)) {
       setMicId("default");
     }
   }, [micId, mics]);
+
+  // Same guard for cameras. Not persisted, so a temporarily missing device
+  // doesn't erase the saved choice.
+  useEffect(() => {
+    if (cameraId === "default" || cameraId === NO_CAMERA_DEVICE_ID) return;
+    if (
+      cameras.length > 0 &&
+      !cameras.some((camera) => camera.deviceId === cameraId)
+    ) {
+      setCameraId("default");
+    }
+  }, [cameraId, cameras]);
+
+  // Camera-only mode needs a camera — coerce a restored "off" sentinel to
+  // "default" so Start doesn't forward it as an exact deviceId. This is the
+  // single owner of that coercion: it covers both the mode-button click and the
+  // ?mode=camera deep-link/restore path.
+  useEffect(() => {
+    if (mode === "camera" && cameraId === NO_CAMERA_DEVICE_ID) {
+      setCameraId("default");
+    }
+  }, [mode, cameraId]);
+
+  // Persist deliberate picks only (not the resets above), so an unavailable
+  // device on load can't clobber the stored preference.
+  const chooseMode = useCallback((value: RecordingMode) => {
+    setMode(value);
+    saveRecorderPreferences({ mode: value });
+  }, []);
+  const chooseDisplaySurface = useCallback((value: DisplaySurface) => {
+    setDisplaySurface(value);
+    saveRecorderPreferences({ displaySurface: value });
+  }, []);
+  const chooseMic = useCallback((value: string) => {
+    setMicId(value);
+    saveRecorderPreferences({ micId: value });
+  }, []);
+  const chooseCamera = useCallback((value: string) => {
+    setCameraId(value);
+    saveRecorderPreferences({ cameraId: value });
+  }, []);
+  const chooseCameraBlur = useCallback((value: boolean) => {
+    setCameraBlur(value);
+    saveRecorderPreferences({ cameraBlur: value });
+  }, []);
+  const chooseCameraBlurRadius = useCallback((value: number) => {
+    setCameraBlurRadius(value);
+    saveRecorderPreferences({ cameraBlurRadius: value });
+  }, []);
 
   const requestMicrophoneChoices = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -387,9 +453,9 @@ export function PreRecordPanel({
         void requestMicrophoneChoices();
         return;
       }
-      setMicId(value);
+      chooseMic(value);
     },
-    [requestMicrophoneChoices],
+    [requestMicrophoneChoices, chooseMic],
   );
 
   const handleMicSignalChange = useCallback((hasSignal: boolean) => {
@@ -540,15 +606,10 @@ export function PreRecordPanel({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
-                  setMode(opt.value);
-                  if (
-                    opt.value === "camera" &&
-                    cameraId === NO_CAMERA_DEVICE_ID
-                  ) {
-                    setCameraId("default");
-                  }
-                }}
+                // Camera-only mode needs a camera; the [mode, cameraId] effect
+                // below coerces a restored "off" sentinel to "default" for both
+                // this click and the ?mode=camera deep-link path.
+                onClick={() => chooseMode(opt.value)}
                 className={cn(
                   "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-left transition-colors",
                   active
@@ -616,7 +677,7 @@ export function PreRecordPanel({
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setDisplaySurface(opt.value)}
+                    onClick={() => chooseDisplaySurface(opt.value)}
                     className={cn(
                       "flex min-h-[76px] flex-col rounded-lg border p-2 text-left transition-colors",
                       active
@@ -714,7 +775,7 @@ export function PreRecordPanel({
                   <Switch
                     checked={audioEnabled}
                     onCheckedChange={(checked) =>
-                      setMicId(checked ? "default" : NO_MIC_DEVICE_ID)
+                      chooseMic(checked ? "default" : NO_MIC_DEVICE_ID)
                     }
                     disabled={busy}
                     aria-label="Include audio in this recording"
@@ -736,12 +797,9 @@ export function PreRecordPanel({
                 {micAccessError ? (
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     {micAccessError}{" "}
-                    <a
-                      href={appPath("/download")}
-                      className="text-foreground underline-offset-4 hover:underline"
-                    >
+                    <CaptureInstallInlineLink className="text-foreground underline-offset-4 hover:underline">
                       Try Clips Desktop.
-                    </a>
+                    </CaptureInstallInlineLink>
                   </p>
                 ) : null}
               </div>
@@ -754,7 +812,7 @@ export function PreRecordPanel({
                     </div>
                     <Select
                       value={cameraId}
-                      onValueChange={setCameraId}
+                      onValueChange={chooseCamera}
                       disabled={!needsCamera}
                     >
                       <SelectTrigger className="h-9 min-w-0 flex-1 border-0 bg-transparent px-2 shadow-none hover:bg-muted/45 focus:ring-0 focus:ring-offset-0 disabled:opacity-60">
@@ -776,7 +834,9 @@ export function PreRecordPanel({
                       <Switch
                         checked={needsCamera}
                         onCheckedChange={(checked) =>
-                          setCameraId(checked ? "default" : NO_CAMERA_DEVICE_ID)
+                          chooseCamera(
+                            checked ? "default" : NO_CAMERA_DEVICE_ID,
+                          )
                         }
                         disabled={busy}
                         aria-label="Include camera in this recording"
@@ -810,7 +870,7 @@ export function PreRecordPanel({
                       </div>
                       <Switch
                         checked={cameraBlur}
-                        onCheckedChange={setCameraBlur}
+                        onCheckedChange={chooseCameraBlur}
                         disabled={busy}
                         aria-label="Blur the camera background"
                       />
@@ -829,7 +889,7 @@ export function PreRecordPanel({
                         step={1}
                         disabled={busy}
                         onValueChange={(value) =>
-                          setCameraBlurRadius(
+                          chooseCameraBlurRadius(
                             value[0] ?? DEFAULT_CAMERA_BLUR_RADIUS,
                           )
                         }

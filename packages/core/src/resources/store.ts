@@ -5,6 +5,7 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import {
@@ -780,6 +781,15 @@ async function _doEnsureTable(): Promise<void> {
   await ensureResourceColumn(client, "run_id TEXT");
   await ensureResourceColumn(client, `expires_at ${intType()}`);
   await ensureResourceColumn(client, "metadata TEXT");
+
+  // Older deployments have 32-bit timestamp columns; on Postgres the
+  // `Date.now()` written on insert/update overflows int4. Widen in place
+  // (no-op once done / on fresh DBs).
+  await widenIntColumnsToBigInt("resources", [
+    "created_at",
+    "updated_at",
+    "expires_at",
+  ]);
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();

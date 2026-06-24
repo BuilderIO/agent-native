@@ -249,6 +249,104 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("lets a route thread override the saved active thread", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:route-test",
+      "saved-thread",
+    );
+    const savedThread: ChatThreadSummary = {
+      id: "saved-thread",
+      title: "Saved",
+      preview: "saved preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const routeThread: ChatThreadSummary = {
+      id: "route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [savedThread, routeThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-test", null, {
+        routeThreadId: "route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("route-thread");
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:route-test"),
+    ).toBe("route-thread");
+  });
+
+  it("treats a route without a thread as create mode and clears saved active thread", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:route-create-test",
+      "saved-thread",
+    );
+    const savedThread: ChatThreadSummary = {
+      id: "saved-thread",
+      title: "Saved",
+      preview: "saved preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [savedThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-create-test", null, {
+        routeThreadId: null,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.isNewThread("forked-thread")).toBe(true);
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:route-create-test"),
+    ).toBeNull();
+  });
+
   it("keeps the active general chat visible when entering a scoped surface", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms-app",

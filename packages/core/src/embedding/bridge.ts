@@ -1,4 +1,8 @@
 import {
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  EMBED_MODE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   createAgentNativeEmbedEnvelope,
   createEmbeddedAppRequestId,
@@ -61,8 +65,36 @@ type PendingRequest = {
 
 function resolveParentOrigin(win: Window, explicit?: string): string | null {
   if (explicit) return explicit;
+  if (shouldUseOpaqueParentTarget(win)) return "*";
   const referrerOrigin = embeddedAppOrigin(win.document?.referrer ?? "");
   return referrerOrigin;
+}
+
+function shouldUseOpaqueParentTarget(win: Window): boolean {
+  try {
+    const url = new URL(win.location.href);
+    const chatBridge = url.searchParams.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
+    const embedMode = url.searchParams.get(EMBED_MODE_QUERY_PARAM);
+    return (
+      chatBridge === "1" ||
+      chatBridge === "true" ||
+      embedMode === "1" ||
+      embedMode === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function defaultAllowedOrigins(
+  parentOrigin: string | null,
+  referrerOrigin: string | null,
+): string[] {
+  if (!parentOrigin) return [];
+  if (parentOrigin === "*") {
+    return ["null", ...(referrerOrigin ? [referrerOrigin] : [])];
+  }
+  return [parentOrigin];
 }
 
 function postToParent(
@@ -83,9 +115,10 @@ export function createEmbeddedAppBridge(
 ): EmbeddedAppBridge {
   const win = options.currentWindow ?? window;
   const parentOrigin = resolveParentOrigin(win, options.parentOrigin);
+  const referrerOrigin = embeddedAppOrigin(win.document?.referrer ?? "");
   const allowedOrigins =
     options.allowedOrigins ??
-    (parentOrigin && parentOrigin !== "*" ? [parentOrigin] : []);
+    defaultAllowedOrigins(parentOrigin, referrerOrigin);
   const pending = new Map<string, PendingRequest>();
   let destroyed = false;
 

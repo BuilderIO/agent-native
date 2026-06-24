@@ -73,6 +73,8 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
+  /** Legacy storage field retained for existing dashboards. Row widths are
+   *  now inferred from how many panels share the row. */
   width: number;
   /** Section panels only: number of grid columns the panels following this
    *  section should use. Ignored when `chartType` is not `"section"`. */
@@ -226,7 +228,8 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
@@ -310,11 +313,9 @@ function PanelEditorContent({
           </Select>
         </div>
 
-        <div className="grid gap-1.5">
-          <Label>
-            {form.chartType === "section" ? "Section columns" : "Span"}
-          </Label>
-          {form.chartType === "section" ? (
+        {form.chartType === "section" ? (
+          <div className="grid gap-1.5">
+            <Label>Section columns</Label>
             <ToggleGroup
               type="single"
               value={String(form.columns)}
@@ -338,32 +339,8 @@ function PanelEditorContent({
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-          ) : (
-            <ToggleGroup
-              type="single"
-              value={String(form.width)}
-              onValueChange={(v) => {
-                if (!v) return;
-                const next = clampPanelWidth(Number(v), MAX_DASHBOARD_COLUMNS);
-                setForm((f) => ({ ...f, width: next }));
-              }}
-              className="justify-start h-9"
-            >
-              {Array.from(
-                { length: MAX_DASHBOARD_COLUMNS },
-                (_, i) => i + 1,
-              ).map((n) => (
-                <ToggleGroupItem
-                  key={n}
-                  value={String(n)}
-                  className="h-9 w-9 px-0 text-xs"
-                >
-                  {n}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-1.5">

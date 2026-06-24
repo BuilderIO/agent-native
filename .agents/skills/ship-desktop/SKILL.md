@@ -2,6 +2,7 @@
 name: ship-desktop
 description: Build the Agent Native desktop app locally, kill the running copy, install the fresh DMG to /Applications, and launch it. Use when the user says "rebuild/reinstall the desktop app", "ship desktop", "install the desktop app", or similar.
 user-invocable: true
+scope: dev
 metadata:
   internal: true
 ---

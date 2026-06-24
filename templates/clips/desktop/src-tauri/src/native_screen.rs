@@ -38,14 +38,37 @@ const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 // Mirror of the shared `MAX_UPLOAD_BYTES` limit (see
-// `templates/clips/shared/upload-limits.ts`). Same default (256 MB) and same
+// `templates/clips/shared/upload-limits.ts`). Same default (2 GB) and same
 // env var (CLIPS_MAX_UPLOAD_BYTES) so desktop and web stay in lockstep.
-const DEFAULT_MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
+// When the mic is captured alongside system audio, ScreenCaptureKit lays the
+// two sources out as the left/right channels of a single stereo track, which
+// plays back stuck on one speaker. Force the input to stereo (mono sources
+// duplicate), then sum both channels into each output so audio is centered.
+// Runs before loudnorm so level is normalized on the corrected signal. Only
+// applied when the mic was captured — a system-audio-only recording has real
+// stereo content that must not be flattened.
+const AUDIO_DOWNMIX_FILTER: &str =
+    "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
+// loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
+// explicit output rate the AAC track ends up at 192 kHz and plays back slow.
+const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
+
+// Loudness normalization, optionally preceded by the centered-stereo downmix
+// that repairs the mic+system L/R split. Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE`
+// so loudnorm's 192 kHz output is resampled back.
+fn audio_filter_chain(downmix: bool) -> String {
+    if downmix {
+        format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_LOUDNESS_FILTER}")
+    } else {
+        AUDIO_LOUDNESS_FILTER.to_string()
+    }
+}
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -252,6 +275,11 @@ struct SavedNativeRecording {
     height: Option<u32>,
     bytes: u64,
     has_audio: bool,
+    // Whether the mic was captured. Drives the centered-stereo downmix repair
+    // for the mic+system L/R split. Defaults to false for recordings queued
+    // before this field existed so their audio is left untouched.
+    #[serde(default)]
+    mic_captured: bool,
     has_camera: bool,
     saved_at: String,
     last_attempt_at: Option<String>,
@@ -1746,6 +1774,7 @@ fn saved_recording_from_session(
         height: session.height,
         bytes,
         has_audio,
+        mic_captured: session.restart.include_audio,
         has_camera,
         saved_at: now_iso(),
         last_attempt_at: None,
@@ -2211,6 +2240,7 @@ async fn upload_recording_file(
         session.height,
         Some(duration_ms),
         has_audio,
+        session.restart.include_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -2247,6 +2277,7 @@ async fn upload_saved_recording_file(
         saved.height,
         Some(saved.duration_ms),
         saved.has_audio,
+        saved.mic_captured,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -2560,6 +2591,7 @@ fn prepare_recording_file(
     height: Option<u32>,
     duration_ms: Option<u128>,
     has_audio: bool,
+    downmix_audio: bool,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
@@ -2591,7 +2623,8 @@ fn prepare_recording_file(
             if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
                 let normalized_path = normalized_recording_path(path);
                 let _ = std::fs::remove_file(&normalized_path);
-                match normalize_audio_with_ffmpeg(ffmpeg_path, path, &normalized_path) {
+                match normalize_audio_with_ffmpeg(ffmpeg_path, path, &normalized_path, downmix_audio)
+                {
                     Ok(()) => {
                         let normalized_bytes = std::fs::metadata(&normalized_path)
                             .map_err(|e| format!("normalized recording file missing: {e}"))?
@@ -2649,6 +2682,7 @@ fn prepare_recording_file(
                 height,
                 duration_ms,
                 has_audio,
+                downmix_audio,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -2967,6 +3001,7 @@ fn normalize_audio_with_ffmpeg(
     ffmpeg_path: &str,
     source: &Path,
     output: &Path,
+    downmix_audio: bool,
 ) -> Result<(), String> {
     let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
     let mut command = Command::new(ffmpeg_path);
@@ -2988,9 +3023,11 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(AUDIO_LOUDNESS_FILTER)
+        .arg(audio_filter_chain(downmix_audio))
         .arg("-ac")
         .arg("2")
+        .arg("-ar")
+        .arg(AUDIO_OUTPUT_SAMPLE_RATE.to_string())
         .arg("-movflags")
         .arg("+faststart")
         .arg("-f")
@@ -3049,6 +3086,7 @@ fn transcode_with_ffmpeg(
     height: Option<u32>,
     duration_ms: Option<u128>,
     normalize_audio: bool,
+    downmix_audio: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -3072,7 +3110,7 @@ fn transcode_with_ffmpeg(
     }
 
     if normalize_audio {
-        command.arg("-af").arg(AUDIO_LOUDNESS_FILTER);
+        command.arg("-af").arg(audio_filter_chain(downmix_audio));
     }
 
     let duration_rate_limit =
@@ -3111,6 +3149,8 @@ fn transcode_with_ffmpeg(
         .arg(audio_bitrate)
         .arg("-ac")
         .arg("2")
+        .arg("-ar")
+        .arg(AUDIO_OUTPUT_SAMPLE_RATE.to_string())
         .arg("-movflags")
         .arg("+faststart")
         .arg("-f")

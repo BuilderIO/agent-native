@@ -6,10 +6,10 @@ import {
   ScrollRestoration,
   useLocation,
 } from "react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useQueryClient } from "@tanstack/react-query";
-import { useDbSync } from "@agent-native/core/client";
+import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   CommandMenu,
@@ -19,9 +19,19 @@ import {
   getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
+import changelog from "../CHANGELOG.md?raw";
 import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -74,8 +84,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
@@ -91,7 +99,7 @@ function DbSyncSetup() {
       "workspace",
       "insights",
     ],
-    ignoreSource: TAB_ID,
+    ignoreSource: getBrowserTabId(),
   });
   return null;
 }
@@ -107,6 +115,116 @@ function ThemeToggleItem() {
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
       Toggle theme
     </CommandMenu.Item>
+  );
+}
+
+type ExternalChromeRuntime = {
+  lastError?: { message?: string };
+  sendMessage: (
+    extensionId: string,
+    message: Record<string, unknown>,
+    callback?: (response?: { ok?: boolean; error?: string }) => void,
+  ) => void;
+};
+
+const CLIPS_COMMAND_DOCS = [
+  {
+    title: "Use the Chrome extension for browser logs",
+    description:
+      "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
+    href: "https://www.agent-native.com/docs/template-clips#browser-logs-and-developer-diagnostics",
+    keywords: [
+      "logs",
+      "browser logs",
+      "developer logs",
+      "console logs",
+      "network logs",
+      "fetch",
+      "xhr",
+      "diagnostics",
+      "chrome extension",
+      "recording",
+    ],
+  },
+] satisfies React.ComponentProps<typeof CommandMenu.DocsGroup>["docs"];
+
+function ClipsExtensionAuthBridge() {
+  const location = useLocation();
+  const [showAuthSuccess, setShowAuthSuccess] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("clipsExtensionAuth") !== "1") return;
+    const extensionId = params.get("clipsExtensionId")?.trim();
+    if (!extensionId) return;
+    const targetExtensionId = extensionId;
+
+    let cancelled = false;
+
+    async function sendSessionToExtension() {
+      const runtime = (
+        window as Window & {
+          chrome?: { runtime?: ExternalChromeRuntime };
+        }
+      ).chrome?.runtime;
+      if (!runtime?.sendMessage) return;
+
+      const response = await fetch(appPath("/_agent-native/auth/session"), {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const session = (await response.json().catch(() => null)) as {
+        email?: string;
+        token?: string;
+      } | null;
+      if (cancelled || !response.ok || !session?.email || !session.token) {
+        return;
+      }
+
+      runtime.sendMessage(
+        targetExtensionId,
+        {
+          type: "CLIPS_AUTH_SESSION",
+          token: session.token,
+          email: session.email,
+          clipsBaseUrl: window.location.origin,
+        },
+        (extensionResponse) => {
+          if (cancelled || runtime.lastError || !extensionResponse?.ok) return;
+          const cleaned = new URL(window.location.href);
+          cleaned.searchParams.delete("clipsExtensionAuth");
+          cleaned.searchParams.delete("clipsExtensionId");
+          window.history.replaceState(window.history.state, "", cleaned);
+          setShowAuthSuccess(true);
+        },
+      );
+    }
+
+    void sendSessionToExtension();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search]);
+
+  return (
+    <Dialog open={showAuthSuccess} onOpenChange={setShowAuthSuccess}>
+      <DialogContent className="max-w-sm text-center sm:text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+          <IconCheck className="h-9 w-9" strokeWidth={2.5} />
+        </div>
+        <DialogHeader className="items-center text-center sm:text-center">
+          <DialogTitle>Signed in</DialogTitle>
+          <DialogDescription className="max-w-xs">
+            Open the Clips extension again to start recording.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="sm:justify-center">
+          <Button type="button" onClick={() => setShowAuthSuccess(false)}>
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -139,11 +257,18 @@ function AppContent() {
   return (
     <>
       {standalonePublic ? null : <DbSyncSetup />}
+      {standalonePublic ? null : <ClipsExtensionAuthBridge />}
       {standalonePublic ? null : (
-        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          changelog={changelog}
+          changelogKey="clips"
+        >
           <CommandMenu.Group heading="Actions">
             <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
           </CommandMenu.Group>
+          <CommandMenu.DocsGroup docs={CLIPS_COMMAND_DOCS} />
           <CommandMenu.Group heading="Appearance">
             <ThemeToggleItem />
           </CommandMenu.Group>

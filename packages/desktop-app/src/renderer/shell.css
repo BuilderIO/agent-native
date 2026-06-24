@@ -195,7 +195,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.tab-close {
+.tab-close,
+.tab-refresh {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -218,6 +219,27 @@ body {
 }
 
 .tab-close:hover {
+  opacity: 1 !important;
+  background: var(--tab-close-hover);
+}
+
+/* Refresh reveals — and is clickable — only on the active tab, so it isn't an
+   accidental click target when you're reaching for another tab to switch to.
+   pointer-events:none lets clicks on the (invisible) slot fall through to the
+   tab button on non-active tabs. */
+.tab-refresh {
+  pointer-events: none;
+}
+
+.tab--active .tab-refresh {
+  pointer-events: auto;
+}
+
+.tab--active:hover .tab-refresh {
+  opacity: 0.5;
+}
+
+.tab--active .tab-refresh:hover {
   opacity: 1 !important;
   background: var(--tab-close-hover);
 }
@@ -833,7 +855,7 @@ body {
 }
 
 .settings-panel {
-  width: 480px;
+  width: min(560px, calc(100vw - 32px));
   max-height: 80vh;
   background: #141414;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1586,16 +1608,40 @@ body {
 
 .settings-shortcut-form {
   display: grid;
-  grid-template-columns:
-    minmax(128px, 1.15fr) minmax(96px, 0.9fr) minmax(82px, 0.7fr)
-    auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(132px, 0.6fr);
+  grid-template-areas:
+    "recorder app"
+    "view behavior"
+    "actions actions";
   gap: 8px;
   align-items: start;
 }
 
 .settings-shortcut-recorder-wrap {
+  grid-area: recorder;
   display: grid;
   gap: 5px;
+  min-width: 0;
+}
+
+.settings-shortcut-form select {
+  grid-area: app;
+}
+
+.settings-shortcut-view-input {
+  grid-area: view;
+}
+
+.settings-shortcut-behavior {
+  grid-area: behavior;
+  justify-self: start;
+}
+
+.settings-shortcut-form-actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -1676,6 +1722,28 @@ body {
   margin-bottom: 0;
   padding: 0 11px;
   white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .settings-shortcut-form {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "recorder"
+      "app"
+      "view"
+      "behavior"
+      "actions";
+  }
+
+  .settings-shortcut-behavior,
+  .settings-shortcut-form-actions {
+    justify-self: stretch;
+  }
+
+  .settings-shortcut-form-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .settings-shortcut-list {

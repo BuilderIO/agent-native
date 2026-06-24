@@ -83,11 +83,26 @@ details live in `.agents/skills/`.
 
 ## Dashboard Template Catalog
 
+- To build or extend a LARGE first-party dashboard, prefer `compose-dashboard`:
+  name the metrics and the server generates the validated SQL/config for every
+  panel in ONE fast call. Do NOT hand-author big `update-dashboard` configs
+  panel-by-panel or loop `update-dashboard` — streaming a giant multi-panel
+  argument inside the ~40s budget fails and thrashes. Unknown metric keys are
+  skipped and reported; per-panel SQL validates independently; existing
+  dashboards append by default (`overwrite: true` replaces). Report the returned
+  `panelCount` as proof-of-done.
 - `list-dashboard-templates` lists source-controlled dashboard templates with
   `id`, category, data sources, panel count, and installed dashboard IDs.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
-  `name`, `overwrite`, and `forceNew`.
+  `name`, `overwrite`, `forceNew`, and `mergePanels`.
+- To add a template's panels to an existing dashboard, call
+  `install-dashboard-template` with `mergePanels: true` and the existing
+  `dashboardId`. It appends only the template panels whose id is not already
+  present (preserving existing panels and order) in one atomic save and returns
+  `{ addedPanelIds, skippedExistingIds, panelCount }`. Prefer this over looping
+  `update-dashboard` to add many panels — sequential calls time out on the ~40s
+  hosted run budget.
 - Node Exporter ships as `node-exporter-macos` for Darwin/Homebrew
   `node_exporter` scrapes and `node-exporter-full` for the Linux-focused
   Grafana 1860 revision 45 full dashboard converted into native Analytics

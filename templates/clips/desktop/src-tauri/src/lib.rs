@@ -68,6 +68,8 @@ pub fn run() {
             clips::hide_recording_chrome,
             clips::show_region_guides,
             clips::hide_region_guides,
+            clips::show_region_record_border,
+            clips::hide_region_record_border,
             clips::show_region_guide_editor,
             clips::show_region_capture_selector,
             clips::close_bubble,
@@ -85,6 +87,9 @@ pub fn run() {
             clips::set_recording_state,
             clips::reset_state,
             clips::save_bubble_position,
+            clips::bubble_drag_start,
+            clips::bubble_drag_move,
+            clips::bubble_drag_end,
             clips::set_bubble_size,
             clips::load_bubble_size,
             // config commands

@@ -846,6 +846,46 @@ describe("buildCodeAgentSystemPrompt", () => {
     expect(prompt).toContain("SKILL.md");
   });
 
+  it("includes dev-scoped skills and omits runtime-only skills", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-scope-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "dev-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "dev-skill", "SKILL.md"),
+      [
+        "---",
+        "name: dev-skill",
+        "description: For connected repo agents.",
+        "scope: dev",
+        "---",
+        "# Dev Skill",
+      ].join("\n"),
+    );
+    fs.mkdirSync(path.join(root, ".agents", "skills", "runtime-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "runtime-skill", "SKILL.md"),
+      [
+        "---",
+        "name: runtime-skill",
+        "description: For deployed app agents.",
+        "scope: runtime",
+        "---",
+        "# Runtime Skill",
+      ].join("\n"),
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("dev-skill");
+    expect(prompt).toContain("For connected repo agents.");
+    expect(prompt).not.toContain("runtime-skill");
+    expect(prompt).not.toContain("For deployed app agents.");
+  });
+
   it("omits skills section when no skills directory exists", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-noskills-"));
     tmpRoots.push(root);

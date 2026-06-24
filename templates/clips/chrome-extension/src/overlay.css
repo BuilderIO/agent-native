@@ -1,0 +1,390 @@
+:root {
+  /* "dark" to match the dark overlay: a declared color-scheme always paints an
+     opaque iframe canvas, so we keep it dark rather than white. Shaped parts clip
+     the canvas away (see content-script styleFrame); the countdown uses it. */
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Camera bubble ---------- */
+
+.bubble {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #18181b;
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-ring video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.bubble-empty {
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble-empty svg {
+  width: 38%;
+  height: 38%;
+}
+
+/* ---------- Countdown ---------- */
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 9, 11, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.countdown-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 8vmin, 72px);
+}
+
+.countdown-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: clamp(56px, 9vmin, 76px);
+  height: clamp(56px, 9vmin, 76px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.countdown-control:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.countdown-control:active {
+  transform: scale(0.94);
+}
+
+.countdown-control svg {
+  width: clamp(26px, 4vmin, 32px);
+  height: clamp(26px, 4vmin, 32px);
+}
+
+.countdown-number {
+  min-width: clamp(120px, 26vmin, 280px);
+  text-align: center;
+  font-size: clamp(96px, 22vmin, 240px);
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 6px 30px rgba(9, 9, 11, 0.6);
+  line-height: 1;
+  animation: countdown-pop 0.45s ease-out forwards;
+}
+
+.countdown-go {
+  font-size: clamp(64px, 14vmin, 160px);
+  letter-spacing: 0.04em;
+}
+
+@keyframes countdown-pop {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  45% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.countdown-hint {
+  position: absolute;
+  bottom: 14%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  font-weight: 500;
+  background: rgba(9, 9, 11, 0.45);
+  padding: 8px 16px;
+  border-radius: 999px;
+}
+
+/* ---------- Toolbar (vertical left pill, desktop layout) ---------- */
+
+.toolbar-v {
+  /* Fill the iframe so the (opaque) iframe canvas is fully covered by the pill —
+     the iframe is clipped to this same 20px radius in styleFrame, so no canvas
+     box shows. Top-anchored content (justify-content:flex-start) keeps Stop/time/
+     pause put as the pill grows DOWNWARD on hover (centering caused misclicks).
+     Shadow lives on the iframe element so the clip doesn't cut it off. */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 9px;
+  border-radius: 20px;
+  background: rgba(24, 24, 27, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.toolbar-v button {
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.12s ease,
+    transform 0.1s ease;
+}
+
+.toolbar-v button:active {
+  transform: scale(0.92);
+}
+
+.toolbar-v-stop {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.toolbar-v-stop:hover {
+  background: #dc2626;
+}
+
+.toolbar-v-stop-square {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+}
+
+.toolbar-v-time {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.toolbar-v-pause {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-v-pause:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.toolbar-v-pause svg {
+  width: 18px;
+  height: 18px;
+}
+
+.toolbar-v-hover-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition:
+    max-height 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.toolbar-v:hover .toolbar-v-hover-actions {
+  max-height: 120px;
+  opacity: 1;
+}
+
+.toolbar-v-action {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.toolbar-v-action:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.toolbar-v-action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.toolbar-v-action-danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+/* ---------- Saving card (bottom-left, mirrors desktop Finalizing) ---------- */
+
+.saving-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(24, 24, 27, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.saving-caption {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.saving-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.saving-bar-fill {
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: #d4d4d8;
+  animation: saving-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes saving-indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+/* Bubble size dots (small / large), revealed on hover — desktop-style. */
+.bubble-sizes {
+  position: absolute;
+  bottom: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(9, 9, 11, 0.55);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.bubble:hover .bubble-sizes {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bubble-size-dot {
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.1s ease;
+}
+
+.bubble-size-dot:hover {
+  background: #fff;
+}
+
+.bubble-size-dot:active {
+  transform: scale(0.9);
+}
+
+.bubble-size-sm {
+  width: 8px;
+  height: 8px;
+}
+
+.bubble-size-lg {
+  width: 13px;
+  height: 13px;
+}

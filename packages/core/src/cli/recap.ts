@@ -1932,7 +1932,7 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     lines.push(`</a>`);
     lines.push("");
   }
-  lines.push(`**[Open the full interactive recap](${safeUrl})**`);
+  lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
     lines.push("");
     lines.push(
@@ -2546,6 +2546,25 @@ const RECAP_SHOT_VIEWPORT = {
 };
 const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
 
+/**
+ * Identity shim for esbuild's `__name` helper, injected into the browser before
+ * any screenshot init script or `page.evaluate` payload.
+ *
+ * esbuild/tsx `keepNames` (on by default) rewrites a named inner function — e.g.
+ * `const readHeights = (…) => {…}` inside a `page.evaluate` callback — into
+ * `__name(() => {…}, "readHeights")`. Playwright serializes that callback with
+ * `Function.prototype.toString` and runs it in the page, where `__name` does not
+ * exist, throwing `ReferenceError: __name is not defined` and silently dropping
+ * the recap's inline PR-comment screenshot. CI's trusted-workspace path runs this
+ * CLI through `tsx` (esbuild), so it fires there even though the tsc-built
+ * published package never emits `__name`. Defining `__name` as an identity
+ * function (esbuild's helper returns the target unchanged) makes every main-world
+ * payload safe regardless of how the CLI was transpiled. Kept as a raw string so
+ * esbuild can't rewrite the shim itself.
+ */
+const RECAP_SHOT_NAME_SHIM =
+  "globalThis.__name = globalThis.__name || function (value) { return value; };";
+
 type PlaywrightModule = { chromium: import("playwright").BrowserType };
 
 async function defaultImportPlaywright(): Promise<PlaywrightModule> {
@@ -2704,6 +2723,10 @@ export async function runShot(
       deviceScaleFactor: RECAP_SHOT_DEVICE_SCALE_FACTOR,
       ...(theme ? { colorScheme: theme } : {}),
     });
+    // Must run before the theme init script and every page.evaluate below so
+    // esbuild/tsx `keepNames` wrappers don't throw `__name is not defined` in
+    // the browser (see RECAP_SHOT_NAME_SHIM).
+    await context.addInitScript(RECAP_SHOT_NAME_SHIM);
     if (theme) {
       await context.addInitScript(
         ({ background, nextTheme }) => {
@@ -2972,6 +2995,7 @@ function recoverRecapFailureEnv(
 export interface RecapGatePullRequest {
   number?: number;
   draft?: boolean;
+  author_association?: string | null;
   head?: { repo?: { full_name?: string | null } | null } | null;
   user?: { login?: string | null; type?: string | null } | null;
 }
@@ -2981,6 +3005,8 @@ export interface RecapGateInput {
   pr: RecapGatePullRequest | null;
   /** GITHUB_REPOSITORY ("owner/name"). */
   repository: string | undefined;
+  /** Whether the base repository is private. */
+  repositoryPrivate?: boolean;
   /** PLAN_RECAP_TOKEN present. */
   hasPlan: boolean;
   /** ANTHROPIC_API_KEY present. */
@@ -3061,6 +3087,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
   const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
+  const isPrivate = Boolean(input.repositoryPrivate);
+  const association = ((pr && pr.author_association) || "").toUpperCase();
+  const trustedAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
+  const isTrustedAuthor = trustedAssociations.includes(association);
   if (isFork && !input.hasPlan) {
     reasons.push(
       `fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`,
@@ -3125,9 +3155,11 @@ export function evaluateRecapGate(input: RecapGateInput): {
   // secrets. In the default auto/latest modes the recap prompt comes from the
   // trusted bundled skill, so visual skill and recap workflow files are ordinary
   // reviewed content and may be recapped.
-  const hits = input.changedFiles.filter((p) =>
-    isRecapSensitivePath(p, { skillSource }),
-  );
+  const shouldApplySensitivePathGuard =
+    Boolean(pr) && (isFork || (!isPrivate && !isTrustedAuthor));
+  const hits = shouldApplySensitivePathGuard
+    ? input.changedFiles.filter((p) => isRecapSensitivePath(p, { skillSource }))
+    : [];
   if (hits.length) {
     reasons.push(
       `PR modifies recap-control files (${hits.slice(0, 3).join(", ")}${
@@ -3197,13 +3229,16 @@ async function runGate(): Promise<void> {
   // Read the pull_request object out of the event payload, tolerating a
   // missing/unreadable file (degrades to the "no pull_request payload" reason).
   let pr: RecapGatePullRequest | null = null;
+  let repositoryPrivate = false;
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (eventPath) {
     try {
       const payload = JSON.parse(fs.readFileSync(eventPath, "utf8"));
       pr = payload && payload.pull_request ? payload.pull_request : null;
+      repositoryPrivate = Boolean(payload && payload.repository?.private);
     } catch {
       pr = null;
+      repositoryPrivate = false;
     }
   }
 
@@ -3231,6 +3266,7 @@ async function runGate(): Promise<void> {
   const decision = evaluateRecapGate({
     pr,
     repository,
+    repositoryPrivate,
     hasPlan: process.env.HAS_PLAN === "true",
     hasAnthropic: process.env.HAS_ANTHROPIC === "true",
     hasOpenai: process.env.HAS_OPENAI === "true",

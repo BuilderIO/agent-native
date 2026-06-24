@@ -11,6 +11,17 @@ describe("BinaryDocumentAttachmentAdapter", () => {
     expect(adapter.accept.split(",")).toContain("image/svg+xml");
     expect(adapter.accept.split(",")).toContain(".svg");
   });
+
+  it("rejects oversized PDFs when they are added", async () => {
+    const adapter = new BinaryDocumentAttachmentAdapter();
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf", {
+      type: "application/pdf",
+    });
+
+    await expect(adapter.add({ file })).rejects.toThrow(
+      '"large.pdf" is 4.0 MB — PDFs are capped at 4 MB',
+    );
+  });
 });
 
 describe("isTextLikeFile", () => {
