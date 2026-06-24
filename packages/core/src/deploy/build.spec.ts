@@ -1191,6 +1191,13 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
     );
+    // The wrapper passes Netlify's (request, context) through to the Nitro
+    // handler and guards the handoff so a pre-route failure is logged loudly
+    // instead of silently swallowed behind the async 202.
+    expect(entry).toContain("async function handler(request, context)");
+    expect(entry).toContain("cachedHandler(rewritten, context)");
+    expect(entry).toMatch(/try\s*\{/);
+    expect(entry).toContain("wrapper failed before reaching the route");
   });
 
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {

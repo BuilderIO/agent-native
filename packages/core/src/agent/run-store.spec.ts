@@ -10,6 +10,10 @@ let latestEventRows: Array<{ seq: number; event_data: string }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let runStatusRows: Array<{ status: string }> = [];
+let claimStateRows: Array<{
+  dispatch_mode: string | null;
+  status: string | null;
+}> = [];
 let insertEventBehavior: () => void = () => {};
 
 const mockDb = {
@@ -36,6 +40,10 @@ const mockDb = {
     // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
+    }
+    // readBackgroundRunClaim: SELECT dispatch_mode, status FROM agent_runs WHERE id = ?
+    if (/SELECT dispatch_mode, status FROM agent_runs WHERE id/i.test(rawSql)) {
+      return { rows: claimStateRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
@@ -74,6 +82,7 @@ const {
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   getRunStatus,
+  readBackgroundRunClaim,
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
@@ -89,9 +98,29 @@ describe("run store", () => {
     staleSelectRows = [];
     claimSlotRows = [];
     runStatusRows = [];
+    claimStateRows = [];
     ledgerRows = [];
     insertEventBehavior = () => {};
     vi.clearAllMocks();
+  });
+
+  it("readBackgroundRunClaim parses dispatch_mode + status, or null when missing", async () => {
+    claimStateRows = [{ dispatch_mode: "background", status: "running" }];
+    expect(await readBackgroundRunClaim("run-bg")).toEqual({
+      dispatchMode: "background",
+      status: "running",
+    });
+
+    claimStateRows = [
+      { dispatch_mode: "background-processing", status: "running" },
+    ];
+    expect(await readBackgroundRunClaim("run-claimed")).toEqual({
+      dispatchMode: "background-processing",
+      status: "running",
+    });
+
+    claimStateRows = [];
+    expect(await readBackgroundRunClaim("run-missing")).toBeNull();
   });
 
   it("persists a terminal event when marking a run aborted", async () => {

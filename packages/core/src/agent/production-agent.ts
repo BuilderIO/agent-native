@@ -109,6 +109,7 @@ import {
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   claimBackgroundRun,
+  readBackgroundRunClaim,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
 } from "./run-store.js";
@@ -148,6 +149,96 @@ import {
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+/**
+ * Grace window + poll interval for the foreground circuit-breaker that confirms
+ * a background worker actually CLAIMED a 202-dispatched run before recovering
+ * inline. The grace is long enough for a cold-start worker to win the claim
+ * (~1-2s typical) and short enough to recover quickly within the foreground's
+ * ~40s soft-timeout.
+ */
+export const BACKGROUND_CLAIM_GRACE_MS = 8_000;
+export const BACKGROUND_CLAIM_POLL_MS = 400;
+
+export type BackgroundDispatchOutcome =
+  | { action: "stream" }
+  | { action: "subscribe" }
+  | {
+      action: "inline";
+      reason: "dispatch-failed" | "worker-never-claimed" | "no-row";
+    };
+
+/**
+ * Decide what the foreground should do after attempting a durable background
+ * dispatch. A Netlify async background function returns 202 the instant it
+ * ENQUEUES the invocation — that is NOT proof the worker executed. If the
+ * generated wrapper fails to import/hand off to the route, the worker never
+ * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
+ *
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - dispatch failed OR no claim  → recover inline by atomically claiming the
+ *       run ourselves: if we win → "inline"; if a (delayed) worker already won
+ *       it → "subscribe" (never double-run).
+ *
+ * Pure except for the injected `readClaim`/`claim`/`now`/`sleep` deps, so each
+ * branch is unit-testable.
+ */
+export async function resolveBackgroundDispatchOutcome(opts: {
+  dispatched: boolean;
+  backgroundRowInserted: boolean;
+  runId: string;
+  graceMs: number;
+  pollIntervalMs: number;
+  readClaim: (
+    runId: string,
+  ) => Promise<{ dispatchMode: string | null; status: string | null } | null>;
+  claim: (runId: string) => Promise<boolean>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<BackgroundDispatchOutcome> {
+  const now = opts.now ?? (() => Date.now());
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  if (opts.dispatched) {
+    const deadline = now() + opts.graceMs;
+    for (;;) {
+      const claim = await opts.readClaim(opts.runId).catch(() => null);
+      if (
+        claim &&
+        ((claim.dispatchMode && claim.dispatchMode !== "background") ||
+          (claim.status && claim.status !== "running"))
+      ) {
+        return { action: "stream" };
+      }
+      if (now() >= deadline) break;
+      await sleep(opts.pollIntervalMs);
+    }
+  }
+
+  // Dispatch fast-failed OR no worker claimed within grace → recover inline.
+  if (!opts.backgroundRowInserted) {
+    // No row to reconcile (insert failed / non-duplicate) — run a fresh inline
+    // turn; `startRun` inserts the row.
+    return { action: "inline", reason: "no-row" };
+  }
+  let claimedInline = false;
+  try {
+    claimedInline = await opts.claim(opts.runId);
+  } catch {
+    claimedInline = false;
+  }
+  if (claimedInline) {
+    return {
+      action: "inline",
+      reason: opts.dispatched ? "worker-never-claimed" : "dispatch-failed",
+    };
+  }
+  // The atomic claim was lost: a (delayed) background worker already owns the
+  // run — subscribe to it, never run a second copy.
+  return { action: "subscribe" };
+}
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -4425,7 +4516,33 @@ export function createProductionAgentHandler(
         );
       }
 
-      if (dispatched) {
+      // ─── Circuit-breaker: a 202 only ENQUEUES the background invocation ─────
+      // It is NOT proof the worker executed. If the generated background-function
+      // wrapper fails to import `./main.mjs` or hand off to the Nitro
+      // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
+      // row sits at `dispatch_mode='background'` until the reaper errors it
+      // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
+      // polls briefly for the claim and decides:
+      //   - "stream":    a worker claimed the run → subscribe to it.
+      //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
+      //                  run a second copy.
+      //   - "inline":    dispatch failed OR no worker claimed within grace → we
+      //                  atomically own the run; recover by running it inline so a
+      //                  dead worker degrades to a working synchronous turn.
+      const backgroundOutcome = await resolveBackgroundDispatchOutcome({
+        dispatched,
+        backgroundRowInserted,
+        runId,
+        graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
+        readClaim: readBackgroundRunClaim,
+        claim: claimBackgroundRun,
+      });
+
+      if (
+        backgroundOutcome.action === "stream" ||
+        backgroundOutcome.action === "subscribe"
+      ) {
         const stream = subscribeToRun(runId, 0);
         if (stream) {
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4434,65 +4551,39 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           return stream;
         }
-        // Subscription failed even though dispatch landed — surface an error
-        // rather than silently running inline (the background worker is already
-        // processing this runId, so an inline second run would double-execute).
+        // A background worker owns this run but we cannot subscribe — surface an
+        // error rather than risk a double-run by falling through to inline.
+        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
         setResponseStatus(event, 500);
-        return { error: "Failed to subscribe to background run" };
+        return {
+          error:
+            backgroundOutcome.action === "stream"
+              ? "Failed to subscribe to background run"
+              : "Failed to dispatch background run",
+        };
       }
 
-      // ─── Dispatch failed → degrade to a normal synchronous (inline) run ────
-      // `fireInternalDispatch` throws ONLY when the self-POST failed *fast*
-      // (rejected the connection, or returned a non-2xx within the ~250ms settle
-      // race). The `_process-run` route verifies the HMAC token and validates
-      // the body BEFORE it ever reaches the SQL atomic claim, so a fast throw
-      // means NO background worker claimed this run — there is nothing to
-      // double-execute. Rather than break the chat with "Failed to dispatch
-      // background run", we run the turn inline (the same synchronous path the
-      // flag-off branch below takes), reusing the already-inserted run row.
-      //
-      // Safety against a (very improbable) delayed background delivery: claim the
-      // run atomically here via `claimBackgroundRun`, which flips the row's
-      // dispatch_mode `background → background-processing` in one conditional
-      // UPDATE. If a delayed dispatch DID land and a worker already won the
-      // claim, our claim returns false and we must NOT run inline (that would
-      // double-execute) — fall back to subscribing to the worker's run instead.
-      // The SQL atomic claim is the single source of truth for ownership, so at
-      // most one of {inline fallback, background worker} ever executes this run.
-      if (backgroundRowInserted) {
-        let claimedInline = false;
-        try {
-          claimedInline = await claimBackgroundRun(runId);
-        } catch (err) {
-          console.error(
-            "[agent-chat] inline-fallback claim failed:",
-            err instanceof Error ? err.message : err,
-          );
-        }
-        if (!claimedInline) {
-          // A background worker already owns this run (a delayed delivery landed
-          // after our fast throw). Stream its events instead of running a second
-          // copy. If we somehow can't subscribe, surface an error rather than
-          // risk a double-run.
-          const stream = subscribeToRun(runId, 0);
-          if (stream) {
-            setResponseHeader(event, "Content-Type", "text/event-stream");
-            setResponseHeader(event, "Cache-Control", "no-cache");
-            setResponseHeader(event, "Connection", "keep-alive");
-            setResponseHeader(event, "X-Run-Id", runId);
-            return stream;
-          }
-          await updateRunStatusIfRunning(runId, "errored").catch(() => {});
-          setResponseStatus(event, 500);
-          return { error: "Failed to dispatch background run" };
-        }
-        // We own the run. `startRun` (below) calls `insertRun` again, but its
-        // duplicate-PK collision is swallowed (`insertRun(...).catch(() => {})`),
-        // so the existing `background-processing` row is reused — no double row.
+      // backgroundOutcome.action === "inline": we atomically own the run (or
+      // there was no row to reconcile), so falling through to the inline
+      // `startRun` path below cannot double-execute. `startRun` calls `insertRun`
+      // again, but its duplicate-PK collision is swallowed, so an existing
+      // `background-processing` row is reused — no double row.
+      if (backgroundOutcome.reason === "worker-never-claimed") {
+        // The async 202 landed but no worker claimed within grace — the generated
+        // wrapper never reached the route. Record it so the failure is visible on
+        // the run even though the user still gets a working (inline) turn.
+        console.error(
+          "[agent-chat] background worker did not claim the 202-dispatched run " +
+            "within grace; recovering inline:",
+          runId,
+        );
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.foregroundInlineRecovery,
+          "202 dispatched but no worker claimed within the foreground grace window",
+        ).catch(() => {});
       }
-      // Fall through to the inline `startRun` path below (the same one the
-      // flag-off branch uses). If the row was never inserted, `startRun` inserts
-      // it fresh; if it was, the claim above made us the sole owner.
+      // Fall through to the inline `startRun` path below.
     }
 
     const trackedProgressOwner =
