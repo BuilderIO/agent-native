@@ -428,7 +428,11 @@ describe("McpClientManager", () => {
     expect(httpCallHeaders[0].Authorization).not.toBe(
       "Bearer static-service-token",
     );
+    expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
     expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
+    expect(
+      httpCallHeaders[1]["x-agent-native-mcp-inline-apps"],
+    ).toBeUndefined();
     const assetsTransport = fakeClients[0]!.getTransport() as FakeHttp;
     expect(
       headersFromUnknown(assetsTransport.requestInit?.headers).Authorization,
@@ -488,6 +492,7 @@ describe("McpClientManager", () => {
     expect(payload.sub).toBe("svc-mcp-client@service.org-123");
     expect(payload.org_id).toBe("org-123");
     expect(payload.scope).toBe("mcp-connect");
+    expect(payload.agent_native_first_party_mcp).toBe(true);
   });
 
   it("throws a clear error for unknown server prefixes", async () => {

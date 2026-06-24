@@ -152,6 +152,8 @@ export interface MCPCallerIdentity {
   oauthScopes?: string[];
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthClientId?: string;
+  /** Present only for framework-minted first-party MCP client tokens. */
+  firstPartyMcp?: boolean;
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -1976,6 +1978,9 @@ export async function verifyAuth(
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
             : undefined,
+        ...(payload.agent_native_first_party_mcp === true
+          ? { firstPartyMcp: true }
+          : {}),
       },
       // Verified JWT (connect-minted or A2A delegation) — a real caller.
       fullSurface: true,

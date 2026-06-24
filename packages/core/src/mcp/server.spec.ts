@@ -13,6 +13,7 @@
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as jose from "jose";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
@@ -324,6 +325,26 @@ const veryLongInternalDescription = "INTERNAL_TOOL_BLOAT_SENTINEL ".repeat(
 const veryLongMcpAppDescription = "MCP_APP_RESOURCE_BLOAT_SENTINEL ".repeat(
   1_000,
 );
+
+async function firstPartyMcpAuthHeaders() {
+  process.env.A2A_SECRET = "first-party-mcp-secret";
+  const token = await new jose.SignJWT({
+    sub: "svc-mcp-client@service.org_123",
+    scope: "mcp-connect",
+    jti: "jti-first-party-assets",
+    org_id: "org_123",
+    agent_native_first_party_mcp: true,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(new TextEncoder().encode(process.env.A2A_SECRET));
+  return {
+    authorization: `Bearer ${token}`,
+    "x-agent-native-mcp-full-catalog": "1",
+    "x-agent-native-mcp-inline-apps": "1",
+  };
+}
 
 const compactSurfaceConfig = {
   ...config,
@@ -1430,6 +1451,31 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
   });
 
+  it("serves MCP App resources when an authenticated first-party caller requests inline apps", async () => {
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    const list = await callWeb(
+      { jsonrpc: "2.0", id: 45, method: "resources/list", params: {} },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v51" }),
+    ]);
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 46,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: {} },
+      },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(call.error).toBeUndefined();
+    expect(JSON.stringify(call)).toContain("openai/outputTemplate");
+  });
+
   it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
     // The signed test token is owned by oauth@example.com — the bypass lets
@@ -1442,7 +1488,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
-      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v46" }),
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v51" }),
     ]);
   });
 

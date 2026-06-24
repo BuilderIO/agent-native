@@ -838,6 +838,7 @@ async function buildFirstPartyRequestInit(
   removeAuthorizationHeaders(headers);
   const token = await mintFirstPartyMcpIdentityToken(trust).catch(() => null);
   if (token) headers.Authorization = `Bearer ${token}`;
+  headers["x-agent-native-mcp-inline-apps"] = "1";
   return { ...init, headers };
 }
 
@@ -943,6 +944,7 @@ async function mintFirstPartyMcpIdentityToken(
       jti: randomJti(),
       scope: "mcp-connect",
       org_id: orgId,
+      agent_native_first_party_mcp: true,
     },
   });
 }

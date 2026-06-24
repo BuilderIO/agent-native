@@ -122,6 +122,24 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
   });
 
+  it("preserves the framework first-party MCP marker from connect-scoped tokens", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    const token = await sign({
+      sub: "svc-mcp-client@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-first-party",
+      org_id: "org_123",
+      agent_native_first_party_mcp: true,
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity).toMatchObject({
+      userEmail: "svc-mcp-client@service.org_123",
+      orgId: "org_123",
+      firstPartyMcp: true,
+    });
+  });
+
   it("resolves an org SERVICE token to a synthetic service identity with orgId", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     // Org service tokens (mintOrgServiceToken) carry the org id directly as
