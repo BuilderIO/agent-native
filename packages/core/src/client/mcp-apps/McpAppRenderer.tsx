@@ -235,7 +235,10 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       return {};
     };
     bridge.oncalltool = async ({ name, arguments: toolArguments }) => {
-      const toolName = normalizeSameServerToolName(appRef.current.serverId, name);
+      const toolName = normalizeSameServerToolName(
+        appRef.current.serverId,
+        name,
+      );
       if (!toolName) {
         return errorToolResult("Cross-server MCP App tool calls are blocked.");
       }
