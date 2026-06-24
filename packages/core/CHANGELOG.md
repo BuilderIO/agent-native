@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.72.2
+
+### Patch Changes
+
+- cc21a1c: Build the audit-redaction test fixture from concatenated parts so Netlify's
+  secret scanner no longer flags a literal `sk-` token pattern and blocks the
+  deploy.
+
 ## 0.72.1
 
 ### Patch Changes
