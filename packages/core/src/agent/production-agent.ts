@@ -65,10 +65,10 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
   isInBackgroundFunctionRuntime,
+  resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -4394,7 +4394,15 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          path: AGENT_CHAT_PROCESS_RUN_PATH,
+          // On hosted Netlify this is the standalone background function's DIRECT
+          // url (`/.netlify/functions/server-agent-background`) — POSTing the
+          // framework `_process-run` path would land on Nitro's synchronous `/*`
+          // catch-all and never get the 15-min budget. The function's entry
+          // rewrites the path back to AGENT_CHAT_PROCESS_RUN_PATH before
+          // delegating to Nitro, so the `_process-run` plugin still runs and the
+          // Authorization Bearer HMAC survives. Off-Netlify it stays the
+          // framework path (handled in-process).
+          path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
             ...body,
@@ -4636,7 +4644,12 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    path: AGENT_CHAT_PROCESS_RUN_PATH,
+                    // Continuation chunks must also land on the standalone async
+                    // background function (its direct url on hosted Netlify) so
+                    // each chunk keeps the 15-min budget; same path-resolution as
+                    // the initial dispatch. The function entry rewrites the path
+                    // back to `_process-run` for the Nitro router.
+                    path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {
                       ...body,

@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
+  resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 
@@ -148,6 +151,48 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
       process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
       expect(isInBackgroundFunctionRuntime()).toBe(false);
     }
+  });
+});
+
+describe("resolveAgentChatProcessRunDispatchPath (direct-url on Netlify)", () => {
+  it("exposes the standalone background function name + direct url path", () => {
+    expect(AGENT_BACKGROUND_FUNCTION_NAME).toBe("server-agent-background");
+    expect(AGENT_BACKGROUND_FUNCTION_URL_PATH).toBe(
+      "/.netlify/functions/server-agent-background",
+    );
+    // Name MUST end in -background (Netlify async convention + runtime guard).
+    expect(AGENT_BACKGROUND_FUNCTION_NAME.endsWith("-background")).toBe(true);
+  });
+
+  it("returns the DIRECT function url on hosted Netlify (bypasses the catch-all)", () => {
+    process.env.NETLIFY = "true";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+  });
+
+  it("returns the framework process-run path when NOT on Netlify", () => {
+    // Nothing set → not Netlify (e.g. local dev, Vercel, Cloudflare, self-host).
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
+  });
+
+  it("returns the framework path under `netlify dev` (NETLIFY_LOCAL=true)", () => {
+    // `netlify dev` runs in-process; there is no separate async function to
+    // reach, so dispatch stays the framework route (handled by the catch-all).
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
+  });
+
+  it("returns the framework path when NETLIFY is explicitly false", () => {
+    process.env.NETLIFY = "false";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_CHAT_PROCESS_RUN_PATH,
+    );
   });
 });
 
