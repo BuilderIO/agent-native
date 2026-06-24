@@ -40,9 +40,8 @@ body {
   border-radius: 50%;
   overflow: hidden;
   background: #18181b;
-  box-shadow:
-    0 10px 30px rgba(24, 24, 27, 0.35),
-    0 0 0 4px rgba(255, 255, 255, 0.92);
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(9, 9, 11, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -128,7 +127,7 @@ body {
   color: #fff;
   text-shadow: 0 6px 30px rgba(9, 9, 11, 0.6);
   line-height: 1;
-  animation: countdown-pop 1s ease-out forwards;
+  animation: countdown-pop 0.45s ease-out forwards;
 }
 
 .countdown-go {
@@ -138,20 +137,16 @@ body {
 
 @keyframes countdown-pop {
   0% {
-    transform: scale(0.45);
+    transform: scale(0.55);
     opacity: 0;
   }
-  25% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  70% {
-    transform: scale(1);
+  45% {
+    transform: scale(1.08);
     opacity: 1;
   }
   100% {
-    transform: scale(1.25);
-    opacity: 0;
+    transform: scale(1);
+    opacity: 1;
   }
 }
 

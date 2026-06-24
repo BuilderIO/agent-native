@@ -161,14 +161,20 @@ function initCountdown(): void {
   root.appendChild(wrap);
 
   let lastShown = "";
+  // Compute the fallback end-time ONCE (if the worker's countdownEndsAtMs never
+  // arrives) — recomputing it every frame froze the number on "3".
+  let fallbackEndsAt = 0;
   const render = (): void => {
-    const fallback =
-      Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
-      COUNTDOWN_FALLBACK;
-    const endsAt =
-      state.countdownEndsAtMs > 0
-        ? state.countdownEndsAtMs
-        : Date.now() + fallback * 1000;
+    let endsAt = state.countdownEndsAtMs;
+    if (endsAt <= 0) {
+      if (fallbackEndsAt === 0) {
+        const fallback =
+          Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
+          COUNTDOWN_FALLBACK;
+        fallbackEndsAt = Date.now() + fallback * 1000;
+      }
+      endsAt = fallbackEndsAt;
+    }
     const remainingMs = endsAt - Date.now();
     if (state.phase !== "countdown" || remainingMs <= 0) {
       if (lastShown !== "Go") {
