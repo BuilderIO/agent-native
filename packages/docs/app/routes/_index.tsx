@@ -6,7 +6,7 @@ import {
   IconRoute,
   IconServer,
 } from "@tabler/icons-react";
-import { useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client";
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
 import CodeBlock from "../components/CodeBlock";
 import Seascape from "../components/Seascape";
@@ -15,6 +15,7 @@ import {
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
+import { sitePathForLocale } from "../components/docs-locale";
 
 function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
@@ -563,6 +564,8 @@ function BidirectionalTabs() {
 
 export default function Home() {
   const t = useT();
+  const { locale } = useLocale();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
   const chatCommand =
     "npx @agent-native/core@latest create my-chat-app --template chat";
   const quickStartCode = `# ${t("home.code.quickStartComment")}
@@ -631,7 +634,7 @@ export default defineAction({
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-                to="/docs/getting-started"
+                to={localizedPath("/docs/getting-started")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -657,7 +660,7 @@ export default defineAction({
               </Link>
               <Link
                 data-an-prefetch="render"
-                to="/docs"
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -690,7 +693,7 @@ export default defineAction({
                 </p>
                 <Link
                   data-an-prefetch="render"
-                  to="/docs/what-is-agent-native"
+                  to={localizedPath("/docs/what-is-agent-native")}
                   className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
                     trackEvent("click cta", {
@@ -777,7 +780,7 @@ export default defineAction({
           <div className="mt-8 text-center">
             <Link
               data-an-prefetch="render"
-              to="/templates"
+              to={localizedPath("/templates")}
               className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
@@ -841,7 +844,7 @@ export default defineAction({
               <div className="mt-6">
                 <Link
                   data-an-prefetch="render"
-                  to="/docs/skills-guide"
+                  to={localizedPath("/docs/skills-guide")}
                   className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-5 py-2.5 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
                     trackEvent("click cta", {
@@ -1024,7 +1027,7 @@ export default defineAction({
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 data-an-prefetch="render"
-                to="/docs/getting-started"
+                to={localizedPath("/docs/getting-started")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -1050,7 +1053,7 @@ export default defineAction({
               </Link>
               <Link
                 data-an-prefetch="render"
-                to="/docs"
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {

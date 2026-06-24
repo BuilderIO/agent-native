@@ -1,8 +1,9 @@
 import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Link } from "react-router";
-import { trackEvent } from "@agent-native/core/client";
+import { trackEvent, useLocale } from "@agent-native/core/client";
 import { TemplateDocsLink } from "./template-docs";
+import { sitePathForLocale } from "./docs-locale";
 
 export { trackEvent };
 
@@ -208,6 +209,7 @@ export const featuredTemplates = templates.filter(
 
 function CliPopoverContent({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);
+  const { locale } = useLocale();
 
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
@@ -264,7 +266,7 @@ function CliPopoverContent({ template }: { template: Template }) {
         Paste into your terminal.{" "}
         <Link
           data-an-prefetch="render"
-          to="/docs/getting-started"
+          to={sitePathForLocale("/docs/getting-started", locale)}
           className="text-[var(--docs-accent)] no-underline hover:underline"
         >
           New to the CLI?
@@ -349,11 +351,14 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 }
 
 export function TemplateCard({ template }: { template: Template }) {
+  const { locale } = useLocale();
+  const templatePath = sitePathForLocale(`/templates/${template.slug}`, locale);
+
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
       <Link
         data-an-prefetch="render"
-        to={`/templates/${template.slug}`}
+        to={templatePath}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[924/729] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
           trackEvent("click template", {
@@ -384,7 +389,7 @@ export function TemplateCard({ template }: { template: Template }) {
       <h3 className="text-base font-semibold">
         <Link
           data-an-prefetch="render"
-          to={`/templates/${template.slug}`}
+          to={templatePath}
           className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >
           {template.name}

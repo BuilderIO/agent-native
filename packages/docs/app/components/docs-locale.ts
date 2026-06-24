@@ -19,26 +19,46 @@ function normalizePath(pathname: string) {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
 }
 
+function pathSegments(pathname: string) {
+  return normalizePath(pathname).split("/").filter(Boolean);
+}
+
 export function isDocsLocale(value: unknown): value is DocsLocale {
   return normalizeLocaleCode(value) === value;
+}
+
+export function routeLocaleFromPathname(
+  pathname: string,
+): DocsLocale | undefined {
+  const segments = pathSegments(pathname);
+  const prefixLocale = normalizeLocaleCode(segments[0]);
+  if (prefixLocale) return prefixLocale;
+  if (segments[0] === "docs") {
+    return normalizeLocaleCode(segments[1]) ?? undefined;
+  }
+  return undefined;
 }
 
 export function docsLocaleFromPathname(
   pathname: string,
 ): DocsLocale | undefined {
-  const segments = normalizePath(pathname).split("/").filter(Boolean);
-  if (segments[0] !== "docs") return undefined;
-  const locale = normalizeLocaleCode(segments[1]);
-  return locale ?? undefined;
+  if (!isDocsPath(pathname)) return undefined;
+  return routeLocaleFromPathname(pathname);
 }
 
 export function docsSlugFromPathname(pathname: string): string | undefined {
-  const segments = normalizePath(pathname).split("/").filter(Boolean);
-  if (segments[0] !== "docs") return undefined;
-  if (segments.length === 1) return "getting-started";
-  const maybeLocale = normalizeLocaleCode(segments[1]);
-  if (maybeLocale) return segments[2] ?? "getting-started";
-  return segments[1] ?? "getting-started";
+  const segments = pathSegments(pathname);
+  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const docsIndex = prefixLocale ? 1 : 0;
+  if (segments[docsIndex] !== "docs") return undefined;
+  if (segments.length === docsIndex + 1) return "getting-started";
+
+  if (!prefixLocale) {
+    const legacyLocale = normalizeLocaleCode(segments[1]);
+    if (legacyLocale) return segments[2] ?? "getting-started";
+  }
+
+  return segments[docsIndex + 1] ?? "getting-started";
 }
 
 export function isDocsPath(pathname: string) {
@@ -52,7 +72,9 @@ export function docsPathForSlug(
   if (locale === DEFAULT_DOCS_LOCALE) {
     return slug === "getting-started" ? "/docs" : `/docs/${slug}`;
   }
-  return `/docs/${locale}/${slug}`;
+  return slug === "getting-started"
+    ? `/${locale}/docs`
+    : `/${locale}/docs/${slug}`;
 }
 
 export function comparableDocsPath(pathname: string) {
@@ -66,6 +88,25 @@ export function localizedDocsPath(pathname: string, locale: DocsLocale) {
   const slug = docsSlugFromPathname(pathname);
   if (!slug) return pathname;
   return docsPathForSlug(slug, locale);
+}
+
+export function sitePathForLocale(
+  pathname: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+) {
+  const normalized = normalizePath(pathname);
+  const docsSlug = docsSlugFromPathname(normalized);
+  if (docsSlug) return docsPathForSlug(docsSlug, locale);
+
+  const segments = pathSegments(normalized);
+  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const unprefixedSegments = prefixLocale ? segments.slice(1) : segments;
+  const unprefixedPath = unprefixedSegments.length
+    ? `/${unprefixedSegments.join("/")}`
+    : "/";
+
+  if (locale === DEFAULT_DOCS_LOCALE) return unprefixedPath;
+  return unprefixedPath === "/" ? `/${locale}` : `/${locale}${unprefixedPath}`;
 }
 
 export function browserDocsLocale() {

@@ -1,10 +1,15 @@
+import { Link } from "react-router";
+import { useLocale } from "@agent-native/core/client";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
+import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
+  const { locale } = useLocale();
+
   return (
     <main className="templates-index-page mx-auto w-full min-w-0 max-w-[1200px] overflow-x-clip px-4 py-20 sm:px-6">
       <div className="mb-12 text-center">
@@ -31,8 +36,8 @@ export default function TemplatesPage() {
           Every template is forkable and open source. The community can build
           and share their own.
         </p>
-        <a
-          href="/docs"
+        <Link
+          to={sitePathForLocale("/docs", locale)}
           onClick={() =>
             trackEvent("create your own", { location: "templates_index" })
           }
@@ -52,7 +57,7 @@ export default function TemplatesPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           Create your own
-        </a>
+        </Link>
       </div>
     </main>
   );

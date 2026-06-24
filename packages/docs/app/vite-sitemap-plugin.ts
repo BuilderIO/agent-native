@@ -103,11 +103,14 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
               const raw = fs.readFileSync(filePath, "utf8");
               const { data, body } = parseFrontmatter(raw);
               return {
-                path: `/docs/${locale}/${slug}`,
+                path:
+                  slug === "getting-started"
+                    ? `/${locale}/docs`
+                    : `/${locale}/docs/${slug}`,
                 title: data.title || titleFromSlug(slug),
                 description: data.description,
                 markdown: body.trim() + "\n",
-                markdownPath: `/docs/${locale}/${slug}.md`,
+                markdownPath: `/${locale}/docs/${slug}.md`,
                 lastmod: gitLastmod(filePath),
               } satisfies AgentWebPage;
             });

@@ -1,6 +1,7 @@
-import { trackEvent } from "@agent-native/core/client";
+import { trackEvent, useLocale } from "@agent-native/core/client";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { sitePathForLocale } from "./docs-locale";
 
 type TemplateLinkTarget = {
   slug: string;
@@ -26,10 +27,11 @@ export function TemplateDocsLink({
   className?: string;
   children?: ReactNode;
 }) {
+  const { locale } = useLocale();
   return (
     <Link
       data-an-prefetch="render"
-      to={getTemplateDocsPath(template)}
+      to={sitePathForLocale(getTemplateDocsPath(template), locale)}
       onClick={() =>
         trackEvent("click view docs", {
           template: template.slug,

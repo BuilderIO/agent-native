@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useLocale } from "@agent-native/core/client";
+import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "June 24, 2026";
@@ -75,9 +77,14 @@ function ScopeCard({ title, body }: { title: string; body: string }) {
 }
 
 function InlineLink({ href, children }: { href: string; children: ReactNode }) {
+  const { locale } = useLocale();
+  const localizedHref = href.startsWith("/")
+    ? sitePathForLocale(href, locale)
+    : href;
+
   return (
     <a
-      href={href}
+      href={localizedHref}
       className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
     >
       {children}

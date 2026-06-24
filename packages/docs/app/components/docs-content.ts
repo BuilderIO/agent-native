@@ -145,7 +145,7 @@ export async function loadDoc(
 
   const key = localizedDocKey(docsLocale, slug);
   const loader = localizedMdLoaders[key];
-  if (!loader) return undefined;
+  if (!loader) return docs.get(slug);
 
   const existingPromise = localizedDocPromises.get(key);
   if (existingPromise) return existingPromise;
@@ -210,12 +210,7 @@ function buildSearchIndexFromDocs(
   const docsLocale = normalizeDocsLocale(locale);
 
   for (const doc of docsList) {
-    const pathLocale =
-      docsLocale !== DEFAULT_DOCS_LOCALE &&
-      !hasLocalizedDoc(docsLocale, doc.slug)
-        ? DEFAULT_DOCS_LOCALE
-        : docsLocale;
-    const path = docsPathForSlug(doc.slug, pathLocale);
+    const path = docsPathForSlug(doc.slug, docsLocale);
     const lines = doc.body.split("\n");
     const sections: { id: string; label: string; startLine: number }[] = [];
 

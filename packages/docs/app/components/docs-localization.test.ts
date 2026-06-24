@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveLayoutLocale } from "../root";
+import { loader as rootLoader, resolveLayoutLocale } from "../root";
+import { loader as docsIndexLoader } from "../routes/docs._index";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import {
@@ -9,11 +10,14 @@ import {
 } from "./docs-content";
 import { getDocsNavItems } from "./docsNavItems";
 
-function loaderArgs(params: Record<string, string>) {
+function loaderArgs(
+  params: Record<string, string>,
+  url = "https://docs.test/docs",
+) {
   return {
     context: {},
     params,
-    request: new Request("https://docs.test/docs"),
+    request: new Request(url),
   } as never;
 }
 
@@ -22,14 +26,15 @@ afterEach(() => {
 });
 
 describe("localized docs fallback", () => {
-  it("keeps non-doc document metadata on the active client locale", () => {
+  it("keeps unprefixed pages on the default SSR locale", () => {
     vi.stubGlobal("document", {
       documentElement: {
         getAttribute: (name: string) => (name === "lang" ? "ar-SA" : null),
       },
     });
 
-    expect(resolveLayoutLocale("/templates")).toBe("ar-SA");
+    expect(resolveLayoutLocale("/templates")).toBe("en-US");
+    expect(resolveLayoutLocale("/ar-SA/templates")).toBe("ar-SA");
   });
 
   it("keeps docs routes canonical to the URL locale", () => {
@@ -39,29 +44,37 @@ describe("localized docs fallback", () => {
       },
     });
 
+    expect(resolveLayoutLocale("/fr-FR/docs/internationalization")).toBe(
+      "fr-FR",
+    );
     expect(resolveLayoutLocale("/docs/fr-FR/internationalization")).toBe(
       "fr-FR",
     );
     expect(resolveLayoutLocale("/docs")).toBe("en-US");
   });
 
-  it("redirects missing localized markdown to the English canonical route", async () => {
-    expect(hasLocalizedDoc("fr-FR", "getting-started")).toBe(false);
+  it("falls back to English content without losing the locale route", async () => {
+    expect(hasLocalizedDoc("fr-FR", "agent-surfaces")).toBe(false);
 
-    const doc = await loadDoc("getting-started", "fr-FR");
-    expect(doc).toBeUndefined();
+    const doc = await loadDoc("agent-surfaces", "fr-FR");
+    expect(doc?.slug).toBe("agent-surfaces");
 
-    let response: Response | undefined;
-    try {
-      await localizedDocLoader(
-        loaderArgs({ locale: "fr-FR", slug: "getting-started" }),
-      );
-    } catch (error) {
-      response = error as Response;
-    }
+    const loaderDoc = await localizedDocLoader(
+      loaderArgs(
+        { locale: "fr-FR", slug: "agent-surfaces" },
+        "https://docs.test/fr-FR/docs/agent-surfaces",
+      ),
+    );
+    expect(loaderDoc?.slug).toBe("agent-surfaces");
+  });
 
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/docs");
+  it("loads localized getting started content on prefixed docs indexes", async () => {
+    const doc = await docsIndexLoader(
+      loaderArgs({ locale: "zh-CN" }, "https://docs.test/zh-CN/docs"),
+    );
+
+    expect(doc.slug).toBe("getting-started");
+    expect(doc.title).toBe("开始使用");
   });
 
   it("loads localized markdown when an override exists", async () => {
@@ -71,7 +84,10 @@ describe("localized docs fallback", () => {
     expect(doc?.slug).toBe("internationalization");
 
     const loaderDoc = await localizedDocLoader(
-      loaderArgs({ locale: "fr-FR", slug: "internationalization" }),
+      loaderArgs(
+        { locale: "fr-FR", slug: "internationalization" },
+        "https://docs.test/fr-FR/docs/internationalization",
+      ),
     );
     expect(loaderDoc?.slug).toBe("internationalization");
   });
@@ -85,7 +101,7 @@ describe("localized docs fallback", () => {
     }
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe("/docs");
+    expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
   });
 
   it("loads default docs slugs instead of treating them as locales", async () => {
@@ -94,32 +110,44 @@ describe("localized docs fallback", () => {
     expect(doc?.slug).toBe("agent-surfaces");
   });
 
-  it("uses localized nav links only for translated pages", () => {
+  it("uses localized nav links for the active docs locale", () => {
     const items = getDocsNavItems("fr-FR");
 
     expect(items.find((item) => item.id === "getting-started")?.to).toBe(
-      "/docs",
+      "/fr-FR/docs",
     );
     expect(items.find((item) => item.id === "creating-templates")?.to).toBe(
-      "/docs/creating-templates",
+      "/fr-FR/docs/creating-templates",
     );
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
-      "/docs/fr-FR/internationalization",
+      "/fr-FR/docs/internationalization",
     );
   });
 
-  it("keeps untranslated docs searchable at English canonical paths", async () => {
+  it("keeps untranslated docs searchable at localized paths", async () => {
     const index = await buildSearchIndexAsync("fr-FR");
 
     expect(
       index.some(
         (entry) =>
-          entry.path === "/docs" &&
-          entry.page.toLowerCase().includes("getting started"),
+          entry.path === "/fr-FR/docs" &&
+          entry.page.toLowerCase().includes("démarrage"),
       ),
     ).toBe(true);
     expect(
-      index.some((entry) => entry.path === "/docs/fr-FR/internationalization"),
+      index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
     ).toBe(true);
+  });
+
+  it("hydrates route locale messages from the server for prefixed docs paths", async () => {
+    const data = await rootLoader(
+      loaderArgs({}, "https://docs.test/zh-CN/docs/internationalization"),
+    );
+
+    expect(data.locale).toBe("zh-CN");
+    expect(data.preference.locale).toBe("zh-CN");
+    expect(data.messages).toMatchObject({
+      header: expect.objectContaining({ docs: expect.any(String) }),
+    });
   });
 });
