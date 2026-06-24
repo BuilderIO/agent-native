@@ -33,6 +33,7 @@ const ENV_KEYS = [
   "RENDER",
   "FLY_APP_NAME",
   "K_SERVICE",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
 ] as const;
 
 let saved: NodeJS.ProcessEnv;
@@ -154,7 +155,7 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
   });
 });
 
-describe("resolveAgentChatProcessRunDispatchPath (framework route everywhere)", () => {
+describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted Netlify)", () => {
   it("exposes the background function name + its default function url constant", () => {
     expect(AGENT_BACKGROUND_FUNCTION_NAME).toBe("server-agent-background");
     expect(AGENT_BACKGROUND_FUNCTION_URL_PATH).toBe(
@@ -164,27 +165,44 @@ describe("resolveAgentChatProcessRunDispatchPath (framework route everywhere)", 
     expect(AGENT_BACKGROUND_FUNCTION_NAME.endsWith("-background")).toBe(true);
   });
 
-  it("dispatches to the framework process-run route on hosted Netlify", () => {
-    // The background function declares `config.path = AGENT_CHAT_PROCESS_RUN_PATH`
-    // and the build excludes that path from the `server` /* catch-all, so a POST
-    // to the framework route matches ONLY the async function (202, 15-min).
+  it("dispatches to the function's DEFAULT url on hosted Netlify (single template)", () => {
+    // DOC-CORRECT: the background function declares NO custom config.path, so it
+    // keeps its default url /.netlify/functions/<name>. The `server` /* catch-all
+    // already excludes /.netlify/*, so a POST to that default url matches ONLY the
+    // async function (202, 15-min) — it is never shadowed by the sync function.
     process.env.NETLIFY = "true";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
-      AGENT_CHAT_PROCESS_RUN_PATH,
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/server-agent-background",
     );
   });
 
-  it("does NOT dispatch to the direct .netlify/functions url", () => {
-    // A custom config.path REMOVES the default function url; dispatching there
-    // would 404. We always dispatch to the framework route.
+  it("dispatches to the PER-APP default url on hosted Netlify (workspace)", () => {
+    // Workspace deploy emits one background fn per app named <app>-agent-background
+    // reachable at its default url. The foreground reads the workspace app id from
+    // AGENT_NATIVE_WORKSPACE_APP_ID and resolves the matching function url.
     process.env.NETLIFY = "true";
-    expect(resolveAgentChatProcessRunDispatchPath()).not.toBe(
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/plan-agent-background",
+    );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
+  });
+
+  it("falls back to the single-template default url for an unsafe workspace app id", () => {
+    process.env.NETLIFY = "true";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "../evil";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
     );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
   });
 
   it("returns the framework process-run path when NOT on Netlify", () => {
     // Nothing set → not Netlify (e.g. local dev, Vercel, Cloudflare, self-host).
+    // No second function exists; the in-process catch-all handles the route.
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );

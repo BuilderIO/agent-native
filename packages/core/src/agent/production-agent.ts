@@ -4394,13 +4394,16 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          // The framework `_process-run` route on every host. On hosted Netlify
-          // the build emits an async background function (in the scanned dir)
-          // that CLAIMS this exact path via `config.path` AND excludes it from
-          // the `server` /* catch-all, so this POST matches ONLY the async
-          // function (immediate 202, 15-min budget) — Netlify matches functions
-          // before redirects. Off-Netlify the same in-process catch-all handles
-          // it. The Authorization Bearer HMAC is preserved either way.
+          // On hosted Netlify this resolves to the background function's DEFAULT
+          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
+          // workspaces) — the function declares NO custom config.path, so it keeps
+          // its default url, and `background: true` makes that url async (202,
+          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
+          // so it never shadows it. Off-Netlify this resolves to the framework
+          // `_process-run` route and the same in-process catch-all handles it
+          // inline. `fireInternalDispatch` strips the app base path for
+          // /.netlify/* targets so the request reaches the host-root function url;
+          // the Authorization Bearer HMAC is preserved either way.
           path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
@@ -4643,11 +4646,12 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    // Continuation chunks dispatch to the same framework
-                    // `_process-run` route; on hosted Netlify it matches the
-                    // async background function (config.path + excluded from the
-                    // /* catch-all) so each chunk keeps the 15-min budget. Same
-                    // path-resolution as the initial dispatch.
+                    // Continuation chunks use the same path resolution as the
+                    // initial dispatch: on hosted Netlify the background
+                    // function's DEFAULT url (no custom config.path; async via
+                    // background:true; never shadowed because /.netlify/* is
+                    // excluded from the /* catch-all) so each chunk keeps the
+                    // 15-min budget; off-Netlify the in-process framework route.
                     path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {
