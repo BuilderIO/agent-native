@@ -31,7 +31,8 @@ describe("fireInternalDispatch", () => {
       "Self-dispatch to /_agent-native/agent-teams/_process-run returned HTTP 503 Service Unavailable",
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      "[self-dispatch] dispatch to /_agent-native/agent-teams/_process-run failed:",
+      "[self-dispatch] dispatch to /_agent-native/agent-teams/_process-run " +
+        "(base https://slides.example.test) failed:",
       expect.any(Error),
     );
   });
