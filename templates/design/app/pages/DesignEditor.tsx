@@ -43,6 +43,9 @@ import {
   ShareButton,
   isEmbedAuthActive,
   sendToAgentChat,
+  getBrowserTabId,
+  readClientAppState,
+  setClientAppState,
   useReconciledState,
   usePresence,
   useFollowUser,
@@ -113,6 +116,16 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+
+// Selection is tab-scoped (like navigation) so a second editor tab cannot
+// overwrite this tab's selection context. The global key is mirrored as a
+// fallback for CLI/external agents that do not send a browser tab id.
+function designSelectionStateKeys(): string[] {
+  const tabId = getBrowserTabId();
+  return tabId
+    ? [`design-selection:${tabId}`, "design-selection"]
+    : ["design-selection"];
+}
 // Stable symbol used as the Yjs transaction origin for all local user edits.
 // The UndoManager tracks only this origin so remote peers' and the agent's
 // edits are never undone by this user's Cmd+Z.
@@ -317,6 +330,8 @@ export default function DesignEditor() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  const persistedSelectionStateRef = useRef<string | null>(null);
+  const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
@@ -340,6 +355,26 @@ export default function DesignEditor() {
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+
+  useEffect(() => {
+    return () => {
+      void (async () => {
+        const keys = designSelectionStateKeys();
+        const current = await readClientAppState(keys[0]).catch(() => null);
+        const ownerId =
+          current && typeof current === "object"
+            ? (current as { ownerId?: unknown }).ownerId
+            : undefined;
+        if (ownerId !== designSelectionOwnerIdRef.current) return;
+        persistedSelectionStateRef.current = null;
+        for (const key of designSelectionStateKeys()) {
+          await setClientAppState(key, null, {
+            keepalive: true,
+          }).catch(() => {});
+        }
+      })();
+    };
+  }, []);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -1414,6 +1449,24 @@ export default function DesignEditor() {
       mode,
     };
     (window as any).__designSelection = selection;
+    const persistedSelection = {
+      designId: selection.designId,
+      designTitle: selection.designTitle,
+      activeFileId: selection.activeFileId,
+      activeFilename: selection.activeFilename,
+      selectedElement: selection.selectedElement,
+      mode: selection.mode,
+      ownerId: designSelectionOwnerIdRef.current,
+    };
+    const persistedKey = JSON.stringify(persistedSelection);
+    if (persistedSelectionStateRef.current !== persistedKey) {
+      persistedSelectionStateRef.current = persistedKey;
+      for (const key of designSelectionStateKeys()) {
+        setClientAppState(key, persistedSelection, {
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }
     const el = document.documentElement;
     el.dataset.designId = id;
     if (activeFile?.id) el.dataset.fileId = activeFile.id;

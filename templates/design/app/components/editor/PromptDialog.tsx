@@ -398,7 +398,7 @@ export default function PromptPopover({
         return;
       }
 
-      if (name !== "chooseImage") return;
+      if (name !== "chooseImage" && name !== "chooseAsset") return;
       const url = pickedAssetImageSource(payload);
       if (!url) {
         toast.error("Assets did not return an image URL.");

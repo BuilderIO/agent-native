@@ -43,6 +43,7 @@ export async function signA2AToken(
   options?: {
     expiresIn?: string | number;
     preferGlobalSecret?: boolean;
+    audience?: string | string[];
     /**
      * Extra JWT claims to merge alongside `sub` / `org_domain`. Used by the
      * MCP connect flow to add a revocable `jti` and a `scope: "mcp-connect"`
@@ -67,7 +68,7 @@ export async function signA2AToken(
     process.env.BETTER_AUTH_URL ||
     "http://localhost:3000";
 
-  return new jose.SignJWT({
+  const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),
     // `sub` / `org_domain` are spread AFTER extraClaims so a caller-supplied
     // map can never override the verified identity claims.
@@ -77,8 +78,11 @@ export async function signA2AToken(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(appUrl)
     .setIssuedAt()
-    .setExpirationTime(options?.expiresIn ?? "15m")
-    .sign(new TextEncoder().encode(secret));
+    .setExpirationTime(options?.expiresIn ?? "15m");
+
+  if (options?.audience) jwt.setAudience(options.audience);
+
+  return jwt.sign(new TextEncoder().encode(secret));
 }
 
 export class A2AClient {

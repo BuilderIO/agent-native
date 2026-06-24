@@ -8043,6 +8043,14 @@ export function getGlobalMcpManager(): McpClientManager | null {
   return _globalMcpManager;
 }
 
+/** Internal: reload the process's MCP client manager after persisted settings change. */
+export async function refreshGlobalMcpManager(): Promise<boolean> {
+  const manager = getGlobalMcpManager();
+  if (!manager) return false;
+  await manager.reconfigure(await buildMergedConfig());
+  return true;
+}
+
 function mountMcpHubStatusRoute(nitroApp: any): void {
   const mountedApps: WeakSet<object> = ((
     globalThis as any

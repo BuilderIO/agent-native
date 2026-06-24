@@ -55,4 +55,53 @@ describe("open-asset-picker", () => {
       view: "picker",
     });
   });
+
+  it("accepts MCP stringified scalar parameters", async () => {
+    const result = await action.run({
+      prompt: "Generate a hero image",
+      count: "4",
+      autoGenerate: "true",
+      includeLogo: "false",
+      styleStrength: "strong",
+      tier: "fast",
+      callerAppId: "design",
+    } as any);
+
+    expect(result).toMatchObject({
+      count: 4,
+      autoGenerate: true,
+      includeLogo: false,
+      styleStrength: "strong",
+      tier: "fast",
+      callerAppId: "design",
+    });
+    expect(result.path).toBe(
+      "/library?mediaType=image&prompt=Generate+a+hero+image&count=4&tier=fast&styleStrength=strong&callerAppId=design&autoGenerate=1",
+    );
+  });
+
+  it("advertises count as integer or string for MCP hosts that stringify args", () => {
+    expect(action.tool.parameters?.properties?.count).toMatchObject({
+      anyOf: [
+        expect.objectContaining({ type: "integer" }),
+        expect.objectContaining({ type: "string", pattern: "^[1-6]$" }),
+      ],
+    });
+  });
+
+  it("does not treat string false as truthy", async () => {
+    const result = await action.run({
+      prompt: "Generate a hero image",
+      autoGenerate: "false",
+      includeLogo: "false",
+    } as any);
+
+    expect(result).toMatchObject({
+      autoGenerate: false,
+      includeLogo: false,
+    });
+    expect(result.path).toBe(
+      "/library?mediaType=image&prompt=Generate+a+hero+image",
+    );
+  });
 });

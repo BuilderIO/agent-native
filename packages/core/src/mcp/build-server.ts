@@ -152,6 +152,8 @@ export interface MCPCallerIdentity {
   oauthScopes?: string[];
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthClientId?: string;
+  /** Present only for framework-minted first-party MCP client tokens. */
+  firstPartyMcp?: boolean;
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -748,7 +750,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v46";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v51";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1785,6 +1787,7 @@ function addSecretCandidate(
 
 async function verifyA2AJwtForMcp(
   token: string,
+  resourceUrl?: string | string[],
 ): Promise<Record<string, unknown> | null> {
   const jose = await import("jose");
   let unverifiedPayload: Record<string, unknown> | null = null;
@@ -1813,19 +1816,41 @@ async function verifyA2AJwtForMcp(
     }
   }
 
+  const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
+  const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
+  if (firstPartyMcp && !audiences?.length) return null;
+
   for (const secret of candidateSecrets) {
-    try {
-      const { payload } = await jose.jwtVerify(
-        token,
-        new TextEncoder().encode(secret),
-      );
-      return payload as Record<string, unknown>;
-    } catch {
-      // Try the next candidate without exposing which secret matched.
+    const encodedSecret = new TextEncoder().encode(secret);
+    for (const audience of audiences ?? [undefined]) {
+      try {
+        const { payload } = await jose.jwtVerify(
+          token,
+          encodedSecret,
+          audience ? { audience } : undefined,
+        );
+        return payload as Record<string, unknown>;
+      } catch {
+        // Try the next candidate without exposing which secret matched.
+      }
     }
   }
 
   return null;
+}
+
+function mcpAudienceList(resource: string | string[] | undefined): string[] {
+  const raw = Array.isArray(resource) ? resource : resource ? [resource] : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of raw) {
+    const normalized = value.replace(/\/+$/, "");
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      out.push(normalized);
+    }
+  }
+  return out;
 }
 
 async function isConnectTokenAllowed(
@@ -1941,7 +1966,7 @@ export async function verifyAuth(
 
   // Try an A2A JWT via the shared A2A_SECRET first, then the caller org's
   // synced A2A secret when the token carries org_domain.
-  const payload = await verifyA2AJwtForMcp(token);
+  const payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
   if (payload) {
     const tokenScope =
       typeof payload.scope === "string" ? payload.scope : undefined;
@@ -1976,6 +2001,9 @@ export async function verifyAuth(
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
             : undefined,
+        ...(payload.agent_native_first_party_mcp === true
+          ? { firstPartyMcp: true }
+          : {}),
       },
       // Verified JWT (connect-minted or A2A delegation) — a real caller.
       fullSurface: true,

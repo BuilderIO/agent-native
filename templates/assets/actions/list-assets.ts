@@ -95,13 +95,15 @@ export default defineAction({
       .filter((asset) =>
         shouldIncludeAssetInLibraryResults(
           asset,
-          includeCandidates || status === "candidate",
+          includeCandidates ||
+            status === "candidate" ||
+            candidateRunIdSet.size > 0,
         ),
       )
       .filter((asset) => {
         if (!candidateRunIdSet.size) return true;
         if (!(asset.role === "generated" && asset.status === "candidate")) {
-          return true;
+          return false;
         }
         return Boolean(
           asset.generationRunId && candidateRunIdSet.has(asset.generationRunId),

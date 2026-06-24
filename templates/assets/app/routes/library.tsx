@@ -9,6 +9,7 @@ import {
   appPath,
   getBrowserTabId,
   getEmbedAuthToken,
+  isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
@@ -53,6 +54,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
+import type { ImageQualityTier, StyleStrength } from "../../shared/api";
 
 type AssetTab = "all" | "generated" | "references";
 
@@ -127,11 +129,43 @@ type HostConfig = {
   prompt?: string;
   query?: string;
   libraryId?: string;
+  libraryHint?: string;
   aspectRatio?: string;
   presetId?: string;
   count?: number;
+  tier?: ImageQualityTier;
+  styleStrength?: StyleStrength;
+  includeLogo?: boolean;
+  callerAppId?: string;
   autoGenerate?: boolean;
+  candidateRunIds?: string[];
 };
+
+// Preselect the library whose title/description best matches a free-text brand
+// or use-case hint. Falls back to no match (caller uses the first library).
+function matchLibraryByHint(
+  libraries: Library[],
+  hint: string | undefined,
+): string | undefined {
+  const needle = hint?.trim().toLowerCase();
+  if (!needle) return undefined;
+  const terms = needle.split(/\s+/).filter(Boolean);
+  let best: { id: string; score: number } | null = null;
+  for (const library of libraries) {
+    const haystack =
+      `${library.title ?? ""} ${library.description ?? ""}`.toLowerCase();
+    if (!haystack.trim()) continue;
+    let score = 0;
+    if (haystack.includes(needle)) score += 10;
+    for (const term of terms) {
+      if (haystack.includes(term)) score += 1;
+    }
+    if (score > 0 && (!best || score > best.score)) {
+      best = { id: library.id, score };
+    }
+  }
+  return best?.id;
+}
 
 function isEmbeddedWindow() {
   if (typeof window === "undefined") return false;
@@ -154,6 +188,40 @@ function normalizeMediaType(value: unknown): PickerMediaType {
   return value === "video" ? "video" : "image";
 }
 
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["", "0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeTier(value: unknown): ImageQualityTier | undefined {
+  return value === "auto" || value === "fast" || value === "best"
+    ? value
+    : undefined;
+}
+
+function normalizeStyleStrength(value: unknown): StyleStrength | undefined {
+  return value === "subtle" || value === "balanced" || value === "strong"
+    ? value
+    : undefined;
+}
+
+function normalizeCandidateRunIds(value: unknown): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const ids = raw
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return ids;
+}
+
 function normalizeHostConfig(value: unknown): HostConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
@@ -166,17 +234,22 @@ function normalizeHostConfig(value: unknown): HostConfig {
     query: typeof record.query === "string" ? record.query : undefined,
     libraryId:
       typeof record.libraryId === "string" ? record.libraryId : undefined,
+    libraryHint:
+      typeof record.libraryHint === "string" ? record.libraryHint : undefined,
     aspectRatio:
       typeof record.aspectRatio === "string" ? record.aspectRatio : undefined,
     presetId: typeof record.presetId === "string" ? record.presetId : undefined,
     count:
       record.count === undefined ? undefined : normalizeCount(record.count),
+    tier: normalizeTier(record.tier),
+    styleStrength: normalizeStyleStrength(record.styleStrength),
+    includeLogo: normalizeBoolean(record.includeLogo),
+    callerAppId:
+      typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
   if (Object.prototype.hasOwnProperty.call(record, "autoGenerate")) {
-    config.autoGenerate =
-      record.autoGenerate === true ||
-      record.autoGenerate === "true" ||
-      record.autoGenerate === "1";
+    config.autoGenerate = normalizeBoolean(record.autoGenerate) ?? false;
   }
   return config;
 }
@@ -440,32 +513,53 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+const MCP_IMAGE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+
+function base64ByteLength(data: string) {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
+async function fetchImageContent(url: string, fallbackMimeType: string) {
+  const credentials =
+    typeof window !== "undefined" &&
+    new URL(url, window.location.href).origin === window.location.origin
+      ? "same-origin"
+      : "omit";
+  const response = await fetch(url, { credentials });
+  if (!response.ok) return null;
+  const blob = await response.blob();
+  const detectedMimeType = blob.type.startsWith("image/")
+    ? blob.type
+    : fallbackMimeType;
+  return {
+    type: "image",
+    data: await blobToBase64(blob),
+    mimeType: detectedMimeType,
+  };
+}
+
 async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const mimeType = payload.mimeType?.startsWith("image/")
     ? payload.mimeType
     : "image/png";
   if (!url || payload.mediaType !== "image") return null;
-  try {
-    const credentials =
-      typeof window !== "undefined" &&
-      new URL(url, window.location.href).origin === window.location.origin
-        ? "same-origin"
-        : "omit";
-    const response = await fetch(url, { credentials });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const detectedMimeType = blob.type.startsWith("image/")
-      ? blob.type
-      : mimeType;
-    return {
-      type: "image",
-      data: await blobToBase64(blob),
-      mimeType: detectedMimeType,
-    };
-  } catch {
-    return null;
+  const sources = uniqueSources([url, payload.thumbnailUrl]);
+  for (const source of sources) {
+    try {
+      const content = await fetchImageContent(source, mimeType);
+      if (
+        content &&
+        base64ByteLength(content.data) <= MCP_IMAGE_CONTENT_MAX_BYTES
+      ) {
+        return content;
+      }
+    } catch {
+      // Try the next smaller source.
+    }
   }
+  return null;
 }
 
 function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
@@ -490,16 +584,18 @@ function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
         }) || false,
       )
         .catch(() => false)
-        .then(() =>
-          Promise.resolve(
+        .then((contextOk) => {
+          return Promise.resolve(
             sendMcpAppHostMessage({
               message,
               context: JSON.stringify(context, null, 2),
               content: chatContent,
               structuredContent: context,
             }) || false,
-          ).catch(() => false),
-        );
+          )
+            .catch(() => false)
+            .then((chatOk) => contextOk || chatOk);
+        });
     });
 }
 
@@ -619,6 +715,9 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 export default function AssetPicker() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const mcpChatBridgeActive =
+    searchParams.get("__an_mcp_chat_bridge") === "1" ||
+    isEmbedMcpChatBridgeActive();
   const urlHostConfig = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     return {
@@ -626,12 +725,20 @@ export default function AssetPicker() {
       prompt: params.get("prompt") ?? undefined,
       query: params.get("q") ?? undefined,
       libraryId: params.get("libraryId") ?? undefined,
+      libraryHint: params.get("libraryHint") ?? undefined,
       aspectRatio: params.get("aspectRatio") ?? undefined,
       presetId: params.get("presetId") ?? undefined,
       count: normalizeCount(params.get("count")),
-      autoGenerate:
-        params.get("autoGenerate") === "1" ||
-        params.get("autoGenerate") === "true",
+      tier: normalizeTier(params.get("tier")),
+      styleStrength: normalizeStyleStrength(params.get("styleStrength")),
+      includeLogo: normalizeBoolean(params.get("includeLogo")),
+      callerAppId: params.get("callerAppId") ?? undefined,
+      candidateRunIds: normalizeCandidateRunIds(
+        params.getAll("candidateRunIds").length > 0
+          ? params.getAll("candidateRunIds")
+          : params.get("candidateRunIds"),
+      ),
+      autoGenerate: normalizeBoolean(params.get("autoGenerate")) ?? false,
     } satisfies HostConfig;
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
@@ -655,6 +762,9 @@ export default function AssetPicker() {
     useState<Library | null>(null);
   const autoGenerateKeyRef = useRef<string | null>(null);
   const autoCreateLibraryRef = useRef(false);
+  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
+    string[]
+  >(() => hostConfig.candidateRunIds ?? []);
 
   useEffect(() => {
     setHostConfig((current) => ({ ...current, ...urlHostConfig }));
@@ -665,6 +775,7 @@ export default function AssetPicker() {
     setAspectRatio(urlHostConfig.aspectRatio ?? "16:9");
     setPresetId(urlHostConfig.presetId ?? "none");
     setCount(urlHostConfig.count ?? 3);
+    setVisibleCandidateRunIds(urlHostConfig.candidateRunIds ?? []);
   }, [urlHostConfig]);
 
   const librariesQuery = useActionQuery("list-libraries", {
@@ -693,7 +804,10 @@ export default function AssetPicker() {
     const firstLibraryId = displayLibraries[0]?.id;
     if (!firstLibraryId) return;
     if (!selectedLibraryId) {
-      setSelectedLibraryId(firstLibraryId);
+      setSelectedLibraryId(
+        matchLibraryByHint(displayLibraries, hostConfig.libraryHint) ??
+          firstLibraryId,
+      );
       return;
     }
     if (!libraryListReady) return;
@@ -703,7 +817,12 @@ export default function AssetPicker() {
     if (!selectedLibraryExists) {
       setSelectedLibraryId(firstLibraryId);
     }
-  }, [displayLibraries, libraryListReady, selectedLibraryId]);
+  }, [
+    displayLibraries,
+    hostConfig.libraryHint,
+    libraryListReady,
+    selectedLibraryId,
+  ]);
 
   const { data: config } = useActionQuery(
     "get-image-generation-config",
@@ -742,9 +861,6 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
-  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
-    string[]
-  >([]);
   const generateBatch = useActionMutation(
     "generate-image-batch" as any,
     {
@@ -876,12 +992,28 @@ export default function AssetPicker() {
     [],
   );
 
+  const postEmbeddedSelectionMessage = useCallback(
+    (
+      name: "chooseAsset" | "chooseImage",
+      payload: ReturnType<typeof assetPayload>,
+    ) => {
+      try {
+        return bridgeRef.current?.postMessage(name, payload) ?? false;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
-      bridgeRef.current?.postMessage("chooseAsset", payload);
-      if (payload.mediaType === "image") {
-        bridgeRef.current?.postMessage("chooseImage", payload);
+      if (!mcpChatBridgeActive) {
+        postEmbeddedSelectionMessage("chooseAsset", payload);
+        if (payload.mediaType === "image") {
+          postEmbeddedSelectionMessage("chooseImage", payload);
+        }
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {
@@ -912,6 +1044,9 @@ export default function AssetPicker() {
         setQuery("");
       },
       onError: (error: Error) => {
+        // Allow the auto-create effect to retry after a transient failure;
+        // otherwise the picker stays stuck on "Preparing..." until reload.
+        autoCreateLibraryRef.current = false;
         toast.error(error.message || "Could not prepare an image library");
       },
     } as any,
@@ -931,12 +1066,20 @@ export default function AssetPicker() {
         imageSize: selectedPreset?.imageSize || "2K",
         dismissible: false,
       })),
+      tier: hostConfig.tier,
+      styleStrength: hostConfig.styleStrength ?? "balanced",
+      includeLogo: hostConfig.includeLogo ?? false,
       source: "ui",
+      callerAppId: hostConfig.callerAppId,
     } as any);
   }, [
     count,
     effectiveAspectRatio,
     generateBatch,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.styleStrength,
+    hostConfig.tier,
     prompt,
     setVisibleCandidateRunIds,
     selectedLibraryId,
@@ -945,8 +1088,35 @@ export default function AssetPicker() {
   ]);
 
   useEffect(() => {
+    const hostCandidateFilterMatches =
+      hostConfig.candidateRunIds?.length &&
+      normalizeMediaType(hostConfig.mediaType) === mediaType &&
+      (hostConfig.libraryId ?? "") === (selectedLibraryId ?? "") &&
+      (hostConfig.prompt ?? "") === prompt &&
+      (hostConfig.aspectRatio ?? "16:9") === aspectRatio &&
+      (hostConfig.presetId ?? "none") === presetId &&
+      (hostConfig.count ?? 3) === count;
+    if (hostCandidateFilterMatches) return;
     setVisibleCandidateRunIds([]);
-  }, [aspectRatio, count, mediaType, presetId, prompt, selectedLibraryId]);
+  }, [
+    aspectRatio,
+    count,
+    hostConfig.aspectRatio,
+    hostConfig.candidateRunIds,
+    hostConfig.count,
+    hostConfig.callerAppId,
+    hostConfig.includeLogo,
+    hostConfig.libraryId,
+    hostConfig.mediaType,
+    hostConfig.presetId,
+    hostConfig.prompt,
+    hostConfig.styleStrength,
+    hostConfig.tier,
+    mediaType,
+    presetId,
+    prompt,
+    selectedLibraryId,
+  ]);
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
@@ -961,6 +1131,9 @@ export default function AssetPicker() {
         if (next.aspectRatio !== undefined) setAspectRatio(next.aspectRatio);
         if (next.presetId !== undefined) setPresetId(next.presetId || "none");
         if (next.count !== undefined) setCount(next.count);
+        if (next.candidateRunIds !== undefined) {
+          setVisibleCandidateRunIds(next.candidateRunIds);
+        }
       },
     });
     bridgeRef.current = bridge;
@@ -1016,6 +1189,31 @@ export default function AssetPicker() {
     usingStarterLibrary;
   const preparingGenerationLibrary =
     needsGenerationLibrary && createPickerLibrary.isPending;
+  const waitingForLibraries = mediaType === "image" && !libraryListReady;
+  const preparingAutoLibrary =
+    mediaType === "image" &&
+    Boolean(prompt.trim()) &&
+    (waitingForLibraries ||
+      needsGenerationLibrary ||
+      preparingGenerationLibrary);
+  const generationButtonLabel = generateBatch.isPending
+    ? "Generating..."
+    : waitingForRequestedPreset
+      ? "Loading preset..."
+      : setupNeeded
+        ? "Setup needed"
+        : preparingAutoLibrary
+          ? "Preparing..."
+          : "Generate";
+  const generationStatus = generateBatch.isPending
+    ? "Generating candidates..."
+    : preparingAutoLibrary
+      ? waitingForLibraries
+        ? "Checking image libraries..."
+        : "Preparing an image library..."
+      : waitingForRequestedPreset
+        ? "Loading the requested preset..."
+        : null;
 
   useEffect(() => {
     if (!selectedPreset?.aspectRatio) return;
@@ -1213,9 +1411,14 @@ export default function AssetPicker() {
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
-                  {generateBatch.isPending ? "Generating..." : "Generate"}
+                  {generationButtonLabel}
                 </Button>
               </div>
+              {generationStatus && (
+                <div className="-mt-1 px-3 pb-2 text-[11px] leading-4 text-muted-foreground">
+                  {generationStatus}
+                </div>
+              )}
             </div>
           ) : null}
 

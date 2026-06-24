@@ -103,6 +103,14 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     fullCatalogHeader === "1" ||
     fullCatalogHeader === "true" ||
     fullCatalogHeader === "yes";
+  const inlineAppsHeader = getRequestHeader(
+    event,
+    "x-agent-native-mcp-inline-apps",
+  )?.toLowerCase();
+  const inlineAppsRequested =
+    inlineAppsHeader === "1" ||
+    inlineAppsHeader === "true" ||
+    inlineAppsHeader === "yes";
   const basePath = getConfiguredAppBasePath();
   return {
     origin,
@@ -111,6 +119,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     clientName,
     clientHint,
     ...(fullCatalog ? { fullCatalog } : {}),
+    ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };
 }
 
@@ -357,6 +366,11 @@ export async function handleMcpRequest(
   const server = await createMCPServerForRequest(config, authResult.identity, {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,
+    inlineMcpApps:
+      requestMeta.inlineMcpApps === true &&
+      authResult.identity?.firstPartyMcp === true
+        ? true
+        : undefined,
     // When the caller minted their token with --full-catalog (catalog_scope:
     // "full" JWT claim), bypass the connector-catalog tier filter.
     ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),

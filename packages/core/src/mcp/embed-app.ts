@@ -114,6 +114,7 @@ export function embedApp(
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
+    const maxEmbedSessionRefreshAttempts = 2;
     const defaultOpenAiBridgeWaitMs = 200;
     const chatGptOpenAiBridgeWaitMs = 5000;
     const openAiBridgePollMs = 50;
@@ -121,6 +122,7 @@ export function embedApp(
     const nativeBridgeRequestTimeoutMs = 30000;
     const wrapperRequestTimeoutMs = 5000;
     let app = null;
+    let appConnectPromise = null;
     let openAiBridge = null;
     let wrapperRequestId = 0;
     const wrapperRequests = new Map();
@@ -134,6 +136,7 @@ export function embedApp(
     let appFrameReadyTimer = null;
     let appFrameLoadTimer = null;
     let lastFrameSrc = "";
+    let embedSessionRefreshAttempts = 0;
 
     function esc(value) {
       return String(value ?? "")
@@ -269,9 +272,9 @@ export function embedApp(
         record.deepLinkUrl,
         record.deepLink,
         record.openUrl,
-        record.url,
         structuredOpenLinkUrl,
-        metaUrl
+        metaUrl,
+        record.url
       ]);
     }
 
@@ -322,6 +325,12 @@ export function embedApp(
     function sendToAppFrame(message) {
       if (!appFrame || !appFrame.contentWindow) return;
       try { appFrame.contentWindow.postMessage(message, "*"); } catch {}
+    }
+
+    function notifyOuterMcpAppReady() {
+      try {
+        window.parent.postMessage({ type: "agentNative.embeddedAppReady" }, "*");
+      } catch {}
     }
 
     function nextWrapperRequestId() {
@@ -640,6 +649,21 @@ export function embedApp(
       );
     }
 
+    function importHeadChildrenWithBase(source, baseHref) {
+      const base = document.createElement("base");
+      base.href = baseHref;
+      const nodes = Array.from(source.childNodes).filter((node) => {
+        return !(
+          node.nodeType === 1 &&
+          String(node.nodeName || "").toLowerCase() === "base"
+        );
+      });
+      document.head.replaceChildren(
+        base,
+        ...nodes.map((node) => document.importNode(node, true))
+      );
+    }
+
     function isModuleScript(script) {
       return (script.getAttribute("type") || "").trim().toLowerCase() === "module";
     }
@@ -835,10 +859,7 @@ export function embedApp(
       );
       const scripts = Array.from(parsed.querySelectorAll("script"));
       copyDocumentElementAttributes(parsed.documentElement);
-      importChildren(parsed.head, document.head);
-      const base = document.createElement("base");
-      base.href = config.baseHref;
-      document.head.prepend(base);
+      importHeadChildrenWithBase(parsed.head, config.baseHref);
       importChildren(parsed.body, document.body);
       installExternalOpenControl(appUrl);
       for (const script of scripts) {
@@ -920,6 +941,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
+      embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
 
@@ -1159,6 +1181,7 @@ export function embedApp(
       frame.addEventListener("load", () => {
         if (appFrame !== frame) return;
         clearFrameLoadTimer();
+        notifyOuterMcpAppReady();
         sendFrameReadyMessages(frame);
         startFrameReadyTimer(frame);
       });
@@ -1177,6 +1200,13 @@ export function embedApp(
         renderFrameFallback();
         return;
       }
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        renderAppLaunchError(
+          "Embedded app session expired. Reopen the app to mint a fresh session."
+        );
+        return;
+      }
+      embedSessionRefreshAttempts += 1;
       openStartUrl = "";
       startedFor = "";
       lastFrameSrc = "";
@@ -1193,19 +1223,6 @@ export function embedApp(
       return true;
     }
 
-    // We have connected to a standards-track MCP Apps host (Codex, Cursor,
-    // Claude over the SDK, our own renderer, …) through the postMessage
-    // \`ui/*\` bridge rather than ChatGPT's \`window.openai\` global. These hosts
-    // render the resource in a strict sandboxed iframe (typically
-    // \`sandbox="allow-scripts"\`, opaque origin). Self-navigating that iframe to
-    // the real app origin tears down the host bridge and loses the opaque-origin
-    // auth context, which shows up as a permanent / flashing loading state.
-    // Transplanting the app document into the shell keeps the bridge alive and
-    // works under the opaque origin via embed-token auth, exactly like Claude.
-    function isNativeMcpAppsBridgeHost() {
-      return !!app && !openAiBridge;
-    }
-
     function shouldTransplantAppDocument() {
       const render = renderModeSource();
       const mode = render.mode;
@@ -1215,7 +1232,6 @@ export function embedApp(
       return (
         isClaudeMcpContentHost() ||
         isChatGptSandboxHost() ||
-        isNativeMcpAppsBridgeHost() ||
         mode === "transplant" ||
         render.frame === "transplant"
       );
@@ -1240,10 +1256,29 @@ export function embedApp(
     }
 
     function shouldRenderControlledAppFrame() {
-      return !!openAiBridge || isChatGptSandboxHost();
+      return !!openAiBridge || !!app || isChatGptSandboxHost();
+    }
+
+    function shouldDirectRenderKnownAppRoute(src) {
+      return !!app && !openAiBridge && !isEmbedStartUrl(src) && !shouldTransplantAppDocument();
+    }
+
+    function isCurrentFrameUrl(src) {
+      try {
+        return new URL(src, window.location.href).href === window.location.href;
+      } catch {
+        return false;
+      }
     }
 
     function navigateToAppFrame(src) {
+      if (isCurrentFrameUrl(src)) {
+        clearFrameReadyTimer();
+        clearFrameLoadTimer();
+        setMessage("App opened");
+        notifyHostHeightRepeatedly();
+        return;
+      }
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       appFrame = null;
@@ -1255,6 +1290,24 @@ export function embedApp(
         console.warn("[agent-native] MCP app self-navigation failed", err);
         renderFrameFallback();
       }
+    }
+
+    async function ensureHostAppConnected() {
+      if (!app || typeof app.connect !== "function") return;
+      if (!appConnectPromise) {
+        appConnectPromise = Promise.resolve(app.connect())
+          .then(async (value) => {
+            // Let the host process ui/notifications/initialized before follow-up calls.
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
+            return value;
+          })
+          .catch((err) => {
+            appConnectPromise = null;
+            throw err;
+          });
+      }
+      await appConnectPromise;
     }
 
     async function updateHostModelContext(data) {
@@ -1271,6 +1324,7 @@ export function embedApp(
         return { ok: true };
       }
       if (!app || typeof app.updateModelContext !== "function") return { ok: false };
+      await ensureHostAppConnected();
       await app.updateModelContext(params);
       return { ok: true };
     }
@@ -1356,6 +1410,7 @@ export function embedApp(
             agentNativeModelContext: modelContext
           });
         } else if (app && typeof app.updateModelContext === "function") {
+          await ensureHostAppConnected();
           await app.updateModelContext(modelContext);
         }
       } catch (err) {
@@ -1372,6 +1427,7 @@ export function embedApp(
         }
         let result = null;
         if (app && typeof app.sendMessage === "function") {
+          await ensureHostAppConnected();
           result = await app.sendMessage({
             role: "user",
             content
@@ -1412,8 +1468,10 @@ export function embedApp(
       const data = event.data.data || {};
       if (event.data.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
+        embedSessionRefreshAttempts = 0;
         clearFrameLoadTimer();
         clearFrameReadyTimer();
+        notifyOuterMcpAppReady();
         return;
       }
       if (event.data.type === "agentNative.embedSessionExpired") {
@@ -1454,7 +1512,7 @@ export function embedApp(
     }
 
     async function launchEmbed() {
-      const launchUrl = openStartUrl || openUrl;
+      let launchUrl = openStartUrl || openUrl;
       if (!launchUrl) {
         renderAppLaunchError("Open link was not available.");
         return;
@@ -1463,11 +1521,11 @@ export function embedApp(
         setMessage("Ready to open.");
         return;
       }
-      if (startedFor === launchUrl) return;
-      startedFor = launchUrl;
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
+        if (startedFor === launchUrl) return;
+        startedFor = launchUrl;
         const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (shouldTransplantAppDocument()) {
@@ -1480,6 +1538,10 @@ export function embedApp(
           return;
         }
         if (!selfNavigate && isEmbedStartUrl(embedUrl)) {
+          renderFrame(embedUrl);
+          return;
+        }
+        if (shouldDirectRenderKnownAppRoute(embedUrl)) {
           renderFrame(embedUrl);
           return;
         }
@@ -1640,7 +1702,7 @@ export function embedApp(
 
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
-      let connected = false;
+      let connectPromise = null;
       let hostContext = {};
       const pendingRequests = new Map();
 
@@ -1708,26 +1770,32 @@ export function embedApp(
           return hostContext.protocolVersion || "mcp-apps-postmessage";
         },
         async connect() {
-          if (connected) return hostContext;
-          connected = true;
-          window.addEventListener("message", onMessage, { passive: true });
-          const result = await rpcRequest(
-            "ui/initialize",
-            {
-              appInfo: { name: "Agent Native Embed", version: "1.0.0" },
-              appCapabilities: {},
-              protocolVersion: "2026-01-26"
-            },
-            nativeBridgeInitializeTimeoutMs
-          );
-          hostContext = objectValue(result);
-          rpcNotify("ui/notifications/initialized", {});
-          if (typeof nativeApp.onhostcontextchanged === "function") {
-            nativeApp.onhostcontextchanged(hostContext);
-          }
-          return hostContext;
+          if (connectPromise) return await connectPromise;
+          connectPromise = (async () => {
+            window.addEventListener("message", onMessage, { passive: true });
+            const result = await rpcRequest(
+              "ui/initialize",
+              {
+                appInfo: { name: "Agent Native Embed", version: "1.0.0" },
+                appCapabilities: {},
+                protocolVersion: "2026-01-26"
+              },
+              nativeBridgeInitializeTimeoutMs
+            );
+            hostContext = objectValue(result);
+            rpcNotify("ui/notifications/initialized", {});
+            if (typeof nativeApp.onhostcontextchanged === "function") {
+              nativeApp.onhostcontextchanged(hostContext);
+            }
+            return hostContext;
+          })().catch((err) => {
+            connectPromise = null;
+            throw err;
+          });
+          return await connectPromise;
         },
         async callServerTool(request) {
+          await nativeApp.connect();
           const record = objectValue(request);
           return await rpcRequest("tools/call", {
             name: record.name,
@@ -1735,6 +1803,7 @@ export function embedApp(
           });
         },
         async updateModelContext(params) {
+          await nativeApp.connect();
           return await rpcRequest("ui/update-model-context", objectValue(params));
         },
         async openLink(params) {
@@ -1749,12 +1818,14 @@ export function embedApp(
           return opened ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
+          await nativeApp.connect();
           return await rpcRequest("ui/request-display-mode", objectValue(params));
         },
         sendSizeChanged(params) {
           rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
         async sendMessage(params) {
+          await nativeApp.connect();
           return await rpcRequest("ui/message", objectValue(params));
         }
       };
@@ -1798,6 +1869,7 @@ export function embedApp(
 
     async function startNativeMcpAppsBridge() {
       app = createNativeMcpAppsBridge();
+      appConnectPromise = null;
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};
       };
@@ -1815,7 +1887,8 @@ export function embedApp(
         notifyHostHeight();
         sendHostContext();
       };
-      await app.connect();
+      await ensureHostAppConnected();
+      notifyOuterMcpAppReady();
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
@@ -1828,6 +1901,7 @@ export function embedApp(
         {},
         { autoResize: false }
       );
+      appConnectPromise = null;
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};
       };
@@ -1845,7 +1919,8 @@ export function embedApp(
         notifyHostHeight();
         sendHostContext();
       };
-      await app.connect();
+      await ensureHostAppConnected();
+      notifyOuterMcpAppReady();
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();

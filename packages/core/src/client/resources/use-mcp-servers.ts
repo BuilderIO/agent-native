@@ -20,6 +20,7 @@ export interface McpServer {
   url: string;
   headers?: Record<string, { set: true }>;
   description?: string;
+  firstParty?: boolean;
   createdAt: number;
   mergedId: string;
   status:

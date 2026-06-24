@@ -37,3 +37,8 @@ export {
   findWorkspaceRoot,
 } from "./workspace-resolve.js";
 export type { ResolvedApp, ResolvedWorkspace } from "./workspace-resolve.js";
+export {
+  fetchOrgApps,
+  resolveOrgDirectoryOrigin,
+  type OrgApp,
+} from "./org-directory.js";

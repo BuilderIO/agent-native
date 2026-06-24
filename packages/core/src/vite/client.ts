@@ -954,6 +954,52 @@ const VITE_RUNTIME_PATH_PREFIXES = [
   "/src/",
 ];
 
+const EMBED_DEV_STATIC_ASSET_PATH_PREFIXES = [
+  ...VITE_RUNTIME_PATH_PREFIXES,
+  "/assets/",
+  "/library-presets/",
+];
+
+const EMBED_DEV_STATIC_ASSET_PATHS = new Set([
+  "/favicon.ico",
+  "/favicon.svg",
+  "/manifest.json",
+]);
+
+function mountedPathCandidates(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string[] {
+  if (!reqUrl) return [];
+  let pathname: string;
+  try {
+    pathname = new URL(reqUrl, "http://agent-native.local").pathname;
+  } catch {
+    return [];
+  }
+  if (base && base !== "/") {
+    const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+    if (pathname.startsWith(normalizedBase)) {
+      return [pathname.slice(normalizedBase.length - 1) || "/"];
+    }
+  }
+  return [pathname];
+}
+
+function isEmbedDevStaticAssetRequest(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): boolean {
+  return mountedPathCandidates(reqUrl, base).some((pathname) => {
+    if (EMBED_DEV_STATIC_ASSET_PATHS.has(pathname)) return true;
+    if (/^\/icon-[^/]+\.svg$/i.test(pathname)) return true;
+    if (/^\/agent-native-[^/]+\.svg$/i.test(pathname)) return true;
+    return EMBED_DEV_STATIC_ASSET_PATH_PREFIXES.some((prefix) =>
+      pathname.startsWith(prefix),
+    );
+  });
+}
+
 function cookieValue(req: IncomingMessage, name: string): string | undefined {
   const header = req.headers.cookie;
   if (typeof header !== "string" || !header) return undefined;
@@ -1166,6 +1212,13 @@ function embedDevFrameHeaders(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const origin = String(req.headers.origin ?? "");
+        if (isEmbedDevStaticAssetRequest(req.url, server.config?.base)) {
+          for (const [name, value] of Object.entries(
+            MCP_EMBED_STATIC_ASSET_HEADERS,
+          )) {
+            res.setHeader(name, value);
+          }
+        }
         if (isMcpEmbedCorsOrigin(origin)) {
           res.setHeader("Access-Control-Allow-Origin", origin);
           res.setHeader("Vary", "Origin");

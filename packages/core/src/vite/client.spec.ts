@@ -417,6 +417,65 @@ describe("Vite MCP embed headers", () => {
     );
   });
 
+  it("adds COEP-compatible headers to originless mounted CSS requests in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/app/global.css?url", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith("Access-Control-Allow-Origin", "*");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("does not classify mounted app pages as originless static assets in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/assets/library", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "Access-Control-Allow-Origin",
+      "*",
+    );
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
   it("answers null-origin sandbox preflights before Nitro dev middleware", () => {
     const plugin = findPlugin("agent-native-embed-dev-frame-headers");
     let middleware: Function | null = null;
