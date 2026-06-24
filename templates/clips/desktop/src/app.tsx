@@ -584,6 +584,7 @@ export function App() {
   const [showMeetings, setShowMeetings] = useState(false);
   const [todayMeetings, setTodayMeetings] = useState<TodayMeeting[]>([]);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [hasCalendarConnected, setHasCalendarConnected] = useState(true);
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
@@ -960,11 +961,15 @@ export function App() {
   const fetchTodayMeetings = useCallback(async () => {
     setMeetingsLoading(true);
     try {
-      const result = await callClipsAction<{ meetings: TodayMeeting[] }>(
+      const result = await callClipsAction<{
+        meetings: TodayMeeting[];
+        hasCalendarConnected: boolean;
+      }>(
         "list-meetings",
         { view: "all", limit: 100, includeLiveCalendar: true },
         { method: "GET" },
       );
+      setHasCalendarConnected(result.hasCalendarConnected ?? false);
       const dayStart = new Date();
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date();
@@ -2352,6 +2357,22 @@ export function App() {
         <div className="meetings-panel">
           {meetingsLoading ? (
             <div className="meetings-empty">Loading…</div>
+          ) : !hasCalendarConnected ? (
+            <button
+              className="meetings-connect-prompt"
+              onClick={() => openInBrowser("/meetings")}
+            >
+              <span className="meetings-connect-icon">
+                <CalendarIcon />
+              </span>
+              <span className="meetings-connect-text">
+                <span className="meetings-connect-title">Connect your calendar</span>
+                <span className="meetings-connect-sub">
+                  See today's meetings here
+                </span>
+              </span>
+              <span className="meetings-connect-arrow">›</span>
+            </button>
           ) : todayMeetings.length === 0 ? (
             <div className="meetings-empty">No meetings scheduled for today</div>
           ) : (

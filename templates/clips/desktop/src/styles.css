@@ -1309,6 +1309,57 @@ body[data-clips-route="recording-pill"] #root {
   margin-top: 1px;
 }
 
+.meetings-connect-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 120ms;
+  margin: 4px 0;
+}
+
+.meetings-connect-prompt:hover {
+  background: var(--surface-hover);
+}
+
+.meetings-connect-icon {
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.meetings-connect-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.meetings-connect-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.meetings-connect-sub {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.meetings-connect-arrow {
+  font-size: 16px;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Footer                                                                     */
 /* ------------------------------------------------------------------------- */

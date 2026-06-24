@@ -158,6 +158,7 @@ export default defineAction({
 
     const liveMeetings: any[] = [];
     const calendarErrors: CalendarFetchError[] = [];
+    let hasCalendarConnected = false;
 
     // Identities of calendar events actually emitted by the live loop this
     // call. We record both the live meeting `id` (which equals the persisted
@@ -183,6 +184,8 @@ export default defineAction({
         .select()
         .from(schema.calendarAccounts)
         .where(and(...accountWhere));
+
+      hasCalendarConnected = accounts.length > 0;
 
       const persistedById = new Map(
         persistedMeetings.map((meeting) => [meeting.id, meeting]),
@@ -333,6 +336,6 @@ export default defineAction({
 
     const meetings = combined.slice(args.offset, args.offset + args.limit);
 
-    return { meetings, calendarErrors };
+    return { meetings, calendarErrors, hasCalendarConnected };
   },
 });
