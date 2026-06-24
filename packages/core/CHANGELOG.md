@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.75.4
+
+### Patch Changes
+
+- dbfbe42: Preserve starter-only manifest fields when syncing builder-agent-native-starter from templates/chat.
+
 ## 0.75.3
 
 ### Patch Changes
