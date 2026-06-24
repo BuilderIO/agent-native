@@ -4,6 +4,7 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   isAgentChatDurableBackgroundEnabled,
   isHostedRuntimeForDurableBackground,
+  isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "./durable-background.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -18,6 +19,7 @@ import { signInternalToken } from "../integrations/internal-token.js";
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
   "A2A_SECRET",
   "NETLIFY",
   "NETLIFY_LOCAL",
@@ -108,6 +110,44 @@ describe("isAgentChatDurableBackgroundEnabled (default-on gate)", () => {
     process.env.NETLIFY_LOCAL = "true";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
+});
+
+describe("isInBackgroundFunctionRuntime (real -background function guard)", () => {
+  it("is false with nothing set (a plain synchronous function)", () => {
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+  });
+
+  it("is false for a normal synchronous Netlify/Lambda function name", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "plan-server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+  });
+
+  it("is TRUE when the Lambda function name ends in -background (15-min budget)", () => {
+    // Matches the emitted names: "server-agent-background" (single template)
+    // and "<app>-agent-background" (workspace deploy).
+    for (const name of [
+      "server-agent-background",
+      "plan-agent-background",
+      "SERVER-AGENT-BACKGROUND",
+    ]) {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = name;
+      expect(isInBackgroundFunctionRuntime()).toBe(true);
+    }
+  });
+
+  it("honors an explicit AGENT_CHAT_FORCE_BACKGROUND_RUNTIME override", () => {
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    for (const v of ["1", "true", "yes", "on", " TRUE "]) {
+      process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
+      expect(isInBackgroundFunctionRuntime()).toBe(true);
+    }
+    for (const v of ["0", "false", "no", "off", ""]) {
+      process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME = v;
+      expect(isInBackgroundFunctionRuntime()).toBe(false);
+    }
   });
 });
 

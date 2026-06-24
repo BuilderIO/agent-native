@@ -96,6 +96,42 @@ export function isHostedRuntimeForDurableBackground(): boolean {
   );
 }
 
+/**
+ * True when THIS process is actually executing inside a Netlify *background*
+ * function (the long, 15-min-budget async function whose deployed name ends in
+ * `-background`). Netlify runs functions on AWS Lambda and sets
+ * `AWS_LAMBDA_FUNCTION_NAME` to the function's name, so a `-background` suffix is
+ * the runtime proof that the ~60s synchronous wall does NOT apply here.
+ *
+ * This is the SAFETY GUARD for the soft-timeout regime. The `_process-run`
+ * self-dispatch worker (`isBackgroundWorker`) is NOT enough on its own: if the
+ * `-background` function was never emitted (deploy gate off, or Netlify routed
+ * the path to the synchronous function), the self-POST lands on the regular
+ * ~60s `server` function. A worker there MUST use the 40s soft-timeout and
+ * checkpoint before the 60s wall — using the ~13min budget would overshoot the
+ * hard wall and get killed at 60s, then re-dispatch/resume in a wasteful loop.
+ * So the 13-min budget is taken ONLY when this returns true.
+ *
+ * Falls back to the explicit `AGENT_CHAT_FORCE_BACKGROUND_RUNTIME` env (truthy)
+ * for hosts that don't expose a `-background`-suffixed function name but where
+ * the operator has confirmed a long async budget. Off by default.
+ */
+export function isInBackgroundFunctionRuntime(): boolean {
+  const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (
+    typeof lambdaName === "string" &&
+    lambdaName.toLowerCase().endsWith("-background")
+  ) {
+    return true;
+  }
+  const forced = process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME;
+  if (forced != null) {
+    const v = forced.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  }
+  return false;
+}
+
 function isFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this

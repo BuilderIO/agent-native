@@ -667,8 +667,9 @@ function copyNetlifyFunctionIntoWorkspace(
   copyDir(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
 
-  // Durable background agent runs (off by default). Additive ONLY: when the
-  // flag is off this emits nothing and the single-function deploy is unchanged.
+  // Durable background agent runs (default-ON; opt out with a falsy
+  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: when explicitly opted out
+  // this emits nothing and the single-function deploy is unchanged.
   if (isDurableBackgroundDeployEnabled()) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
   }
@@ -677,14 +678,19 @@ function copyNetlifyFunctionIntoWorkspace(
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function. Reads
  * the same env flag the runtime gate uses (`AGENT_CHAT_DURABLE_BACKGROUND`).
- * Off by default — when off, the deploy emits exactly one function per app
- * (today's behavior, byte-for-byte).
+ *
+ * DEFAULT-ON, matching the runtime gate (`isFlagEnabled` in
+ * durable-background.ts) and the single-template gate
+ * (`isDurableBackgroundDeployEnabled` in deploy/build.ts): unset/empty/unknown
+ * means enabled; an app opts OUT only with an explicit falsy value
+ * (`false`/`0`/`no`/`off`). This emits the per-app 15-min `-background` function
+ * so the chat `_process-run` dispatch lands on it with the real long budget.
  */
 function isDurableBackgroundDeployEnabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return false;
+  if (raw == null) return true;
   const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
+  return !(v === "0" || v === "false" || v === "no" || v === "off");
 }
 
 /**

@@ -1480,14 +1480,25 @@ export function findInstalledResvgPackages(
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function.
  * Reads the same env flag the runtime gate uses
- * (`AGENT_CHAT_DURABLE_BACKGROUND`). Off by default — when off, the deploy
- * emits exactly one function (today's behavior, byte-for-byte).
+ * (`AGENT_CHAT_DURABLE_BACKGROUND`).
+ *
+ * DEFAULT-ON, matching the runtime gate (`isFlagEnabled` in
+ * durable-background.ts): unset/empty/unknown means enabled; an app opts OUT
+ * only with an explicit falsy value (`false`/`0`/`no`/`off`). This is what
+ * actually emits the 15-min `-background` function so the `_process-run`
+ * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
+ * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
+ * if the deploy emitted no `-background` function but the runtime still routed
+ * the worker into the ~13-min timeout regime, the worker would overshoot the
+ * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
+ * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
+ * so a missing emit degrades to clean 40s-chunked runs rather than the loop.)
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return false;
+  if (raw == null) return true;
   const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
+  return !(v === "0" || v === "false" || v === "no" || v === "off");
 }
 
 /**
@@ -2018,11 +2029,12 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 
-  // Durable background agent runs (off by default). Additive ONLY: emits a
-  // SECOND Netlify function whose name ends in `-background` re-exporting the
-  // same handler bundle, so the chat `_process-run` POST lands on Netlify's
-  // async (15-min) function. When the flag is off this is a no-op and the
-  // single-function deploy is byte-for-byte unchanged.
+  // Durable background agent runs (default-ON; opt out with a falsy
+  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
+  // function whose name ends in `-background` re-exporting the same handler
+  // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
+  // function. When explicitly opted out this is a no-op and the single-function
+  // deploy is byte-for-byte unchanged.
   if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
     try {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);

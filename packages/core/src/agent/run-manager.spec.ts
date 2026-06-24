@@ -50,6 +50,7 @@ import {
   subscribeToRun,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
+import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   getRunAbortState,
   getRunStatus,
@@ -367,6 +368,65 @@ describe("run manager soft timeout", () => {
     expect(
       resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
     ).toBe(0);
+  });
+
+  // ── Regression: soft-timeout MUST match the REAL function budget ──────────
+  // The 60s-wall overshoot bug came from selecting `backgroundFunction: true`
+  // whenever the run was a `_process-run` worker, regardless of whether it was
+  // actually inside a real `-background` (15-min) function. These tests pin the
+  // exact composition production-agent.ts uses:
+  //   backgroundFunction = isBackgroundWorker && isInBackgroundFunctionRuntime()
+  // so a worker that landed on the ~60s synchronous function keeps the 40s
+  // clamp and checkpoints cleanly instead of looping at the 60s hard wall.
+  function resolveForWorker(opts: {
+    isBackgroundWorker: boolean;
+    overrideMs?: number;
+  }): number {
+    const runsInBackgroundFunction =
+      opts.isBackgroundWorker && isInBackgroundFunctionRuntime();
+    return resolveRunSoftTimeoutMs(opts.overrideMs, {
+      useHostedDefault: true,
+      backgroundFunction: runsInBackgroundFunction,
+    });
+  }
+
+  it("FOREGROUND POST (not a worker) uses the 40s hosted default regardless of function name", () => {
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(resolveForWorker({ isBackgroundWorker: false })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("INLINE FALLBACK (foreground ~60s fn, not a worker) uses the 40s default", () => {
+    // The graceful inline fallback runs in the foreground ~60s function. Even
+    // though durable is active, it is NOT a background worker → must stay 40s.
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(
+      resolveForWorker({ isBackgroundWorker: false, overrideMs: 240_000 }),
+    ).toBe(HOSTED_SOFT_TIMEOUT_CEILING_MS);
+  });
+
+  it("WORKER on the regular ~60s function (name does NOT end in -background) keeps the 40s clamp (the bug)", () => {
+    // This is the exact overshoot scenario: the `_process-run` worker re-entered
+    // but the `-background` function was never emitted, so it landed on the
+    // synchronous `server` function. It MUST checkpoint at 40s, not 13min.
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("WORKER inside a real -background function gets the ~13min budget", () => {
+    process.env.NETLIFY = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
+    expect(isInBackgroundFunctionRuntime()).toBe(true);
+    expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
+      DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+    );
   });
 
   it("keeps persisted run events for a day by default", () => {

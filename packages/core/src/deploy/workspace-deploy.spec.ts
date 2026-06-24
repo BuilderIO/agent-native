@@ -1153,7 +1153,8 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     );
   }
 
-  it("emits NO -background function when the flag is unset (default)", async () => {
+  it("emits NO -background function when the flag is EXPLICITLY opted out (false)", async () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -1180,8 +1181,10 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
 
-  it("emits a per-app -background function (base-path-scoped process-run route) when the flag is on", async () => {
-    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+  it("emits a per-app -background function BY DEFAULT (flag unset) — base-path-scoped process-run route", async () => {
+    // Default-on: the flag is unset (deleted in beforeEach) and the 15-min
+    // `-background` function MUST still be emitted so the worker gets the real
+    // long budget instead of overshooting the ~60s synchronous wall.
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
