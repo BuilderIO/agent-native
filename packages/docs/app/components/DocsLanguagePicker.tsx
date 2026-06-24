@@ -21,6 +21,14 @@ function localeOptionLabel(locale: DocsLocale) {
   return `${metadata.nativeName} (${locale})`;
 }
 
+function preferenceLabel(preference: string) {
+  if (preference === "system") return "System";
+  if (preference in DOCS_LOCALE_METADATA) {
+    return localeOptionLabel(preference as DocsLocale);
+  }
+  return preference;
+}
+
 export default function DocsLanguagePicker() {
   const { preference, setPreference } = useLocale();
   const t = useT();
@@ -41,15 +49,22 @@ export default function DocsLanguagePicker() {
     navigate(`${path}${location.search}${location.hash}`);
   }
 
+  const label = `${t("language.label")}: ${
+    preference === "system" ? t("language.system") : preferenceLabel(preference)
+  }`;
+
   return (
-    <label className="relative flex h-8 shrink-0 items-center gap-1 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] ps-2 text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]">
-      <IconLanguage size={15} stroke={1.6} aria-hidden="true" />
-      <span className="sr-only">{t("language.label")}</span>
+    <label
+      className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+      title={label}
+    >
+      <IconLanguage size={16} stroke={1.5} aria-hidden="true" />
+      <span className="sr-only">{label}</span>
       <select
         value={preference}
         onChange={(event) => void handleChange(event.target.value)}
-        aria-label={t("language.label")}
-        className="h-full max-w-[8.5rem] appearance-none bg-transparent pe-7 ps-1 text-xs font-medium outline-none"
+        aria-label={label}
+        className="absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-md border-0 bg-transparent p-0 text-transparent opacity-0 outline-none"
       >
         <option value="system" title={t("language.systemDescription")}>
           {t("language.system")}
