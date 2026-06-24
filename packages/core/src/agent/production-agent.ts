@@ -3578,6 +3578,26 @@ function endsAtInternalContinuationBoundary(run: ActiveRun): boolean {
  */
 export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 
+/**
+ * Whether the background worker should self-fire the next server-driven
+ * continuation chunk. True only when this is a background worker run that ended
+ * at a recoverable soft-timeout boundary (not aborted/stopped) and the chain is
+ * still under its budget. Extracted so the decision is unit testable without
+ * booting the whole handler.
+ */
+export function shouldChainBackgroundContinuation(opts: {
+  isBackgroundWorker: boolean;
+  run: ActiveRun;
+  continuationCount: number;
+}): boolean {
+  return (
+    opts.isBackgroundWorker &&
+    opts.run.status !== "aborted" &&
+    endsAtInternalContinuationBoundary(opts.run) &&
+    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+  );
+}
+
 function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
   switch (event.type) {
     case "activity":
@@ -4502,10 +4522,11 @@ export function createProductionAgentHandler(
               // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
               // user-stopped runs do NOT chain.
               if (
-                isBackgroundWorker &&
-                run.status !== "aborted" &&
-                endsAtInternalContinuationBoundary(run) &&
-                backgroundContinuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+                shouldChainBackgroundContinuation({
+                  isBackgroundWorker,
+                  run,
+                  continuationCount: backgroundContinuationCount,
+                })
               ) {
                 // Mint the next chunk's runId here and sign the dispatch token
                 // over it, so the `_process-run` route's HMAC check and the
