@@ -22,6 +22,7 @@ export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
   reason?: "user" | "calendar-auto" | string;
+  startPaused?: boolean;
 }
 
 interface MeetingTranscriptionSession {
@@ -353,6 +354,7 @@ export function useMeetingTranscription({
         emit("clips:pill-context", {
           meetingId: resolvedMeetingId,
           mode: "meeting",
+          startPaused: payload.startPaused ?? false,
         }).catch(() => {});
 
         callClipsAction<{
@@ -426,13 +428,20 @@ export function useMeetingTranscription({
           })
           .catch(() => {});
 
-        session.engine = await startTranscriptionEngine({
-          mic: { deviceId: selectedMicId, label: selectedMicLabel },
-        });
+        if (payload.startPaused) {
+          // Start in paused state — don't begin capturing audio yet. The user
+          // can resume from the pill when the meeting actually starts.
+          session.paused = true;
+          desiredPaused = true;
+        } else {
+          session.engine = await startTranscriptionEngine({
+            mic: { deviceId: selectedMicId, label: selectedMicLabel },
+          });
 
-        await invoke("silence_detector_start", {
-          config: silenceDetectorConfig,
-        }).catch(() => {});
+          await invoke("silence_detector_start", {
+            config: silenceDetectorConfig,
+          }).catch(() => {});
+        }
 
         if (payload.joinUrl && payload.reason !== "user") {
           emit("meetings:open-join-url", {

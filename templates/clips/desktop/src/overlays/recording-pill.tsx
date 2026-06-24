@@ -24,6 +24,7 @@ type PillMode = "meeting" | "clip";
 interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
+  startPaused?: boolean;
 }
 
 /**
@@ -117,6 +118,7 @@ export function RecordingPill() {
         // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
         setError(null);
+        setPaused(ev.payload?.startPaused ?? false);
         // Reset notes and transcript state for the new session.
         setNotes("");
         setSaveError(false);

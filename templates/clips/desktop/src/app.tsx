@@ -2423,6 +2423,7 @@ export function App() {
                         meetingId: m.id,
                         joinUrl: m.joinUrl ?? null,
                         reason: "user",
+                        startPaused: !isLive,
                       }).catch(() => {});
                       hidePopover();
                     }
