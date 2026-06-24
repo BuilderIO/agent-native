@@ -134,6 +134,7 @@ export interface ImageLibrarySummary {
   videoCount?: number;
   coverAsset?: ImageAssetPreview | null;
   previewAssets?: ImageAssetPreview[];
+  folders?: AssetFolderSummary[];
 }
 
 export interface ImageAssetPreview {

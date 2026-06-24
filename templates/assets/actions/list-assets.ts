@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import {
   buildAssetLineage,
@@ -16,9 +17,9 @@ import {
 
 export default defineAction({
   description:
-    "List DAM assets in a library, optionally filtered by folder, collection, media type, status, role, category, or text query.",
+    "List DAM assets in one library, or across all accessible libraries when libraryId is omitted. Optionally filter by folder, collection, media type, status, role, category, or text query.",
   schema: z.object({
-    libraryId: z.string(),
+    libraryId: z.string().optional(),
     collectionId: z.string().optional(),
     folderId: z.string().nullable().optional(),
     mediaType: z.enum(ASSET_MEDIA_TYPES).optional(),
@@ -50,8 +51,32 @@ export default defineAction({
     includeCandidates,
     candidateRunIds,
   }) => {
-    await requireLibrary(libraryId);
-    const filters = [eq(schema.assets.libraryId, libraryId)];
+    const db = getDb();
+    const libraryRows = libraryId
+      ? [await requireLibrary(libraryId)]
+      : await db
+          .select({
+            id: schema.assetLibraries.id,
+            title: schema.assetLibraries.title,
+          })
+          .from(schema.assetLibraries)
+          .where(
+            and(
+              accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+              isNull(schema.assetLibraries.archivedAt),
+            ),
+          );
+    const libraryIds = libraryRows.map((library) => library.id);
+    if (!libraryIds.length) return { count: 0, assets: [] };
+
+    const libraryTitleById = new Map(
+      libraryRows.map((library) => [library.id, library.title]),
+    );
+    const filters = [
+      libraryId
+        ? eq(schema.assets.libraryId, libraryId)
+        : inArray(schema.assets.libraryId, libraryIds),
+    ];
     if (collectionId)
       filters.push(eq(schema.assets.collectionId, collectionId));
     if (folderId !== undefined) {
@@ -66,7 +91,6 @@ export default defineAction({
     if (role) filters.push(eq(schema.assets.role, role));
     const normalizedQuery = query?.trim().toLowerCase();
     const candidateRunIdSet = new Set(candidateRunIds ?? []);
-    const db = getDb();
     const [rows, lineageRows] = await Promise.all([
       db
         .select()
@@ -88,7 +112,11 @@ export default defineAction({
           createdAt: schema.assets.createdAt,
         })
         .from(schema.assets)
-        .where(eq(schema.assets.libraryId, libraryId)),
+        .where(
+          libraryId
+            ? eq(schema.assets.libraryId, libraryId)
+            : inArray(schema.assets.libraryId, libraryIds),
+        ),
     ]);
     const lineageById = buildAssetLineage(lineageRows);
     const assets = rows
@@ -110,7 +138,10 @@ export default defineAction({
         );
       })
       .filter((asset) => assetMatchesSearch(asset, normalizedQuery, category))
-      .map((asset) => serializeAsset(asset, lineageById.get(asset.id) ?? null));
+      .map((asset) => ({
+        ...serializeAsset(asset, lineageById.get(asset.id) ?? null),
+        libraryTitle: libraryTitleById.get(asset.libraryId) ?? null,
+      }));
     return { count: assets.length, assets };
   },
 });

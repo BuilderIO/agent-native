@@ -86,7 +86,7 @@ export default function AssetDetailPage() {
     String(asset.libraryId || "").startsWith("starter:");
   const libraryBackPath = isStarterAsset
     ? "/library"
-    : `/brand-kits/${asset.libraryId}`;
+    : `/library/${asset.libraryId}`;
   const libraryBackLabel = isStarterAsset ? "Library" : "Brand Kit";
 
   function refine() {
@@ -271,7 +271,7 @@ export default function AssetDetailPage() {
                           { id: asset.id },
                           {
                             onSuccess: () =>
-                              navigate(`/brand-kits/${asset.libraryId}`),
+                              navigate(`/library/${asset.libraryId}`),
                           },
                         )
                       }

@@ -1,4 +1,11 @@
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import {
+  Link,
+  redirect,
+  useNavigate,
+  useParams,
+  useSearchParams,
+  type LoaderFunctionArgs,
+} from "react-router";
 import {
   type Dispatch,
   type DragEvent,
@@ -9,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   type QueryClient,
   useQuery,
@@ -26,8 +34,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import {
+  IconCheck,
+  IconClipboard,
   IconCopy,
   IconDotsVertical,
+  IconArrowUpRight,
   IconArchive,
   IconFolder,
   IconFolderPlus,
@@ -114,7 +125,7 @@ import {
   type ImageRole,
 } from "../../shared/api";
 
-type VariantSlot = AssetVariantState["slots"][number];
+export type VariantSlot = AssetVariantState["slots"][number];
 
 function referencePromotionKey(asset: any, slot?: any): string {
   if (typeof slot?.slotId === "string" && slot.slotId) {
@@ -319,6 +330,15 @@ function parsePaletteDraft(value: string): string[] {
   return colors;
 }
 
+export function loader({ params, request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  return redirect(`/library/${params.id}${url.search}`);
+}
+
+export default function BrandKitDetailRedirect() {
+  return null;
+}
+
 function libraryTabFromValue(value: unknown): LibraryTab | null {
   return value === "references" ||
     value === "generated" ||
@@ -328,12 +348,18 @@ function libraryTabFromValue(value: unknown): LibraryTab | null {
     : null;
 }
 
-export default function LibraryPage() {
+export function BrandKitDetailRoute({
+  libraryId: explicitLibraryId = null,
+  headerMode = "full",
+}: {
+  libraryId?: string | null;
+  headerMode?: "full" | "actions";
+} = {}) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlTab = libraryTabFromValue(searchParams.get("tab"));
-  const libraryId = id!;
+  const libraryId = explicitLibraryId ?? id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
@@ -358,11 +384,15 @@ export default function LibraryPage() {
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
+    useState<HTMLElement | null>(null);
+  const [headerMoreActionsTarget, setHeaderMoreActionsTarget] =
+    useState<HTMLElement | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     () => urlTab ?? "references",
   );
-  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("lanes");
+  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("cards");
   const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
@@ -399,6 +429,20 @@ export default function LibraryPage() {
     if (!urlTab) return;
     setActiveTab((current) => (current === urlTab ? current : urlTab));
   }, [urlTab]);
+
+  useEffect(() => {
+    if (headerMode !== "actions" || typeof document === "undefined") {
+      setHeaderPrimaryActionsTarget(null);
+      setHeaderMoreActionsTarget(null);
+      return;
+    }
+    setHeaderPrimaryActionsTarget(
+      document.getElementById("assets-library-detail-primary-actions"),
+    );
+    setHeaderMoreActionsTarget(
+      document.getElementById("assets-library-detail-more-actions"),
+    );
+  }, [headerMode, libraryId]);
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
@@ -966,7 +1010,7 @@ export default function LibraryPage() {
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
       toast.success("Brand kit archived.");
-      navigate("/brand-kits");
+      navigate("/library");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not archive brand kit.",
@@ -981,7 +1025,7 @@ export default function LibraryPage() {
         id: library.id,
       })) as any;
       toast.success("Private brand kit copy created");
-      navigate(`/brand-kits/${copy.id}`);
+      navigate(`/library/${copy.id}`);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1050,109 +1094,120 @@ export default function LibraryPage() {
     activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
   const hideEmptyLanes =
     activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
+  const uploadAction = (
+    <Button
+      variant="outline"
+      className="gap-2"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploading}
+    >
+      {uploading ? (
+        <Spinner className="h-4 w-4" />
+      ) : (
+        <IconUpload className="h-4 w-4" />
+      )}
+      {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
+    </Button>
+  );
+  const moreActions = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="Brand kit actions"
+          disabled={archiveLibrary.isPending || duplicateLibrary.isPending}
+        >
+          <IconDotsVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setFolderOpen(true);
+          }}
+        >
+          <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+          New folder
+        </DropdownMenuItem>
+        <ShareButton
+          resourceType="asset-library"
+          resourceId={library.id}
+          resourceTitle={library.title}
+          triggerClassName="w-full justify-start border-0 bg-transparent px-2 py-1.5 text-sm font-normal shadow-none hover:bg-accent hover:text-accent-foreground"
+        />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={duplicateLibrary.isPending}
+          onSelect={(event) => {
+            event.preventDefault();
+            void duplicateCurrentLibrary();
+          }}
+        >
+          <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+          {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setArchiveOpen(true);
+          }}
+        >
+          <IconArchive className="mr-2 h-4 w-4 shrink-0" />
+          Archive brand kit
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap lg:shrink-0">
+      {uploadAction}
+      {moreActions}
+    </div>
+  );
+  const headerPrimaryActionsPortal =
+    headerMode === "actions" && headerPrimaryActionsTarget
+      ? createPortal(uploadAction, headerPrimaryActionsTarget)
+      : null;
+  const headerMoreActionsPortal =
+    headerMode === "actions" && headerMoreActionsTarget
+      ? createPortal(moreActions, headerMoreActionsTarget)
+      : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-2xl font-semibold tracking-tight">
-                {library.title}
-              </h2>
-              <Badge variant="outline">{library.visibility}</Badge>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setEditOpen(true)}
-                aria-label="Edit brand kit name and description"
-              >
-                <IconPencil className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              {library.description ||
-                "Upload, generate, describe, and organize reusable assets across agents."}
-            </p>
-          </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap lg:shrink-0">
-            <ShareButton
-              resourceType="asset-library"
-              resourceId={library.id}
-              resourceTitle={library.title}
-            />
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <Spinner className="h-4 w-4" />
-              ) : (
-                <IconUpload className="h-4 w-4" />
-              )}
-              {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
-            </Button>
-            <Button
-              variant="outline"
-              className="hidden gap-2 xl:inline-flex"
-              onClick={() => setFolderOpen(true)}
-            >
-              <IconFolderPlus className="h-4 w-4" />
-              Folder
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+    <div className="flex min-w-0 flex-col">
+      {headerPrimaryActionsPortal}
+      {headerMoreActionsPortal}
+      {headerMode === "full" ? (
+        <div className="border-b border-border px-6 py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-2xl font-semibold tracking-tight">
+                  {library.title}
+                </h2>
+                <Badge variant="outline">{library.visibility}</Badge>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  aria-label="Brand kit actions"
-                  disabled={
-                    archiveLibrary.isPending || duplicateLibrary.isPending
-                  }
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setEditOpen(true)}
+                  aria-label="Edit brand kit name and description"
                 >
-                  <IconDotsVertical className="h-4 w-4" />
+                  <IconPencil className="h-4 w-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="xl:hidden"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setFolderOpen(true);
-                  }}
-                >
-                  <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-                  New folder
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="xl:hidden" />
-                <DropdownMenuItem
-                  disabled={duplicateLibrary.isPending}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void duplicateCurrentLibrary();
-                  }}
-                >
-                  <IconCopy className="mr-2 h-4 w-4 shrink-0" />
-                  {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setArchiveOpen(true);
-                  }}
-                >
-                  <IconArchive className="mr-2 h-4 w-4 shrink-0" />
-                  Archive brand kit
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </div>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                {library.description ||
+                  "Upload, generate, describe, and organize reusable assets across agents."}
+              </p>
+            </div>
+            {headerActions}
           </div>
         </div>
-      </div>
+      ) : null}
 
       <input
         ref={fileInputRef}
@@ -1173,8 +1228,8 @@ export default function LibraryPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Archive this brand kit?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the brand kit from the main Brand Kits list. Its
-              assets and generation history stay stored.
+              This removes the brand kit from the Library list. Its assets and
+              generation history stay stored.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1211,7 +1266,7 @@ export default function LibraryPage() {
       ) : null}
 
       <div
-        className="relative flex-1 overflow-y-auto px-6 py-5"
+        className="relative px-6 py-5"
         onDragEnter={(e: DragEvent<HTMLDivElement>) => {
           if (!e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
@@ -1257,28 +1312,6 @@ export default function LibraryPage() {
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
-            {liveCandidateSlots.length > 0 ||
-            draftCandidateAssets.length > 0 ? (
-              <LiveCandidatesStage
-                variants={liveVariantsForLibrary}
-                slots={liveCandidateSlots}
-                draftAssets={draftCandidateAssets}
-                libraryId={libraryId}
-                folders={folders}
-                savingSlotId={savingCandidateSlotId}
-                promotingReferenceKeys={promotingReferenceKeys}
-                onSave={(slot, folderId) => {
-                  void handleSaveLiveCandidate(slot, folderId);
-                }}
-                onSaveDraft={(asset, folderId) => {
-                  void handleSaveDraftCandidate(asset, folderId);
-                }}
-                onMoveToReferences={handleMoveLiveCandidateToReferences}
-                onMoveDraftToReferences={(asset) => {
-                  void handleMoveToReferences(asset);
-                }}
-              />
-            ) : null}
             <section className="space-y-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1552,10 +1585,12 @@ type LaneGalleryItem = {
   subtitle?: string | null;
   metadata?: string | null;
   status?: string | null;
+  asset?: any;
   mediaType?: "image" | "video";
   href?: string;
   selected?: boolean;
   busy?: boolean;
+  showBusyOverlay?: boolean;
   deleting?: boolean;
   preview: ReactNode;
   thumbnail: ReactNode;
@@ -1801,6 +1836,63 @@ function assetLineageSourceText(asset: any): string | null {
   return lineage?.kind === "variation" && lineage.sourceLabel
     ? `from ${lineage.sourceLabel}`
     : null;
+}
+
+function detailAssetPayload(asset: any) {
+  const mediaType =
+    asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")
+      ? "video"
+      : "image";
+  const title = assetDisplayTitle(asset);
+  const url = assetMediaUrl(
+    asset?.previewUrl ?? asset?.downloadUrl ?? asset?.url,
+  );
+  const width = Number(asset?.width);
+  const height = Number(asset?.height);
+  return {
+    assetId: asset?.id,
+    title,
+    mediaType,
+    url,
+    previewUrl: assetMediaUrl(asset?.previewUrl),
+    downloadUrl: assetMediaUrl(asset?.downloadUrl),
+    ...(Number.isFinite(width) && Number.isFinite(height) && width && height
+      ? { width, height }
+      : {}),
+  };
+}
+
+function detailAssetClipboardText(asset: any) {
+  const payload = detailAssetPayload(asset);
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const previewTip =
+    payload.mediaType === "image" && url
+      ? [
+          `Markdown preview: ![Selected asset](${url})`,
+          "If this remote preview does not render in Codex or Claude Code, download the image locally and embed the absolute local file path.",
+        ]
+      : [];
+  return [
+    `Use this selected ${payload.mediaType} in the current work: ${payload.title}`,
+    url ? `URL: ${url}` : null,
+    ...previewTip,
+    "",
+    JSON.stringify(
+      {
+        assetId: payload.assetId,
+        title: payload.title,
+        mediaType: payload.mediaType,
+        url,
+        ...(payload.width && payload.height
+          ? { width: payload.width, height: payload.height }
+          : {}),
+      },
+      null,
+      2,
+    ),
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 
 function shortId(id: string) {
@@ -2465,6 +2557,7 @@ function AssetSwimlaneBoard({
       status: isChecking ? "Checking" : "Uploading",
       mediaType: upload.mediaType,
       busy: true,
+      showBusyOverlay: false,
       preview: <PendingUploadPreview upload={upload} fit="contain" />,
       thumbnail: <PendingUploadPreview upload={upload} />,
     };
@@ -2501,6 +2594,7 @@ function AssetSwimlaneBoard({
       id: `asset:${asset.id}`,
       title: displayTitle,
       subtitle: sourceText || categoryLabel || asset.status,
+      asset,
       metadata:
         asset.mediaType === "video"
           ? "Video"
@@ -2982,6 +3076,22 @@ function AssetScopeToggle({
 }
 
 function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+
+  async function copyItem(item: LaneGalleryItem) {
+    if (!item.asset) return;
+    try {
+      await navigator.clipboard.writeText(detailAssetClipboardText(item.asset));
+      setCopiedItemId(item.id);
+      toast.success("Selection copied");
+      window.setTimeout(() => {
+        setCopiedItemId((current) => (current === item.id ? null : current));
+      }, 1400);
+    } catch {
+      toast.info("Selection ready");
+    }
+  }
+
   if (!items.length) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
@@ -2992,66 +3102,106 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      {items.map((item) => (
-        <article
-          key={item.id}
-          className={[
-            "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
-            item.selected ? "border-primary ring-2 ring-primary/25" : "",
-            item.deleting ? "opacity-60" : "",
-          ].join(" ")}
-          aria-busy={item.busy}
-        >
-          <div className="relative aspect-[4/3] bg-muted/30">
-            {item.href ? (
-              <Link to={item.href} className="block h-full w-full">
-                {item.thumbnail}
-              </Link>
-            ) : (
-              item.thumbnail
-            )}
-            <div className="absolute left-2 top-2 z-10">
-              {item.onToggle ? (
-                <Checkbox
-                  checked={item.selected}
-                  onCheckedChange={(checked) =>
-                    item.onToggle?.(checked === true)
-                  }
-                  aria-label={`Select ${item.title}`}
-                  className="border-background bg-background/90 shadow-sm"
-                />
-              ) : null}
-            </div>
-            {item.menu ? (
-              <div className="absolute right-2 top-2 z-10">{item.menu}</div>
-            ) : null}
-            {item.busy ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                <Spinner className="h-5 w-5" />
+      {items.map((item) => {
+        const copied = copiedItemId === item.id;
+        const secondary =
+          item.subtitle &&
+          item.subtitle.toLowerCase() !== item.status?.toLowerCase()
+            ? item.subtitle
+            : null;
+        return (
+          <article
+            key={item.id}
+            className={[
+              "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
+              item.selected ? "border-primary ring-2 ring-primary/25" : "",
+              item.deleting ? "opacity-60" : "",
+            ].join(" ")}
+            aria-busy={item.busy}
+          >
+            <div className="relative aspect-[4/3] bg-muted/30">
+              {item.href ? (
+                <Link to={item.href} className="block h-full w-full">
+                  {item.thumbnail}
+                </Link>
+              ) : (
+                item.thumbnail
+              )}
+              <div className="absolute left-2 top-2 z-10">
+                {item.onToggle ? (
+                  <Checkbox
+                    checked={item.selected}
+                    onCheckedChange={(checked) =>
+                      item.onToggle?.(checked === true)
+                    }
+                    aria-label={`Select ${item.title}`}
+                    className="border-background bg-background/90 shadow-sm"
+                  />
+                ) : null}
               </div>
-            ) : null}
-          </div>
-          <div className="space-y-3 p-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{item.title}</div>
-              {item.subtitle ? (
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {item.subtitle}
+              <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                {item.asset ? (
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="secondary"
+                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void copyItem(item);
+                          }}
+                          aria-label={`Copy ${item.title}`}
+                        >
+                          {copied ? (
+                            <IconCheck className="h-4 w-4" />
+                          ) : (
+                            <IconClipboard className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {copied ? "Copied" : "Copy to clipboard"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
+                {item.menu}
+              </div>
+              {item.busy && item.showBusyOverlay !== false ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
                 </div>
               ) : null}
             </div>
-            <div className="flex min-h-5 flex-wrap items-center gap-1.5">
-              {item.status ? (
-                <Badge variant="secondary">{item.status}</Badge>
-              ) : null}
-              {item.metadata ? (
-                <Badge variant="outline">{item.metadata}</Badge>
-              ) : null}
+            <div className="p-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{item.title}</div>
+                <div className="mt-2 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5">
+                  {item.status ? (
+                    <Badge variant="secondary" className="h-5 rounded-full px-2">
+                      {item.status}
+                    </Badge>
+                  ) : null}
+                  {item.metadata ? (
+                    <Badge variant="outline" className="h-5 rounded-full px-2">
+                      {item.metadata}
+                    </Badge>
+                  ) : null}
+                  {secondary ? (
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {secondary}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            {item.primaryActions ? <div>{item.primaryActions}</div> : null}
-          </div>
-        </article>
-      ))}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -3145,7 +3295,7 @@ function SwimLane({
                     >
                       {item.thumbnail}
                       <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
-                      {item.busy ? (
+                      {item.busy && item.showBusyOverlay !== false ? (
                         <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
                           <Spinner className="h-3 w-3" />
                         </span>
@@ -3350,7 +3500,10 @@ function AssetActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
-          <Link to={`/asset/${asset.id}`}>View details</Link>
+          <Link to={`/asset/${asset.id}`}>
+            <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+            View details
+          </Link>
         </DropdownMenuItem>
         {onMoveToReferences ? (
           <DropdownMenuItem
@@ -3514,7 +3667,10 @@ function AssetLaneTile({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem asChild>
-              <Link to={`/asset/${asset.id}`}>View details</Link>
+              <Link to={`/asset/${asset.id}`}>
+                <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+                View details
+              </Link>
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem
@@ -3645,12 +3801,13 @@ function AssetLaneTile({
   );
 }
 
-function LiveCandidatesStage({
-  variants,
+export function LiveCandidatesStage({
   slots,
   draftAssets,
   libraryId,
   folders,
+  foldersByLibraryId = {},
+  allowCreateFolder = true,
   savingSlotId,
   promotingReferenceKeys,
   onSave,
@@ -3658,11 +3815,12 @@ function LiveCandidatesStage({
   onMoveToReferences,
   onMoveDraftToReferences,
 }: {
-  variants: AssetVariantState | null;
   slots: VariantSlot[];
   draftAssets: any[];
   libraryId: string;
   folders: any[];
+  foldersByLibraryId?: Record<string, any[]>;
+  allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
   onSave: (slot: VariantSlot, folderId: string | null) => void;
@@ -3680,17 +3838,7 @@ function LiveCandidatesStage({
     asset?: any;
   } | null>(null);
   const dismissing = dismissSlot.isPending || deleteAsset.isPending;
-  const pendingCount = slots.filter((slot) => slot.status === "pending").length;
-  const readyCount = slots.filter((slot) => slot.status === "ready").length;
-  const failedCount = slots.filter((slot) => slot.status === "failed").length;
-  const draftCount = draftAssets.length;
   const totalCount = slots.length + draftAssets.length;
-  const summary = [
-    pendingCount ? `${pendingCount} generating` : null,
-    readyCount ? `${readyCount} ready` : null,
-    draftCount ? `${draftCount} draft${draftCount === 1 ? "" : "s"}` : null,
-    failedCount ? `${failedCount} failed` : null,
-  ].filter((item): item is string => Boolean(item));
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   async function handleDismissCandidate() {
@@ -3717,6 +3865,14 @@ function LiveCandidatesStage({
         queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-assets"],
+        refetchType: "active",
+      });
       toast.success("Dismissed candidate.");
     } catch (error) {
       toast.error(
@@ -3729,6 +3885,7 @@ function LiveCandidatesStage({
     canUseCandidate,
     saving,
     promoting,
+    candidateLibraryId,
     onSaveCandidate,
     onAddToReferences,
     onDismiss,
@@ -3736,17 +3893,22 @@ function LiveCandidatesStage({
     canUseCandidate: boolean;
     saving?: boolean;
     promoting?: boolean;
+    candidateLibraryId?: string | null;
     onSaveCandidate?: (folderId: string | null) => void;
     onAddToReferences?: () => void;
     onDismiss: () => void;
   }) {
     const busy = saving || promoting || dismissing;
+    const actionLibraryId = candidateLibraryId || libraryId;
+    const candidateFolders =
+      foldersByLibraryId[actionLibraryId] ??
+      (actionLibraryId === libraryId ? folders : []);
     if (!canUseCandidate) {
       return (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3755,31 +3917,34 @@ function LiveCandidatesStage({
       );
     }
     return (
-      <div className="grid grid-cols-2 gap-2">
-        <CandidateSaveMenu
-          libraryId={libraryId}
-          folders={folders}
-          saving={saving}
-          disabled={busy}
-          onSave={(folderId) => onSaveCandidate?.(folderId)}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 px-2 text-xs"
-          onClick={onAddToReferences}
-          disabled={busy}
-        >
-          {promoting ? (
-            <Spinner className="h-3.5 w-3.5" />
-          ) : (
-            "Add to References"
-          )}
-        </Button>
+      <div className="grid min-w-0 gap-2">
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <CandidateSaveMenu
+            libraryId={actionLibraryId}
+            folders={candidateFolders}
+            allowCreateFolder={allowCreateFolder}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) => onSaveCandidate?.(folderId)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 min-w-0 px-2 text-xs"
+            onClick={onAddToReferences}
+            disabled={busy}
+          >
+            {promoting ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              "Add to References"
+            )}
+          </Button>
+        </div>
         <Button
           variant="ghost"
           size="sm"
-          className="col-span-2 h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3820,6 +3985,7 @@ function LiveCandidatesStage({
         canUseCandidate,
         saving,
         promoting,
+        candidateLibraryId: libraryId,
         onSaveCandidate: (folderId) => onSave(slot, folderId),
         onAddToReferences: () => onMoveToReferences(slot),
         onDismiss: () =>
@@ -3841,7 +4007,10 @@ function LiveCandidatesStage({
     return {
       id: `draft:${asset.id}`,
       title: assetDisplayTitle(asset),
-      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
+      subtitle:
+        [asset.libraryTitle, assetLineageSourceText(asset)]
+          .filter(Boolean)
+          .join(" / ") || assetCategoryLabel(asset),
       metadata:
         asset.mediaType === "video"
           ? "Video"
@@ -3858,6 +4027,7 @@ function LiveCandidatesStage({
         canUseCandidate: true,
         saving,
         promoting,
+        candidateLibraryId: asset.libraryId,
         onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
         onAddToReferences: () => onMoveDraftToReferences(asset),
         onDismiss: () =>
@@ -3926,27 +4096,12 @@ function LiveCandidatesStage({
         </AlertDialogContent>
       </AlertDialog>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="truncate text-sm font-semibold">Candidates</h3>
-              <Badge variant="outline">{totalCount}</Badge>
-              {summary.map((item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="h-6 rounded-md px-2 text-xs"
-                >
-                  {item}
-                </Badge>
-              ))}
-            </div>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {variants?.prompt || "Generation queue and unsaved drafts"}
-            </p>
+      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center">
+            <h3 className="shrink-0 text-sm font-semibold">Candidates</h3>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
             <LiveCandidatesActions
               slots={slots}
               draftAssets={draftAssets}
@@ -3954,16 +4109,16 @@ function LiveCandidatesStage({
             />
           </div>
         </div>
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="min-w-0 bg-muted/10 p-3">
+        <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+          <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
             <div
               className={[
-                "group relative overflow-hidden rounded-lg border border-border bg-background",
+                "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
                 activeItem?.busy ? "opacity-80" : "",
               ].join(" ")}
               aria-busy={activeItem?.busy}
             >
-              <div className="aspect-[16/9] bg-muted/30">
+              <div className="h-36 bg-muted/30 sm:h-44 lg:h-56 2xl:h-64">
                 {activeItem?.href ? (
                   <Link to={activeItem.href} className="block h-full w-full">
                     {activeItem.preview}
@@ -3977,8 +4132,21 @@ function LiveCandidatesStage({
                   <Spinner className="h-5 w-5" />
                 </div>
               ) : null}
+              {activeItem?.href ? (
+                <Button
+                  asChild
+                  variant="secondary"
+                  size="sm"
+                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
+                >
+                  <Link to={activeItem.href}>
+                    <IconArrowUpRight className="h-3.5 w-3.5" />
+                    Details
+                  </Link>
+                </Button>
+              ) : null}
             </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
               {items.map((item) => {
                 const active = item.id === activeItem?.id;
                 return (
@@ -3997,7 +4165,7 @@ function LiveCandidatesStage({
                   >
                     {item.thumbnail}
                     <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
-                    {item.busy ? (
+                    {item.busy && item.showBusyOverlay !== false ? (
                       <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
                         <Spinner className="h-3 w-3" />
                       </span>
@@ -4007,10 +4175,23 @@ function LiveCandidatesStage({
               })}
             </div>
           </div>
-          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
-            <div className="min-w-0 space-y-4">
+          <aside className="flex min-w-0 flex-col justify-between gap-3 border-t border-border bg-background p-3 lg:border-l lg:border-t-0 lg:p-4">
+            <div className="min-w-0 space-y-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  {activeItem?.status ? (
+                    <CandidateStatusPill status={activeItem.status} />
+                  ) : null}
+                  {activeItem?.metadata ? (
+                    <Badge
+                      variant="outline"
+                      className="h-6 max-w-full rounded-full px-2 text-[11px]"
+                    >
+                      {activeItem.metadata}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="mt-2 truncate text-sm font-semibold">
                   {activeItem?.title}
                 </div>
                 {activeItem?.subtitle ? (
@@ -4019,37 +4200,56 @@ function LiveCandidatesStage({
                   </div>
                 ) : null}
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {activeItem?.status ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Status
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.status}</div>
-                  </div>
-                ) : null}
-                {activeItem?.metadata ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      Type
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
-                  </div>
-                ) : null}
-              </div>
               {activeItem?.primaryActions ? (
                 <div>{activeItem.primaryActions}</div>
               ) : null}
             </div>
             {activeItem?.href ? (
-              <Button asChild variant="outline" size="sm">
-                <Link to={activeItem.href}>Open</Link>
+              <Button asChild variant="ghost" size="sm" className="gap-1.5">
+                <Link to={activeItem.href}>
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  Open details
+                </Link>
               </Button>
             ) : null}
           </aside>
         </div>
       </section>
     </>
+  );
+}
+
+function CandidateStatusPill({ status }: { status: string }) {
+  const normalized = status.toLowerCase();
+  const label =
+    normalized === "pending"
+      ? "Generating"
+      : normalized === "ready"
+        ? "Ready"
+        : normalized === "failed"
+          ? "Failed"
+          : normalized === "draft"
+            ? "Draft"
+            : status;
+  const className =
+    normalized === "ready"
+      ? "border-primary/30 bg-primary/10 text-primary"
+      : normalized === "failed"
+        ? "border-destructive/30 bg-destructive/10 text-destructive"
+        : normalized === "pending"
+          ? "border-border bg-muted/70 text-muted-foreground"
+          : "border-border bg-background text-muted-foreground";
+
+  return (
+    <span
+      className={[
+        "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium",
+        className,
+      ].join(" ")}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      <span className="truncate">{label}</span>
+    </span>
   );
 }
 
@@ -4114,12 +4314,14 @@ function VariantPreview({
 function CandidateSaveMenu({
   libraryId,
   folders,
+  allowCreateFolder = true,
   saving,
   disabled,
   onSave,
 }: {
   libraryId: string;
   folders: any[];
+  allowCreateFolder?: boolean;
   saving?: boolean;
   disabled?: boolean;
   onSave: (folderId: string | null) => void;
@@ -4131,27 +4333,37 @@ function CandidateSaveMenu({
 
   return (
     <>
-      <CreateFolderDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSubmit={async (title) => {
-          const folder = (await createFolder.mutateAsync({
-            libraryId,
-            title,
-            parentId: null,
-          })) as any;
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-library", { id: libraryId }],
-            refetchType: "active",
-          });
-          setCreateOpen(false);
-          if (folder?.id) onSave(folder.id);
-        }}
-        pending={createFolder.isPending}
-      />
+      {allowCreateFolder ? (
+        <CreateFolderDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onSubmit={async (title) => {
+            const folder = (await createFolder.mutateAsync({
+              libraryId,
+              title,
+              parentId: null,
+            })) as any;
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-library", { id: libraryId }],
+              refetchType: "active",
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-libraries"],
+              refetchType: "active",
+            });
+            setCreateOpen(false);
+            if (folder?.id) onSave(folder.id);
+          }}
+          pending={createFolder.isPending}
+        />
+      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
+          <Button
+            size="sm"
+            className="h-8 min-w-0 px-2 text-xs"
+            disabled={disabled}
+          >
             {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
           </Button>
         </DropdownMenuTrigger>
@@ -4169,16 +4381,20 @@ function CandidateSaveMenu({
               Folder: {folder.title}
             </DropdownMenuItem>
           ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setCreateOpen(true);
-            }}
-          >
-            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-            New folder...
-          </DropdownMenuItem>
+          {allowCreateFolder ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setCreateOpen(true);
+                }}
+              >
+                <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+                New folder...
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
@@ -4302,6 +4518,14 @@ function LiveCandidatesActions({
         queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-assets"],
+        refetchType: "active",
+      });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not clear candidates.",
@@ -4359,14 +4583,14 @@ function LiveCandidatesActions({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            aria-label="Live candidates actions"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label="Candidate actions"
+            title="Candidate actions"
             disabled={isClearing}
           >
             <IconDotsVertical className="h-4 w-4" />
-            Clear
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

@@ -34,6 +34,26 @@ function isEmbeddedWindow() {
   }
 }
 
+function activeBrandKitIdFromLocation(pathname: string, search: string) {
+  const match = pathname.match(/^\/(?:library|brand-kits)\/([^/]+)/);
+  if (match?.[1]) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  if (pathname !== "/library") return null;
+  const params = new URLSearchParams(search);
+  if (
+    params.get("__an_picker") === "1" ||
+    params.get("__an_mcp_chat_bridge") === "1"
+  ) {
+    return null;
+  }
+  return params.get("libraryId")?.trim() || null;
+}
+
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
@@ -41,15 +61,10 @@ export function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
-  const activeBrandKitId = (() => {
-    const match = location.pathname.match(/^\/brand-kits\/([^/]+)/);
-    if (!match?.[1]) return null;
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
-  })();
+  const activeBrandKitId = activeBrandKitIdFromLocation(
+    location.pathname,
+    location.search,
+  );
   useGenerationContextSync(activeBrandKitId);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
@@ -68,6 +83,7 @@ export function Layout({ children }: LayoutProps) {
   const isPicker = location.pathname === "/library";
   const hideHeader =
     location.pathname === "/library" ||
+    location.pathname.startsWith("/library/") ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =

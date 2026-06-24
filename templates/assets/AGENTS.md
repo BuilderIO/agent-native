@@ -21,7 +21,9 @@ Detailed library, generation, image, embed, and engine rules live in
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
 - Use `view-screen` when the active library, selected asset, picker, generation,
-  or embed target is unclear. The picker is also available from the left nav.
+  or embed target is unclear. The human Library surface is `/library` for
+  cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
+  picker hosts still use `/library` with their iframe/auth bridge params.
 - The Create tab (`/`) is the full-page Assets chat surface. Use the shared
   `assets` chat thread storage there, keep past chats in the left sidebar, and
   use the right agent sidebar only on non-Create routes with view-transition
@@ -33,13 +35,16 @@ Detailed library, generation, image, embed, and engine rules live in
 ## Application State
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
-  context. Picker state includes media type, selected library, query, prompt, and
-  aspect ratio when available.
+  context. Human Library state uses
+  `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`.
+  Embedded picker state keeps `{ view: "picker", mediaType, libraryId, query,
+prompt, aspectRatio }`.
 - `generation-context` is the authoritative default for the next image
   generation request: `{ libraryId, presetId, model, aspectRatio, imageSize,
 count, mediaType }`. Treat it as the visible composer selection for Brand kit
-  / Preset / Format, and omit those action args only when you intend to use the
-  selected defaults.
+  / Preset / Format. Selecting a kit in Library writes the same `libraryId`;
+  selecting "All assets" clears it, so generation should ask for or choose a kit.
+  Omit those action args only when you intend to use the selected defaults.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

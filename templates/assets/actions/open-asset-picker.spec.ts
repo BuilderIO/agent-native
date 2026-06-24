@@ -27,8 +27,8 @@ describe("open-asset-picker", () => {
       app: "assets",
       view: "picker",
       mediaType: "image",
-      path: "/library?mediaType=image",
-      url: "/library?mediaType=image",
+      path: "/library?__an_picker=1&mediaType=image",
+      url: "/library?__an_picker=1&mediaType=image",
       embed: true,
       count: 3,
       autoGenerate: false,
@@ -41,7 +41,7 @@ describe("open-asset-picker", () => {
       expect.objectContaining({
         view: "picker",
         mediaType: "image",
-        path: "/library?mediaType=image",
+        path: "/library?__an_picker=1&mediaType=image",
       }),
     );
     expect(action.http).toEqual({ method: "GET" });
@@ -66,8 +66,8 @@ describe("open-asset-picker", () => {
 
     expect(result).toMatchObject({
       mediaType: "video",
-      path: "/library?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
-      url: "/library?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      path: "/library?__an_picker=1&mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      url: "/library?__an_picker=1&mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
       message: expect.stringContaining("paste"),
       fallbackInstructions: expect.stringContaining("handoff summary"),
       presetId: "preset_hero",
@@ -108,7 +108,7 @@ describe("open-asset-picker", () => {
 
     expect(result).toMatchObject({
       embed: true,
-      url: "/library?mediaType=image&prompt=Generate+a+hero+image&callerAppId=design&autoGenerate=1",
+      url: "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image&callerAppId=design&autoGenerate=1",
       callerAppId: "design",
       autoGenerate: true,
     });
@@ -135,7 +135,7 @@ describe("open-asset-picker", () => {
       callerAppId: "design",
     });
     expect(result.path).toBe(
-      "/library?mediaType=image&prompt=Generate+a+hero+image&count=4&tier=fast&styleStrength=strong&callerAppId=design&autoGenerate=1",
+      "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image&count=4&tier=fast&styleStrength=strong&callerAppId=design&autoGenerate=1",
     );
   });
 
@@ -160,7 +160,7 @@ describe("open-asset-picker", () => {
       includeLogo: false,
     });
     expect(result.path).toBe(
-      "/library?mediaType=image&prompt=Generate+a+hero+image",
+      "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image",
     );
   });
 });

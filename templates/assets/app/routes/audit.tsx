@@ -532,7 +532,7 @@ function RunDetail({ runId }: { runId: string }) {
       <Separator />
       <div>
         <a
-          href={`/brand-kits/${run.libraryId}`}
+          href={`/library/${run.libraryId}`}
           className="text-xs text-muted-foreground underline-offset-4 hover:underline"
         >
           Open brand kit →

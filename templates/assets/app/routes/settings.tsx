@@ -287,7 +287,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
 
         <SettingsRow
           icon={<IconLibraryPhoto className="size-4" />}
-          title="Brand Kits"
+          title="Library"
           description={`${libraryCount} accessible ${
             libraryCount === 1 ? "brand kit" : "brand kits"
           }.`}

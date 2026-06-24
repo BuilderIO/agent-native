@@ -112,6 +112,7 @@ const FALLBACK_INSTRUCTIONS =
 
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
+  params.set("__an_picker", "1");
   params.set("mediaType", args.mediaType ?? "image");
   if (args.prompt?.trim()) params.set("prompt", args.prompt.trim());
   if (args.query?.trim()) params.set("q", args.query.trim());

@@ -5,10 +5,9 @@ import {
   IconClipboardList,
   IconDots,
   IconEdit,
-  IconLayoutGrid,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPalette,
+  IconLibraryPhoto,
   IconPhotoPlus,
   IconPin,
   IconPlus,
@@ -44,8 +43,7 @@ import {
 
 const baseNavItems = [
   { icon: IconPhotoPlus, label: "Create", href: "/" },
-  { icon: IconLayoutGrid, label: "Library", href: "/library" },
-  { icon: IconPalette, label: "Brand Kits", href: "/brand-kits" },
+  { icon: IconLibraryPhoto, label: "Library", href: "/library" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];
 
@@ -477,10 +475,10 @@ export function Sidebar() {
             const isActive =
               item.href === "/"
                 ? isCreateRoute
-                : item.href === "/brand-kits"
-                  ? location.pathname === "/brand-kits" ||
-                    location.pathname.startsWith("/brand-kits/") ||
+                : item.href === "/library"
+                  ? location.pathname === "/library" ||
                     location.pathname.startsWith("/library/") ||
+                    location.pathname.startsWith("/brand-kits/") ||
                     location.pathname.startsWith("/image/") ||
                     location.pathname.startsWith("/asset/")
                   : location.pathname.startsWith(item.href);

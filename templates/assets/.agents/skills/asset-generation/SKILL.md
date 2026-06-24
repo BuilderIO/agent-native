@@ -21,7 +21,9 @@ or generated image/video assets that another app can reference by ID and URL.
   when `libraryId` is omitted, generates candidates, returns the picker filtered
   to those run IDs, and works in in-app chat plus external MCP hosts.
 - Use `open-asset-picker` when a person should browse, search, or select an
-  existing asset in UI, or when you want the picker to handle generation itself.
+  existing asset inside an embedded picker, or when you want the picker to
+  handle generation itself. It still opens `/library` with the iframe/bridge
+  contract. The normal human Library workspace is `/library` and `/library/:id`.
   Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
   libraries.
 - Use unattended actions when the agent already knows what to do:
