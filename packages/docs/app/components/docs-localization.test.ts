@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveLayoutLocale } from "../root";
-import { loader as localizedDocsIndexLoader } from "../routes/docs.$locale._index";
+import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import {
   buildSearchIndexAsync,
@@ -76,16 +76,22 @@ describe("localized docs fallback", () => {
     expect(loaderDoc?.slug).toBe("internationalization");
   });
 
-  it("redirects localized docs index to the canonical route for the target doc", () => {
+  it("redirects localized docs index to the canonical route for the target doc", async () => {
     let response: Response | undefined;
     try {
-      localizedDocsIndexLoader(loaderArgs({ locale: "fr-FR" }));
+      await defaultDocLoader(loaderArgs({ slug: "fr-FR" }));
     } catch (error) {
       response = error as Response;
     }
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get("Location")).toBe("/docs");
+  });
+
+  it("loads default docs slugs instead of treating them as locales", async () => {
+    const doc = await defaultDocLoader(loaderArgs({ slug: "agent-surfaces" }));
+
+    expect(doc?.slug).toBe("agent-surfaces");
   });
 
   it("uses localized nav links only for translated pages", () => {
