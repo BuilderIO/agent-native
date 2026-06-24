@@ -8,8 +8,11 @@ const messages = {
     saving: "저장 중...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "예약 링크",
+    brand: "캘린더",
+    calendar: "캘린더",
+    settings: "설정",
+    team: "팀",
   },
   root: {
     commandActions: "작업",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "테마 전환",
   },
   settings: {
+    openAgentSettings: "에이전트 설정 열기",
+    agentDescription:
+      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 설정",
     appearance: "화면 표시",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

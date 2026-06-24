@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "为我的收件箱创建自定义小组件",
   },
   settings: {
+    openAgentSettings: "打开代理设置",
+    agentDescription:
+      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+    agentTitle: "代理设置",
     title: "设置",
     general: "通用",
     generalDescription: "Mail 的语言和账号级偏好设置。",

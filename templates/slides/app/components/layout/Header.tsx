@@ -11,6 +11,7 @@ import { RunsTray } from "@agent-native/core/client/progress";
 const pageTitleKeys: Record<string, string> = {
   "/": "header.decks",
   "/design-systems": "header.designSystems",
+  "/settings": "header.settings",
   "/team": "header.team",
   "/extensions": "header.extensions",
 };

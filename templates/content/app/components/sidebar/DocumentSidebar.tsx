@@ -21,6 +21,7 @@ import {
   IconPlus,
   IconSearch,
   IconStar,
+  IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
@@ -35,6 +36,7 @@ import {
   FeedbackButton,
   appPath,
   useCodeMode,
+  useT,
 } from "@agent-native/core/client";
 import {
   ExtensionSlot,
@@ -143,6 +145,7 @@ export function DocumentSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
@@ -165,6 +168,7 @@ export function DocumentSidebar({
     organization: false,
   });
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -588,6 +592,23 @@ export function DocumentSidebar({
     </button>
   );
 
+  const renderSettingsNavButton = () => (
+    <button
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        settingsActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+      onClick={() => navigate("/settings")}
+    >
+      <IconSettings size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-left">
+        {t("navigation.settings")}
+      </span>
+    </button>
+  );
+
   const toggleSection = (id: SidebarSectionId) => {
     setCollapsedSections((current) => ({
       ...current,
@@ -713,6 +734,22 @@ export function DocumentSidebar({
             </button>
           </TooltipTrigger>
           <TooltipContent>Local files</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                settingsActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => navigate("/settings")}
+            >
+              <IconSettings size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
       </div>
     );
@@ -921,7 +958,10 @@ export function DocumentSidebar({
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border px-3 py-2">
-        {renderLocalFilesNavButton()}
+        <div className="space-y-1">
+          {renderLocalFilesNavButton()}
+          {renderSettingsNavButton()}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border">

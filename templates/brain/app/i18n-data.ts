@@ -28,6 +28,10 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
     eyebrow: "Customize",
     title: "Customize Brain",
     description:
@@ -97,6 +101,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "在 Brain 工作界面之间导航。",
     },
     settings: {
+      agentTitle: "代理设置",
+      agentDescription:
+        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+      openAgentSettings: "打开代理设置",
       eyebrow: "自定义",
       title: "自定义 Brain",
       description:
@@ -153,6 +161,10 @@ export const messagesByLocale = {
         "Navega por las superficies de trabajo de Brain.",
     },
     settings: {
+      agentTitle: "Ajustes del agente",
+      agentDescription:
+        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Abrir ajustes del agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -212,6 +224,10 @@ export const messagesByLocale = {
         "Naviguer entre les espaces de travail Brain.",
     },
     settings: {
+      agentTitle: "Paramètres de l’agent",
+      agentDescription:
+        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+      openAgentSettings: "Ouvrir les paramètres de l’agent",
       eyebrow: "Personnaliser",
       title: "Personnaliser Brain",
       description:
@@ -269,6 +285,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "Zwischen Brain-Arbeitsflächen wechseln.",
     },
     settings: {
+      agentTitle: "Agent-Einstellungen",
+      agentDescription:
+        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+      openAgentSettings: "Agent-Einstellungen öffnen",
       eyebrow: "Anpassen",
       title: "Brain anpassen",
       description:
@@ -322,6 +342,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "Brain の作業画面を移動します。",
     },
     settings: {
+      agentTitle: "エージェント設定",
+      agentDescription:
+        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェント設定を開く",
       eyebrow: "カスタマイズ",
       title: "Brain をカスタマイズ",
       description:
@@ -378,6 +402,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "Brain 작업 화면 사이를 이동합니다.",
     },
     settings: {
+      agentTitle: "에이전트 설정",
+      agentDescription:
+        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 설정 열기",
       eyebrow: "사용자 지정",
       title: "Brain 사용자 지정",
       description:
@@ -436,6 +464,10 @@ export const messagesByLocale = {
         "Navegue entre as superfícies de trabalho do Brain.",
     },
     settings: {
+      agentTitle: "Configurações do agente",
+      agentDescription:
+        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Abrir configurações do agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -494,6 +526,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "Brain कार्य सतहों के बीच जाएं।",
     },
     settings: {
+      agentTitle: "एजेंट सेटिंग्स",
+      agentDescription:
+        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+      openAgentSettings: "एजेंट सेटिंग्स खोलें",
       eyebrow: "कस्टमाइज़",
       title: "Brain कस्टमाइज़ करें",
       description:
@@ -552,6 +588,10 @@ export const messagesByLocale = {
       brainNavigationDescription: "التنقل بين مساحات عمل Brain.",
     },
     settings: {
+      agentTitle: "إعدادات الوكيل",
+      agentDescription:
+        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "فتح إعدادات الوكيل",
       eyebrow: "تخصيص",
       title: "تخصيص Brain",
       description:

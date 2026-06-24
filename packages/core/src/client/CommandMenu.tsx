@@ -63,6 +63,22 @@ export function openAgentSidebar() {
   window.dispatchEvent(new Event("agent-panel:open"));
 }
 
+export function openAgentSettings(
+  section?: string | { section?: string | null },
+) {
+  if (typeof window === "undefined") return;
+
+  const normalizedSection =
+    typeof section === "string" ? section : section?.section;
+
+  openAgentSidebar();
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open-settings", {
+      detail: normalizedSection ? { section: normalizedSection } : undefined,
+    }),
+  );
+}
+
 export function focusAgentChat() {
   window.dispatchEvent(
     new CustomEvent("agent-panel:set-mode", {

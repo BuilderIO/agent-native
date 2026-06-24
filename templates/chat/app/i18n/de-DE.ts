@@ -1,4 +1,21 @@
 const messages = {
+  settings: {
+    title: "Einstellungen",
+    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
+    languageTitle: "Sprache",
+    languageDescription:
+      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
+    languageLabel: "Oberflächensprache",
+    workspaceTitle: "Arbeitsbereich",
+    workspaceDescription:
+      "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
+    openTeamSettings: "Teameinstellungen öffnen",
+    openResourceSettings: "Ressourceneinstellungen öffnen",
+    agentTitle: "Agent-Einstellungen",
+    agentDescription:
+      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+    openAgentSettings: "Agent-Einstellungen öffnen",
+  },
   chat: {
     archiveChat: "Archive Chat",
     archiveFailed: "Archive Failed",
@@ -23,12 +40,17 @@ const messages = {
     unpinChat: "Unpin Chat",
   },
   navigation: {
+    chat: "Chat",
     collapseSidebar: "Collapse Sidebar",
+    database: "Datenbank",
     expandSidebar: "Expand Sidebar",
     extensions: "Erweiterungen",
     navigation: "Navigation",
     navigationDescription: "Hauptnavigation",
+    observability: "Beobachtbarkeit",
     openNavigation: "Navigation öffnen",
+    settings: "Einstellungen",
+    team: "Team",
   },
   root: {
     commandActions: "Aktionen",

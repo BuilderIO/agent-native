@@ -33,7 +33,12 @@ Use BCP-47 filenames from the supported set: `en-US`, `zh-CN`, `es-ES`,
 
 - Wrap apps with `AppProviders i18n={{ catalog: i18nCatalog }}`.
 - Read strings with `useT()` and keep keys stable.
-- Add a settings or account surface with `<LanguagePicker />`.
+- Sidebar apps should expose a `/settings` route in the app sidebar. Put
+  `<LanguagePicker />` in that settings page, usually in a Language or General
+  section, and keep the header language icon only as a quick-access shortcut.
+- Settings pages should include an "Agent settings" row/card that calls
+  `openAgentSettings()` from `@agent-native/core/client` to open the right
+  agent sidebar's Settings tab. Localize the title, description, and button.
 - Use `useFormatters()` for dates, numbers, relative time, and lists instead
   of embedding formatted values in translation strings.
 - Do not translate stable identifiers: action names, route names, enum values,

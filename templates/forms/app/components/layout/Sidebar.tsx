@@ -7,6 +7,7 @@ import {
   IconMenu2,
   IconX,
   IconMessageCircle,
+  IconSettings,
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { Button } from "@/components/ui/button";
@@ -294,6 +295,19 @@ export function Sidebar() {
 
       {/* Pinned nav + footer */}
       <div className="shrink-0 border-t border-border px-3 py-1.5">
+        <Link
+          to="/settings"
+          onClick={() => isMobile && setMobileOpen(false)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+            location.pathname === "/settings"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconSettings size={14} className="shrink-0" />
+          <span>{t("navigation.settings")}</span>
+        </Link>
         <Link
           to="/team"
           onClick={() => isMobile && setMobileOpen(false)}

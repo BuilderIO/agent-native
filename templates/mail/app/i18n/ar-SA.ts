@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
   },
   settings: {
+    openAgentSettings: "فتح إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إعدادات الوكيل",
     title: "الإعدادات",
     general: "عام",
     generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",

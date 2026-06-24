@@ -64,21 +64,39 @@ download the active locale. The supported locale codes are `en-US`, `zh-CN`,
 
 ## UI
 
-Use `useT()` for interface strings and `<LanguagePicker />` in settings:
+Use `useT()` for interface strings and put `<LanguagePicker />` on the app's
+`/settings` page. Sidebar apps should expose **Settings** in the app sidebar;
+the header language icon is only a shortcut.
 
 ```tsx
-import { LanguagePicker, useT } from "@agent-native/core/client";
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
 
-function SettingsLanguageCard() {
+function SettingsPage() {
   const t = useT();
   return (
     <>
       <h2>{t("settings.languageTitle")}</h2>
       <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
     </>
   );
 }
 ```
+
+The "Agent settings" control should open the right agent sidebar's Settings tab
+for model, API key, automation, voice, and other framework-level controls.
+Apps may duplicate high-value framework settings in their own settings page
+when the setting is central to the app, but the sidebar settings tab remains the
+source of truth.
 
 Use `useFormatters()` for dates, numbers, relative time, and lists. Do not put
 locale-sensitive date/number formatting inside translation strings.

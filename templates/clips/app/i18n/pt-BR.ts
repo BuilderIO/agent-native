@@ -82,6 +82,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "Abrir configurações do agente",
+    agentDescription:
+      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Configurações do agente",
     title: "Configurações",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
     languageTitle: "Idioma",

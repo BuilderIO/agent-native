@@ -9,6 +9,7 @@ import {
 const pageTitles: Record<string, string> = {
   "/": "header.forms",
   "/forms": "header.forms",
+  "/settings": "header.settings",
   "/team": "header.team",
 };
 

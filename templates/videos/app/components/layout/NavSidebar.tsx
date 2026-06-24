@@ -3,6 +3,7 @@ import {
   IconVideo,
   IconComponents,
   IconPalette,
+  IconSettings,
   IconUsers,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
   { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 
@@ -61,6 +63,7 @@ export function NavSidebar() {
             item.href === "/"
               ? !location.pathname.startsWith("/components") &&
                 !location.pathname.startsWith("/design-systems") &&
+                !location.pathname.startsWith("/settings") &&
                 !location.pathname.startsWith("/team") &&
                 !location.pathname.startsWith("/extensions")
               : location.pathname.startsWith(item.href);

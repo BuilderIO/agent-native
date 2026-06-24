@@ -24,6 +24,10 @@ import {
   docsLocaleFromPathname,
   localeDirection,
 } from "./components/docs-locale";
+import {
+  canonicalPathForPath,
+  docsAlternateLinksForPath,
+} from "./components/docs-seo";
 import { docsI18nCatalog } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
@@ -135,22 +139,26 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Aliases that serve the same content under multiple paths. Both surfaces
-// link rel=canonical to the primary path so search engines don't see them
-// as duplicates. Keep in sync with the alias mapping in
-// `packages/docs/server/routes/[...page].get.ts` (currently /docs serves
-// docs/getting-started.md, so /docs/getting-started canonicalizes to /docs).
-const CANONICAL_ALIASES: Record<string, string> = {
-  "/docs/getting-started": "/docs",
-};
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
 
-function CanonicalLink() {
+function SeoLinks() {
   const location = useLocation();
-  const path = location.pathname.replace(/\/$/, "") || "/";
-  const canonicalPath = CANONICAL_ALIASES[path] ?? path;
+  const canonicalPath = canonicalPathForPath(location.pathname);
   const canonical = `${SITE_URL}${canonicalPath}`;
-  return <link rel="canonical" href={canonical} />;
+  const alternates = docsAlternateLinksForPath(location.pathname);
+  return (
+    <>
+      <link rel="canonical" href={canonical} />
+      {alternates.map((alternate) => (
+        <link
+          key={alternate.hrefLang}
+          rel="alternate"
+          hrefLang={alternate.hrefLang}
+          href={`${SITE_URL}${alternate.path}`}
+        />
+      ))}
+    </>
+  );
 }
 
 function findScrollContainerFrom(el: HTMLElement | null): HTMLElement | Window {
@@ -290,7 +298,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON_LD }}
         />
-        <CanonicalLink />
+        <SeoLinks />
         <Meta />
         <Links />
       </head>

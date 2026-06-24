@@ -1,6 +1,7 @@
 import {
   ChangelogSettingsCard,
   LanguagePicker,
+  openAgentSettings,
   useT,
 } from "@agent-native/core/client";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -59,6 +60,26 @@ export default function Settings() {
         <CardContent className="max-w-xs space-y-1.5">
           <Label>{t("settings.languageLabel")}</Label>
           <LanguagePicker label={t("settings.languageLabel")} />
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.agentTitle")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            {t("settings.agentDescription")}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openAgentSettings()}
+          >
+            {t("settings.openAgentSettings")}
+          </Button>
         </CardContent>
       </Card>
 

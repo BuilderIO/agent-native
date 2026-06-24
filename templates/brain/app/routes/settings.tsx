@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChangelogSettingsCard,
   LanguagePicker,
+  openAgentSettings,
   useActionMutation,
   useActionQuery,
   useT,
@@ -407,6 +408,23 @@ export default function SettingsRoute() {
             <CardContent className="space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <IconAdjustments className="size-4 text-primary" />
+                {t("settings.agentTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.agentDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={() => openAgentSettings()}>
+                {t("settings.openAgentSettings")}
+              </Button>
             </CardContent>
           </Card>
 

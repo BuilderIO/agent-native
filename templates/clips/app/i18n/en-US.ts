@@ -81,6 +81,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "Open agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    agentTitle: "Agent settings",
     title: "Settings",
     intro: "Preferences and connected services for this Clips workspace.",
     languageTitle: "Language",

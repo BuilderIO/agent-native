@@ -82,6 +82,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "エージェント設定を開く",
+    agentDescription:
+      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェント設定",
     title: "設定",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
     languageTitle: "言語",

@@ -81,6 +81,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "에이전트 설정 열기",
+    agentDescription:
+      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 설정",
     title: "설정",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
     languageTitle: "언어",

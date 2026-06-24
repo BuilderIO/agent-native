@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
   },
   settings: {
+    openAgentSettings: "エージェント設定を開く",
+    agentDescription:
+      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェント設定",
     title: "設定",
     general: "一般",
     generalDescription: "Mail の言語とアカウント全体の設定です。",

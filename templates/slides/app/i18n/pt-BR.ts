@@ -6,6 +6,7 @@ const messages = {
     toggleTheme: "Alternar tema",
   },
   header: {
+    settings: "Configurações",
     decks: "Decks",
     designSystems: "Sistemas de design",
     team: "Equipe",
@@ -15,10 +16,28 @@ const messages = {
     slides: "Slides",
   },
   navigation: {
+    settings: "Configurações",
     brand: "Slides",
     decks: "Decks",
     designSystems: "Sistemas de design",
     team: "Equipe",
+  },
+  settings: {
+    title: "Configurações",
+    description: "Preferências de idioma e espaço de trabalho deste app.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
+    languageLabel: "Idioma da interface",
+    workspaceTitle: "Espaço de trabalho",
+    workspaceDescription:
+      "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
+    openTeamSettings: "Abrir configurações da equipe",
+    openResourceSettings: "Abrir configurações de recursos",
+    agentTitle: "Configurações do agente",
+    agentDescription:
+      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+    openAgentSettings: "Abrir configurações do agente",
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre suas apresentações",

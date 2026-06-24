@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "Build me a custom widget for my inbox",
   },
   settings: {
+    openAgentSettings: "Open agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    agentTitle: "Agent settings",
     title: "Settings",
     general: "General",
     generalDescription: "Language and account-level preferences for Mail.",

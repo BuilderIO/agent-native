@@ -1,4 +1,21 @@
 const messages = {
+  settings: {
+    title: "Paramètres",
+    description: "Préférences de langue et d’espace de travail pour cette app.",
+    languageTitle: "Langue",
+    languageDescription:
+      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
+    languageLabel: "Langue de l’interface",
+    workspaceTitle: "Espace de travail",
+    workspaceDescription:
+      "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
+    openTeamSettings: "Ouvrir les paramètres d’équipe",
+    openResourceSettings: "Ouvrir les paramètres des ressources",
+    agentTitle: "Paramètres de l’agent",
+    agentDescription:
+      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+    openAgentSettings: "Ouvrir les paramètres de l’agent",
+  },
   chat: {
     archiveChat: "Archive Chat",
     archiveFailed: "Archive Failed",
@@ -23,12 +40,17 @@ const messages = {
     unpinChat: "Unpin Chat",
   },
   navigation: {
+    chat: "Chat",
     collapseSidebar: "Collapse Sidebar",
+    database: "Base de données",
     expandSidebar: "Expand Sidebar",
     extensions: "Extensions",
     navigation: "Navigation",
     navigationDescription: "Navigation principale",
+    observability: "Observabilité",
     openNavigation: "Ouvrir la navigation",
+    settings: "Paramètres",
+    team: "Équipe",
   },
   root: {
     commandActions: "Actions",

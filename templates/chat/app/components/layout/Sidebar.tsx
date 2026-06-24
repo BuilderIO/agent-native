@@ -11,6 +11,7 @@ import {
   IconMessageCircle,
   IconPin,
   IconPlus,
+  IconSettings,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
@@ -56,6 +57,12 @@ const navItems = [
     labelKey: "navigation.database",
     href: "/database",
     view: "database",
+  },
+  {
+    icon: IconSettings,
+    labelKey: "navigation.settings",
+    href: "/settings",
+    view: "settings",
   },
 ];
 

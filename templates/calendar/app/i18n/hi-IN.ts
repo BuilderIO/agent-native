@@ -8,8 +8,11 @@ const messages = {
     saving: "सहेजा जा रहा है...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "बुकिंग लिंक",
+    brand: "कैलेंडर",
+    calendar: "कैलेंडर",
+    settings: "सेटिंग्स",
+    team: "टीम",
   },
   root: {
     commandActions: "कार्रवाइयाँ",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "थीम बदलें",
   },
   settings: {
+    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    agentDescription:
+      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+    agentTitle: "एजेंट सेटिंग्स",
     appearance: "दिखावट",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

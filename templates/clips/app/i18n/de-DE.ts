@@ -82,6 +82,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "Agent-Einstellungen öffnen",
+    agentDescription:
+      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+    agentTitle: "Agent-Einstellungen",
     title: "Einstellungen",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",

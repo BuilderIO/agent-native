@@ -16,11 +16,28 @@ const messages = {
     studio: "الاستوديو",
   },
   navigation: {
+    settings: "الإعدادات",
     brand: "Videos",
     animations: "الرسوم المتحركة",
     components: "المكونات",
     designSystems: "أنظمة التصميم",
     team: "الفريق",
+  },
+  settings: {
+    title: "الإعدادات",
+    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
+    workspaceTitle: "مساحة العمل",
+    workspaceDescription:
+      "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
+    openTeamSettings: "فتح إعدادات الفريق",
+    openResourceSettings: "فتح إعدادات الموارد",
+    agentTitle: "إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "فتح إعدادات الوكيل",
   },
   agent: {
     emptyState: "اسألني أي شيء عن فيديوهاتك",

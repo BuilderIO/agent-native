@@ -56,21 +56,33 @@ export const i18nCatalog = {
 
 ## UI {#ui}
 
-インターフェイス文字列には `useT()` を使い、settings には `<LanguagePicker />` を置きます。
+インターフェイス文字列には `useT()` を使い、アプリの `/settings` ページに `<LanguagePicker />` を置きます。サイドバーを持つアプリは、アプリのサイドバーに **Settings** を表示してください。ヘッダーの言語アイコンはショートカットです。
 
 ```tsx
-import { LanguagePicker, useT } from "@agent-native/core/client";
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
 
-function SettingsLanguageCard() {
+function SettingsPage() {
   const t = useT();
   return (
     <>
       <h2>{t("settings.languageTitle")}</h2>
       <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
     </>
   );
 }
 ```
+
+「Agent settings」コントロールは、モデル、API キー、自動化、音声などの framework-level controls のために、右側の agent sidebar の Settings tab を開くべきです。その設定がアプリの中心的な体験なら、アプリ自身の settings page に重要な framework 設定を重複表示してもかまいません。ただし source of truth は sidebar settings tab です。
 
 日付、数値、相対時間、リストには `useFormatters()` を使います。locale に依存する日付や数値の整形を翻訳文字列の中に入れないでください。
 

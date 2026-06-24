@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
   },
   settings: {
+    openAgentSettings: "Agent-Einstellungen öffnen",
+    agentDescription:
+      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+    agentTitle: "Agent-Einstellungen",
     title: "Einstellungen",
     general: "Allgemein",
     generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",

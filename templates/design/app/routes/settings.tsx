@@ -3,6 +3,7 @@ import {
   useDevMode,
   ChangelogSettingsCard,
   LanguagePicker,
+  openAgentSettings,
   useT,
 } from "@agent-native/core/client";
 import changelog from "../../CHANGELOG.md?raw";
@@ -43,6 +44,23 @@ export default function SettingsRoute() {
           <CardContent className="max-w-xs space-y-1.5">
             <Label>{t("settings.languageLabel")}</Label>
             <LanguagePicker label={t("settings.languageLabel")} />
+          </CardContent>
+        </Card>
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t("settings.agentTitle")}
+            </CardTitle>
+            <CardDescription>{t("settings.agentDescription")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => openAgentSettings()}
+            >
+              {t("settings.openAgentSettings")}
+            </button>
           </CardContent>
         </Card>
         <ChangelogSettingsCard markdown={changelog} />

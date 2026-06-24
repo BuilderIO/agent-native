@@ -17,6 +17,7 @@ import {
   IconMessageCircle,
   IconPin,
   IconPlus,
+  IconSettings,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,7 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 interface SidebarProps {

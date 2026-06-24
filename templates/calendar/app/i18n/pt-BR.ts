@@ -8,8 +8,11 @@ const messages = {
     saving: "Salvando...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "Links de reserva",
+    brand: "Calendário",
+    calendar: "Calendário",
+    settings: "Configurações",
+    team: "Equipe",
   },
   root: {
     commandActions: "Ações",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "Alternar tema",
   },
   settings: {
+    openAgentSettings: "Abrir configurações do agente",
+    agentDescription:
+      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Configurações do agente",
     appearance: "Aparência",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

@@ -735,6 +735,7 @@ export {
   CommandMenu,
   useCommandMenuShortcut,
   openAgentSidebar,
+  openAgentSettings,
   submitToAgent,
   type CommandMenuProps,
   type CommandMenuDoc,

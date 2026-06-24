@@ -8,8 +8,11 @@ const messages = {
     saving: "جار الحفظ...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "روابط الحجز",
+    brand: "التقويم",
+    calendar: "التقويم",
+    settings: "الإعدادات",
+    team: "الفريق",
   },
   root: {
     commandActions: "الإجراءات",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "تبديل السمة",
   },
   settings: {
+    openAgentSettings: "فتح إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إعدادات الوكيل",
     appearance: "المظهر",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

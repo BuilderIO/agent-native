@@ -80,6 +80,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "فتح إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إعدادات الوكيل",
     title: "الإعدادات",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
     languageTitle: "اللغة",

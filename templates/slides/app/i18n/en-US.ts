@@ -6,6 +6,7 @@ const messages = {
     toggleTheme: "Toggle theme",
   },
   header: {
+    settings: "Settings",
     decks: "Decks",
     designSystems: "Design Systems",
     team: "Team",
@@ -15,10 +16,28 @@ const messages = {
     slides: "Slides",
   },
   navigation: {
+    settings: "Settings",
     brand: "Slides",
     decks: "Decks",
     designSystems: "Design Systems",
     team: "Team",
+  },
+  settings: {
+    title: "Settings",
+    description: "Language and workspace preferences for this app.",
+    languageTitle: "Language",
+    languageDescription:
+      "Choose the interface language. This preference is saved for your account.",
+    languageLabel: "Interface language",
+    workspaceTitle: "Workspace",
+    workspaceDescription:
+      "Manage team members, organization access, and shared workspace preferences.",
+    openTeamSettings: "Open team settings",
+    openResourceSettings: "Open resource settings",
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
   },
   agent: {
     emptyState: "Ask me anything about your presentations",

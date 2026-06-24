@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router";
 import {
   IconStack2,
   IconPalette,
+  IconSettings,
   IconUsers,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -28,6 +29,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
   { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 

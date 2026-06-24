@@ -55,6 +55,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   const isAnalytics = location.pathname === "/analytics";
+  const isSettings = location.pathname.startsWith("/settings");
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -70,12 +71,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Navigation state sync - write current view to application state
   useEffect(() => {
-    const view = isAnalytics ? "analytics" : "entry";
+    const view = isSettings ? "settings" : isAnalytics ? "analytics" : "entry";
     apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
-  }, [location.pathname, isAnalytics]);
+  }, [location.pathname, isAnalytics, isSettings]);
 
   // Poll for navigate commands from the agent
   const { data: navCommand } = useQuery({
@@ -104,6 +105,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           : commandValue;
       if (cmd.view === "analytics") {
         navigate("/analytics");
+      } else if (cmd.view === "settings") {
+        navigate("/settings");
       } else if (cmd.view === "entry") {
         navigate("/");
       }

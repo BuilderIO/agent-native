@@ -8,8 +8,11 @@ const messages = {
     saving: "保存中...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "予約リンク",
+    brand: "カレンダー",
+    calendar: "カレンダー",
+    settings: "設定",
+    team: "チーム",
   },
   root: {
     commandActions: "操作",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "テーマを切り替え",
   },
   settings: {
+    openAgentSettings: "エージェント設定を開く",
+    agentDescription:
+      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェント設定",
     appearance: "外観",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

@@ -80,6 +80,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "打开代理设置",
+    agentDescription:
+      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+    agentTitle: "代理设置",
     title: "设置",
     intro: "此 Clips 工作区的偏好设置和已连接服务。",
     languageTitle: "语言",

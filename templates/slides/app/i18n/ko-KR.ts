@@ -6,6 +6,7 @@ const messages = {
     toggleTheme: "테마 전환",
   },
   header: {
+    settings: "설정",
     decks: "덱",
     designSystems: "디자인 시스템",
     team: "팀",
@@ -15,10 +16,28 @@ const messages = {
     slides: "Slides",
   },
   navigation: {
+    settings: "설정",
     brand: "Slides",
     decks: "덱",
     designSystems: "디자인 시스템",
     team: "팀",
+  },
+  settings: {
+    title: "설정",
+    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    languageTitle: "언어",
+    languageDescription:
+      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
+    languageLabel: "인터페이스 언어",
+    workspaceTitle: "워크스페이스",
+    workspaceDescription:
+      "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
+    openTeamSettings: "팀 설정 열기",
+    openResourceSettings: "리소스 설정 열기",
+    agentTitle: "에이전트 설정",
+    agentDescription:
+      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 설정 열기",
   },
   agent: {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",

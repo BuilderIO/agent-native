@@ -8,6 +8,7 @@ import {
   useChangeVersions,
   ChangelogSettingsCard,
   LanguagePicker,
+  openAgentSettings,
   useT,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
@@ -1412,6 +1413,20 @@ function GeneralSection() {
         <div className="max-w-sm">
           <LanguagePicker label={t("settings.languageLabel")} />
         </div>
+      </div>
+
+      <div className="mt-4 max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
+        <div className="mb-3">
+          <h3 className="text-[13px] font-semibold text-foreground">
+            {t("settings.agentTitle")}
+          </h3>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">
+            {t("settings.agentDescription")}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => openAgentSettings()}>
+          {t("settings.openAgentSettings")}
+        </Button>
       </div>
     </div>
   );

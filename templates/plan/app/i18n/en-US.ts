@@ -14,8 +14,26 @@ const messages = {
     extensions: "Extensions",
   },
   navigation: {
+    settings: "Settings",
     ask: "Ask",
     plan: "Plan",
+  },
+  settings: {
+    title: "Settings",
+    description: "Language and workspace preferences for this app.",
+    languageTitle: "Language",
+    languageDescription:
+      "Choose the interface language. This preference is saved for your account.",
+    languageLabel: "Interface language",
+    workspaceTitle: "Workspace",
+    workspaceDescription:
+      "Manage team members, organization access, and shared workspace preferences.",
+    openTeamSettings: "Open team settings",
+    openResourceSettings: "Open resource settings",
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
   },
   agent: {
     emptyState:

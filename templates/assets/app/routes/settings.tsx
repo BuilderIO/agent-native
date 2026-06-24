@@ -2,6 +2,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   agentNativePath,
+  openAgentSettings,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -103,6 +104,20 @@ export default function SettingsPage() {
         <CardContent className="max-w-xs space-y-1.5">
           <Label>{t("settings.languageLabel")}</Label>
           <LanguagePicker label={t("settings.languageLabel")} />
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.agentTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.agentDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => openAgentSettings()}>
+            {t("settings.openAgentSettings")}
+          </Button>
         </CardContent>
       </Card>
 

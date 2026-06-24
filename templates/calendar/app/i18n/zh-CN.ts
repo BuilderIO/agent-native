@@ -8,8 +8,11 @@ const messages = {
     saving: "正在保存...",
   },
   navigation: {
-    bookingLinks: "Booking links",
-    brand: "Calendar",
+    bookingLinks: "预订链接",
+    brand: "日历",
+    calendar: "日历",
+    settings: "设置",
+    team: "团队",
   },
   root: {
     commandActions: "操作",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "切换主题",
   },
   settings: {
+    openAgentSettings: "打开代理设置",
+    agentDescription:
+      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+    agentTitle: "代理设置",
     appearance: "外观",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",

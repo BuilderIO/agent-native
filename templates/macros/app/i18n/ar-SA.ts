@@ -18,6 +18,22 @@ const messages = {
     analytics: "التحليلات",
     settings: "الإعدادات",
   },
+  settings: {
+    title: "الإعدادات",
+    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
+    workspaceTitle: "مساحة العمل",
+    workspaceDescription:
+      "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
+    openTeamSettings: "فتح إعدادات الفريق",
+    openResourceSettings: "فتح إعدادات الموارد",
+    agentTitle: "إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "فتح إعدادات الوكيل",
+  },
   agent: {
     emptyState: "أخبرني بما أكلته وسأقدر وحدات الماكرو",
     suggestionLunch: "وعاء بوريتو دجاج للغداء",

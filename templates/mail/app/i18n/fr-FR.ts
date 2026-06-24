@@ -6,6 +6,10 @@ const messages = {
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
   },
   settings: {
+    openAgentSettings: "Ouvrir les paramètres de l’agent",
+    agentDescription:
+      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+    agentTitle: "Paramètres de l’agent",
     title: "Parametres",
     general: "General",
     generalDescription: "Langue et preferences de compte pour Mail.",

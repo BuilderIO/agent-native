@@ -6,6 +6,7 @@ const messages = {
     toggleTheme: "थीम बदलें",
   },
   header: {
+    settings: "सेटिंग्स",
     decks: "डेक",
     designSystems: "डिज़ाइन सिस्टम",
     team: "टीम",
@@ -15,10 +16,28 @@ const messages = {
     slides: "Slides",
   },
   navigation: {
+    settings: "सेटिंग्स",
     brand: "Slides",
     decks: "डेक",
     designSystems: "डिज़ाइन सिस्टम",
     team: "टीम",
+  },
+  settings: {
+    title: "सेटिंग्स",
+    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+    languageTitle: "भाषा",
+    languageDescription:
+      "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+    languageLabel: "इंटरफ़ेस भाषा",
+    workspaceTitle: "कार्यस्थान",
+    workspaceDescription:
+      "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
+    openTeamSettings: "टीम सेटिंग्स खोलें",
+    openResourceSettings: "संसाधन सेटिंग्स खोलें",
+    agentTitle: "एजेंट सेटिंग्स",
+    agentDescription:
+      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+    openAgentSettings: "एजेंट सेटिंग्स खोलें",
   },
   agent: {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",

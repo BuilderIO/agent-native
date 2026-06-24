@@ -81,6 +81,10 @@ const messages = {
     },
   },
   settings: {
+    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    agentDescription:
+      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+    agentTitle: "एजेंट सेटिंग्स",
     title: "सेटिंग्स",
     intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
     languageTitle: "भाषा",

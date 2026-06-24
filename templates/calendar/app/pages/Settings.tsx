@@ -28,6 +28,7 @@ import {
   callAction,
   ChangelogSettingsCard,
   LanguagePicker,
+  openAgentSettings,
   type AppearancePresetId,
   useT,
 } from "@agent-native/core/client";
@@ -170,6 +171,18 @@ export default function Settings() {
         <CardContent className="max-w-xs space-y-1.5">
           <Label>{t("settings.languageLabel")}</Label>
           <LanguagePicker label={t("settings.languageLabel")} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">{t("settings.agentTitle")}</CardTitle>
+          <CardDescription>{t("settings.agentDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => openAgentSettings()}>
+            {t("settings.openAgentSettings")}
+          </Button>
         </CardContent>
       </Card>
 

@@ -1,4 +1,20 @@
 const messages = {
+  settings: {
+    title: "الإعدادات",
+    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
+    workspaceTitle: "مساحة العمل",
+    workspaceDescription:
+      "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
+    openTeamSettings: "فتح إعدادات الفريق",
+    openResourceSettings: "فتح إعدادات الموارد",
+    agentTitle: "إعدادات الوكيل",
+    agentDescription:
+      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "فتح إعدادات الوكيل",
+  },
   chat: {
     archiveChat: "Archive Chat",
     archiveFailed: "Archive Failed",
@@ -23,12 +39,17 @@ const messages = {
     unpinChat: "Unpin Chat",
   },
   navigation: {
+    chat: "المحادثة",
     collapseSidebar: "Collapse Sidebar",
+    database: "قاعدة البيانات",
     expandSidebar: "Expand Sidebar",
     extensions: "الإضافات",
     navigation: "التنقل",
     navigationDescription: "التنقل الرئيسي",
+    observability: "قابلية المراقبة",
     openNavigation: "فتح التنقل",
+    settings: "الإعدادات",
+    team: "الفريق",
   },
   root: {
     commandActions: "الإجراءات",

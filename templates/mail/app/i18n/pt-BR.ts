@@ -7,6 +7,10 @@ const messages = {
       "Crie um widget personalizado para minha caixa de entrada",
   },
   settings: {
+    openAgentSettings: "Abrir configurações do agente",
+    agentDescription:
+      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Configurações do agente",
     title: "Configuracoes",
     general: "Geral",
     generalDescription: "Idioma e preferencias de nivel de conta para Mail.",

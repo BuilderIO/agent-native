@@ -16,11 +16,29 @@ const messages = {
     studio: "Studio",
   },
   navigation: {
+    settings: "Settings",
     brand: "Videos",
     animations: "Animations",
     components: "Components",
     designSystems: "Design Systems",
     team: "Team",
+  },
+  settings: {
+    title: "Settings",
+    description: "Language and workspace preferences for this app.",
+    languageTitle: "Language",
+    languageDescription:
+      "Choose the interface language. This preference is saved for your account.",
+    languageLabel: "Interface language",
+    workspaceTitle: "Workspace",
+    workspaceDescription:
+      "Manage team members, organization access, and shared workspace preferences.",
+    openTeamSettings: "Open team settings",
+    openResourceSettings: "Open resource settings",
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
   },
   agent: {
     emptyState: "Ask me anything about your videos",

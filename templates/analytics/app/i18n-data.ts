@@ -15,6 +15,10 @@ const enUS = {
     openNavigation: "Open navigation",
   },
   settings: {
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
     account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
@@ -69,6 +73,10 @@ export const messagesByLocale = {
       openNavigation: "打开导航",
     },
     settings: {
+      agentTitle: "代理设置",
+      agentDescription:
+        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+      openAgentSettings: "打开代理设置",
       account: "账户",
       signedInAs: "登录身份",
       credentials: "数据源凭据",
@@ -103,6 +111,10 @@ export const messagesByLocale = {
       openNavigation: "Abrir navegación",
     },
     settings: {
+      agentTitle: "Ajustes del agente",
+      agentDescription:
+        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Abrir ajustes del agente",
       account: "Cuenta",
       signedInAs: "Sesión iniciada como",
       credentials: "Credenciales de fuentes de datos",
@@ -140,6 +152,10 @@ export const messagesByLocale = {
       openNavigation: "Ouvrir la navigation",
     },
     settings: {
+      agentTitle: "Paramètres de l’agent",
+      agentDescription:
+        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+      openAgentSettings: "Ouvrir les paramètres de l’agent",
       account: "Compte",
       signedInAs: "Connecté en tant que",
       credentials: "Identifiants des sources de données",
@@ -179,6 +195,10 @@ export const messagesByLocale = {
       openNavigation: "Navigation öffnen",
     },
     settings: {
+      agentTitle: "Agent-Einstellungen",
+      agentDescription:
+        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+      openAgentSettings: "Agent-Einstellungen öffnen",
       account: "Konto",
       signedInAs: "Angemeldet als",
       credentials: "Datenquellen-Anmeldedaten",
@@ -216,6 +236,10 @@ export const messagesByLocale = {
       openNavigation: "ナビゲーションを開く",
     },
     settings: {
+      agentTitle: "エージェント設定",
+      agentDescription:
+        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェント設定を開く",
       account: "アカウント",
       signedInAs: "サインイン中",
       credentials: "データソース認証情報",
@@ -253,6 +277,10 @@ export const messagesByLocale = {
       openNavigation: "탐색 열기",
     },
     settings: {
+      agentTitle: "에이전트 설정",
+      agentDescription:
+        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 설정 열기",
       account: "계정",
       signedInAs: "로그인 계정",
       credentials: "데이터 소스 자격 증명",
@@ -290,6 +318,10 @@ export const messagesByLocale = {
       openNavigation: "Abrir navegação",
     },
     settings: {
+      agentTitle: "Configurações do agente",
+      agentDescription:
+        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Abrir configurações do agente",
       account: "Conta",
       signedInAs: "Conectado como",
       credentials: "Credenciais de fontes de dados",
@@ -329,6 +361,10 @@ export const messagesByLocale = {
       openNavigation: "नेविगेशन खोलें",
     },
     settings: {
+      agentTitle: "एजेंट सेटिंग्स",
+      agentDescription:
+        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+      openAgentSettings: "एजेंट सेटिंग्स खोलें",
       account: "खाता",
       signedInAs: "इस रूप में साइन इन",
       credentials: "डेटा स्रोत क्रेडेंशियल",
@@ -367,6 +403,10 @@ export const messagesByLocale = {
       openNavigation: "فتح التنقل",
     },
     settings: {
+      agentTitle: "إعدادات الوكيل",
+      agentDescription:
+        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "فتح إعدادات الوكيل",
       account: "الحساب",
       signedInAs: "تم تسجيل الدخول باسم",
       credentials: "بيانات اعتماد مصادر البيانات",

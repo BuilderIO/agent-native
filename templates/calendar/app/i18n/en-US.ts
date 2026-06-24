@@ -10,6 +10,9 @@ const messages = {
   navigation: {
     bookingLinks: "Booking links",
     brand: "Calendar",
+    calendar: "Calendar",
+    settings: "Settings",
+    team: "Team",
   },
   root: {
     commandActions: "Actions",
@@ -18,6 +21,10 @@ const messages = {
     toggleTheme: "Toggle theme",
   },
   settings: {
+    openAgentSettings: "Open agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    agentTitle: "Agent settings",
     appearance: "Appearance",
     appearanceDescription: "Customize how the app looks.",
     connectGoogleCalendar: "Connect Google Calendar",
