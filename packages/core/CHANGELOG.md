@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.76.3
+
+### Patch Changes
+
+- 57e72bb: Correct stale "default-on" doc comments in `durable-background.ts` and
+  `deploy/build.ts` so they reflect that durable background agent runs are now
+  opt-in (default-off). Comment-only; no behavior change.
+
 ## 0.76.2
 
 ### Patch Changes
