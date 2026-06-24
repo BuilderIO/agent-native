@@ -268,17 +268,50 @@
     if (part === "bubble") applyBubbleGeom();
   }
 
+  // Camera-ready gating: hold the countdown until the bubble's camera feed is
+  // live, so the "3" doesn't hang on screen while a slow camera (e.g. an iPhone
+  // Continuity Camera) connects. The bubble posts "camera-ready" once its video
+  // plays (or fails); a fallback timer starts the countdown anyway if it never
+  // arrives.
+  let cameraReady = false;
+  let countdownDeferred = false;
+  let countdownFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function mountDeferredCountdown(): void {
+    countdownDeferred = false;
+    clearTimeout(countdownFallbackTimer);
+    const container = document.getElementById(
+      CONTAINER_ID,
+    ) as HTMLDivElement | null;
+    if (container && !document.getElementById(partFrameId("countdown"))) {
+      mountPart(container, "countdown");
+    }
+  }
+
   function reconcile(parts: OverlayPart[]): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
     if (wanted.size === 0) {
       document.getElementById(CONTAINER_ID)?.remove();
+      cameraReady = false;
+      countdownDeferred = false;
+      clearTimeout(countdownFallbackTimer);
       return;
     }
     const container = ensureContainer();
     for (const part of ALL_PARTS) {
       const existing = document.getElementById(partFrameId(part));
       if (wanted.has(part)) {
+        // Only show the countdown once the camera is live (when a bubble is also
+        // requested). The fallback timer covers a camera that never connects.
+        if (part === "countdown" && wanted.has("bubble") && !cameraReady) {
+          if (!existing && !countdownDeferred) {
+            countdownDeferred = true;
+            clearTimeout(countdownFallbackTimer);
+            countdownFallbackTimer = setTimeout(mountDeferredCountdown, 12000);
+          }
+          continue;
+        }
         if (!existing) mountPart(container, part);
       } else if (existing) {
         existing.remove();
@@ -324,6 +357,11 @@
       if (frame && typeof data.height === "number") {
         frame.style.height = `${Math.round(data.height)}px`;
       }
+      return;
+    }
+    if (data.kind === "camera-ready") {
+      cameraReady = true;
+      if (countdownDeferred) mountDeferredCountdown();
       return;
     }
     if (data.kind === "bubble-drag-start") {
