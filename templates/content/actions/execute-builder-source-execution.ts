@@ -17,6 +17,10 @@ import {
   type BuilderCmsWriteResult,
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
+import {
+  type BuilderCmsEntryLiveState,
+  readBuilderCmsEntryLiveState,
+} from "./_builder-cms-read-client.js";
 import type {
   BuilderCmsExecutionPayload,
   BuilderCmsExecutionPlan,
@@ -93,6 +97,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
   }) => ReturnType<typeof executeBuilderCmsWrite>;
+  readLiveEntry: (args: {
+    model: string;
+    entryId: string;
+  }) => Promise<BuilderCmsEntryLiveState>;
   reconcileWrite: (args: {
     database: DatabaseRecord;
     source: ContentDatabaseSource;
@@ -203,6 +211,54 @@ function proposedSourceDisplayKey(
     titleChange.proposedValue.trim()
     ? titleChange.proposedValue.trim()
     : fallback;
+}
+
+function sourceRowForChangeSet(
+  source: ContentDatabaseSource,
+  changeSet: ContentDatabaseSourceChangeSet,
+) {
+  return (
+    source.rows.find(
+      (row) =>
+        row.documentId === changeSet.documentId ||
+        row.databaseItemId === changeSet.databaseItemId,
+    ) ?? null
+  );
+}
+
+function requiresLivePreflight(effect: BuilderCmsExecutionPayload["effect"]) {
+  return (
+    effect === "update_in_place" ||
+    effect === "publish" ||
+    effect === "unpublish"
+  );
+}
+
+function normalizedLiveTimestamp(value: number | string | null | undefined) {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function livePreflightBlockMessage(args: {
+  liveState: BuilderCmsEntryLiveState;
+  baselineLastUpdated: string | null;
+  effect: BuilderCmsExecutionPayload["effect"];
+}) {
+  if (!args.liveState.exists) {
+    return "Builder entry no longer exists; refresh the source.";
+  }
+  if (
+    normalizedLiveTimestamp(args.liveState.lastUpdated) !==
+    normalizedLiveTimestamp(args.baselineLastUpdated)
+  ) {
+    return "Builder entry changed since this diff was approved; refresh and re-review.";
+  }
+  if (args.effect === "publish" && args.liveState.published !== "draft") {
+    return "Entry is already published.";
+  }
+  if (args.effect === "unpublish" && args.liveState.published !== "published") {
+    return "Entry is not currently published.";
+  }
+  return null;
 }
 
 export function builderCmsReconciledSourceRowPatch(args: {
@@ -425,6 +481,7 @@ function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
         .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
+    readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
     reconcileWrite: reconcileBuilderCmsWrite,
     getResponse: (databaseId) => getContentDatabaseResponse(databaseId),
   };
@@ -494,6 +551,8 @@ export async function executeBuilderSourceExecutionWithDeps(
     source,
     changeSet,
     pushModeConfirmation: pushMode,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
   });
   const storedPayload = parsePayload(execution.payloadJson);
   const validatedPayload = validateBuilderCmsExecutionDryRun({
@@ -589,6 +648,53 @@ export async function executeBuilderSourceExecutionWithDeps(
     return deps.getResponse(database.id);
   }
 
+  if (requiresLivePreflight(plan.payload.effect)) {
+    const entryId = plan.payload.target.entryId;
+    if (!entryId) {
+      const message = "Builder entry no longer exists; refresh the source.";
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "blocked",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: validatedPayload,
+        lastError: message,
+        now,
+      });
+      throw new Error(message);
+    }
+
+    const liveState = await deps.readLiveEntry({
+      model: plan.payload.target.model,
+      entryId,
+    });
+    const targetRow = sourceRowForChangeSet(source, changeSet);
+    const message = livePreflightBlockMessage({
+      liveState,
+      baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
+      effect: plan.payload.effect,
+    });
+    if (message) {
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "blocked",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: {
+          ...validatedPayload,
+          livePreflight: {
+            checkedAt: now,
+            exists: liveState.exists,
+            published: liveState.published,
+            lastUpdated: liveState.lastUpdated,
+            id: liveState.id,
+          },
+        },
+        lastError: message,
+        now,
+      });
+      throw new Error(message);
+    }
+  }
+
   const claimed = await deps.claimExecution({
     executionId: execution.id,
     summary: `Running Builder ${plan.pushMode} execution.`,
@@ -669,6 +775,14 @@ export default defineAction({
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the live write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
