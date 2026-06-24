@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.72.4
+
+### Patch Changes
+
+- 17b696f: Avoid credentialed cross-origin demo status checks from opaque embedded MCP app frames.
+- 17b696f: Mint a fresh MCP App embed session when cached host state contains an expired one-time embed ticket, and keep native MCP host shells alive so they can recover on refresh.
+- 17b696f: Handle asset picker selections from opaque MCP App parent frames and wait for native MCP host initialization before forwarding selected asset messages.
+- 17b696f: Inject per-request identity tokens for trusted first-party org-scoped remote MCP servers, preserving static headers for third-party remotes.
+- 17b696f: Bound MCP client connection and tools/list handshakes so stale org MCP servers do not stall dev-server startup after reloads.
+
 ## 0.72.3
 
 ### Patch Changes
