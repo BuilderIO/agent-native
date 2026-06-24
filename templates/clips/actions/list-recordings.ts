@@ -55,6 +55,15 @@ export default defineAction({
       .describe("Sort order"),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
+    countOnly: z
+      // Robust coercion: a GET query param arrives as the string "true"/"false",
+      // and z.coerce.boolean would treat "false" as true. Map strings explicitly.
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
+      .default(false)
+      .describe("Return only the total count, skipping the row payload"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -133,6 +142,18 @@ export default defineAction({
       whereClauses.push(
         sql`EXISTS (SELECT 1 FROM ${schema.recordingTags} rt WHERE rt.recording_id = ${schema.recordings.id} AND rt.tag = ${args.tag})`,
       );
+    }
+
+    // Count-only callers (e.g. the sidebar badge) need just the total for the
+    // same filters, ignoring limit/offset. Run the COUNT and short-circuit
+    // before the row select, joins, and tag/view subqueries. Keeping it inside
+    // this branch means the normal list path doesn't pay for an extra query.
+    if (args.countOnly) {
+      const totalRows = await db
+        .select({ count: sql<number>`COUNT(1)` })
+        .from(schema.recordings)
+        .where(and(...whereClauses));
+      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
     }
 
     // Sort
