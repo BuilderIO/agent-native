@@ -743,6 +743,153 @@ html.dark .shiki span {
     background-color 200ms ease;
 }
 
+.templates-side-scroll {
+  align-items: stretch;
+  scrollbar-width: none;
+}
+
+.templates-side-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.template-rail-card {
+  display: flex;
+}
+
+.template-rail-card > .feature-card {
+  width: 100%;
+  height: 100%;
+}
+
+.template-rail-card:not(.template-rail-cta) > .feature-card > p:nth-of-type(1) {
+  display: -webkit-box;
+  min-height: 2.6em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.template-rail-card:not(.template-rail-cta) > .feature-card > p:nth-of-type(2) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.batteries-orbit {
+  isolation: isolate;
+  box-shadow: inset 0 0 80px color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.batteries-orbit::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      color-mix(in srgb, var(--docs-accent) 10%, transparent),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 20% 78%,
+      color-mix(in srgb, var(--fg) 7%, transparent),
+      transparent 28%
+    );
+}
+
+.orbit-star-field {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.54;
+  background-image:
+    radial-gradient(
+      circle at 12% 18%,
+      color-mix(in srgb, var(--fg) 52%, transparent) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 28% 64%,
+      color-mix(in srgb, var(--fg) 42%, transparent) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 47% 12%,
+      color-mix(in srgb, var(--fg) 38%, transparent) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 69% 74%,
+      color-mix(in srgb, var(--fg) 45%, transparent) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 86% 31%,
+      color-mix(in srgb, var(--fg) 50%, transparent) 0 1px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 84% 88%,
+      color-mix(in srgb, var(--fg) 34%, transparent) 0 1px,
+      transparent 1.5px
+    );
+}
+
+.orbit-ring,
+.orbit-label-layer {
+  transform-origin: center;
+  transition: transform 1100ms cubic-bezier(0.2, 0.75, 0.2, 1);
+  will-change: transform;
+}
+
+.batteries-orbit:hover .orbit-ring--outer,
+.batteries-orbit--active .orbit-ring--outer {
+  transform: rotate(3deg) translate3d(2px, -1px, 0);
+}
+
+.batteries-orbit:hover .orbit-ring--middle,
+.batteries-orbit--active .orbit-ring--middle {
+  transform: rotate(-2deg) translate3d(-1px, 1px, 0);
+}
+
+.batteries-orbit:hover .orbit-ring--inner,
+.batteries-orbit--active .orbit-ring--inner {
+  transform: rotate(1.25deg);
+}
+
+.batteries-orbit:hover .orbit-label-layer--primary,
+.batteries-orbit--active .orbit-label-layer--primary {
+  transform: rotate(1.3deg) translate3d(2px, -2px, 0);
+}
+
+.batteries-orbit:hover .orbit-label-layer--secondary,
+.batteries-orbit--active .orbit-label-layer--secondary {
+  transform: rotate(-2.4deg) translate3d(-3px, 2px, 0);
+}
+
+.batteries-orbit:hover .orbit-label-layer--tertiary,
+.batteries-orbit--active .orbit-label-layer--tertiary {
+  transform: rotate(3.6deg) translate3d(4px, -3px, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-ring,
+  .orbit-label-layer {
+    transition: none;
+  }
+
+  .batteries-orbit:hover .orbit-ring,
+  .batteries-orbit--active .orbit-ring,
+  .batteries-orbit:hover .orbit-label-layer,
+  .batteries-orbit--active .orbit-label-layer {
+    transform: none;
+  }
+}
+
 .hero-gradient-text {
   display: inline-block;
   background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
