@@ -59,6 +59,44 @@ describe("sync-builder-starter-manifest", () => {
     );
   });
 
+  it("preserves starter-only manifest fields not present in templates/chat", () => {
+    const { packageJson: canonical } = generateStandaloneChatManifest(repoRoot);
+    const merged = mergeStarterManifest(
+      {
+        packageManager: "pnpm@10.14.0",
+        scripts: {
+          dev: "node scripts/maybe-migrate.mjs && agent-native dev --open",
+          "db:generate": "drizzle-kit generate",
+          "db:migrate": "drizzle-kit migrate",
+        },
+        dependencies: {
+          "@agent-native/core": "0.72.1",
+          "@neondatabase/serverless": "^1.0.2",
+          "drizzle-orm": "0.45.2",
+        },
+        devDependencies: {
+          "drizzle-kit": "0.31.10",
+          dotenv: "^17.2.1",
+        },
+      },
+      canonical,
+    );
+
+    const deps = merged.dependencies as Record<string, string>;
+    const devDeps = merged.devDependencies as Record<string, string>;
+    const scripts = merged.scripts as Record<string, string>;
+
+    expect(deps["@agent-native/core"]).toBe("0.72.1");
+    expect(deps["@neondatabase/serverless"]).toBe("^1.0.2");
+    expect(deps["drizzle-orm"]).toBe("0.45.2");
+    expect(deps.postgres).toBe("^3.4.9");
+    expect(devDeps["drizzle-kit"]).toBe("0.31.10");
+    expect(devDeps.dotenv).toBe("^17.2.1");
+    expect(scripts["db:generate"]).toBe("drizzle-kit generate");
+    expect(scripts["db:migrate"]).toBe("drizzle-kit migrate");
+    expect(merged.packageManager).toBe("pnpm@10.14.0");
+  });
+
   describe("syncStarterManifestFiles", () => {
     let tempDir: string;
 
