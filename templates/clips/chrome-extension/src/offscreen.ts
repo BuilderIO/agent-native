@@ -483,12 +483,11 @@ async function acquire(message: AcquireMessage): Promise<{
     );
     if (message.includeMicrophone)
       micStream = await getMicStream(devices.audio);
-    // Camera for compositing (video only — mic is the separate micStream).
-    if (message.includeCamera) {
-      cameraStream = await navigator.mediaDevices
-        .getUserMedia({ video: cameraConstraints(devices.video), audio: false })
-        .catch(() => null);
-    }
+    // The screen+camera face comes from the on-page bubble (captured in the
+    // display pixels), NOT composited here: canvas/requestAnimationFrame does
+    // not run in a hidden offscreen document, so compositing produced an empty
+    // recording ("No chunks found"). We record the display stream directly.
+    void message.includeCamera;
   }
 
   const videoStream = displayStream ?? cameraStream;
