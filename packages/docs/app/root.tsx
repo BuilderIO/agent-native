@@ -14,8 +14,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentNativeI18nProvider,
   AgentSidebar,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
   configureTracking,
   getLocaleInitScript,
+  normalizeLocalizationPreference,
   useT,
 } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -85,6 +89,28 @@ const JSON_LD = JSON.stringify({
   ],
 });
 
+function getSiteLocaleInitScript() {
+  return `(function(){try{var supported=${JSON.stringify(
+    SUPPORTED_LOCALES,
+  )};function valid(x){return supported.indexOf(x)>=0}function canon(x){if(typeof x!=='string'||!x)return null;try{var c=Intl.getCanonicalLocales(x)[0];if(valid(c))return c;var lang=c&&c.split('-')[0].toLowerCase();for(var i=0;i<supported.length;i++){if(supported[i].split('-')[0].toLowerCase()===lang)return supported[i]}}catch(e){}return null}function storageGet(k){try{return window.localStorage.getItem(k)}catch(e){return null}}var stored=storageGet(${JSON.stringify(
+    LOCALE_STORAGE_KEY,
+  )});var pref=stored==='system'||valid(stored)?stored:'system';var locale=pref&&pref!=='system'?canon(pref):null;if(!locale){var langs=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];for(var j=0;j<langs.length&&!locale;j++){locale=canon(langs[j])}}if(!locale)locale=${JSON.stringify(
+    DEFAULT_DOCS_LOCALE,
+  )};var dir=locale==='ar-SA'?'rtl':'ltr';var root=document.documentElement;root.setAttribute('lang',locale);root.setAttribute('dir',dir);root.setAttribute('data-locale',locale);window[${JSON.stringify(
+    LOCALE_HYDRATION_GLOBAL,
+  )}]={locale:locale,preference:{locale:pref},dir:dir};}catch(e){}})();`;
+}
+
+function readClientLocalePreference() {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    return stored ? normalizeLocalizationPreference(stored).locale : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
@@ -130,13 +156,14 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   const routeLocale = docsPath
     ? (docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE)
     : undefined;
+  const sitePreference = docsPath ? undefined : readClientLocalePreference();
 
   return (
     <AgentNativeI18nProvider
       key={routeLocale ?? "site"}
       catalog={docsI18nCatalog}
       initialLocale={routeLocale}
-      initialPreference={routeLocale}
+      initialPreference={routeLocale ?? sitePreference}
       persistPreference={false}
     >
       {children}
@@ -285,16 +312,19 @@ function ScrollManager() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const docsPath = isDocsPath(location.pathname);
   const locale =
     docsLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
   const localeInitScript =
     typeof document !== "undefined"
       ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
-          ?.innerHTML ?? getLocaleInitScript())
-      : getLocaleInitScript({
-          locale,
-          preference: isDocsPath(location.pathname) ? locale : undefined,
-        });
+          ?.innerHTML ?? getSiteLocaleInitScript())
+      : docsPath
+        ? getLocaleInitScript({
+            locale,
+            preference: locale,
+          })
+        : getSiteLocaleInitScript();
 
   return (
     <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
