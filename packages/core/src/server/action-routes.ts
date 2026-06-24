@@ -327,6 +327,7 @@ export function mountActionRoutes(
                 userEmail,
                 orgId: orgId ?? null,
                 caller,
+                actionName: name,
               });
 
               // Auto-refresh the UI after a successful mutating action. GET

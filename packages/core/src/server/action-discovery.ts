@@ -580,6 +580,12 @@ export async function mergeCoreSharingActions(
       () => import("../appearance/actions/change-appearance.js"),
     ],
     ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
+    // Audit log — read surface (who changed what, when, agent vs human).
+    [
+      "list-audit-events",
+      () => import("../audit/actions/list-audit-events.js"),
+    ],
+    ["get-audit-event", () => import("../audit/actions/get-audit-event.js")],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [

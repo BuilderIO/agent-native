@@ -7,6 +7,8 @@ import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
 } from "./action-ui.js";
+import type { ActionAuditConfig } from "./audit/types.js";
+import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -75,6 +77,21 @@ export interface ActionRunContext {
    * attaching an `"abort"` listener is always safe.
    */
   signal?: AbortSignal;
+  /**
+   * Name of the action being invoked (the registry key, e.g.
+   * `delete-recording`). Set at each dispatch site so cross-cutting concerns —
+   * notably the audit log — can attribute the call. `undefined` for direct
+   * programmatic `run()` calls that bypass the dispatcher.
+   */
+  actionName?: string;
+  /**
+   * Agent conversation thread + turn that triggered this call, populated only
+   * inside the agent tool loop (`caller: "tool"`). Lets the audit log link a
+   * mutation to the specific agent run/turn that caused it. `undefined` on
+   * every human/programmatic surface.
+   */
+  threadId?: string;
+  turnId?: string;
 }
 
 export interface AgentActionStopOptions {
@@ -378,6 +395,14 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Audit-log configuration. **Default-on for mutating actions** — you only
+   * need this to tune capture: declare the mutated `target` (so the change
+   * shows up in the owner's audit trail) and/or a `summary`, opt a read-only
+   * action in via `onRead`, or opt a noisy action out via `enabled: false`.
+   * See the `audit-log` skill.
+   */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +468,9 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Audit-log configuration (default-on for mutations). See the schema
+   *  overload above and the `audit-log` skill. */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +525,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Resolved audit-log configuration. Present only when the caller passed
+   *  `audit`. The audit capture wrapper is baked into `run`; this field is for
+   *  introspection. */
+  readonly audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -617,6 +649,16 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
+  // Audit: wrap the validated run so every mutating call records an audit
+  // event (who/what/when/from-where, and for the agent which run). Default-on
+  // for mutations; read-only actions opt in via `audit.onRead`. The wrapper
+  // lazily imports the DB-touching recorder so `action.ts` keeps no static DB
+  // dependency.
+  const auditConfig = normalizeAuditConfig(options.audit);
+  const finalRun = resolveAuditAttach(auditConfig, readOnly)
+    ? wrapRunWithAudit(run, auditConfig)
+    : run;
+
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
   // to the tools bridge: it lets us emit a one-shot warning when an action
@@ -675,7 +717,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run,
+    run: finalRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -702,6 +744,43 @@ export function defineAction(options: any) {
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
       : {}),
+    ...(auditConfig ? { audit: auditConfig } : {}),
+  };
+}
+
+/**
+ * Wrap an action's (already input/output-validated) run so each call records an
+ * audit event after it resolves — on success and on error. Best-effort: the
+ * recorder swallows its own failures and the original result/throw is always
+ * preserved, so auditing can never change an action's behavior. The DB-touching
+ * recorder is imported lazily so merely defining an action pulls in no DB code.
+ */
+function wrapRunWithAudit(
+  run: (args: any, ctx?: ActionRunContext) => any,
+  auditConfig: ActionAuditConfig | undefined,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  return async function auditedRun(args: any, ctx?: ActionRunContext) {
+    let result: any;
+    let error: unknown;
+    let threw = false;
+    try {
+      result = await run(args, ctx);
+    } catch (err) {
+      error = err;
+      threw = true;
+    }
+    try {
+      const { recordActionAudit } = await import("./audit/record.js");
+      await recordActionAudit(
+        threw
+          ? { config: auditConfig, args, ctx, status: "error", error }
+          : { config: auditConfig, args, ctx, status: "success", result },
+      );
+    } catch {
+      // Recorder failed to load/run — never affect the action.
+    }
+    if (threw) throw error;
+    return result;
   };
 }
 

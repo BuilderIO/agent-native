@@ -97,6 +97,7 @@
     "./org": "./dist/org/index.js",
     "./client/org": "./dist/client/org/index.js",
     "./client/db-admin": "./dist/client/db-admin/index.js",
+    "./audit": "./dist/audit/index.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",

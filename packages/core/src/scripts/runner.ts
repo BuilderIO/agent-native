@@ -228,11 +228,14 @@ function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
  * resolves `AGENT_USER_EMAIL` / the dev session); we never inject a dev
  * identity here beyond what that wrap already established.
  */
-function cliActionCtx(): import("../action.js").ActionRunContext {
+function cliActionCtx(
+  actionName: string,
+): import("../action.js").ActionRunContext {
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId() ?? null,
     caller: "cli",
+    actionName,
   };
 }
 
@@ -268,7 +271,7 @@ async function dispatchAction(
         typeof handler.run === "function"
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed, cliActionCtx());
+        const result = await handler.run(parsed, cliActionCtx(actionName));
         if (handler.readOnly !== true) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -298,7 +301,7 @@ async function dispatchAction(
       const parsed = parseActionArgs(args, { coerceBooleans: true });
       const result = await packageAction.run(
         parsed as Record<string, string>,
-        cliActionCtx(),
+        cliActionCtx(actionName),
       );
       if (packageAction.readOnly !== true) {
         await notifyActionChange({ actionName }).catch(() => {});

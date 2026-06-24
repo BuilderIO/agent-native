@@ -23,16 +23,7 @@
     "https://clips.agent-native.com/*",
     "https://forms.agent-native.com/*",
     "http://localhost/*",
-    "http://127.0.0.1/*",
-    "<all_urls>"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["assets/content-script.js"],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
+    "http://127.0.0.1/*"
   ],
   "web_accessible_resources": [
     {

@@ -8,6 +8,11 @@ export default defineConfig({
   root,
   base: "./",
   publicDir: "public",
+  // Share recording primitives with the web app recorder (templates/clips/shared)
+  // — matches the "@shared/*" tsconfig path so imports resolve in both builds.
+  resolve: {
+    alias: { "@shared": resolve(root, "../shared") },
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

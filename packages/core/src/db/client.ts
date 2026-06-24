@@ -318,6 +318,10 @@ export function intType(): string {
   return isPostgres() ? "BIGINT" : "INTEGER";
 }
 
+// `widenIntColumnsToBigInt` lives in `./widen-columns.js` (it depends only on
+// `isPostgres`/`getDbExec` from here) so stores can import it without every
+// `vi.mock("./client.js")` test having to stub the export.
+
 // ---------------------------------------------------------------------------
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------

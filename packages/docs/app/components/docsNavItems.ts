@@ -40,6 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Security & Data Scoping", to: "/docs/security" as const },
       { label: "Sharing & Privacy", to: "/docs/sharing" as const },
       { label: "Tracking & Analytics", to: "/docs/tracking" as const },
+      { label: "Audit Log", to: "/docs/audit-log" as const },
       { label: "Observability", to: "/docs/observability" as const },
       {
         label: "Observational Memory",

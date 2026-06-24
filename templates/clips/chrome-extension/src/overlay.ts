@@ -161,12 +161,17 @@ async function initBubble(): Promise<void> {
     ring.appendChild(video);
     await video.play().catch(() => undefined);
     console.log("[clips-overlay] camera bubble live");
+    // Tell the host the feed is live so it can start the countdown — the "3"
+    // shouldn't appear until the camera is actually showing.
+    postBubble("camera-ready");
   } catch (err) {
     console.warn("[clips-overlay] camera getUserMedia failed:", err);
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
     ring.appendChild(empty);
+    // Still release the countdown — a blocked/failed camera must not hang it.
+    postBubble("camera-ready");
   }
 }
 
@@ -210,43 +215,36 @@ function initCountdown(): void {
   wrap.append(controls, hint);
   root.appendChild(wrap);
 
-  let lastShown = "";
-  // Compute the fallback end-time ONCE (if the worker's countdownEndsAtMs never
-  // arrives) — recomputing it every frame froze the number on "3".
-  let fallbackEndsAt = 0;
-  const render = (): void => {
-    let endsAt = state.countdownEndsAtMs;
-    if (endsAt <= 0) {
-      if (fallbackEndsAt === 0) {
-        const fallback =
-          Number(params.get("seconds") || String(COUNTDOWN_FALLBACK)) ||
-          COUNTDOWN_FALLBACK;
-        fallbackEndsAt = Date.now() + fallback * 1000;
-      }
-      endsAt = fallbackEndsAt;
-    }
-    const remainingMs = endsAt - Date.now();
-    if (state.phase !== "countdown" || remainingMs <= 0) {
-      if (lastShown !== "Go") {
-        number.textContent = "Go";
-        number.classList.add("countdown-go");
-        lastShown = "Go";
+  // Each number is shown via a CHAINED setTimeout — the next step is scheduled
+  // one second after the current one actually renders, not on a fixed interval.
+  // This is deliberate: when the camera is slow to connect (e.g. an iPhone
+  // Continuity Camera) it can hog the main thread and stall a tick. A setInterval
+  // would then fire all the missed ticks back-to-back ("3"… then "2 1 Go" in a
+  // burst); chaining means a stall only delays the next number, it never bursts.
+  // At "Go" we tell the worker to start the recorder; the worker's own timer is
+  // just a fallback for pages where no overlay can be injected.
+  const STEP_MS = 1000;
+  const steps = ["3", "2", "1", "Go"];
+  let doneSent = false;
+
+  const showStep = (index: number): void => {
+    const text = steps[index];
+    number.textContent = text;
+    number.classList.toggle("countdown-go", text === "Go");
+    number.style.animation = "none";
+    void number.offsetWidth;
+    number.style.animation = "";
+    if (text === "Go") {
+      if (!doneSent) {
+        doneSent = true;
+        send("CLIPS_OVERLAY_COUNTDOWN_DONE");
       }
       return;
     }
-    const text = String(Math.ceil(remainingMs / 1000));
-    if (text !== lastShown) {
-      number.textContent = text;
-      number.classList.remove("countdown-go");
-      number.style.animation = "none";
-      void number.offsetWidth;
-      number.style.animation = "";
-      lastShown = text;
-    }
+    window.setTimeout(() => showStep(index + 1), STEP_MS);
   };
-  countdownRender = render;
-  window.setInterval(render, 100);
-  render();
+
+  showStep(0); // "3" immediately, then chain "2" → "1" → "Go"
 }
 
 /* --------------------------------------------------------------- toolbar --- */
@@ -341,8 +339,6 @@ function initToolbar(): void {
 function initSaving(): void {
   const card = document.createElement("div");
   card.className = "saving-card";
-  const spinner = document.createElement("div");
-  spinner.className = "saving-spinner";
   const caption = document.createElement("div");
   caption.className = "saving-caption";
   caption.textContent = "Saving clip…";
@@ -351,7 +347,8 @@ function initSaving(): void {
   const fill = document.createElement("div");
   fill.className = "saving-bar-fill";
   bar.appendChild(fill);
-  card.append(spinner, caption, bar);
+  // One progress indicator only — the indeterminate bar (no circular spinner).
+  card.append(caption, bar);
   root.appendChild(card);
 }
 
@@ -371,7 +368,6 @@ const state: OverlayState = {
   countdownEndsAtMs: 0,
 };
 let toolbarRender: (() => void) | null = null;
-let countdownRender: (() => void) | null = null;
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return;
@@ -386,7 +382,6 @@ chrome.runtime.onMessage.addListener((message) => {
   if (typeof next.countdownEndsAtMs === "number")
     state.countdownEndsAtMs = next.countdownEndsAtMs;
   toolbarRender?.();
-  countdownRender?.();
 });
 
 if (part === "bubble") void initBubble();

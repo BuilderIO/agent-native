@@ -1,5 +1,8 @@
 :root {
-  color-scheme: light dark;
+  /* "dark" to match the dark overlay: a declared color-scheme always paints an
+     opaque iframe canvas, so we keep it dark rather than white. Shaped parts clip
+     the canvas away (see content-script styleFrame); the countdown uses it. */
+  color-scheme: dark;
 }
 
 * {
@@ -41,7 +44,6 @@ body {
   overflow: hidden;
   background: #18181b;
   border: 3px solid rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 18px rgba(9, 9, 11, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -176,21 +178,22 @@ body {
 }
 
 .toolbar-v {
-  /* Top-anchored so Stop/time/pause stay put and the pill grows DOWNWARD on
-     hover (centering shifted the buttons up and caused misclicks). */
+  /* Fill the iframe so the (opaque) iframe canvas is fully covered by the pill —
+     the iframe is clipped to this same 20px radius in styleFrame, so no canvas
+     box shows. Top-anchored content (justify-content:flex-start) keeps Stop/time/
+     pause put as the pill grows DOWNWARD on hover (centering caused misclicks).
+     Shadow lives on the iframe element so the clip doesn't cut it off. */
   position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 9px;
   border-radius: 20px;
   background: rgba(24, 24, 27, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
   -webkit-user-select: none;
   user-select: none;
@@ -322,26 +325,7 @@ body {
   border-radius: 14px;
   background: rgba(24, 24, 27, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 10px 28px rgba(9, 9, 11, 0.45);
   color: #fff;
-}
-
-.saving-card .saving-spinner {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #fff;
-  animation: saving-spin 0.8s linear infinite;
-}
-
-@keyframes saving-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .saving-caption {

@@ -196,7 +196,12 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true, params: { q: "hello" } });
     expect(actions["list-things"].run).toHaveBeenCalledWith(
       { q: "hello" },
-      { userEmail: undefined, orgId: null, caller: "http" },
+      {
+        userEmail: undefined,
+        orgId: null,
+        caller: "http",
+        actionName: "list-things",
+      },
     );
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
   });
@@ -234,6 +239,7 @@ describe("mountActionRoutes", () => {
       userEmail: "alice@example.com",
       orgId: "org-a",
       caller: "http",
+      actionName: "do-thing",
     });
     // No SSE sender on the HTTP surface.
     expect(received.send).toBeUndefined();
@@ -272,6 +278,7 @@ describe("mountActionRoutes", () => {
       userEmail: "alice@example.com",
       orgId: null,
       caller: "frontend",
+      actionName: "do-thing",
     });
   });
 

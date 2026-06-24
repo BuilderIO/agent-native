@@ -394,3 +394,6 @@ describe("withDbTimeout", () => {
     await new Promise((r) => setTimeout(r, 40));
   });
 });
+
+// Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
+// (the helper moved to `./widen-columns.js`).

@@ -2958,6 +2958,28 @@ export async function runAgentLoop(opts: {
             approvalKey,
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
+          // Audit the blocked attempt: the action did NOT run, but "the agent
+          // tried to do X and was gated" is itself worth recording. Best-effort,
+          // but AWAITED (not fire-and-forget) so the row isn't lost to a
+          // serverless freeze / request teardown when the turn pauses.
+          try {
+            const { recordActionAudit } = await import("../audit/record.js");
+            await recordActionAudit({
+              config: undefined,
+              args: toolCall.input,
+              ctx: {
+                actionName: toolCall.name,
+                caller: "tool",
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                ...(opts.threadId ? { threadId: opts.threadId } : {}),
+                ...(opts.turnId ? { turnId: opts.turnId } : {}),
+              },
+              status: "denied",
+            });
+          } catch {
+            // Best-effort — auditing must never break the approval pause.
+          }
           const result =
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
@@ -3227,6 +3249,11 @@ export async function runAgentLoop(opts: {
             caller: "tool",
             attachments: opts.attachments,
             signal,
+            // Audit attribution: the action name + the agent thread/turn that
+            // triggered this call, so a mutation can be traced to its run.
+            actionName: toolCall.name,
+            ...(opts.threadId ? { threadId: opts.threadId } : {}),
+            ...(opts.turnId ? { turnId: opts.turnId } : {}),
           }),
         );
 

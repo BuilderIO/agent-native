@@ -1,10 +1,15 @@
-// Loom-style in-page overlay host. This content script is injected into every
-// page (declared for <all_urls>) and is wrapped in an IIFE so it emits a single
-// self-contained classic script with no module imports/exports and leaks no
-// names into the shared global scope. Its only job is to mount/unmount the
-// overlay iframes; all UI and control logic lives inside the extension-origin
-// overlay pages (src/overlay.html). The background service worker is the source
-// of truth for which "parts" are visible and pushes them here.
+// Loom-style in-page overlay host. The background service worker injects this
+// into the LAUNCH TAB on demand via chrome.scripting.executeScript (covered by
+// the activeTab permission the user grants when they click the extension), NOT
+// declaratively on every page — that would need broad "<all_urls>" host access
+// and Chrome's in-depth review. So the overlay lives on the tab the recording
+// was started from; it does not follow across tabs unless CROSS_TAB_FOLLOW is
+// re-enabled in background.ts (see PERMISSIONS.md). Wrapped in an IIFE so it
+// emits a single self-contained classic script with no module imports/exports
+// and leaks no names into the shared global scope. Its only job is to
+// mount/unmount the overlay iframes; all UI and control logic lives inside the
+// extension-origin overlay pages (src/overlay.html). The worker is the source of
+// truth for which "parts" are visible and pushes them here.
 
 (function clipsOverlayHost() {
   type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
@@ -194,7 +199,7 @@
       position: "absolute",
       border: "none",
       background: "transparent",
-      colorScheme: "normal",
+      colorScheme: "dark",
       pointerEvents: "auto",
     });
     frame.setAttribute("allowtransparency", "true");
@@ -208,24 +213,39 @@
         bottom: "24px",
         width: `${size}px`,
         height: `${size}px`,
+        // Clip the IFRAME itself to a circle so the iframe's opaque canvas (which
+        // a declared color-scheme always paints, dark or white) can never show as
+        // a square box around the bubble.
+        borderRadius: "50%",
+        overflow: "hidden",
         zIndex: "3",
       });
     } else if (part === "toolbar") {
       // Left-edge vertical pill (desktop layout). Height grows on hover via the
-      // resize message below.
+      // resize message below. Clipped to the pill's radius (the pill fills the
+      // iframe) so the opaque canvas can't show as a box; shadow on the iframe so
+      // the clip doesn't cut it.
       Object.assign(frame.style, {
         left: "16px",
         top: "calc(50% - 77px)",
         width: "68px",
         height: "154px",
+        borderRadius: "20px",
+        overflow: "hidden",
+        boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
         zIndex: "2",
       });
     } else if (part === "saving") {
+      // Compact card: caption + a single indeterminate bar (no circular spinner).
+      // Clipped to the card radius (card fills the iframe) so no canvas box shows.
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
-        width: "264px",
-        height: "96px",
+        width: "240px",
+        height: "64px",
+        borderRadius: "14px",
+        overflow: "hidden",
+        boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
         zIndex: "2",
       });
     } else {
@@ -253,22 +273,124 @@
     if (part === "bubble") applyBubbleGeom();
   }
 
+  // Camera-ready gating + connecting spinner: while the camera connects we show a
+  // simple centered spinner and keep the bubble hidden, then reveal the bubble and
+  // start the countdown once the feed is live — so the "3" never hangs and there's
+  // no half-loaded, un-draggable bubble during the wait. The bubble posts
+  // "camera-ready" when its video plays (or fails); a fallback timer proceeds
+  // anyway if the camera never connects.
+  const CONNECTING_ID = `${CONTAINER_ID}-connecting`;
+  let cameraReady = false;
+  let countdownDeferred = false;
+  let countdownFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function showConnecting(container: HTMLDivElement): void {
+    if (document.getElementById(CONNECTING_ID)) return;
+    const wrap = document.createElement("div");
+    wrap.id = CONNECTING_ID;
+    Object.assign(wrap.style, {
+      position: "absolute",
+      inset: "0",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      pointerEvents: "none",
+      zIndex: "4",
+    });
+    const chip = document.createElement("div");
+    Object.assign(chip.style, {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "84px",
+      height: "84px",
+      borderRadius: "20px",
+      background: "rgba(24, 24, 27, 0.92)",
+      boxShadow: "0 10px 28px rgba(9, 9, 11, 0.45)",
+    });
+    const spinner = document.createElement("div");
+    Object.assign(spinner.style, {
+      width: "40px",
+      height: "40px",
+      borderRadius: "50%",
+      border: "4px solid rgba(255, 255, 255, 0.18)",
+      borderTopColor: "rgba(255, 255, 255, 0.92)",
+    });
+    chip.appendChild(spinner);
+    wrap.appendChild(chip);
+    container.appendChild(wrap);
+    try {
+      spinner.animate(
+        [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+        { duration: 800, iterations: Infinity },
+      );
+    } catch {
+      /* Web Animations unavailable — a static ring is fine */
+    }
+  }
+
+  function hideConnecting(): void {
+    document.getElementById(CONNECTING_ID)?.remove();
+  }
+
+  function setBubbleHidden(hidden: boolean): void {
+    const frame = document.getElementById(partFrameId("bubble"));
+    if (frame) (frame as HTMLElement).style.visibility = hidden ? "hidden" : "";
+  }
+
+  function mountDeferredCountdown(): void {
+    countdownDeferred = false;
+    clearTimeout(countdownFallbackTimer);
+    hideConnecting();
+    setBubbleHidden(false);
+    const container = document.getElementById(
+      CONTAINER_ID,
+    ) as HTMLDivElement | null;
+    if (container && !document.getElementById(partFrameId("countdown"))) {
+      mountPart(container, "countdown");
+    }
+  }
+
   function reconcile(parts: OverlayPart[]): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
+    // Leaving the countdown phase (recording / saving / idle): cancel any pending
+    // deferred countdown + spinner so a late fallback timer can't pop the "3-2-1"
+    // back up over a later overlay (this was the "countdown over the saving card"
+    // bug).
+    if (!wanted.has("countdown")) {
+      countdownDeferred = false;
+      clearTimeout(countdownFallbackTimer);
+      hideConnecting();
+    }
     if (wanted.size === 0) {
       document.getElementById(CONTAINER_ID)?.remove();
+      cameraReady = false;
       return;
     }
     const container = ensureContainer();
+    const gateCountdown =
+      wanted.has("countdown") && wanted.has("bubble") && !cameraReady;
     for (const part of ALL_PARTS) {
       const existing = document.getElementById(partFrameId(part));
       if (wanted.has(part)) {
+        // Hold the countdown (showing the spinner) until the camera feed is live.
+        if (part === "countdown" && gateCountdown) {
+          if (!existing && !countdownDeferred) {
+            countdownDeferred = true;
+            clearTimeout(countdownFallbackTimer);
+            countdownFallbackTimer = setTimeout(mountDeferredCountdown, 12000);
+          }
+          continue;
+        }
         if (!existing) mountPart(container, part);
+        // Keep the bubble hidden behind the spinner until the feed is live.
+        if (part === "bubble" && gateCountdown) setBubbleHidden(true);
       } else if (existing) {
         existing.remove();
       }
     }
+    if (gateCountdown) showConnecting(container);
   }
 
   // Guard against rare double-injection (SPA soft-reloads re-running the script).
@@ -309,6 +431,11 @@
       if (frame && typeof data.height === "number") {
         frame.style.height = `${Math.round(data.height)}px`;
       }
+      return;
+    }
+    if (data.kind === "camera-ready") {
+      cameraReady = true;
+      if (countdownDeferred) mountDeferredCountdown();
       return;
     }
     if (data.kind === "bubble-drag-start") {

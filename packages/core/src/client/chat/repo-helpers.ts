@@ -56,6 +56,44 @@ export function getRepoMessage(entry: RepoEntry): RepoMessage | null {
   return (entry?.message ?? entry) as RepoMessage | null;
 }
 
+/**
+ * Collapse duplicate message ids before a repository is handed to
+ * `threadRuntime.import()`. assistant-ui's `MessageRepository` throws
+ * "MessageRepository(performOp/link): A message with the same id already exists
+ * in the parent tree" when the imported messages contain the same id more than
+ * once (Sentry AGENT-NATIVE-BROWSER-2Q). Duplicate ids are never valid thread
+ * data — they come from optimistic+echo races, streaming reconnect replays, or
+ * multi-tab merges — so keep only the LAST occurrence of each id (the most
+ * recent, most complete copy). parentId references stay valid because the
+ * surviving entry keeps the same id.
+ *
+ * Returns the input unchanged (same reference) when there are no duplicates, so
+ * the overwhelmingly common no-dupe case is a cheap no-op with zero behavioural
+ * change for normal threads.
+ */
+export function dedupeRepoMessagesById<T extends NormalizedRepo>(
+  repo: T | null | undefined,
+): T | null | undefined {
+  if (!repo || !Array.isArray(repo.messages)) return repo;
+  const entries = repo.messages;
+  const lastIndexById = new Map<string, number>();
+  let hasDuplicate = false;
+  entries.forEach((entry, index) => {
+    const id = getRepoMessage(entry)?.id;
+    if (typeof id !== "string" || !id) return;
+    if (lastIndexById.has(id)) hasDuplicate = true;
+    lastIndexById.set(id, index);
+  });
+  if (!hasDuplicate) return repo;
+  const deduped = entries.filter((entry, index) => {
+    const id = getRepoMessage(entry)?.id;
+    // Keep id-less entries untouched; for duplicated ids keep only the last.
+    if (typeof id !== "string" || !id) return true;
+    return lastIndexById.get(id) === index;
+  });
+  return { ...repo, messages: deduped };
+}
+
 export function isAssistantMessageTerminal(
   message: RepoMessage | null,
 ): boolean {
