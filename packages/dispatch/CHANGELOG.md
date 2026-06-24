@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.12.0
+
+### Minor Changes
+
+- 16356c2: Add a framework helper for opening the agent settings tab and standardize app settings access in Dispatch.
+
+### Patch Changes
+
+- 16356c2: Add framework localization support with shared i18n providers, locale preference actions, catalog loading helpers, guards, and docs.
+
 ## 0.11.9
 
 ### Patch Changes
