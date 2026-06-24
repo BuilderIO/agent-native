@@ -1,5 +1,17 @@
 # @agent-native/skills
 
+## 0.2.69
+
+### Patch Changes
+
+- d684bbf: Add scaffold skill refresh commands for generated Agent Native apps and workspaces, plus public `@agent-native/skills` status/update forwarding.
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+- Updated dependencies [d684bbf]
+  - @agent-native/core@0.73.0
+
 ## 0.2.68
 
 ### Patch Changes
