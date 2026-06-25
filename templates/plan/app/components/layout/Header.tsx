@@ -1,10 +1,7 @@
 import { useLocation } from "react-router";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { APP_TITLE } from "@/lib/app-config";
 
 const pageTitleKeys: Record<string, string> = {

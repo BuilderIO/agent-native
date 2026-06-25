@@ -1,9 +1,6 @@
 import { useLocation } from "react-router";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "header.forms",

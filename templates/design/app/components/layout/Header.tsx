@@ -1,8 +1,5 @@
 import { useLocation } from "react-router";
-import {
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
