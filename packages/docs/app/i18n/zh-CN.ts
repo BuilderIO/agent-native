@@ -102,7 +102,6 @@ const zhCN = {
     templates: {
       title: "Fork 并定制一个功能完整的 app",
       eyebrow: "100% 免费且开源",
-      body: "当一个 action 需要界面时，从可定制的 vetted app 开始。Chat 是最小的 app scaffold；领域模板会加入产品 workflows、示例数据和 agent-ready actions。",
       cta: "查看所有模板",
     },
     skills: {
