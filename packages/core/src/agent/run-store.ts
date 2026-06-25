@@ -415,6 +415,27 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
 }
 
 /**
+ * Resolve the authenticated owner email for a run by joining it to its chat
+ * thread. The durable background worker's self-dispatch is cookieless
+ * (HMAC-only — see `AGENT_CHAT_PROCESS_RUN_PATH`), so it has no session for the
+ * normal owner resolution and would otherwise be treated as unauthenticated.
+ * The thread's `owner_email` was written by the authenticated foreground when it
+ * created the thread, so it is a trusted, non-forgeable owner source: only the
+ * HMAC-signed `runId` selects the row, and the caller cannot influence which
+ * owner that row maps to. Returns null when the run (or its thread) is missing.
+ */
+export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as { owner_email?: string | null } | undefined;
+  return row?.owner_email ?? null;
+}
+
+/**
  * Atomically acquire a run lease for a thread. Succeeds (returns true) only
  * when no other run for the same thread is currently status='running' with a
  * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
