@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import {
   featuredTemplates,
   TemplateCard,
@@ -32,10 +33,11 @@ export default function TemplatesPage() {
         <p className="mb-4 text-sm text-[var(--fg-secondary)]">
           {t("templatesPage.community")}
         </p>
-        <a
-          href="/docs"
+        <Link
+          data-an-prefetch="render"
+          to="/docs/getting-started"
           onClick={() =>
-            trackEvent("create your own", { location: "templates_index" })
+            trackEvent("start from scratch", { location: "templates_index" })
           }
           className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
@@ -53,7 +55,7 @@ export default function TemplatesPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           {t("templatesPage.createYourOwn")}
-        </a>
+        </Link>
       </div>
     </main>
   );

@@ -62,11 +62,11 @@ const frFR = {
       titleLine1: "Applications agentic",
       titleAccent: "qui vous appartiennent",
       body: "Commencez avec une Chat-first app et l'app-agent loop. Ajoutez actions, écrans, jobs et workflows à mesure que votre agent grandit.",
-      primaryCta: "Commencer avec Chat",
+      primaryCta: "Commencer avec un modèle",
       secondaryCta: "Voir la documentation",
     },
     code: {
-      quickStartComment: "Commencez avec une Chat-first app",
+      quickStartComment: "Commencez avec un modèle d’app complet",
       skillInstallComment:
         "Ajoutez la planification Agent-Native à un coding agent que vous utilisez déjà",
       frameworkComment:
@@ -294,9 +294,8 @@ const frFR = {
     title: "Applications open source natives pour agents que vous possédez",
     eyebrow: "100% gratuit et open source",
     body: "Créez un modèle, exécutez-le localement et laissez l'agent le faire évoluer. Vous possédez le code et pouvez tout personnaliser.",
-    community:
-      "Chaque modèle est forkable et open source. La communauté peut construire et partager la sienne.",
-    createYourOwn: "Créez le vôtre",
+    community: "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
+    createYourOwn: "Commencer de zéro",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",

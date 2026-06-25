@@ -569,10 +569,10 @@ function BidirectionalTabs() {
 export default function Home() {
   const t = useT();
   const chatCommand =
-    "npx @agent-native/core@latest create my-chat-app --template chat";
+    "npx @agent-native/core@latest create my-clips-app --template clips";
   const quickStartCode = `# ${t("home.code.quickStartComment")}
 ${chatCommand}
-cd my-chat-app
+cd my-clips-app
 pnpm install
 pnpm action hello --name Builder
 pnpm agent "Call hello for Builder"`;
@@ -636,11 +636,11 @@ export default defineAction({
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-                to="/docs/getting-started"
+                to="/templates"
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_chat_app",
+                    label: "start_with_template",
                     location: "hero",
                   })
                 }

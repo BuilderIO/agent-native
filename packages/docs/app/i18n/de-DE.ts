@@ -62,11 +62,11 @@ const deDE = {
       titleLine1: "Agentenanwendungen",
       titleAccent: "in deinem Besitz",
       body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
-      primaryCta: "Mit Chat starten",
+      primaryCta: "Mit einem Template starten",
       secondaryCta: "Docs ansehen",
     },
     code: {
-      quickStartComment: "Starte mit einer Chat-first app",
+      quickStartComment: "Starte mit einem vollständigen App-Template",
       skillInstallComment:
         "Füge Agent-Native-Planung zu einem coding agent hinzu, den du bereits nutzt",
       frameworkComment:
@@ -294,9 +294,8 @@ const deDE = {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
     eyebrow: "100 % kostenlos und Open Source",
     body: "Forken Sie eine Vorlage, führen Sie sie lokal aus und lassen Sie sie vom Agenten weiterentwickeln. Sie besitzen den Code und können alles anpassen.",
-    community:
-      "Jede Vorlage ist forkbar und Open Source. Die Community kann ihre eigenen erstellen und teilen.",
-    createYourOwn: "Erstellen Sie Ihr eigenes",
+    community: "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
+    createYourOwn: "Von Grund auf starten",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",

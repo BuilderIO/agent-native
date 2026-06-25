@@ -62,11 +62,11 @@ const esES = {
       titleLine1: "Aplicaciones agentic",
       titleAccent: "que son tuyas",
       body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
-      primaryCta: "Empezar con Chat",
+      primaryCta: "Empezar con una plantilla",
       secondaryCta: "Ver la documentación",
     },
     code: {
-      quickStartComment: "Empieza con una Chat-first app",
+      quickStartComment: "Empieza con una plantilla de app completa",
       skillInstallComment:
         "Añade planificación Agent-Native a un coding agent que ya uses",
       frameworkComment:
@@ -294,9 +294,8 @@ const esES = {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
     eyebrow: "100% gratis y de código abierto",
     body: "Bifurque una plantilla, ejecútela localmente y deje que el agente la evolucione. Eres dueño del código y puedes personalizarlo todo.",
-    community:
-      "Cada plantilla es bifurcable y de código abierto. La comunidad puede construir y compartir la suya propia.",
-    createYourOwn: "Crea el tuyo",
+    community: "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
+    createYourOwn: "Empezar desde cero",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",

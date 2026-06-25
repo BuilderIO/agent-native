@@ -62,11 +62,11 @@ const koKR = {
       titleLine1: "에이전트 애플리케이션",
       titleAccent: "직접 소유하는",
       body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
-      primaryCta: "Chat 으로 시작",
+      primaryCta: "템플릿으로 시작",
       secondaryCta: "문서 보기",
     },
     code: {
-      quickStartComment: "Chat-first app 으로 시작",
+      quickStartComment: "완성된 앱 템플릿으로 시작",
       skillInstallComment:
         "이미 쓰는 coding agent 에 Agent-Native 계획 기능 추가",
       frameworkComment:
@@ -294,9 +294,8 @@ const koKR = {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "100% 무료 및 오픈 소스",
     body: "템플릿을 포크하여 로컬에서 실행하고 에이전트가 이를 발전시키도록 합니다. 귀하는 코드를 소유하고 모든 것을 맞춤 설정할 수 있습니다.",
-    community:
-      "모든 템플릿은 포크 가능하며 오픈 소스입니다. 커뮤니티는 자신만의 커뮤니티를 구축하고 공유할 수 있습니다.",
-    createYourOwn: "나만의 만들기",
+    community: "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
+    createYourOwn: "처음부터 시작",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",

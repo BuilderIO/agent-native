@@ -62,11 +62,11 @@ const jaJP = {
       titleLine1: "エージェントアプリケーション",
       titleAccent: "あなたが所有する",
       body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
-      primaryCta: "Chat から始める",
+      primaryCta: "テンプレートから始める",
       secondaryCta: "ドキュメントを見る",
     },
     code: {
-      quickStartComment: "Chat-first app から始める",
+      quickStartComment: "完成済みアプリテンプレートから始める",
       skillInstallComment:
         "すでに使っている coding agent に Agent-Native の計画機能を追加する",
       frameworkComment:
@@ -294,9 +294,8 @@ const jaJP = {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
     eyebrow: "100%無料かつオープンソース",
     body: "テンプレートをフォークしてローカルで実行し、エージェントに進化させます。コードはあなたが所有しており、すべてをカスタマイズできます。",
-    community:
-      "すべてのテンプレートはフォーク可能であり、オープンソースです。コミュニティは独自のものを構築して共有できます。",
-    createYourOwn: "自分で作成する",
+    community: "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
+    createYourOwn: "ゼロから始める",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",
