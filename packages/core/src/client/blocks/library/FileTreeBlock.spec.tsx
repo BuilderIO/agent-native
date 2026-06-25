@@ -96,9 +96,32 @@ describe("FileTreeBlock", () => {
     expect(container.innerHTML).not.toContain("text-amber");
   });
 
+  it("does not show file disclosure for note-only files", () => {
+    renderFileTree([
+      { path: "AGENTS.md", note: "Always-on agent instructions." },
+    ]);
+
+    const fileButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => (button.textContent ?? "").includes("AGENTS.md"),
+    );
+
+    expect(fileButton).toBeTruthy();
+    expect(fileButton?.disabled).toBe(true);
+    expect(fileButton?.hasAttribute("aria-expanded")).toBe(false);
+    expect(
+      fileButton?.querySelector('[class*="tabler-icon-chevron-right"]'),
+    ).toBeNull();
+    expect(fileButton?.textContent).toContain("Always-on agent instructions.");
+  });
+
   it("flags data-files-expanded only while focused with an open file", () => {
     renderFileTree([
-      { path: "src/index.ts", change: "modified", note: "Entry point change." },
+      {
+        path: "src/index.ts",
+        change: "modified",
+        note: "Entry point change.",
+        snippet: "export const value = 1;",
+      },
     ]);
 
     const section = container.querySelector("section.plan-block");

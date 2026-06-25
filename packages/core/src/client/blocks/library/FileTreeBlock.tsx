@@ -321,8 +321,9 @@ export function FileTreeRead({
     Record<string, boolean>
   >({});
   const [showAllRows, setShowAllRows] = useState(false);
-  // Files with a note/snippet collapse their detail by default (progressive
+  // Files with snippets collapse their detail by default (progressive
   // disclosure) — keyed by the flat entry index so duplicate names never clash.
+  // A note on its own stays inline; expanding it would only move the same text.
   const [openFiles, setOpenFiles] = useState<Record<number, boolean>>({});
 
   const toggleFolder = (path: string) =>
@@ -442,7 +443,9 @@ export function FileTreeRead({
 
     const { entry } = node;
     const change = entry.change;
-    const hasDetail = Boolean(entry.note?.trim() || entry.snippet?.trim());
+    const note = entry.note?.trim();
+    const snippet = entry.snippet?.trim();
+    const hasDetail = Boolean(snippet);
     const isOpen = openFiles[node.index] ?? false;
 
     return (
@@ -460,8 +463,8 @@ export function FileTreeRead({
             hasDetail ? "hover:bg-accent/40" : "cursor-default",
           )}
         >
-          {/* Chevron slot — present only for files with expandable detail so
-                everything stays aligned with the folder rows above. */}
+          {/* Chevron slot — present only for files with expandable snippets so
+              note-only files read as plain files instead of pseudo-folders. */}
           {hasDetail ? (
             <IconChevronRight
               className={cn(
@@ -498,9 +501,9 @@ export function FileTreeRead({
               {CHANGE_GLYPH[change]}
             </span>
           )}
-          {entry.note?.trim() && !isOpen && (
+          {note && !isOpen && (
             <span className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted">
-              {entry.note}
+              {note}
             </span>
           )}
         </button>
@@ -511,16 +514,12 @@ export function FileTreeRead({
             style={{ paddingLeft: indent + 8 + 20 }}
             className="pb-2 pr-2 pt-0.5"
           >
-            {entry.note?.trim() && (
-              <p className="text-xs leading-relaxed text-plan-muted">
-                {entry.note}
-              </p>
+            {note && (
+              <p className="text-xs leading-relaxed text-plan-muted">{note}</p>
             )}
-            {entry.snippet?.trim() && (
+            {snippet && (
               <div className="mt-2 an-file-tree-snippet">
-                {ctx.renderMarkdown?.(
-                  fence(entry.snippet, fenceLanguage(entry)),
-                )}
+                {ctx.renderMarkdown?.(fence(snippet, fenceLanguage(entry)))}
               </div>
             )}
           </div>
