@@ -87,7 +87,7 @@ Um eine Aktion über ein öffentliches Agentenprotokoll verfügbar zu machen, mu
 {
   "filename": "actions/search-docs.ts",
   "language": "ts",
-  "code": "export default defineAction({\n  description: \"Suchen published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Suchen published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
   "annotations": [
     { "lines": "4", "label": "Explizites Opt-in", "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are." },
     { "lines": "5-7", "label": "Beschreiben Sie sich selbst als Sicherheit", "note": "Markieren Sie es als schreibgeschützt, geben Sie an, ob eine Authentifizierung erforderlich ist, und kennzeichnen Sie, ob es folgenreich ist. Öffentliche MCP schließen Folgehandlungen gemäß /write aus, es sei denn, die Richtlinien erlauben dies ausdrücklich." }

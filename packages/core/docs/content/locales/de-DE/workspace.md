@@ -221,7 +221,7 @@ Benutzerdefinierte Agenten verwenden YAML-Frontmatter und Markdown-Anweisungen:
 {
   "filename": "agents/design.md",
   "language": "markdown",
-  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Rolle\n\nYou sind ein fokussierter Designagent.\n\n## Verantwortlichkeiten\n\n- Layouts und Interaktionsabläufe überprüfen\n- Stärkere visuelle Ausrichtung vorschlagen\n- Prägnant und eigensinnig sein",
+  "code": "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Rolle\n\nYou are a focused design agent.\n\n## Verantwortlichkeiten\n\n- Layouts und Interaktionsabläufe überprüfen\n- Stärkere visuelle Ausrichtung vorschlagen\n- Prägnant und eigensinnig sein",
   "annotations": [
     { "lines": "2", "label": "@mention handle", "note": "`name` ist das, was im `@`-Dropdown-Menü angezeigt wird und an das der Hauptagent delegiert." },
     { "lines": "3-4", "label": "Wann delegieren?", "note": "`description` ist das, was der Orchestrator liest, um zu entscheiden, dass dieses Profil zu einer Aufgabe passt." },
