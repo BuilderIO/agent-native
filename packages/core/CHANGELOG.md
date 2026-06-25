@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.77.4
+
+### Patch Changes
+
+- 71db1e0: Improve localization coverage by localizing framework error screens and docs UI surfaces, and add a baseline-aware i18n guard that fails on new raw visible UI strings.
+- 71db1e0: Localize shared feedback and docs block chrome while tightening the i18n raw-literal guard.
+- 71db1e0: Translate remaining Getting Started embedded docs copy and guard localized docs against newly copied English block strings.
+
 ## 0.77.3
 
 ### Patch Changes
