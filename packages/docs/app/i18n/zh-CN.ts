@@ -1393,6 +1393,7 @@ const zhCN = {
     cliAdapters: "CLI 适配器",
     processors: "循环内处理器",
     durableResume: "持久恢复",
+    durableBackgroundRuns: "持久后台运行",
     blueprintInstaller: "Blueprint 安装器",
     chat: "Chat",
     calendar: "Calendar",

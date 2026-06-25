@@ -1415,6 +1415,7 @@ const frFR = {
     cliAdapters: "Adaptateurs CLI",
     processors: "Processeurs in-loop",
     durableResume: "Reprise durable",
+    durableBackgroundRuns: "Exécutions en arrière-plan durables",
     blueprintInstaller: "Installateur Blueprint",
     chat: "Chat",
     calendar: "Calendar",

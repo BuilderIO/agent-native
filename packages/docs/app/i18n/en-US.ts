@@ -1408,6 +1408,7 @@ const enUS = {
     cliAdapters: "CLI Adapters",
     processors: "In-Loop Processors",
     durableResume: "Durable Resume",
+    durableBackgroundRuns: "Durable Background Runs",
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     calendar: "Calendar",
