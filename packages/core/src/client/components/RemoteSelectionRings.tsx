@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useRef, useLayoutEffect, memo } from "react";
+
 import type { OtherPresence } from "../../collab/presence.js";
 
 export interface RemoteSelectionRingsProps {

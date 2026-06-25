@@ -1,9 +1,10 @@
+import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
+import { IconX } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconX } from "@tabler/icons-react";
-import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
+
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { IconLoader2 } from "@tabler/icons-react";
 
 interface ImageGenPanelProps {
   open: boolean;

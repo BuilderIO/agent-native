@@ -1,3 +1,5 @@
+import type { LocaleCode } from "@agent-native/core/client";
+
 /**
  * AvailabilityEditor — weekly schedule grid with per-day toggles and time
  * pickers. Matches the calendar template's visual baseline.
@@ -11,8 +13,8 @@
  */
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+
 import { schedulingMessage, useSchedulingT } from "../../i18n.js";
-import type { LocaleCode } from "@agent-native/core/client";
 
 export type DayKey =
   | "monday"

@@ -9,15 +9,16 @@
  */
 
 import { createRequire } from "node:module";
-import type { AgentEngine, EngineCapabilities } from "./types.js";
-import { getSetting } from "../../settings/store.js";
-import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
+
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
   resolveBuilderCredentials,
   resolveSecret,
 } from "../../server/credential-provider.js";
+import { getSetting } from "../../settings/store.js";
+import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
+import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
 

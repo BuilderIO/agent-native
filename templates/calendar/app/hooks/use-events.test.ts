@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { CalendarEvent } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,

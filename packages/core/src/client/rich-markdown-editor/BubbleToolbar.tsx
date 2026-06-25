@@ -1,6 +1,7 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useState, type CSSProperties } from "react";
+
 import { cn } from "../utils.js";
 
 /** A bubble-toolbar button or a divider. */

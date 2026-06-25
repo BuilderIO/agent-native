@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import {
   getH3App,
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
-import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),

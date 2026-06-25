@@ -1,10 +1,11 @@
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
   useT,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
+
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 

@@ -20,6 +20,13 @@ const messages = {
       "Ouvrez à nouveau l’extension Clips pour commencer l’enregistrement.",
     gotIt: "Compris",
   },
+  recorder: {
+    cameraBlurTitle: "Flouter l'arrière-plan",
+    cameraBlurDescription: "Restez net et floutez ce qui est derrière vous",
+    cameraBlurToggle: "Flouter l'arrière-plan de la caméra",
+    cameraBlurIntensityLabel: "Intensité",
+    cameraBlurIntensityAria: "Intensité du flou d'arrière-plan",
+  },
   navigation: {
     brand: "Clips",
     library: "Bibliothèque",

@@ -18,6 +18,7 @@
  * libSQL/Turso, and D1 without per-dialect blob/bytea handling.
  */
 import { randomBytes } from "node:crypto";
+
 import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
 
 /** Maximum stored image size (~5 MB of raw PNG bytes). */

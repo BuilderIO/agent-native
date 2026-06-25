@@ -1,3 +1,18 @@
+import { emit } from "@agent-native/core/event-bus";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  listOAuthAccountsByOwner,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
+import { readBody, getSession } from "@agent-native/core/server";
+import { getAppProductionUrl } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { mailLabelMatches } from "@shared/gmail-labels.js";
+import { markdownPreviewSnippet } from "@shared/markdown.js";
+import { emailMessageMatchesSearch } from "@shared/search.js";
+import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import {
   createError,
   defineEventHandler,
@@ -9,16 +24,23 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
-import { markdownPreviewSnippet } from "@shared/markdown.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { readBody, getSession } from "@agent-native/core/server";
+
+import { normalizeSignature } from "../../shared/signature.js";
 import {
-  getOAuthTokens,
-  saveOAuthTokens,
-  listOAuthAccountsByOwner,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
+  incrementSendFrequency,
+  getContactFrequencyMap,
+} from "../lib/contact-frequency.js";
+import {
+  collectLinks,
+  newClickToken,
+  newPixelToken,
+  persistTracking,
+  type TrackingContext,
+} from "../lib/email-tracking.js";
+import {
+  buildGmailEmailSearchQuery,
+  filterInboxScopedThreadMessages,
+} from "../lib/gmail-query.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -42,24 +64,7 @@ import {
   getAccountDisplayName,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
-import {
-  buildGmailEmailSearchQuery,
-  filterInboxScopedThreadMessages,
-} from "../lib/gmail-query.js";
-import { mailLabelMatches } from "@shared/gmail-labels.js";
-import {
-  incrementSendFrequency,
-  getContactFrequencyMap,
-} from "../lib/contact-frequency.js";
-import { emit } from "@agent-native/core/event-bus";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
-import {
-  collectLinks,
-  newClickToken,
-  newPixelToken,
-  persistTracking,
-  type TrackingContext,
-} from "../lib/email-tracking.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
@@ -67,10 +72,6 @@ import {
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
-import { normalizeSignature } from "../../shared/signature.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
-import { getAppProductionUrl } from "@agent-native/core/server";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 // State-change operations (archive/unarchive/star/trash/untrash/markRead) have
 // been migrated to the action surface; their handlers have been removed. The
 // shared lib functions in ../lib/email-state.js remain the single source of

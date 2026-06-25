@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
 import { buildSlackOAuthInstallUrl } from "../../../../lib/slack-oauth.js";
 
 function oauthRedirectResponse(url: string) {

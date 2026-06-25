@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { appBasePath, useActionMutation } from "@agent-native/core/client";
+import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

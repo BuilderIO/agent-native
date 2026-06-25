@@ -1,6 +1,16 @@
+import { timingSafeEqual } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getHeader, readRawBody as h3ReadRawBody } from "h3";
-import { timingSafeEqual } from "node:crypto";
+
+import { getDbExec } from "../../db/client.js";
+import type { EnvKeyConfig } from "../../server/create-server.js";
+import {
+  sendEmail,
+  isEmailConfigured,
+  getEmailProvider,
+} from "../../server/email.js";
+import { getIntegrationConfig } from "../config-store.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -8,14 +18,6 @@ import type {
   IntegrationStatus,
   OutboundTarget,
 } from "../types.js";
-import type { EnvKeyConfig } from "../../server/create-server.js";
-import { getIntegrationConfig } from "../config-store.js";
-import { getDbExec } from "../../db/client.js";
-import {
-  sendEmail,
-  isEmailConfigured,
-  getEmailProvider,
-} from "../../server/email.js";
 
 /** Max body length before truncation */
 const EMAIL_MAX_BODY_LENGTH = 15000;

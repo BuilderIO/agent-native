@@ -21,32 +21,7 @@
  *   <AgentChatSurface mode="page" className="h-screen" />
  */
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  lazy,
-  Suspense,
-  startTransition,
-} from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-  normalizeTooltipText,
-} from "./components/ui/tooltip.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuTrigger,
-} from "./components/ui/dropdown-menu.js";
 import {
   IconMessageCircle,
   IconMessageDots,
@@ -63,9 +38,35 @@ import {
   IconArrowsMinimize,
   IconExternalLink,
 } from "@tabler/icons-react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  lazy,
+  Suspense,
+  startTransition,
+} from "react";
+
+import type { AgentRun } from "../progress/types.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+  normalizeTooltipText,
+} from "./components/ui/tooltip.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
-import type { AgentRun } from "../progress/types.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
@@ -75,38 +76,39 @@ const MultiTabAssistantChatLazy = lazy(() =>
     default: m.MultiTabAssistantChat,
   })),
 );
-import type {
-  MultiTabAssistantChatHeaderProps,
-  MultiTabAssistantChatProps,
-} from "./MultiTabAssistantChat.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
-import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
-import { useDevMode } from "./use-dev-mode.js";
-import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
-import { cn } from "./utils.js";
-import { agentNativePath } from "./api-path.js";
-import { trackEvent } from "./analytics.js";
-import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import {
-  getFramePostMessageTargetOrigin,
-  isTrustedFrameMessage,
-} from "./frame.js";
-import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
+
 import {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
-  SIDEBAR_OPEN_KEY,
+  setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
-import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import { trackEvent } from "./analytics.js";
+import { agentNativePath } from "./api-path.js";
+import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
+import type { AssistantChatProps } from "./AssistantChat.js";
+import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import {
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
 import { useT } from "./i18n.js";
+import type {
+  MultiTabAssistantChatHeaderProps,
+  MultiTabAssistantChatProps,
+} from "./MultiTabAssistantChat.js";
+import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { useScreenRefreshKey } from "./use-db-sync.js";
+import { useDevMode } from "./use-dev-mode.js";
+import { cn } from "./utils.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -2356,8 +2358,9 @@ export function AgentSidebar({
   threadUrlSync,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
-  const [open, setOpen] = useState(() =>
-    getInitialAgentSidebarOpen(defaultOpen),
+  const [open, setOpen] = useState(
+    () =>
+      openOnChatRunning || getInitialAgentSidebarOpen(defaultOpen, storageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -2403,24 +2406,26 @@ export function AgentSidebar({
     (next: boolean | ((prev: boolean) => boolean)) => {
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
-        try {
-          localStorage.setItem(SIDEBAR_OPEN_KEY, String(value));
-        } catch {}
+        setAgentSidebarOpenPreference(value, storageKey);
         return value;
       });
     },
-    [],
+    [storageKey],
   );
 
   const applyUrlOpenOverride = useCallback(() => {
-    const override = consumeAgentSidebarUrlOpenOverride();
+    const override = consumeAgentSidebarUrlOpenOverride(storageKey);
     if (override !== null) setOpenPersisted(override);
-  }, [setOpenPersisted]);
+  }, [setOpenPersisted, storageKey]);
 
   useEffect(() => {
     applyUrlOpenOverride();
     return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
   }, [applyUrlOpenOverride]);
+
+  useEffect(() => {
+    if (openOnChatRunning) setOpen(true);
+  }, [openOnChatRunning]);
 
   const toggleFullscreen = useCallback(() => {
     setFullscreen((prev) => {
@@ -2496,7 +2501,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning) setOpenPersisted(true);
+        if (openOnChatRunning) setOpen(true);
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);

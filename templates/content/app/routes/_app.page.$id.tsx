@@ -1,4 +1,5 @@
 import { useParams } from "react-router";
+
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 
 export function meta() {

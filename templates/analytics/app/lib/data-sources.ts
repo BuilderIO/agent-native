@@ -1,4 +1,3 @@
-import type { ComponentType } from "react";
 import {
   IconChartBar,
   IconDatabase,
@@ -20,6 +19,7 @@ import {
   IconCloud,
   IconGauge,
 } from "@tabler/icons-react";
+import type { ComponentType } from "react";
 
 export type DataSourceCategory =
   | "analytics"

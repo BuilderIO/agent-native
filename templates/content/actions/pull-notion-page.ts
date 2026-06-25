@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { pullDocumentFromNotion } from "../server/lib/notion-sync.js";
 import { z } from "zod";
+
+import { pullDocumentFromNotion } from "../server/lib/notion-sync.js";
 
 export default defineAction({
   description: "Pull content from a linked Notion page into a local document.",

@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
-import { IconSend } from "@tabler/icons-react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import { IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +13,6 @@ import {
   type NotificationItem,
   type NotificationKind,
 } from "@/components/workspace/notifications-list";
-import { PageHeader } from "@/components/library/page-header";
 
 export function meta() {
   return [{ title: "Notifications · Clips" }];
@@ -38,7 +39,9 @@ export default function NotificationsRoute() {
 
   const items: NotificationItem[] = useMemo(() => {
     if (aggregated?.items?.length) {
-      return aggregated.items.filter((it) => inLast30Days(it.createdAt));
+      return (aggregated.items as NotificationItem[]).filter((it) =>
+        inLast30Days(it.createdAt),
+      );
     }
     return [];
   }, [aggregated]);

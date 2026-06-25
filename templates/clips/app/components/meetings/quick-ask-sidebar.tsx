@@ -17,14 +17,15 @@
  *     listeners. Esc and Cmd+J both close the sheet.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { sendToAgentChat } from "@agent-native/core/client";
 import {
   IconCommand,
   IconNotes,
   IconSend,
   IconWand,
 } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {

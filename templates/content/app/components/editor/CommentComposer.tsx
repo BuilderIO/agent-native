@@ -5,6 +5,7 @@ import {
   forwardRef,
   type KeyboardEvent,
 } from "react";
+
 import type { MentionMember } from "@/hooks/use-mention-members";
 
 export interface MentionEntry {

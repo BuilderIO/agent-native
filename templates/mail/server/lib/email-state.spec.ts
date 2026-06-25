@@ -5,6 +5,7 @@
  * action and REST handler implementations.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   archiveEmail,
   unarchiveEmail,
@@ -50,11 +51,12 @@ vi.mock("./thread-cache.js", () => ({
   THREAD_CACHE_TTL: 300_000,
 }));
 
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   getOAuthTokens,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+
 import {
   gmailGetMessage,
   gmailModifyMessage,

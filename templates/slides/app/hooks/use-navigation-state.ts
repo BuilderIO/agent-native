@@ -1,9 +1,10 @@
+import { agentNativePath } from "@agent-native/core/client";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+
 import { TAB_ID } from "@/lib/tab-id";
-import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 
 export interface NavigationState {
   view: string;

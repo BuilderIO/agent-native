@@ -1,11 +1,11 @@
-import { useEffect, useCallback, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   sendToAgentChat,
   agentNativePath,
   callAction,
   isEmbedAuthActive,
 } from "@agent-native/core/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useCallback, useState } from "react";
 
 export const DESIGN_VARIANT_PICKED_EVENT = "agent-native-design-variant-picked";
 

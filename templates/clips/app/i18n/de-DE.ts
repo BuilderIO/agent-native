@@ -20,6 +20,13 @@ const messages = {
       "Öffne die Clips-Erweiterung erneut, um mit der Aufnahme zu beginnen.",
     gotIt: "Verstanden",
   },
+  recorder: {
+    cameraBlurTitle: "Hintergrund weichzeichnen",
+    cameraBlurDescription: "Bleib scharf, während der Hintergrund verschwimmt",
+    cameraBlurToggle: "Kamerahintergrund weichzeichnen",
+    cameraBlurIntensityLabel: "Intensität",
+    cameraBlurIntensityAria: "Intensität der Hintergrundunschärfe",
+  },
   navigation: {
     brand: "Clips",
     library: "Bibliothek",

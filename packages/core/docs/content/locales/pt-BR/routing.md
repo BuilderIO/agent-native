@@ -1,11 +1,11 @@
 ---
 title: "Roteamento"
-description: "Roteamento baseado em arquivo para aplicativos nativos de agente com React Router v7 — páginas, parâmetros dinâmicos e navegação."
+description: "Roteamento baseado em arquivo para aplicativos nativos de agente com React Router v8 — páginas, parâmetros dinâmicos e navegação."
 ---
 
 # Roteamento
 
-Os aplicativos nativos do agente usam o **React Router v7** com roteamento baseado em arquivo via `flatRoutes()` de `@react-router/fs-routes`. Cada arquivo em `app/routes/` se torna um URL. Os modelos usam a convenção de notação de ponto: os pontos separam os segmentos URL dentro de um único nome de arquivo.
+Os aplicativos nativos do agente usam o **React Router v8** com roteamento baseado em arquivo via `flatRoutes()` de `@react-router/fs-routes`. Cada arquivo em `app/routes/` se torna um URL. Os modelos usam a convenção de notação de ponto: os pontos separam os segmentos URL dentro de um único nome de arquivo.
 
 ## Roteamento baseado em arquivo {#file-based-routing}
 

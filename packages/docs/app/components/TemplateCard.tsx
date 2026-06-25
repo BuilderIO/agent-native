@@ -1,9 +1,10 @@
-import { useState } from "react";
-import * as Popover from "@radix-ui/react-popover";
-import { Link } from "react-router";
 import { trackEvent, useLocale, useT } from "@agent-native/core/client";
-import { TemplateDocsLink } from "./template-docs";
+import * as Popover from "@radix-ui/react-popover";
+import { useState } from "react";
+import { Link } from "react-router";
+
 import { sitePathForLocale } from "./docs-locale";
+import { TemplateDocsLink } from "./template-docs";
 
 export { trackEvent };
 

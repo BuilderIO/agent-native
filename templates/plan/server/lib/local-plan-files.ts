@@ -29,13 +29,14 @@ import type { Dirent } from "node:fs";
 import * as fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+
+import type { PlanContent } from "../../shared/plan-content.js";
+import type { PlanComment } from "../../shared/types.js";
 import {
   exportPlanContentToMdxFolder,
   parsePlanMdxFolder,
   type PlanMdxFolder,
 } from "../plan-mdx.js";
-import type { PlanContent } from "../../shared/plan-content.js";
-import type { PlanComment } from "../../shared/types.js";
 
 const PLAN_FOLDER_TITLE_LIMIT = 64;
 const LOCAL_COMMENTS_FILE = "comments.json";

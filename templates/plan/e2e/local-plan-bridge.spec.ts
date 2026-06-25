@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
-import http from "node:http";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+
+import { test, expect, type Page } from "@playwright/test";
 
 import { startLocalPlanBridge } from "../../../packages/core/src/cli/plan-local.js";
 

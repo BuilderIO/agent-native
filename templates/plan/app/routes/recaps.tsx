@@ -1,6 +1,6 @@
 import { Spinner } from "@/components/ui/spinner";
-import { PlansPage } from "@/pages/PlansPage";
 import { APP_TITLE } from "@/lib/app-config";
+import { PlansPage } from "@/pages/PlansPage";
 
 export function meta() {
   return [

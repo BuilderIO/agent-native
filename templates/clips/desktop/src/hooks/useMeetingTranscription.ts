@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { normalizeServerUrl } from "../lib/url";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -13,6 +13,7 @@ import {
   type SourcedTranscriptSegment,
   type TranscriptionEngine,
 } from "../lib/transcription-engine";
+import { normalizeServerUrl } from "../lib/url";
 
 // ---------------------------------------------------------------------------
 // Types

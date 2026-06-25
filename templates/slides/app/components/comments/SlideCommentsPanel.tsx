@@ -1,4 +1,3 @@
-import { useState, useRef, useEffect } from "react";
 import {
   IconX,
   IconCheck,
@@ -6,6 +5,13 @@ import {
   IconMessageCircle,
   IconChevronDown,
 } from "@tabler/icons-react";
+import { useState, useRef, useEffect } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useSlideComments,
   useCreateSlideComment,
@@ -16,11 +22,6 @@ import {
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface SlideCommentsPanelProps {
   deckId: string | null;
@@ -421,7 +422,8 @@ export function SlideCommentsPanel({
   onPendingDone,
   onClose,
 }: SlideCommentsPanelProps) {
-  const { data: threads = [] } = useSlideComments(deckId, slideId);
+  const commentsQuery = useSlideComments(deckId, slideId);
+  const threads: CommentThread[] = commentsQuery.data ?? [];
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 

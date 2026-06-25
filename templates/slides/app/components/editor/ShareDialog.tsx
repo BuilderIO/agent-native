@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { appBasePath } from "@agent-native/core/client";
 import {
   IconShare2,
   IconCopy,
@@ -6,20 +6,21 @@ import {
   IconLoader2,
   IconExternalLink,
 } from "@tabler/icons-react";
+import { useState, type ReactNode } from "react";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import type { Deck } from "@/context/DeckContext";
-import { appBasePath } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Deck } from "@/context/DeckContext";
+import { useDbStatus } from "@/hooks/use-db-status";
 
 interface ShareDialogProps {
   deck: Deck;

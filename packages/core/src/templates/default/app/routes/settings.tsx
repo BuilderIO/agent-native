@@ -1,9 +1,9 @@
-import { Link } from "react-router";
 import {
   LanguagePicker,
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
+import { Link } from "react-router";
 
 export function meta() {
   return [{ title: "Settings - {{APP_TITLE}}" }];

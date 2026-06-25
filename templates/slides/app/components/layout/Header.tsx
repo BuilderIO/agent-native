@@ -1,8 +1,10 @@
-import { useLocation } from "react-router";
-import { useDecks } from "@/context/DeckContext";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { useLocation } from "react-router";
+
+import { useDecks } from "@/context/DeckContext";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "header.decks",

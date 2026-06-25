@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
+
 import { and, eq, inArray, sql } from "drizzle-orm";
+
 import { getDbExec, isPostgres } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
-import { accessFilter, assertAccess } from "../../sharing/access.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "../../server/request-context.js";
+import { accessFilter, assertAccess } from "../../sharing/access.js";
+import { getLocalExtension, listLocalExtensions } from "../local.js";
 import { extensions, extensionShares } from "../schema.js";
 import {
   extensionSlots,
@@ -21,7 +24,6 @@ import {
   EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL,
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
-import { getLocalExtension, listLocalExtensions } from "../local.js";
 
 const getDb = createGetDb({
   extensions,

@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appApiPath } from "@agent-native/core/client";
 import type {
   CreateNotionPageRequest,
@@ -10,6 +8,8 @@ import type {
   NotionSearchResponse,
   ResolveDocumentSyncConflictRequest,
 } from "@shared/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(appApiPath(url), init);

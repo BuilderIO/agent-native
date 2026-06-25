@@ -1,10 +1,11 @@
+import { readBody, getSession } from "@agent-native/core/server";
+import type { AutomationRule } from "@shared/types.js";
+import { eq, and } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, createError } from "h3";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
-import { readBody, getSession } from "@agent-native/core/server";
+
 import { db, schema } from "../db/index.js";
 import { triggerAutomationsDebounced } from "../lib/automation-engine.js";
-import type { AutomationRule } from "@shared/types.js";
 
 function toApiRule(row: any): AutomationRule {
   return {

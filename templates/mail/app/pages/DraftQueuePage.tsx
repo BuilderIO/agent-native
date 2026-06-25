@@ -1,5 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   IconCheck,
   IconClock,
@@ -10,8 +8,10 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +20,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -28,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useDraftQueueMembers,
   useOpenQueuedDraft,
@@ -38,6 +38,7 @@ import {
   type QueuedEmailDraft,
 } from "@/hooks/use-draft-queue";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { cn } from "@/lib/utils";
 
 type QueueScope = "review" | "requested";
 

@@ -4,12 +4,13 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid, normalizedValueJson } from "./_property-utils.js";
 
 export default defineAction({

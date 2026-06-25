@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
-import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+import { test, expect, type Page } from "@playwright/test";
 
 const SOURCE_PATH = "content/getting-started.mdx";
 

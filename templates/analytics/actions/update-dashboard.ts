@@ -1,20 +1,21 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
+import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
-import { dryRunQuery } from "../server/lib/bigquery";
-import { parseDemoDescriptor } from "../server/lib/demo-source";
+
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { dryRunQuery } from "../server/lib/bigquery";
+import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
-import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
 
 /**
  * Same validation shape used in the sql-dashboard save path.

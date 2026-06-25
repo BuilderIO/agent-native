@@ -1,5 +1,6 @@
-import { useEffect, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useSyncExternalStore } from "react";
+
 import { agentNativePath } from "./api-path.js";
 
 export const APPEARANCE_PRESETS = [

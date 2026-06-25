@@ -4,8 +4,8 @@
  * accounting so OM thresholds match what the rest of the framework counts.
  */
 
-import type { EngineMessage } from "../engine/types.js";
 import { countMessageTokens } from "../context-xray/tokenize.js";
+import type { EngineMessage } from "../engine/types.js";
 
 /** Flatten one engine message to a single labeled line block. */
 export function messageToText(message: EngineMessage): string {

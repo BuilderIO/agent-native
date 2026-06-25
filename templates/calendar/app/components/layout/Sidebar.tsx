@@ -1,5 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  appPath,
+  DevDatabaseLink,
+  FeedbackButton,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconCalendar,
   IconSettings,
@@ -35,13 +41,31 @@ import {
   getMonth,
   getYear,
 } from "date-fns";
-import { cn } from "@/lib/utils";
+import { useState, useEffect, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useExternalCalendars,
+  useRemoveExternalCalendar,
+  useUpdateExternalCalendarColor,
+} from "@/hooks/use-external-calendars";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -49,41 +73,19 @@ import {
   useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
 import {
-  appPath,
-  DevDatabaseLink,
-  FeedbackButton,
-  useT,
-} from "@agent-native/core/client";
-import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
-import {
-  CALENDAR_COLORS,
-  type CalendarColorMode,
-} from "@/lib/calendar-view-preferences";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
-import {
   useOverlayPeople,
   useRemoveOverlayPerson,
   useUpdateOverlayPersonColor,
 } from "@/hooks/use-overlay-people";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
-  useExternalCalendars,
-  useRemoveExternalCalendar,
-  useUpdateExternalCalendarColor,
-} from "@/hooks/use-external-calendars";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  CALENDAR_COLORS,
+  type CalendarColorMode,
+} from "@/lib/calendar-view-preferences";
+import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
+import { cn } from "@/lib/utils";
+
 import { useCalendarContext } from "./AppLayout";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 
 const navItems = [
   { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },

@@ -502,12 +502,10 @@ export const messagesByLocale = {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
       languageTitle: "भाषा",
-      languageDescription:
-        "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+      languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
       workspaceTitle: "कार्यस्थान",
-      workspaceDescription:
-        "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
+      workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:

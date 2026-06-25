@@ -3,13 +3,14 @@
  * pre-bound to appId="analytics".
  */
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { runAggregateQuery } from "@agent-native/core/provider-api/staged-datasets-aggregate";
 import {
   getStagedDatasetRows,
   getStagedDatasetMeta,
 } from "@agent-native/core/provider-api/staged-datasets-store";
-import { runAggregateQuery } from "@agent-native/core/provider-api/staged-datasets-aggregate";
+import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { z } from "zod";
+
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
 const WhereSchema = z.object({

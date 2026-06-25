@@ -194,6 +194,7 @@ const messages = {
       threadMuted: "Thread muted.",
       archived: "Archived.",
       archivedMany: "Archived {{count}} conversations.",
+      archiveFailed: "Archive failed. The conversation was restored.",
       trashed: "Moved to Trash.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Scheduled email sent.",

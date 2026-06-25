@@ -1,14 +1,15 @@
-import { useState, useRef, useCallback } from "react";
 import { IconX, IconGripHorizontal } from "@tabler/icons-react";
+import { useState, useRef, useCallback } from "react";
+
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
-import type { TweakDefinition } from "@/lib/design-systems";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { TweakDefinition } from "@/lib/design-systems";
+import { cn } from "@/lib/utils";
 
 // ── Default tweaks for video compositions ─────────────────────────────────────
 

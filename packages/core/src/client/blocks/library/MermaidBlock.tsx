@@ -1,11 +1,12 @@
-import { useEffect, useId, useMemo, useState } from "react";
 import { IconArrowsMaximize } from "@tabler/icons-react";
+import { useEffect, useId, useMemo, useState } from "react";
+
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
-import type { MermaidData } from "./mermaid.config.js";
+import { useBlockCopy } from "./block-copy.js";
 import { DevInput, DevLabel } from "./dev-doc-ui.js";
 import { DiagramLightbox } from "./diagram.js";
-import { useBlockCopy } from "./block-copy.js";
+import type { MermaidData } from "./mermaid.config.js";
 
 /**
  * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition

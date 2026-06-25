@@ -1,4 +1,4 @@
-import { agentNativePath } from "../api-path.js";
+import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * `useOnboarding` — client hook for the framework onboarding system.
  *
@@ -8,11 +8,11 @@ import { agentNativePath } from "../api-path.js";
  * burns the DB and amplifies transient network errors.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { agentNativePath } from "../api-path.js";
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];

@@ -8,9 +8,10 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 import { getQuery } from "h3";
-import * as manager from "./ydoc-manager.js";
+
 import { readBody } from "../server/h3-helpers.js";
 import type { PatchOp } from "./json-to-yjs.js";
+import * as manager from "./ydoc-manager.js";
 
 /** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;

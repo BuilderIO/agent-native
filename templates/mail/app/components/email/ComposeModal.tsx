@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import type { CSSProperties } from "react";
+import { useAgentChatGenerating, useT } from "@agent-native/core/client";
+import {
+  appendSignatureToBody,
+  splitAppendedSignature,
+} from "@shared/signature";
+import type { ComposeState } from "@shared/types";
 import {
   IconX,
   IconMinus,
@@ -15,8 +19,10 @@ import {
   IconTrash,
   IconPlus,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useState, useEffect, useRef, useMemo } from "react";
+import type { CSSProperties } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -24,45 +30,41 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
-import { useSettings } from "@/hooks/use-emails";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
+import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
+import { useSettings } from "@/hooks/use-emails";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
-import { SendLaterButton } from "./SendLaterButton";
+import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating, useT } from "@agent-native/core/client";
-import { toast } from "sonner";
-import type { ComposeState } from "@shared/types";
-import {
-  appendSignatureToBody,
-  splitAppendedSignature,
-} from "@shared/signature";
+import { openFilePicker, uploadFiles } from "@/lib/upload";
+import { cn } from "@/lib/utils";
+
+import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
   splitQuotedContent,
 } from "./compose-draft-context";
+import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import {
   RecipientInput,
   computeRecipientMove,
   type RecipientField,
 } from "./RecipientInput";
-import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFiles } from "@/lib/upload";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import { canUseAgentGenerate } from "@/lib/agent-generate";
-import { AttachmentStrip } from "./AttachmentStrip";
+import { SendLaterButton } from "./SendLaterButton";
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 

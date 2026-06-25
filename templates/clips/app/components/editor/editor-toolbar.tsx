@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useActionMutation } from "@agent-native/core/client";
 import {
   IconArrowBackUp,
   IconChevronDown,
@@ -16,9 +16,20 @@ import {
   IconLoader2,
   IconTrash,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,18 +42,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useActionMutation } from "@agent-native/core/client";
-import { toast } from "sonner";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   exportMp4,
   LONG_EXPORT_THRESHOLD_MS,
@@ -54,11 +59,7 @@ import {
   formatMs,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface EditorToolbarProps {
   recordingId: string;

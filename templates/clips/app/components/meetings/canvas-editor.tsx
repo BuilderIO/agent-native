@@ -1,13 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IconWand } from "@tabler/icons-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 function useAutoGrow(
   ref: React.RefObject<HTMLTextAreaElement | null>,

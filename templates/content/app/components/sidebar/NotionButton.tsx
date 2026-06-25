@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 import {
   IconExternalLink,
   IconCheck,
@@ -8,21 +8,22 @@ import {
   IconPlugOff,
   IconRefresh,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { agentNativePath, appApiPath } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
+import { cn } from "@/lib/utils";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
 

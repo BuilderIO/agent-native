@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { useParams } from "react-router";
+
 import { LibraryGrid } from "@/components/library/library-grid";
 import { useFolders } from "@/hooks/use-library";
-import { useMemo } from "react";
 
 export function meta() {
   return [{ title: "Folder · Clips" }];

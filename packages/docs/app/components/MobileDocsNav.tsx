@@ -1,8 +1,9 @@
-import { Link, useLocation } from "react-router";
-import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocale, useT } from "@agent-native/core/client";
-import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Link, useLocation } from "react-router";
+
 import { comparableDocsPath } from "./docs-locale";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (

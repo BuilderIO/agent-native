@@ -1,13 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer } from "node:net";
-import { verifyAuth } from "./build-server.js";
-import { getBuiltinCrossAppTools } from "./builtin-tools.js";
-import type { MCPConfig } from "./build-server.js";
-import * as orgDirectory from "./org-directory.js";
-import * as a2aClient from "../a2a/client.js";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import * as callerAuth from "../a2a/caller-auth.js";
+import * as a2aClient from "../a2a/client.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { verifyAuth } from "./build-server.js";
+import type { MCPConfig } from "./build-server.js";
+import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import * as orgDirectory from "./org-directory.js";
 
 const ORIGINAL_ENV = { ...process.env };
 

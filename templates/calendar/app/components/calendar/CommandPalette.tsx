@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
-import { format, parseISO, parse, isValid } from "date-fns";
+import { CommandMenu } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 import {
   IconCalendar,
   IconClock,
@@ -10,9 +10,10 @@ import {
   IconLink,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { CommandMenu } from "@agent-native/core/client";
+import { format, parseISO, parse, isValid } from "date-fns";
+import { useState, useMemo, useEffect } from "react";
+
 import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@shared/api";
 
 type ViewMode = "month" | "week" | "day";
 

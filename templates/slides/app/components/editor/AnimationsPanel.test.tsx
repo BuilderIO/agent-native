@@ -1,7 +1,8 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // @vitest-environment happy-dom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import type { Slide } from "@/context/DeckContext";
 

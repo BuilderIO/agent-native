@@ -1,11 +1,12 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { IconPencil } from "@tabler/icons-react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
+
+import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 import type {
   BlockDataChangeMeta,
   BlockSpec,
   BlockRenderContext,
 } from "./types.js";
-import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 /**
  * Resolve a spec's effective edit surface. Defaults to `"inline"` when the block

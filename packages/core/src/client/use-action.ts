@@ -26,6 +26,7 @@ import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
+
 import { agentNativePath } from "./api-path.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 

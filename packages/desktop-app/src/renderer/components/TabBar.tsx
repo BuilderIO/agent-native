@@ -1,7 +1,8 @@
 import { IconX, IconPlus, IconReload } from "@tabler/icons-react";
+
 import type { Tab } from "../App.js";
-import { getTabDisplayTitle } from "../lib/tab-title.js";
 import { shouldReserveMacOSWindowControlsSpace } from "../lib/platform.js";
+import { getTabDisplayTitle } from "../lib/tab-title.js";
 
 const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 

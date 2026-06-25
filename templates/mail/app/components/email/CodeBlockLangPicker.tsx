@@ -1,5 +1,7 @@
-import { useEffect, useState, useRef } from "react";
+import { useT } from "@agent-native/core/client";
 import type { Editor } from "@tiptap/react";
+import { useEffect, useState, useRef } from "react";
+
 import {
   Select,
   SelectContent,
@@ -7,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useT } from "@agent-native/core/client";
 
 const LANGUAGES = [
   { value: "", label: "Plain text" },

@@ -119,7 +119,7 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ### VS Code 내 공개 계획 {#vscode-extension}
 
 VS Code에 거주하는 경우
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 다음 페이지로 보내는 대신 측면 패널에서 동일한 계획 검토 화면을 열려면
 별도의 브라우저 탭. 계획 도구는 여전히 일반 웹 링크를 반환하며 MCP
 메타데이터에는 VS Code 핸드오프 URL도 포함됩니다.

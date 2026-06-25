@@ -1,9 +1,10 @@
+import { accessFilter } from "@agent-native/core/sharing";
 /**
  * Data access for bookings + their attendees, references, and notes.
  */
 import { eq, and, gte, lt, or, desc, asc, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import type {
   Booking,
   Attendee,

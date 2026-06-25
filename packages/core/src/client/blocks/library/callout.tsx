@@ -1,4 +1,5 @@
 import { IconPencil } from "@tabler/icons-react";
+
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";

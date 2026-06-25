@@ -11,23 +11,23 @@
  * `runInternalAgentCall` seam (provider-agnostic, mockable).
  */
 
-import type { EngineMessage } from "../engine/types.js";
 import { countTextTokens } from "../context-xray/tokenize.js";
+import type { EngineMessage } from "../engine/types.js";
 import {
   resolveObservationalMemoryConfig,
   type ObservationalMemoryConfig,
 } from "./config.js";
-import {
-  getObservedThroughIndex,
-  insertObservationalMemory,
-  listObservationalMemory,
-} from "./store.js";
 import {
   runInternalAgentCall,
   type InternalAgentRunFn,
 } from "./internal-run.js";
 import { countWindowTokens, windowToText } from "./message-text.js";
 import { OBSERVER_SYSTEM_PROMPT, buildObserverPrompt } from "./prompts.js";
+import {
+  getObservedThroughIndex,
+  insertObservationalMemory,
+  listObservationalMemory,
+} from "./store.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,

@@ -6,9 +6,9 @@
  * and maintains a `memory/MEMORY.md` index.
  */
 
-import { parseArgs, fail } from "../utils.js";
 import { resourcePut, resourceGetByPath } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 

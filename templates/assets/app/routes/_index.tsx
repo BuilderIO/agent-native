@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
 import {
   AgentChatSurface,
   getBrowserTabId,
@@ -10,6 +8,9 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 // The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The

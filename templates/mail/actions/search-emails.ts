@@ -1,5 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
+import { emailMessageMatchesSearch } from "@shared/search.js";
+import { z } from "zod";
+
+import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import {
   listGmailMessages,
   gmailToEmailMessage,
@@ -7,10 +12,6 @@ import {
   getClients,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
-import { getUserSetting } from "@agent-native/core/settings";
-import { emailMessageMatchesSearch } from "@shared/search.js";
-import { z } from "zod";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])

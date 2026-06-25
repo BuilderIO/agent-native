@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
   Document,
@@ -8,7 +7,9 @@ import type {
   DocumentMoveRequest,
   DocumentTreeNode,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+
 import { useRestoreContentDatabase } from "./use-content-database";
 
 export function useDocuments() {

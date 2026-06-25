@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   IconLink,
   IconRefresh,
@@ -8,6 +7,10 @@ import {
   IconPlugOff,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,8 +23,6 @@ import {
   useResolveDocumentSyncConflict,
   useUnlinkDocumentFromNotion,
 } from "@/hooks/use-notion";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 interface NotionSyncBarProps {
   documentId: string;

@@ -1,11 +1,12 @@
-import { Link } from "react-router";
 import { useLocale, useT } from "@agent-native/core/client";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
-import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
   const { locale } = useLocale();

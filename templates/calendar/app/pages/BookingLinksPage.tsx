@@ -1,5 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import {
+  BookingLinkCreateDialog,
+  CustomFieldsEditor as SharedCustomFieldsEditor,
+  SlugEditor,
+} from "@agent-native/scheduling/react/components";
+import type {
+  AvailabilityConfig,
+  BookingHost,
+  BookingLink,
+  ConferencingConfig,
+  CustomField,
+  DaySchedule,
+} from "@shared/api";
 import {
   IconBrandGoogle,
   IconBrandZoom,
@@ -18,15 +30,6 @@ import {
   IconVideoOff,
   IconX,
 } from "@tabler/icons-react";
-import { nanoid } from "nanoid";
-import { toast } from "sonner";
-import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
-import {
-  BookingLinkCreateDialog,
-  CustomFieldsEditor as SharedCustomFieldsEditor,
-  SlugEditor,
-} from "@agent-native/scheduling/react/components";
 import {
   startOfMonth,
   endOfMonth,
@@ -43,21 +46,14 @@ import {
   startOfDay,
   getDay,
 } from "date-fns";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { nanoid } from "nanoid";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,28 +65,44 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
-import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import {
+  useAvailability,
+  useUpdateAvailability,
+} from "@/hooks/use-availability";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -98,21 +110,11 @@ import {
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
-import {
-  useAvailability,
-  useUpdateAvailability,
-} from "@/hooks/use-availability";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import { cn } from "@/lib/utils";
+
 import BookingsList from "./BookingsList";
-import type {
-  AvailabilityConfig,
-  BookingHost,
-  BookingLink,
-  ConferencingConfig,
-  CustomField,
-  DaySchedule,
-} from "@shared/api";
 
 const DURATION_PRESETS = [15, 30, 45, 60];
 
@@ -590,7 +592,8 @@ export default function BookingLinksPage({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
-  const { data: bookingLinks = [], isLoading } = useBookingLinks();
+  const { data: bookingLinksData, isLoading } = useBookingLinks();
+  const bookingLinks: BookingLink[] = bookingLinksData ?? [];
   const createBookingLink = useCreateBookingLink();
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();

@@ -159,7 +159,7 @@ Utilice `http: { method: "GET" }` o `readOnly: true` para actions de solo lectur
 
 ## Construye el UI {#ui}
 
-Las rutas se encuentran en `app/routes/` y utilizan el enrutamiento de archivos React Router v7. Consulta datos a través de los controladores actions o API y haz que las mutaciones sean optimistas de forma predeterminada.
+Las rutas se encuentran en `app/routes/` y utilizan el enrutamiento de archivos React Router v8. Consulta datos a través de los controladores actions o API y haz que las mutaciones sean optimistas de forma predeterminada.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

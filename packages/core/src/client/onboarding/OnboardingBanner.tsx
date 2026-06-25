@@ -5,8 +5,9 @@
  * full <OnboardingPanel />. Use when you want the panel collapsed by default.
  */
 
-import React from "react";
 import { IconChecklist, IconChevronRight } from "@tabler/icons-react";
+import React from "react";
+
 import { useOnboarding } from "./use-onboarding.js";
 
 interface OnboardingBannerProps {

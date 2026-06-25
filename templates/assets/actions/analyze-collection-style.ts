@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { extractDominantColors } from "../server/lib/image-processing.js";
 import {
   analyzeStyleWithGemini,
   isGeminiImageGenerationConfigured,
   type ReferenceForGeneration,
 } from "../server/lib/generation.js";
-import { getObject } from "../server/lib/storage.js";
+import { extractDominantColors } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
-import { serializeLibrary } from "./_helpers.js";
+import { getObject } from "../server/lib/storage.js";
 import type { StyleBrief } from "../shared/api.js";
+import { serializeLibrary } from "./_helpers.js";
 
 /**
  * Synthesize a reusable style guide from a library's reference images.

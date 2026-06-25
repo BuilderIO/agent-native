@@ -1,4 +1,3 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BlockRegistry,
   registerBlocks,
@@ -18,14 +17,17 @@ import {
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import type { PlanBlock } from "@shared/plan-content";
-import { PlanBlockView } from "./DocumentArea";
-import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+import { PlanBlockView } from "./DocumentArea";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
 
 const LazyPlanMarkdownEditor = lazy(() =>
   import("./PlanMarkdownEditor").then((mod) => ({

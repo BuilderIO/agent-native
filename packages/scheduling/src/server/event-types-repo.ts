@@ -1,3 +1,4 @@
+import { accessFilter } from "@agent-native/core/sharing";
 /**
  * Data access for event types.
  *
@@ -6,7 +7,7 @@
  */
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import type {
   EventType,
   Location,

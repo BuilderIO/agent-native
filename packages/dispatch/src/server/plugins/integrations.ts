@@ -1,10 +1,11 @@
 import { createIntegrationsPlugin } from "@agent-native/core/server";
+
+import { dispatchActions } from "../../actions/index.js";
+import { getDispatchConfig } from "../index.js";
 import {
   beforeDispatchProcess,
   resolveDispatchOwner,
 } from "../lib/dispatch-integrations.js";
-import { getDispatchConfig } from "../index.js";
-import { dispatchActions } from "../../actions/index.js";
 
 const DISPATCH_INTEGRATION_SYSTEM_PROMPT = `You are the central dispatch for this workspace, responding via a messaging platform integration (Slack, Telegram, email, etc.).
 

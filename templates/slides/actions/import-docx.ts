@@ -1,8 +1,10 @@
+import fs from "fs";
+
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { parseDocx } from "../server/handlers/import/docx-parser.js";
 import { convertSectionsToSlides } from "../server/handlers/import/html-converter.js";
-import fs from "fs";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({

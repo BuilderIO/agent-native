@@ -1,6 +1,7 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
+
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { cn } from "@/lib/utils";
 
 export interface SqlEditorProps extends Omit<
   React.TextareaHTMLAttributes<HTMLTextAreaElement>,

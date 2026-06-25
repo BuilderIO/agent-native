@@ -5,8 +5,9 @@
  * plus an agent activity indicator when the AI is editing.
  */
 
-import { IconBolt } from "@tabler/icons-react";
 import type { CollabUser } from "@agent-native/core/client";
+import { IconBolt } from "@tabler/icons-react";
+
 import { cn } from "@/lib/utils";
 
 interface CollabPresenceBarProps {

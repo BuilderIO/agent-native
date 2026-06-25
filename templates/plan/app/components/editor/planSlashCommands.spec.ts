@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { BlockRegistry } from "@agent-native/core/blocks";
+import { describe, expect, it } from "vitest";
+
 import { buildPlanSlashCommands } from "./planSlashCommands";
 
 /**

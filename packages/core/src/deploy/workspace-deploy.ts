@@ -17,8 +17,9 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
+
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
-import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -28,11 +29,11 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 

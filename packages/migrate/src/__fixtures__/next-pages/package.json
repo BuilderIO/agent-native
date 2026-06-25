@@ -3,8 +3,8 @@
   "type": "module",
   "dependencies": {
     "next": "latest",
+    "openai": "latest",
     "react": "latest",
-    "react-dom": "latest",
-    "openai": "latest"
+    "react-dom": "latest"
   }
 }

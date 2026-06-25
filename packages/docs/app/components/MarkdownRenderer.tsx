@@ -7,10 +7,10 @@
  * Uses the 'marked' library for markdown→HTML conversion.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { marked, type RendererThis, type Tokens } from "marked";
-import { codeToHtml } from "shiki";
 import { useT } from "@agent-native/core/client";
+import { marked, type RendererThis, type Tokens } from "marked";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { codeToHtml } from "shiki";
 
 interface Props {
   markdown: string;

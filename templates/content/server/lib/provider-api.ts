@@ -7,6 +7,7 @@ import {
   type ProviderApiRequestArgs,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+
 import { getNotionConnectionForOwner } from "./notion.js";
 
 export const CONTENT_APP_ID = "content";

@@ -5,11 +5,11 @@ description: "Connect a portable SQL database to your agent-native app and write
 
 # Database
 
-Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. For anything beyond local development, connect a persistent SQL database — Postgres, libSQL/Turso, or another Drizzle-compatible backend — by setting `DATABASE_URL`. When that variable is unset, the app falls back to a zero-config local SQLite file so you can start developing immediately.
+Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. For anything beyond local development, connect a persistent SQL database — Postgres, libSQL/Turso, or another Drizzle-compatible backend — by setting `DATABASE_URL`. When that variable is unset, the app falls back to a zero-config local SQLite file so you can start developing immediately. For local development that should behave like Postgres without running a separate database server, opt into PGlite with `DATABASE_URL=pglite:./data/pglite`.
 
 ```an-diagram title="One schema, many backends" summary="App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."
 {
-  "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
+  "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span><span class=\"diagram-pill warn\">PGlite<br><small class=\"diagram-muted\">local Postgres opt-in</small></span></div></div>",
   "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
 }
 ```
@@ -19,6 +19,18 @@ Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portab
 When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. This is the zero-config default for local development — no setup required. It is meant for development only; for production, set `DATABASE_URL` to a persistent SQL database.
 
 Do not rely on that local file for deployed apps. Containers, serverless functions, and preview environments may reset their filesystem, which means a local SQLite file can disappear between restarts. Set `DATABASE_URL` to a persistent hosted database before production use.
+
+## Local Postgres Opt-In: PGlite {#local-pglite}
+
+Install the optional PGlite package, then set `DATABASE_URL=pglite:./data/pglite` to run the app against [PGlite](https://pglite.dev/), a local WASM Postgres database:
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+This keeps local development on the Postgres dialect, including Postgres schema helpers and migrations, without requiring Docker or a hosted database.
+
+PGlite is still local development storage. Treat it like the SQLite fallback for durability and sharing: use it to test Postgres-shaped behavior on your machine, then set `DATABASE_URL` to a persistent hosted database for production, previews, or any shared environment.
 
 ## Connecting a Production Database {#production}
 
@@ -34,12 +46,15 @@ DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6
 # Plain Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
+# Local PGlite (Postgres dialect, local development only)
+DATABASE_URL=pglite:./data/pglite
+
 # Turso (libSQL)
 DATABASE_URL=libsql://my-db-org.turso.io
 DATABASE_AUTH_TOKEN=your-token
 ```
 
-The framework auto-detects the dialect from the URL and configures Drizzle accordingly. The built-in adapters cover Postgres URLs, libSQL/Turso URLs, SQLite file URLs, and Cloudflare D1 bindings. Common production choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available.
+The framework auto-detects the dialect from the URL and configures Drizzle accordingly. The built-in adapters cover Postgres URLs, local PGlite URLs, libSQL/Turso URLs, SQLite file URLs, and Cloudflare D1 bindings. Common production choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available.
 
 ## Builder.io Managed Database {#builder-managed}
 
@@ -177,7 +192,7 @@ Instead of pushing directly, schema changes should be applied via SQL migrations
 
 ## Environment Variables {#environment-variables}
 
-| Variable              | Purpose                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite, which is only durable for local development) |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                         |
+| Variable              | Purpose                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |

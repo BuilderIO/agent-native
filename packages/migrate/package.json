@@ -1,22 +1,21 @@
 {
   "name": "@agent-native/migrate",
   "version": "0.0.7",
-  "type": "module",
   "description": "Migration Workbench engine for moving existing apps to agent-native with verifiable, resumable migration runs.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/migrate"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -32,13 +31,14 @@
       "default": "./dist/target-agent-native.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "build": "tsgo",
+    "dev": "tsgo --watch",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run",
     "prepack": "cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
+    "@typescript/native-preview": "catalog:",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   }

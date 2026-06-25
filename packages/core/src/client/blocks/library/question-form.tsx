@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   IconCheck,
   IconChevronDown,
@@ -8,6 +7,9 @@ import {
   IconSend,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
+import { writeClipboardText } from "../../clipboard.js";
 import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type {
@@ -27,7 +29,6 @@ import {
   type QuestionMode,
   type VisualQuestionsData,
 } from "./question-form.config.js";
-import { writeClipboardText } from "../../clipboard.js";
 
 /**
  * Shared `question-form` and `visual-questions` blocks. A respondent-facing

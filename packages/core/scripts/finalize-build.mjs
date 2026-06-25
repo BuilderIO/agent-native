@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Cross-platform post-tsc step: copies runtime templates + CSS into dist/.
+// Cross-platform post-TypeScript step: copies runtime templates + CSS into dist/.
 // Inline shell (rm -rf, cp -r, mkdir -p) breaks on Windows cmd.exe, which
 // blocks CI runs of the Clips Tauri workflow on windows-latest.
 import {
@@ -13,9 +13,10 @@ import {
   existsSync,
 } from "node:fs";
 import { join } from "node:path";
+
 import { materializeSourceCorpus } from "./materialize-source-corpus.mjs";
 
-// Prune any spec/test files that tsc emitted or template copying preserved.
+// Prune any spec/test files that TypeScript emitted or template copying preserved.
 // They must never ship in the published package.
 function pruneSpecArtifacts(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

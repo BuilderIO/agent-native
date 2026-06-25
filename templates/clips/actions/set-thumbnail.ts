@@ -19,13 +19,14 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {

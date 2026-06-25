@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
 import type { PlanBlock } from "@shared/plan-content";
+import { useEffect, useMemo, useRef } from "react";
+
 import {
   collectPlanTocItems,
   resolvePlanTocElements,

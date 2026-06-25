@@ -1,4 +1,4 @@
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconBold,
   IconItalic,
@@ -8,15 +8,17 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
-import { cn, formatShortcut } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
+import type { Editor } from "@tiptap/react";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { createPortal } from "react-dom";
+import { cn, formatShortcut } from "@/lib/utils";
+
 import { getSelectedMarkdown } from "./compose-draft-context";
 
 interface ComposeBubbleToolbarProps {

@@ -1,8 +1,8 @@
-import type { ComposeState } from "@shared/types";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
+import type { ComposeState } from "@shared/types";
 
 type MarkdownEditor = {
   isDestroyed?: boolean;

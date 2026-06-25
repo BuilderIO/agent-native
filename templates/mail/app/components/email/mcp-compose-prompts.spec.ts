@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
 import { mergeEditorMarkdownIntoDraftBody } from "./compose-draft-context";
 
 function source(path: string): string {

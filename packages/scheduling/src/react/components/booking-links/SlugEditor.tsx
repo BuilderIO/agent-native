@@ -10,7 +10,9 @@
  * Shadcn primitives expected in the consumer: label.
  */
 import { useState } from "react";
+
 import { Label } from "@/components/ui/label";
+
 import { useSchedulingT } from "../../i18n.js";
 
 export interface SlugEditorProps {

@@ -1,3 +1,4 @@
+import fs from "fs";
 /**
  * Vite plugin that resolves `virtual:agents-bundle` to a statically-inlined
  * ES module containing the template's AGENTS.md + .agents/skills/ content.
@@ -13,13 +14,14 @@
  * without restarting the server.
  */
 import path from "path";
-import fs from "fs";
+
 import type { Plugin } from "vite";
+
+import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 import {
   readAgentsBundleFromFs,
   type WorkspaceAgentsSource,
 } from "../server/agents-bundle.js";
-import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 
 const VIRTUAL_ID = "virtual:agents-bundle";
 const RESOLVED_ID = "\0" + VIRTUAL_ID;

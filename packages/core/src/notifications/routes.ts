@@ -18,6 +18,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
 import { getSession } from "../server/auth.js";
 import {
   listNotifications,

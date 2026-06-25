@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
 import { useActionQuery } from "@agent-native/core/client";
-import { compositions, type CompositionEntry } from "@/remotion/registry";
+import { useEffect, useMemo, useState } from "react";
+
 import {
   databaseRowToComposition,
   type DatabaseCompositionRow,
 } from "@/lib/database-compositions";
+import { compositions, type CompositionEntry } from "@/remotion/registry";
 
 function compositionChanged(
   existing: CompositionEntry,
@@ -99,6 +100,7 @@ export function useDatabaseCompositions() {
       staleTime: 2000,
     },
   );
+  const rows: DatabaseCompositionRow[] = query.data ?? [];
 
   // Subscribe to cross-instance updates so every mounted hook re-renders when
   // any other instance reconciles the registry.
@@ -111,18 +113,18 @@ export function useDatabaseCompositions() {
   // of them does the work — the rest early-out.
   useEffect(() => {
     if (!query.data) return;
-    const key = snapshotKey(query.data);
+    const key = snapshotKey(rows);
     if (key === lastReconciledKey) return;
     lastReconciledKey = key;
-    const changed = reconcileRegistry(query.data);
+    const changed = reconcileRegistry(rows);
     if (changed) notifyAll();
-  }, [query.data]);
+  }, [query.data, rows]);
 
   // Derived merged list — recomputed from query.data each render. Callers can
   // consume this directly without touching the singleton. Static registry
   // entries (storage !== "database") are kept; DB entries replace stale ones.
   const merged = useMemo<CompositionEntry[]>(() => {
-    const dbEntries = (query.data ?? []).map(databaseRowToComposition);
+    const dbEntries = rows.map(databaseRowToComposition);
     const dbIds = new Set(dbEntries.map((e) => e.id));
     const staticEntries = compositions.filter(
       (c) => c.storage !== "database" && !dbIds.has(c.id),
@@ -130,10 +132,10 @@ export function useDatabaseCompositions() {
     return [...staticEntries, ...dbEntries];
     // `version` is intentionally a dep so a registry mutation re-derives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.data, version]);
+  }, [rows, version]);
 
   return {
-    rows: query.data ?? [],
+    rows,
     compositions: merged,
     version,
     isLoading: query.isLoading,

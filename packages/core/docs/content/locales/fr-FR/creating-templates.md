@@ -159,7 +159,7 @@ Utilisez `http: { method: "GET" }` ou `readOnly: true` pour actions en lecture s
 
 ## Construisez le UI {#ui}
 
-Les itinéraires résident dans `app/routes/` et utilisent le routage de fichiers React Router v7. Interrogez les données via les gestionnaires actions ou API et rendez les mutations optimistes par défaut.
+Les itinéraires résident dans `app/routes/` et utilisent le routage de fichiers React Router v8. Interrogez les données via les gestionnaires actions ou API et rendez les mutations optimistes par défaut.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

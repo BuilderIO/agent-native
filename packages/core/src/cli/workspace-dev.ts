@@ -6,19 +6,21 @@ import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
+
 import * as Sentry from "@sentry/node";
+
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
-import {
-  normalizeOrigin,
-  rewriteRedirectLocation,
-  escapeHtml,
-} from "./gateway-helpers.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  normalizeOrigin,
+  rewriteRedirectLocation,
+  escapeHtml,
+} from "./gateway-helpers.js";
 
 export interface WorkspaceApp {
   id: string;

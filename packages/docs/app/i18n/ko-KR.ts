@@ -239,7 +239,7 @@ const koKR = {
       uiSurfaces: "UI 표면",
       i18n: "i18n",
       mcpAuth: "MCP 인증",
-      battleTestedComponents: "실전 검증 컴포넌트",
+      battleTestedComponents: "실전 검증 빌딩 블록",
       mcpA2a: "MCP + A2A",
       externalAgents: "외부 에이전트",
       a2aHandoffs: "A2A 핸드오프",

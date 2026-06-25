@@ -4,10 +4,10 @@
 // Lazy initialization — nothing is patched until first freeze() call.
 
 import { freezeCSS } from "./css-freeze.js";
-import { freezeWAAPI } from "./waapi-freeze.js";
-import { freezeReact } from "./react-freeze.js";
-import { freezeMedia } from "./media-freeze.js";
 import { freezeJSTimers } from "./js-freeze.js";
+import { freezeMedia } from "./media-freeze.js";
+import { freezeReact } from "./react-freeze.js";
+import { freezeWAAPI } from "./waapi-freeze.js";
 
 let cleanups: Array<() => void> = [];
 let active = false;

@@ -3,6 +3,8 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { _resetEmbedAuthForTests } from "./embed-auth.js";
 import {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   _resetMcpAppHostForTests,
@@ -13,7 +15,6 @@ import {
   updateMcpAppModelContext,
   useMcpAppHostContext,
 } from "./mcp-app-host.js";
-import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
 const REQUEST_TIMEOUT_MS = 5000;
 

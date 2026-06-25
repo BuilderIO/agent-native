@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub the heavy MCP SDK + builtin-tools so importing build-server.ts is cheap
 // — these specs only exercise verifyAuth's revoke-check addition.

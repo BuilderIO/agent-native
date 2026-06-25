@@ -1,10 +1,12 @@
+import { readFileSync } from "node:fs";
+
 import {
   test,
   expect,
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
-import { readFileSync } from "node:fs";
+
 import {
   expectedPlanCommentAuthorEmail,
   planE2eAuthEmailPath,

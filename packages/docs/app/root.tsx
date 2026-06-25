@@ -1,4 +1,13 @@
 import {
+  AgentNativeI18nProvider,
+  AgentSidebar,
+  configureTracking,
+  getLocaleInitScript,
+  useT,
+} from "@agent-native/core/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import {
   Links,
   Meta,
   Outlet,
@@ -11,17 +20,7 @@ import {
   useLocation,
   type LoaderFunctionArgs,
 } from "react-router";
-import { useState, useEffect, useRef } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  AgentNativeI18nProvider,
-  AgentSidebar,
-  configureTracking,
-  getLocaleInitScript,
-  useT,
-} from "@agent-native/core/client";
-import Header from "./components/Header";
-import Footer from "./components/Footer";
+
 import {
   DEFAULT_DOCS_LOCALE,
   localeDirection,
@@ -33,6 +32,8 @@ import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
 } from "./components/docs-seo";
+import Footer from "./components/Footer";
+import Header from "./components/Header";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
@@ -97,8 +98,9 @@ async function initialMessagesForLocale(locale: DocsLocale) {
   return loadDocsMessages(locale);
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const locale = resolveLayoutLocale(new URL(request.url).pathname);
+export async function loader({ request, url }: LoaderFunctionArgs) {
+  const requestUrl = url ?? new URL(request.url);
+  const locale = resolveLayoutLocale(requestUrl.pathname);
   return {
     locale,
     preference: { locale },
@@ -125,10 +127,10 @@ function fallbackRootLocaleData(pathname: string): RootLocaleData {
 
 function useRootLocaleData() {
   const location = useLocation();
-  const matches = useMatches();
-  const rootMatch = matches.find((match) => isRootLocaleData(match.data));
-  return isRootLocaleData(rootMatch?.data)
-    ? rootMatch.data
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const rootMatch = matches.find((match) => isRootLocaleData(match.loaderData));
+  return isRootLocaleData(rootMatch?.loaderData)
+    ? rootMatch.loaderData
     : fallbackRootLocaleData(location.pathname);
 }
 

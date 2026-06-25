@@ -1,8 +1,9 @@
-import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import { defineEventHandler, setResponseStatus } from "h3";
+import path from "path";
+
 import { streamFile } from "@agent-native/core/server";
+import { defineEventHandler, setResponseStatus } from "h3";
 
 const generatedDir = path.resolve(process.cwd(), "public/assets/generated");
 

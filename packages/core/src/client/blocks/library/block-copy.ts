@@ -1,8 +1,8 @@
-import { useOptionalLocale } from "../../i18n.js";
 import {
   DEFAULT_LOCALE,
   type LocaleCode,
 } from "../../../localization/shared.js";
+import { useOptionalLocale } from "../../i18n.js";
 
 const BLOCK_COPY: Record<
   LocaleCode,

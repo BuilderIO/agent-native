@@ -4,6 +4,7 @@
 // Writes to data/pins/{uuid}.json — one file per annotation.
 // Atomic writes (temp + rename). Path traversal validation on all IDs.
 
+import { randomUUID } from "crypto";
 import {
   readdir,
   readFile,
@@ -12,9 +13,9 @@ import {
   rename,
   mkdir,
 } from "fs/promises";
-import { join, resolve } from "path";
 import { tmpdir } from "os";
-import { randomUUID } from "crypto";
+import { join, resolve } from "path";
+
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 import { PinSchema } from "./schemas.js";
 

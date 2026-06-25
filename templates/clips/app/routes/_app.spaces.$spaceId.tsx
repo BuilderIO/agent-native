@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useParams } from "react-router";
-import { LibraryGrid } from "@/components/library/library-grid";
+
 import { FolderTree, type FolderNode } from "@/components/library/folder-tree";
+import { LibraryGrid } from "@/components/library/library-grid";
 import { useFolders, useSpaces, useOrganizations } from "@/hooks/use-library";
 
 export function meta() {

@@ -53,12 +53,14 @@
  */
 
 import { createHash } from "node:crypto";
+
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
-import { requestHasEmbedAuthMarker } from "./embed-session.js";
+
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 /**
  * Compute the sha256-<base64> hash token for an inline script's text content.

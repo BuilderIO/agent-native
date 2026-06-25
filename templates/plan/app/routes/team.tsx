@@ -1,4 +1,5 @@
 import { TeamPage } from "@agent-native/core/client/org";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { APP_TITLE } from "@/lib/app-config";
 

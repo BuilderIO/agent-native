@@ -1,4 +1,3 @@
-import { useMemo, useCallback } from "react";
 import {
   DndContext,
   closestCenter,
@@ -21,11 +20,8 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-import type {
-  Slide,
-  SlideAnimation,
-  AnimationType,
-} from "@/context/DeckContext";
+import { useMemo, useCallback } from "react";
+
 import {
   Select,
   SelectTrigger,
@@ -33,6 +29,11 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import type {
+  Slide,
+  SlideAnimation,
+  AnimationType,
+} from "@/context/DeckContext";
 import {
   animationElementKey,
   getSlideAnimationTargetKey,

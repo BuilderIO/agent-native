@@ -1,17 +1,19 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   IconArrowsMaximize,
   IconScribble,
   IconShape2,
   IconX,
 } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../../components/ui/tooltip.js";
+import { cn } from "../../utils.js";
+import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
@@ -19,18 +21,6 @@ import type {
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
-import { AiEditableFieldLabel } from "../AiEditableField.js";
-import {
-  RoughOverlay,
-  toggleWireframeStyle,
-  useIsDark,
-  useWireframeStyle,
-} from "./wireframe-kit.js";
-import {
-  sanitizeDiagramHtml,
-  sanitizeWireframeCss,
-  scopeDesignCss,
-} from "./sanitize-html.js";
 import { useBlockCopy } from "./block-copy.js";
 import {
   diagramMdx,
@@ -39,6 +29,17 @@ import {
   type DiagramEdge,
   type DiagramNode,
 } from "./diagram.config.js";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import {
+  RoughOverlay,
+  toggleWireframeStyle,
+  useIsDark,
+  useWireframeStyle,
+} from "./wireframe-kit.js";
 
 /**
  * Read + Edit renderers for the shared `diagram` block — a flexible inline

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { Editor } from "@tiptap/react";
-import type { Transaction } from "@tiptap/pm/state";
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
-import type { Doc as YDoc } from "yjs";
+import type { Transaction } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Awareness } from "y-protocols/awareness";
-import { isReconcileLeadClient } from "../../collab/client.js";
+import type { Doc as YDoc } from "yjs";
+
 import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
+import { isReconcileLeadClient } from "../../collab/client.js";
 
 export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
   "an-rich-md-programmatic-transaction";

@@ -1,15 +1,8 @@
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { Editor } from "@tiptap/react";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorView } from "@tiptap/pm/view";
+  useOptionalBlockRegistry,
+  type BlockRegistry,
+  type BlockDataChangeMeta,
+} from "@agent-native/core/blocks";
 import {
   DragHandle,
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
@@ -21,23 +14,31 @@ import {
   type DragHandleOptions,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
-import {
-  useOptionalBlockRegistry,
-  type BlockRegistry,
-  type BlockDataChangeMeta,
-} from "@agent-native/core/blocks";
+import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import {
   createPlanBlockId,
   type PlanBlock,
   type PlanContent,
 } from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
-import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { EditorView } from "@tiptap/pm/view";
+import type { Editor } from "@tiptap/react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
+import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
 import { usePlanUndoStack, type PlanUndoStack } from "./usePlanUndoStack";
-import { PlanBlockView } from "../plan/DocumentArea";
-import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 
 /** One tab id per browser tab, shared by every plan document editor instance. */
 const TAB_ID = generateTabId();

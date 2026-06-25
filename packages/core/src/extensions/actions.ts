@@ -1,7 +1,26 @@
-import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionRunContext } from "../action.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
+import { resolveAccess } from "../sharing/access.js";
+import type {
+  ExtensionContentEdit,
+  ExtensionLegacyPatch,
+} from "./content-patch.js";
+import {
+  getLocalExtension,
+  isLocalExtensionRow,
+  listLocalExtensions,
+  type LocalExtensionRow,
+} from "./local.js";
+import { extensionPath } from "./path.js";
+import {
+  addExtensionSlotTarget,
+  installExtensionSlot,
+  uninstallExtensionSlot,
+  listExtensionsForSlot,
+  listSlotsForExtension,
+} from "./slots/store.js";
 import {
   createExtension,
   deleteExtension,
@@ -20,25 +39,6 @@ import {
   updateExtensionContent,
   type ExtensionRow,
 } from "./store.js";
-import { resolveAccess } from "../sharing/access.js";
-import {
-  addExtensionSlotTarget,
-  installExtensionSlot,
-  uninstallExtensionSlot,
-  listExtensionsForSlot,
-  listSlotsForExtension,
-} from "./slots/store.js";
-import {
-  getLocalExtension,
-  isLocalExtensionRow,
-  listLocalExtensions,
-  type LocalExtensionRow,
-} from "./local.js";
-import { extensionPath } from "./path.js";
-import type {
-  ExtensionContentEdit,
-  ExtensionLegacyPatch,
-} from "./content-patch.js";
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {

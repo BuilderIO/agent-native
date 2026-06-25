@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   ChangelogSettingsCard,
   LanguagePicker,
@@ -7,7 +6,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
 import {
   IconAdjustments,
   IconBuilding,
@@ -17,11 +15,9 @@ import {
   IconMessageCircle,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import {
-  type BrainSettings,
-  type SettingsResponse,
-  defaultSettings,
-} from "@/lib/brain";
+import { useEffect, useMemo, useState } from "react";
+
+import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +41,13 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+import {
+  type BrainSettings,
+  type SettingsResponse,
+  defaultSettings,
+} from "@/lib/brain";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 const toneOptions = [
   {

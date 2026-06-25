@@ -4,14 +4,13 @@
  * command handles the common "install Assets for my agent" path in one step.
  */
 
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -32,6 +31,7 @@ import {
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
 const HELP = `npx @agent-native/core@latest skills
 

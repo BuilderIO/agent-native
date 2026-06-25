@@ -239,7 +239,7 @@ const jaJP = {
       uiSurfaces: "UI 表面",
       i18n: "i18n",
       mcpAuth: "MCP 認証",
-      battleTestedComponents: "実戦済みコンポーネント",
+      battleTestedComponents: "実戦済みの土台",
       mcpA2a: "MCP + A2A",
       externalAgents: "外部エージェント",
       a2aHandoffs: "A2A ハンドオフ",

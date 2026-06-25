@@ -1,9 +1,9 @@
 {
   "name": "clips-desktop",
-  "private": true,
   "version": "0.1.1",
-  "type": "module",
+  "private": true,
   "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
+  "type": "module",
   "scripts": {
     "check:prereqs": "node ./scripts/check-tauri-prereqs.mjs",
     "kill:installed": "pkill -x Clips 2>/dev/null; exit 0",
@@ -30,8 +30,9 @@
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "typescript": "^6.0.3",
-    "vite": "^8.0.9"
+    "vite": "catalog:"
   }
 }

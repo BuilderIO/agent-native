@@ -1,5 +1,3 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import {
   IconDots,
   IconLock,
@@ -10,11 +8,14 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -23,11 +24,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import type { RecordingSummary } from "@/hooks/use-library";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { cn } from "@/lib/utils";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -72,10 +72,8 @@ interface RecordingCardProps {
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary) => void;
-  onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
-  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -85,10 +83,8 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
-  onRename,
   onArchive,
   onTrash,
-  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
@@ -263,7 +259,6 @@ export function RecordingCard({
             <EditableRecordingTitle
               recordingId={recording.id}
               title={recording.title}
-              canEdit={canRenameTitle}
               displayTitle={
                 isDefaultTitle(recording.title)
                   ? "Untitled Clip"
@@ -308,14 +303,6 @@ export function RecordingCard({
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
                 <IconFolder className="h-4 w-4 me-2" /> Move to folder
               </DropdownMenuItem>
-              {onRename ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 me-2" /> Rename
-                  </DropdownMenuItem>
-                </>
-              ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (
                 <DropdownMenuItem onSelect={() => onArchive?.(recording)}>

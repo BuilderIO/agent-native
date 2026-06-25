@@ -6,22 +6,22 @@
  * registered in production.
  */
 
-import type { ActionTool } from "../../agent/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
+import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
-import { dbExecToolParameters } from "../db/tool-schemas.js";
 import {
   normalizeDatabaseToolsMode,
   type DatabaseToolsOption,
 } from "../db/tool-mode.js";
-import { tool as readFileTool, run as readFileRun } from "./read-file.js";
-import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
+import { dbExecToolParameters } from "../db/tool-schemas.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
+import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import {
   tool as searchFilesTool,
   run as searchFilesRun,
 } from "./search-files.js";
 import { tool as shellTool, run as shellRun } from "./shell.js";
+import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 
 /**
  * Wraps a core CLI script (that writes to console.log) as a ActionEntry

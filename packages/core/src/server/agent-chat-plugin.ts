@@ -1,33 +1,43 @@
+import nodePath from "node:path";
+
 import {
-  runWithRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  getRequestRunContext,
-  ensureRequestRunContext,
-} from "./request-context.js";
-import { getSetting, putSetting } from "../settings/store.js";
-import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
+  createError,
+  defineEventHandler,
+  setResponseStatus,
+  setResponseHeader,
+  getMethod,
+  getQuery,
+  getHeader,
+  type H3Event,
+} from "h3";
+
 import {
-  normalizeDatabaseToolsMode,
-  type DatabaseToolsMode,
-  type DatabaseToolsOption,
-} from "../scripts/db/tool-mode.js";
+  appendA2AArtifactLinks,
+  buildA2ARecoverableArtifactMessage,
+  type A2AArtifactResponseOptions,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
 import {
-  getH3App,
-  markDefaultPluginProvided,
-  trackPluginInit,
-} from "./framework-request-handler.js";
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import { updateTaskStatusMessage } from "../a2a/task-store.js";
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
+import type { ActionHttpConfig } from "../action.js";
 import {
-  createProductionAgentHandler,
-  actionsToEngineTools,
-  getActiveRunForThreadAsync,
-  abortRun,
-  subscribeToRun,
-  type ActionEntry,
-} from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+  canUpdateAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+  readAgentAppModelDefaultSettings,
+  resetAgentAppModelDefaultSettings,
+  writeAgentAppModelDefaultSettings,
+} from "../agent/app-model-defaults.js";
+import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
+import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  extractProcessRunId,
+  prepareProcessRunRequest,
+} from "../agent/durable-background.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -39,41 +49,19 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
-  canUpdateAgentAppModelDefaultSettings,
-  normalizeAgentAppModelDefaultAppId,
-  readAgentAppModelDefaultSettings,
-  resetAgentAppModelDefaultSettings,
-  writeAgentAppModelDefaultSettings,
-} from "../agent/app-model-defaults.js";
-import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
-import type {
-  AgentChatAttachment,
-  AgentChatEvent,
-  AgentChatReference,
-  ActionTool,
-  MentionProvider,
-} from "../agent/types.js";
-import { attachToolSearch } from "../agent/tool-search.js";
-import type { ActionHttpConfig } from "../action.js";
-import {
-  McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
-  mcpToolsToActionEntries,
-  syncMcpActionEntries,
-  mountMcpServersRoutes,
-  mountMcpHubRoutes,
-  buildMergedConfig,
-  startMcpConfigRefresh,
-  areBuiltinMcpCapabilitiesSupported,
-  setBuiltinMcpCapabilityEnabled,
-  getHubStatus,
-  isHubServeEnabled,
-  type BuiltinMcpCapabilityId,
-} from "../mcp-client/index.js";
-import { discoverAgents } from "./agent-discovery.js";
-import { loadSchemaPromptBlock } from "./schema-prompt.js";
+  createProductionAgentHandler,
+  actionsToEngineTools,
+  getActiveRunForThreadAsync,
+  abortRun,
+  subscribeToRun,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import type { AgentRunSummary } from "../agent/run-store.js";
+import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
@@ -83,18 +71,14 @@ import {
   normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
-import {
-  createError,
-  defineEventHandler,
-  setResponseStatus,
-  setResponseHeader,
-  getMethod,
-  getQuery,
-  getHeader,
-  type H3Event,
-} from "h3";
-import { getSession } from "./auth.js";
-import { getOrigin } from "./google-oauth.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type {
+  AgentChatAttachment,
+  AgentChatEvent,
+  AgentChatReference,
+  ActionTool,
+  MentionProvider,
+} from "../agent/types.js";
 import {
   createThread,
   forkThread,
@@ -117,8 +101,34 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
-import type { AgentRunSummary } from "../agent/run-store.js";
-import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import { dataWidgetResultSchema } from "../data-widgets/index.js";
+import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import {
+  verifyInternalToken,
+  extractBearerToken,
+} from "../integrations/internal-token.js";
+import {
+  McpClientManager,
+  loadMcpConfig,
+  autoDetectMcpConfig,
+  mcpToolsToActionEntries,
+  syncMcpActionEntries,
+  mountMcpServersRoutes,
+  mountMcpHubRoutes,
+  buildMergedConfig,
+  startMcpConfigRefresh,
+  areBuiltinMcpCapabilitiesSupported,
+  setBuiltinMcpCapabilityEnabled,
+  getHubStatus,
+  isHubServeEnabled,
+  type BuiltinMcpCapabilityId,
+} from "../mcp-client/index.js";
+import { setProgressPreListHook } from "../progress/store.js";
+import {
+  getFrontmatterValue,
+  getSkillNameFromPath,
+  parseFrontmatter,
+} from "../resources/metadata.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -129,47 +139,33 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import {
-  getFrontmatterValue,
-  getSkillNameFromPath,
-  parseFrontmatter,
-} from "../resources/metadata.js";
-import nodePath from "node:path";
-import { readBody } from "./h3-helpers.js";
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
+import { getSetting, putSetting } from "../settings/store.js";
+import { discoverAgents } from "./agent-discovery.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { setProgressPreListHook } from "../progress/store.js";
-import {
-  verifyInternalToken,
-  extractBearerToken,
-} from "../integrations/internal-token.js";
-import {
-  hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
-} from "../a2a/auth-policy.js";
-import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
-  extractProcessRunId,
-  prepareProcessRunRequest,
-} from "../agent/durable-background.js";
+import { withConfiguredAppBasePath } from "./app-base-path.js";
+import { getSession } from "./auth.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
-import { withConfiguredAppBasePath } from "./app-base-path.js";
 import {
-  appendA2AArtifactLinks,
-  buildA2ARecoverableArtifactMessage,
-  type A2AArtifactResponseOptions,
-  type A2AToolResultSummary,
-} from "../a2a/artifact-response.js";
-import { updateTaskStatusMessage } from "../a2a/task-store.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+  getH3App,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
+import { getOrigin } from "./google-oauth.js";
+import { readBody } from "./h3-helpers.js";
 import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
@@ -177,8 +173,14 @@ import {
   getModelFamilyOverlay,
   type PromptExamples,
 } from "./prompts/index.js";
-import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
-import { dataWidgetResultSchema } from "../data-widgets/index.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  getRequestRunContext,
+  ensureRequestRunContext,
+} from "./request-context.js";
+import { loadSchemaPromptBlock } from "./schema-prompt.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)

@@ -1,5 +1,6 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { PoweredByBadge, appPath } from "@agent-native/core/client";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import {
   IconCalendar,
   IconExternalLink,
@@ -8,15 +9,16 @@ import {
   IconWand,
 } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
-import { PoweredByBadge, appPath } from "@agent-native/core/client";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+
 import {
   AttendeeStack,
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+
 import { getDb, schema } from "../../server/db";
 
 interface ActionItem {
@@ -116,8 +118,8 @@ export async function loader({
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
-  const m = data?.meeting;
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const m = loaderData?.meeting;
   const title = m?.title ? `${m.title} · Clips` : "Meeting notes · Clips";
   const description = m?.title
     ? `AI meeting notes for "${m.title}"`

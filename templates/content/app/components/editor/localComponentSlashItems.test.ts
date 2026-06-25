@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
+
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 
 function fakeEditor() {

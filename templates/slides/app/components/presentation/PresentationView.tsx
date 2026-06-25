@@ -1,17 +1,18 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useNavigate } from "react-router";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconMaximize,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useNavigate } from "react-router";
+
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import type {
   Slide,
   SlideAnimation,
   AnimationType,
 } from "@/context/DeckContext";
-import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   findLegacyAnimationContainer,

@@ -16,8 +16,8 @@
 // MIME selection and the chunk-upload URL/param protocol are shared with the web
 // app recorder via @shared/recording-core so the server contract can't drift.
 
-import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
 import { scheduleReadyChime } from "@shared/recording-audio";
+import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
 
 type CaptureMode = "screen" | "camera";
 

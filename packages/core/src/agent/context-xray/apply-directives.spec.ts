@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { EngineMessage } from "../engine/types.js";
+
 import type { ContextDirective } from "../../shared/context-xray.js";
+import type { EngineMessage } from "../engine/types.js";
 import { applyContextDirectives } from "./apply-directives.js";
 import { computeProtectedSegmentIds, computeSegments } from "./segments.js";
 

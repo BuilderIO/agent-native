@@ -5,8 +5,8 @@ import {
   intType,
 } from "../db/client.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
-import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
+import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
 

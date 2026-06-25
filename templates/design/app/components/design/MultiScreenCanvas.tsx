@@ -1,11 +1,12 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { prettyScreenName } from "@/lib/screen-names";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { prettyScreenName } from "@/lib/screen-names";
+import { cn } from "@/lib/utils";
 
 interface ScreenFile {
   id: string;

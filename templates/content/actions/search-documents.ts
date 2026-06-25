@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { and, sql } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { and, sql } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { z } from "zod";
 import {
   isContentLocalFileMode,
   listLocalFileDocuments,

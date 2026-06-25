@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
-import { useTheme } from "next-themes";
+import { useT } from "@agent-native/core/client";
 import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -8,7 +10,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useT } from "@agent-native/core/client";
 
 const themeOptions = [
   { value: "system", label: "System theme", icon: IconDeviceDesktop },

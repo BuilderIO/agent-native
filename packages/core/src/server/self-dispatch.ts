@@ -1,3 +1,5 @@
+import { isLocalDatabase } from "../db/client.js";
+import { signInternalToken } from "../integrations/internal-token.js";
 /**
  * Shared self-dispatch helper for the framework's serverless background-work
  * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
@@ -24,8 +26,6 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
-import { isLocalDatabase } from "../db/client.js";
-import { signInternalToken } from "../integrations/internal-token.js";
 
 /**
  * On serverless, returning from the dispatching handler before the outbound

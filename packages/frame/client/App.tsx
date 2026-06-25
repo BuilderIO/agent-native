@@ -10,6 +10,12 @@
  */
 
 import {
+  TEMPLATES,
+  getTemplate,
+  getTemplateGatewayAppUrl,
+  getTemplateGatewayUrl,
+} from "@agent-native/shared-app-config";
+import {
   type CSSProperties,
   useState,
   useEffect,
@@ -17,12 +23,6 @@ import {
   lazy,
   Suspense,
 } from "react";
-import {
-  TEMPLATES,
-  getTemplate,
-  getTemplateGatewayAppUrl,
-  getTemplateGatewayUrl,
-} from "@agent-native/shared-app-config";
 
 // Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>

@@ -1,13 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-  type ReactNode,
-} from "react";
-import {
   IconChevronRight,
   IconColumns,
   IconDotsVertical,
@@ -17,6 +8,16 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { common, createLowlight } from "lowlight";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+  type ReactNode,
+} from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type {
@@ -24,7 +25,6 @@ import type {
   BlockReadProps,
   BlockRenderContext,
 } from "../types.js";
-import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import {
   AnnotationGutterMarker,
   AnnotationHiddenStack,
@@ -41,6 +41,7 @@ import {
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
+import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import { useInNarrowContainer } from "./narrow-container.js";
 
 /**

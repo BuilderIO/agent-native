@@ -2,12 +2,13 @@
  * WriteCell — renders a write tool call as a new-file view with added-line styling.
  */
 
-import { memo, useState } from "react";
 import {
   IconChevronDown,
   IconFilePlus,
   IconLoader2,
 } from "@tabler/icons-react";
+import { memo, useState } from "react";
+
 import { cn } from "../utils.js";
 
 export interface WriteCellMeta {

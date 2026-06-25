@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
+import { useComposerRuntime } from "@assistant-ui/react";
 import {
   IconPlus,
   IconUpload,
@@ -14,15 +13,22 @@ import {
   IconArrowLeft,
   IconX,
 } from "@tabler/icons-react";
-import { useComposerRuntime } from "@assistant-ui/react";
-import { cn } from "../utils.js";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
+
+import { setAgentChatContextItem } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useOrg } from "../org/hooks.js";
-import { agentNativePath } from "../api-path.js";
 import {
   formatMcpServerError,
   getMcpUrlValidationError,
@@ -30,13 +36,8 @@ import {
   testMcpServerUrl,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import { cn } from "../utils.js";
 import type { ComposerMode } from "./types.js";
-import { setAgentChatContextItem } from "../agent-chat.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;

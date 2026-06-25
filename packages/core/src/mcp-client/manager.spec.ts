@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   McpClientManager,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
-import { runWithRequestContext } from "../server/request-context.js";
 
 // Fake MCP Client + StdioClientTransport. These stand in for the real
 // @modelcontextprotocol/sdk exports via vi.mock below.

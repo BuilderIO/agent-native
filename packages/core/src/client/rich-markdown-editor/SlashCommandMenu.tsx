@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/react";
 import {
   useCallback,
   useEffect,
@@ -6,7 +7,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import type { Editor } from "@tiptap/react";
+
 import { cn } from "../utils.js";
 import { pickAndInsertImage, type ImageUploadFn } from "./ImageExtension.js";
 

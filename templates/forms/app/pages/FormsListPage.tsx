@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import {
+  VisibilityBadge,
+  callAction,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconPlus,
   IconDots,
@@ -13,30 +17,15 @@ import {
   IconChecks,
   IconX,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
-  VisibilityBadge,
-  callAction,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  useForms,
-  useCreateForm,
-  useDeleteForm,
-  useRestoreForm,
-  useUpdateForm,
-} from "@/hooks/use-forms";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,13 +36,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { toast } from "sonner";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useRestoreForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
 import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {

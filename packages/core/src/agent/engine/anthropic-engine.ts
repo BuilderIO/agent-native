@@ -8,12 +8,14 @@
  * All providerOptions.anthropic fields are forwarded directly to the SDK.
  */
 
-import type {
-  AgentEngine,
-  EngineCapabilities,
-  EngineStreamOptions,
-  EngineEvent,
-} from "./types.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -21,14 +23,12 @@ import {
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
 } from "./translate-anthropic.js";
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
-import {
-  LLM_MISSING_CREDENTIALS_ERROR_CODE,
-  LLM_MISSING_CREDENTIALS_MESSAGE,
-} from "./credential-errors.js";
-import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import type {
+  AgentEngine,
+  EngineCapabilities,
+  EngineStreamOptions,
+  EngineEvent,
+} from "./types.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,

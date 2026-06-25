@@ -519,11 +519,9 @@ export const messagesByLocale = {
       saved: "सेटिंग्स सहेजी गईं",
       saveFailed: "सेटिंग्स सहेजने में विफल",
       appearance: "रूप",
-      appearanceDescription:
-        "workspace के लिए color theme चुनें या agent से पूछें।",
+      appearanceDescription: "workspace के लिए color theme चुनें या agent से पूछें।",
       connectGoogleCalendar: "Google Calendar कनेक्ट करें",
-      connectGoogleDescription:
-        "events sync करें और सब कुछ एक जगह manage करें।",
+      connectGoogleDescription: "events sync करें और सब कुछ एक जगह manage करें।",
     },
   }),
   "ar-SA": mergeMessages({

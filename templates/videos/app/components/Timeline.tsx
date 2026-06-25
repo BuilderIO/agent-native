@@ -1,4 +1,3 @@
-import { useRef, useCallback, useState, useEffect } from "react";
 import {
   IconCamera,
   IconMouse,
@@ -6,8 +5,8 @@ import {
   IconTrash,
   IconRotate,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useRef, useCallback, useState, useEffect } from "react";
+
 import {
   AlertDialog,
   AlertDialogContent,
@@ -18,6 +17,13 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 import type { AnimationTrack, EasingKey } from "@/types";
 import {
   frameToViewPct,
@@ -25,11 +31,6 @@ import {
   pxDeltaToFrameDelta,
   clampFrame,
 } from "@/utils/timelineCoordinates";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 type DragMode = "move" | "resize-start" | "resize-end";
 

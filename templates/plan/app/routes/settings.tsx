@@ -1,10 +1,11 @@
-import { Link } from "react-router";
 import {
   ChangelogSettingsCard,
   LanguagePicker,
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { APP_TITLE } from "@/lib/app-config";
+
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
@@ -76,6 +78,26 @@ export default function SettingsRoute() {
         <CardContent>
           <Button variant="outline" onClick={() => openAgentSettings()}>
             {t("settings.openAgentSettings")}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.editorTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.editorDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" asChild>
+            <a
+              href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {t("settings.openEditorExtension")}
+            </a>
           </Button>
         </CardContent>
       </Card>

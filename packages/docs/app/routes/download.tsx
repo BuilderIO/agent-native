@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
 import { appBasePath, useT } from "@agent-native/core/client";
-import { trackEvent } from "../components/TemplateCard";
 import {
   IconAppWindow,
   IconBrandApple,
@@ -9,6 +7,9 @@ import {
   IconDownload,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { trackEvent } from "../components/TemplateCard";
 
 const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =

@@ -1,14 +1,15 @@
-/**
- * Verifies that the plan event-bus helper functions emit the expected events.
- * Uses subscribe() to intercept emissions — no DB or action runner required.
- */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   subscribe,
   unsubscribe,
   registerEvent,
 } from "@agent-native/core/event-bus";
+/**
+ * Verifies that the plan event-bus helper functions emit the expected events.
+ * Uses subscribe() to intercept emissions — no DB or action runner required.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+
 import {
   emitPlanCreated,
   emitPlanCommented,

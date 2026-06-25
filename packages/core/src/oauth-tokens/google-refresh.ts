@@ -11,8 +11,8 @@
  * server plugin (see `templates/mail/server/plugins/oauth-refresh.ts`).
  */
 
-import { listOAuthAccounts, saveOAuthTokens } from "./store.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
+import { listOAuthAccounts, saveOAuthTokens } from "./store.js";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 

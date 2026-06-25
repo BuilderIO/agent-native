@@ -1,5 +1,3 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   IconCamera,
   IconArrowsMove,
@@ -7,14 +5,17 @@ import {
   IconRotateClockwise2,
   IconPlus,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import type { AnimationTrack } from "@/types";
-import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { getPropValueKeyframed } from "@/remotion/trackAnimation";
+import type { AnimationTrack } from "@/types";
 
 interface CameraToolbarProps {
   currentFrame: number;

@@ -2,7 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
@@ -13,7 +16,6 @@ import {
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
-import { signEmbedSessionToken } from "../server/embed-session.js";
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -751,7 +753,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
-        dependencies: { "react-router": "^7.16.0" },
+        dependencies: { "react-router": "^8.0.1" },
       }),
     );
 
@@ -770,7 +772,7 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
-          "react-router": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -829,8 +831,7 @@ describe("local-core dev aliases and router dedupe", () => {
       path.join(tmpDir, "package.json"),
       JSON.stringify({
         dependencies: {
-          "react-router": "^7.16.0",
-          "react-router-dom": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -848,14 +849,12 @@ describe("local-core dev aliases and router dedupe", () => {
           entry instanceof RegExp &&
           entry.test("react-router") &&
           entry.test("react-router/dom") &&
-          !entry.test("react-router-dom"),
+          !entry.test("react-router-extra"),
       );
 
       expect(routerNoExternal).toBeDefined();
-      expect(noExternal).toContain("react-router-dom");
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
-      expect(external).not.toContain("react-router-dom");
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

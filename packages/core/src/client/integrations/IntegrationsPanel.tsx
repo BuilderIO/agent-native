@@ -1,4 +1,3 @@
-import React, { useState, useCallback, useEffect } from "react";
 import {
   IconPlus,
   IconBrandSlack,
@@ -13,10 +12,8 @@ import {
   IconExternalLink,
   IconCircleCheck,
 } from "@tabler/icons-react";
-import {
-  useIntegrationStatus,
-  type IntegrationStatus,
-} from "./useIntegrationStatus.js";
+import React, { useState, useCallback, useEffect } from "react";
+
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
@@ -24,6 +21,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import {
+  useIntegrationStatus,
+  type IntegrationStatus,
+} from "./useIntegrationStatus.js";
 
 // ─── Platform config ─────────────────────────────────────────────────────────
 

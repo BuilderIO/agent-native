@@ -1,19 +1,57 @@
 import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconCircleCheck,
+  IconDownload,
+  IconFolderOpen,
+  IconPencil,
+  IconInfoCircle,
+  IconRefresh,
+  IconTrash,
+  IconUpload,
+} from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import {
   type RefObject,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+
+import { FeedbackButton } from "./components/FeedbackButton";
+import {
+  CamIcon,
+  ClockIcon,
+  CloseIcon,
+  GoogleIcon,
+  LibraryIcon,
+  ScreenCamIcon,
+  ScreenIcon,
+  SettingsIcon,
+} from "./components/Icons";
+import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { ReadinessPanel } from "./components/ReadinessPanel";
+import { SourceRow, type CaptureSource } from "./components/SourceRow";
+import { Switch } from "./components/Switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { useMediaDevices } from "./hooks/useMediaDevices";
+import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
+import {
+  isHardCapturePermissionError,
+  MACOS_CAPTURE_PERMISSION_MESSAGE,
+  MACOS_SPEECH_PERMISSION_MESSAGE,
+} from "./lib/permissions";
+import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   discardBrowserRecordingBackup,
   exportBrowserRecordingBackup,
@@ -27,57 +65,20 @@ import {
   type RecorderStopResult,
 } from "./lib/recorder";
 import {
-  installDesktopVoiceDictation,
-  type VoiceMode,
-  type VoiceProvider,
-  type VoiceShortcutPreference,
-} from "./lib/voice-dictation";
-import { UpdateBanner } from "./components/UpdateBanner";
-import { FeedbackButton } from "./components/FeedbackButton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
-import { SourceRow, type CaptureSource } from "./components/SourceRow";
-import { MediaDeviceRow } from "./components/MediaDeviceRow";
-import { Switch } from "./components/Switch";
-import { ReadinessPanel } from "./components/ReadinessPanel";
-import {
-  CamIcon,
-  ClockIcon,
-  CloseIcon,
-  GoogleIcon,
-  LibraryIcon,
-  ScreenCamIcon,
-  ScreenIcon,
-  SettingsIcon,
-} from "./components/Icons";
-import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
-import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
-import { useMediaDevices } from "./hooks/useMediaDevices";
-import {
   loadBool,
   loadString,
   loadStringAllowEmpty,
   saveBool,
   saveString,
 } from "./lib/storage";
-import {
-  isHardCapturePermissionError,
-  MACOS_CAPTURE_PERMISSION_MESSAGE,
-  MACOS_SPEECH_PERMISSION_MESSAGE,
-} from "./lib/permissions";
 import { normalizeServerUrl } from "./lib/url";
-import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
-  IconAlertTriangle,
-  IconArrowLeft,
-  IconCircleCheck,
-  IconDownload,
-  IconFolderOpen,
-  IconPencil,
-  IconInfoCircle,
-  IconRefresh,
-  IconTrash,
-  IconUpload,
-} from "@tabler/icons-react";
+  installDesktopVoiceDictation,
+  type VoiceMode,
+  type VoiceProvider,
+  type VoiceShortcutPreference,
+} from "./lib/voice-dictation";
+import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 
 interface RecordingSummary {
   id: string;

@@ -159,7 +159,7 @@ Verwenden Sie `http: { method: "GET" }` oder `readOnly: true` für schreibgesch�
 
 ## Erstellen Sie das UI {#ui}
 
-Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v7. Fragen Sie Daten über actions- oder API-Handler ab und machen Sie Mutationen standardmäßig optimistisch.
+Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v8. Fragen Sie Daten über actions- oder API-Handler ab und machen Sie Mutationen standardmäßig optimistisch.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

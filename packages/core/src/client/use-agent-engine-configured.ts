@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { agentNativePath } from "./api-path.js";
+
 import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+import { agentNativePath } from "./api-path.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 

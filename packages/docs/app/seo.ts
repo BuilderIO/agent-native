@@ -1,4 +1,3 @@
-import type { MetaDescriptor } from "react-router";
 import {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -6,6 +5,7 @@ import {
   withAgentNativeSocialImageCacheBuster,
   withDefaultSocialImage as coreWithDefaultSocialImage,
 } from "@agent-native/core/shared";
+import type { MetaDescriptor } from "react-router";
 
 const SITE_URL = "https://www.agent-native.com";
 const DOCS_SOCIAL_IMAGE_ACCENT = "Agent-Native Docs";

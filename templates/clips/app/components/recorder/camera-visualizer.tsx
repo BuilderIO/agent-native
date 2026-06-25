@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   createBackgroundBlurStream,
   DEFAULT_BLUR_PX,
   type CameraBlurHandle,
 } from "@/lib/camera-blur";
+import { cn } from "@/lib/utils";
+
 import type { CameraBubbleSize } from "./camera-bubble";
 
 export type CameraTestStatus = "idle" | "starting" | "live" | "error";

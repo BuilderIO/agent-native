@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
+
 import type { DocumentTreeNode } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
+import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
 
 function readSidebarSource(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");

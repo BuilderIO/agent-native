@@ -1,5 +1,7 @@
-import * as jose from "jose";
 import { randomUUID } from "node:crypto";
+
+import * as jose from "jose";
+
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import {
   MCP_OAUTH_ACCESS_TOKEN_TTL,

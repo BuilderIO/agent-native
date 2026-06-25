@@ -15,6 +15,13 @@
  *   </CommandMenu>
  */
 
+import {
+  IconBook2,
+  IconExternalLink,
+  IconSearch,
+  IconMessage,
+  IconHistory,
+} from "@tabler/icons-react";
 import React, {
   createContext,
   useCallback,
@@ -25,17 +32,11 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
-import {
-  IconBook2,
-  IconExternalLink,
-  IconSearch,
-  IconMessage,
-  IconHistory,
-} from "@tabler/icons-react";
-import { sendToAgentChat } from "./agent-chat.js";
-import { cn } from "./utils.js";
-import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+
 import { parseChangelog } from "../changelog/parse.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import { cn } from "./utils.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
 

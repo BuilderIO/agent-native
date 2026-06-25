@@ -1,21 +1,22 @@
-import { agentNativePath, appPath } from "../api-path.js";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconBell,
   IconBellRinging,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import type {
+  Notification as NotificationDto,
+  NotificationSeverity,
+} from "../../notifications/types.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import type {
-  Notification as NotificationDto,
-  NotificationSeverity,
-} from "../../notifications/types.js";
+import { usePausingInterval } from "../use-pausing-interval.js";
 
 interface NotificationsBellProps {
   /** Poll interval in ms. Set to 0 to disable polling. Default: 10000. */

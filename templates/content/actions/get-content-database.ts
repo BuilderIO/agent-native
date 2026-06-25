@@ -2,12 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 import type {
   ContentDatabaseResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export default defineAction({
   description:

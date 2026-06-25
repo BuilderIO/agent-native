@@ -1,3 +1,4 @@
+import { IconChevronDown } from "@tabler/icons-react";
 import { forwardRef } from "react";
 import type {
   ComponentProps,
@@ -6,7 +7,7 @@ import type {
   ReactNode,
   TextareaHTMLAttributes,
 } from "react";
-import { IconChevronDown } from "@tabler/icons-react";
+
 import { cn } from "../../utils.js";
 
 /**

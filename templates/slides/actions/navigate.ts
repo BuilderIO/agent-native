@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({

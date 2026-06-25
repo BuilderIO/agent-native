@@ -1,14 +1,10 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router";
-import { compositions } from "@/remotion/registry";
-import { CompositionCard } from "@/components/CompositionCard";
-import { LibraryFolderRow } from "@/components/LibraryFolderRow";
-import { PropsEditor } from "@/components/PropsEditor";
-import { TrackPropertiesPanel } from "@/components/TrackPropertiesPanel";
-import { CompSettingsEditor } from "@/components/CompSettingsEditor";
-import { CameraControls } from "@/components/CameraControls";
-import { CursorControls } from "@/components/CursorControls";
-import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconAdjustmentsHorizontal,
   IconCamera,
@@ -23,25 +19,30 @@ import {
   IconUsers,
   IconFolderPlus,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef } from "react";
+import { Link, useLocation } from "react-router";
+
+import { CameraControls } from "@/components/CameraControls";
+import { CompositionCard } from "@/components/CompositionCard";
+import { CompSettingsEditor } from "@/components/CompSettingsEditor";
+import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import { CursorControls } from "@/components/CursorControls";
+import { LibraryFolderRow } from "@/components/LibraryFolderRow";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
+import { PropsEditor } from "@/components/PropsEditor";
+import { TrackPropertiesPanel } from "@/components/TrackPropertiesPanel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { useComposition } from "@/contexts/CompositionContext";
-import { useTimeline } from "@/contexts/TimelineContext";
-import { usePlayback } from "@/contexts/PlaybackContext";
-import { useFolders } from "@/hooks/use-folders";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  useT,
-} from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useComposition } from "@/contexts/CompositionContext";
+import { usePlayback } from "@/contexts/PlaybackContext";
+import { useTimeline } from "@/contexts/TimelineContext";
+import { useFolders } from "@/hooks/use-folders";
+import { cn } from "@/lib/utils";
+import { compositions } from "@/remotion/registry";
 
 type SidebarProps = {
   open: boolean;

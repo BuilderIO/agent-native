@@ -1,5 +1,5 @@
-import { createAgentChatPlugin } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
+import { createAgentChatPlugin } from "@agent-native/core/server";
 
 // Static action imports — ensures Nitro bundles them for serverless deployments
 // where filesystem-based discovery (autoDiscoverActions) is unavailable.

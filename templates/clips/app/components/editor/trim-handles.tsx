@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
+
 import { formatMs } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 export interface TrimHandlesProps {
   /** Total width of the track in px (matches the waveform's totalWidth). */

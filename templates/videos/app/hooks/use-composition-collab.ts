@@ -10,7 +10,6 @@
  * to the local state.
  */
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   agentNativePath,
   useCollaborativeDoc,
@@ -20,6 +19,7 @@ import {
   type CollabUser,
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 
 const TAB_ID = `videos-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 

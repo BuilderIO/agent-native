@@ -1,5 +1,9 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import {
+  appBasePath,
+  PromptComposer,
+  type CollabUser,
+  useAvatarUrl,
+} from "@agent-native/core/client";
 import {
   useSortable,
   SortableContext,
@@ -14,25 +18,22 @@ import {
   IconLoader2,
   IconSquarePlus,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
-import SlideRenderer from "@/components/deck/SlideRenderer";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useState, useRef, useEffect } from "react";
 import { useCallback } from "react";
-import {
-  appBasePath,
-  PromptComposer,
-  type CollabUser,
-  useAvatarUrl,
-} from "@agent-native/core/client";
+import { createPortal } from "react-dom";
+
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Slide } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { toast } from "@/hooks/use-toast";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {
   slides: Slide[];

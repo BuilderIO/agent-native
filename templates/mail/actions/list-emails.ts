@@ -1,6 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
+import { emailMessageMatchesSearch } from "@shared/search.js";
+import { z } from "zod";
+
+import {
+  buildGmailEmailSearchQuery,
+  filterInboxScopedThreadMessages,
+} from "../server/lib/gmail-query.js";
 import {
   getClients,
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
@@ -9,13 +16,7 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
-import {
-  buildGmailEmailSearchQuery,
-  filterInboxScopedThreadMessages,
-} from "../server/lib/gmail-query.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
-import { z } from "zod";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])

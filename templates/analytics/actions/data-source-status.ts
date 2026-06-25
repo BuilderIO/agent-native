@@ -11,11 +11,12 @@ import {
   type SerializedWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
-import { hasCredential } from "../server/lib/credentials";
+
 import {
   credentialProviderConfigs,
   resolveCredentialConfigs,
 } from "../server/lib/credential-keys";
+import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";

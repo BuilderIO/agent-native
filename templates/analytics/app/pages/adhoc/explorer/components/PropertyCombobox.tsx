@@ -1,8 +1,7 @@
-import { useState, useMemo } from "react";
 import { IconCheck, IconSelector } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Command,
   CommandEmpty,
@@ -16,6 +15,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
 import { KNOWN_PROPERTIES, ENRICHED_PROPERTY_MAP } from "../types";
 import { useDynamicProperties } from "../use-dynamic-schema";
 

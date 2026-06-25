@@ -3,15 +3,6 @@
 // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
 // by AssistantChatInner.
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import {
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
-} from "../agent-engine-key.js";
-import { cn } from "../utils.js";
-import { writeClipboardText } from "../clipboard.js";
-import { agentNativePath } from "../api-path.js";
 import {
   IconLoader2,
   IconCheck,
@@ -30,6 +21,16 @@ import {
   IconPlus,
   IconClipboardList,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
+import {
+  saveAgentEngineApiKey,
+  type AgentEngineProvider,
+} from "../agent-engine-key.js";
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { cn } from "../utils.js";
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
 

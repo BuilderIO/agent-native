@@ -1,11 +1,11 @@
 ---
 title: "Enrutamiento"
-description: "Enrutamiento basado en archivos para aplicaciones nativas del agente con React Router v7: páginas, parámetros dinámicos y navegación."
+description: "Enrutamiento basado en archivos para aplicaciones nativas del agente con React Router v8: páginas, parámetros dinámicos y navegación."
 ---
 
 # Enrutamiento
 
-Las aplicaciones nativas del agente utilizan **React Router v7** con enrutamiento basado en archivos a través de `flatRoutes()` desde `@react-router/fs-routes`. Cada archivo en `app/routes/` se convierte en un URL. Las plantillas utilizan la convención de notación de puntos: los puntos separan los segmentos URL dentro de un único nombre de archivo.
+Las aplicaciones nativas del agente utilizan **React Router v8** con enrutamiento basado en archivos a través de `flatRoutes()` desde `@react-router/fs-routes`. Cada archivo en `app/routes/` se convierte en un URL. Las plantillas utilizan la convención de notación de puntos: los puntos separan los segmentos URL dentro de un único nombre de archivo.
 
 ## Enrutamiento basado en archivos {#file-based-routing}
 

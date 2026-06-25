@@ -15,17 +15,18 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { writeAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
-import { writeAppState } from "@agent-native/core/application-state";
+import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
+import { booleanParam } from "./lib/cli-params.js";
+import { isAutoTitleReplaceable } from "./lib/title-source.js";
 import regenerateTitle, {
   queueTitleRegenerationRequest,
 } from "./regenerate-title.js";
-import { isAutoTitleReplaceable } from "./lib/title-source.js";
-import { booleanParam } from "./lib/cli-params.js";
-import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify(buildCaptionSegmentsFromText(fullText));

@@ -1,17 +1,18 @@
-import { useState } from "react";
-import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 import {
   IconX,
   IconChevronRight,
   IconAdjustmentsHorizontal,
   IconFileText,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 
 type ComponentPropsPanelProps = {
   component: LibraryComponentEntry;

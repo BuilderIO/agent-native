@@ -1,8 +1,10 @@
 import { Suspense, lazy, useEffect } from "react";
 import { useParams } from "react-router";
-import { dashboardComponents } from "./registry";
+
 import { incrementItemView } from "@/lib/item-popularity";
+
 import { DashboardSkeleton } from "./DashboardSkeleton";
+import { dashboardComponents } from "./registry";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 

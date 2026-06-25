@@ -7,6 +7,7 @@
  * that calls their own API (typically an action like `check-availability`).
  */
 import { useEffect, useState, useCallback } from "react";
+
 import type { Slot } from "../../shared/index.js";
 
 export interface UseSlotsOpts {

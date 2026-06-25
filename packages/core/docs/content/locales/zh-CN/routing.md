@@ -1,11 +1,11 @@
 ---
 title: "路由"
-description: "使用 React Router v7 为代理本机应用程序提供基于文件的路由 - 页面、动态参数和导航。"
+description: "使用 React Router v8 为代理本机应用程序提供基于文件的路由 - 页面、动态参数和导航。"
 ---
 
 # 路由
 
-代理本机应用程序使用 **React Router v7** 以及通过来自 `@react-router/fs-routes` 的 `flatRoutes()` 的基于文件的路由。 `app/routes/` 中的每个文件都会变成 URL。模板使用点符号约定 - 点在单个文件名内分隔 URL 段。
+代理本机应用程序使用 **React Router v8** 以及通过来自 `@react-router/fs-routes` 的 `flatRoutes()` 的基于文件的路由。 `app/routes/` 中的每个文件都会变成 URL。模板使用点符号约定 - 点在单个文件名内分隔 URL 段。
 
 ## 基于文件的路由 {#file-based-routing}
 

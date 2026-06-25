@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { resolveFilterVars } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
 

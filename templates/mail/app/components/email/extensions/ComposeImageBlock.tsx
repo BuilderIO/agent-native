@@ -1,8 +1,9 @@
+import { useT } from "@agent-native/core/client";
+import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useCallback } from "react";
-import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
+
 import { openFilePicker, uploadFile } from "@/lib/upload";
-import { useT } from "@agent-native/core/client";
 
 export function ComposeImageBlock({
   node,

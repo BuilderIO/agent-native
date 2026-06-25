@@ -2,6 +2,7 @@
 // MIT License
 
 import { Show, For, type Component } from "solid-js";
+
 import type { Pin } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 

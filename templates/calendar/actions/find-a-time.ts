@@ -5,13 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { getUserSetting, readSetting } from "@agent-native/core/settings";
 import { z } from "zod";
-import type {
-  CalendarEvent,
-  FindTimeBusyBlock,
-  FindTimeParticipant,
-  FindTimeResult,
-} from "../shared/api.js";
-import * as googleCalendar from "../server/lib/google-calendar.js";
+
 import { eventBlocksAvailability } from "../server/lib/calendar-availability.js";
 import {
   computeFindTimeSlots,
@@ -19,6 +13,13 @@ import {
   normalizeTimezone,
   resolveFindTimeRange,
 } from "../server/lib/find-time.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
+import type {
+  CalendarEvent,
+  FindTimeBusyBlock,
+  FindTimeParticipant,
+  FindTimeResult,
+} from "../shared/api.js";
 import { listCalendarEvents } from "./list-events.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

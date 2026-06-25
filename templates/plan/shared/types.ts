@@ -1,9 +1,9 @@
-import type { PlanContent } from "./plan-content.js";
 import {
   PLAN_COMMENT_RESOLUTION_TARGETS,
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "./comment-context.js";
+import type { PlanContent } from "./plan-content.js";
 
 export {
   PLAN_COMMENT_RESOLUTION_TARGETS,

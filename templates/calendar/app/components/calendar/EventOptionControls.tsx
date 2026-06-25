@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { GOOGLE_EVENT_COLOR_OPTIONS } from "@/lib/event-colors";
 import {
   createAttachmentDraft,
@@ -30,6 +30,7 @@ import {
   type ReminderDraft,
   type ReminderMode,
 } from "@/lib/event-form-utils";
+import { cn } from "@/lib/utils";
 
 const MAX_ATTACHMENT_UPLOAD_BYTES = 25 * 1024 * 1024;
 

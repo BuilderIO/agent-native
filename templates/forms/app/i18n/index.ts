@@ -1,5 +1,6 @@
-import enUS from "./en-US";
 import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+import enUS from "./en-US";
 
 export const i18nCatalog = {
   sourceLocale: "en-US",

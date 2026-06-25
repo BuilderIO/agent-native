@@ -1,4 +1,5 @@
 import { IconLock, IconPin, IconRotate2, IconX } from "@tabler/icons-react";
+
 import type { ContextManifestSegment } from "../../shared/context-xray.js";
 import {
   Tooltip,

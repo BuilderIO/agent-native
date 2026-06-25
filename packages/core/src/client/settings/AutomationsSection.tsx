@@ -1,5 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useState, useCallback } from "react";
 import {
   IconBolt,
   IconClock,
@@ -8,18 +6,21 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useState, useCallback } from "react";
+
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
 
 interface TreeNode {
   name: string;

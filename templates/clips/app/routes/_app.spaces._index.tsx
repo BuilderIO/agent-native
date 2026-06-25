@@ -1,11 +1,12 @@
-import { useState } from "react";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
-import { useSpaces, useOrganizations } from "@/hooks/use-library";
+import { useState } from "react";
+
+import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
 import { EmptyState } from "@/components/library/empty-state";
 import { PageHeader } from "@/components/library/page-header";
-import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
+import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
+import { Button } from "@/components/ui/button";
+import { useSpaces, useOrganizations } from "@/hooks/use-library";
 
 export function meta() {
   return [{ title: "Spaces · Clips" }];

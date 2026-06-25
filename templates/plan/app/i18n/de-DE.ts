@@ -34,6 +34,10 @@ const messages = {
     agentDescription:
       "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
     openAgentSettings: "Agent-Einstellungen öffnen",
+    editorTitle: "VS-Code-Erweiterung",
+    editorDescription:
+      "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",
+    openEditorExtension: "VS-Code-Erweiterung holen",
   },
   agent: {
     emptyState:

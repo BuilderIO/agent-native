@@ -1,13 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { IconChevronDown, IconCheck } from "@tabler/icons-react";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import {
   NodeViewContent,
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
-import { IconChevronDown, IconCheck } from "@tabler/icons-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+
 import { cn } from "@/lib/utils";
 
 const lowlight = createLowlight(common);

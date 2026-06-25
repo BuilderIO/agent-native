@@ -1,19 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  clipboard,
-  dialog,
-  globalShortcut,
-  ipcMain,
-  Menu,
-  Notification,
-  session,
-  shell,
-  webContents,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-  type WebContents,
-} from "electron";
+import fs from "fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -23,11 +8,34 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import { autoUpdater } from "electron-updater";
+
+import {
+  FRAME_PORT,
+  getDesktopTemplateGatewayAppUrl,
+  getTemplate,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
+import {
+  CODE_AGENTS_SURFACE_ID,
+  CODE_AGENT_GOALS,
+  DEFAULT_CODE_AGENT_PERMISSION_MODE,
+  getCodeAgentAppConfig,
+  getCodeAgentGoal,
+  getCodeAgentPermissionMode,
+  MIGRATION_APP_ID,
+  type CodeAgentPermissionMode,
+} from "@shared/code-agents";
+import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  shortcutOpenPathForBinding,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+} from "@shared/desktop-shortcuts";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -90,19 +98,28 @@ import {
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
-  formatDesktopShortcutAccelerator,
-  normalizeDesktopShortcutAccelerator,
-  shortcutOpenPathForBinding,
-  type DesktopShortcutBinding,
-  type DesktopShortcutRegistration,
-} from "@shared/desktop-shortcuts";
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  Notification,
+  session,
+  shell,
+  webContents,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from "electron";
+import { autoUpdater } from "electron-updater";
+
 import {
-  FRAME_PORT,
-  getDesktopTemplateGatewayAppUrl,
-  getTemplate,
-  isDefaultDesktopTemplateDevTarget,
-} from "@shared/app-registry";
-import type { AppConfig } from "@shared/app-registry";
+  AI_SDK_MODEL_CONFIG,
+  ANTHROPIC_MODEL_CONFIG,
+  BUILDER_MODEL_CONFIG,
+} from "../../../core/src/agent/model-config.js";
 import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
@@ -110,21 +127,6 @@ import {
   type BackgroundAgentRun,
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
-import {
-  AI_SDK_MODEL_CONFIG,
-  ANTHROPIC_MODEL_CONFIG,
-  BUILDER_MODEL_CONFIG,
-} from "../../../core/src/agent/model-config.js";
-import {
-  CODE_AGENTS_SURFACE_ID,
-  CODE_AGENT_GOALS,
-  DEFAULT_CODE_AGENT_PERMISSION_MODE,
-  getCodeAgentAppConfig,
-  getCodeAgentGoal,
-  getCodeAgentPermissionMode,
-  MIGRATION_APP_ID,
-  type CodeAgentPermissionMode,
-} from "@shared/code-agents";
 import * as AppStore from "./app-store";
 
 // ---------- stdout/stderr pipe resilience ----------
@@ -287,7 +289,7 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
 
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
-  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
+  // (e.g. when the concurrent `@agent-native/core` tsgo --watch under
   // dev:lazy:desktop rewrites bundled output). A single-instance lock would
   // make the relaunched instance race the still-dying one for the lock, lose,
   // and app.quit() — leaving the killed instance's dead Dock tile behind.

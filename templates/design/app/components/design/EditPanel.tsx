@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
 import { IconPointer } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useEffect, useState } from "react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -12,6 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
+
 import type { ElementInfo } from "./types";
 
 interface EditPanelProps {

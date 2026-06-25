@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  appPath,
+  FeedbackButton,
+  navigateWithAgentChatViewTransition,
+  useChatThreads,
+  useT,
+  type ChatThreadSummary,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconActivity,
   IconArchive,
@@ -13,19 +21,10 @@ import {
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import {
-  appPath,
-  FeedbackButton,
-  navigateWithAgentChatViewTransition,
-  useChatThreads,
-  useT,
-  type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import { cn } from "@/lib/utils";
-import { APP_TITLE } from "@/lib/app-config";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +37,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { APP_TITLE } from "@/lib/app-config";
+import { cn } from "@/lib/utils";
 
 const navItems = [
   {

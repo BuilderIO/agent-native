@@ -21,22 +21,23 @@
  */
 
 import { createHash } from "node:crypto";
+
+import type { SecretScope } from "../secrets/register.js";
 import {
-  getUserSetting,
-  putUserSetting,
-  deleteUserSetting,
-} from "../settings/user-settings.js";
+  writeAppSecret,
+  readAppSecret,
+  deleteAppSecret,
+} from "../secrets/storage.js";
 import {
   getOrgSetting,
   putOrgSetting,
   deleteOrgSetting,
 } from "../settings/org-settings.js";
 import {
-  writeAppSecret,
-  readAppSecret,
-  deleteAppSecret,
-} from "../secrets/storage.js";
-import type { SecretScope } from "../secrets/register.js";
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";

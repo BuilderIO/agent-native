@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
+
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+
 import {
   buildRegistrySlashItems,
   seedRegistryBlockRaw,

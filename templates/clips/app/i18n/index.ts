@@ -1,9 +1,10 @@
-import enUS from "./en-US";
 import type {
   AgentNativeI18nCatalog,
   LocaleCode,
   LocaleMessages,
 } from "@agent-native/core/client";
+
+import enUS from "./en-US";
 
 export async function loadI18nMessages(
   locale: LocaleCode,

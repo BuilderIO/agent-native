@@ -18,8 +18,6 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
-import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -27,19 +25,21 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import {
-  getRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "../server/request-context.js";
+import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
 } from "../server/deep-link.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -50,7 +50,7 @@ import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
-import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,

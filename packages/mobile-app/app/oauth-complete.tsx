@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";

@@ -1,8 +1,3 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
   AppProviders,
   appPath,
@@ -11,15 +6,23 @@ import {
   getThemeInitScript,
   useDbSync,
 } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import type { LinksFunction } from "react-router";
+
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { TAB_ID } from "@/lib/tab-id";
+
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
-import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
-import { TAB_ID } from "@/lib/tab-id";
-import { configureTracking } from "@agent-native/core/client";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,

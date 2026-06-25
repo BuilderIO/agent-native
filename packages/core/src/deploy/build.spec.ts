@@ -1,7 +1,14 @@
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+} from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
   copyDir,
@@ -16,11 +23,6 @@ import {
   runNitroBuildPipeline,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
-import {
-  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
-  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
-} from "../shared/social-meta.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =

@@ -47,6 +47,11 @@ export interface SearchEntry {
   keywords: string;
 }
 
+interface MarkdownLine {
+  lineNumber: number;
+  text: string;
+}
+
 function parseFrontmatter(raw: string): {
   data: Record<string, string>;
   body: string;
@@ -62,13 +67,33 @@ function parseFrontmatter(raw: string): {
   return { data, body: match[2] };
 }
 
+function nonFencedMarkdownLines(body: string): MarkdownLine[] {
+  const lines = body.split("\n");
+  const result: MarkdownLine[] = [];
+  let inFence = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const text = lines[index];
+    if (/^\s*(?:```|~~~)/.test(text)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) {
+      result.push({ lineNumber: index + 1, text });
+    }
+  }
+
+  return result;
+}
+
 function extractHeadings(
   body: string,
 ): { id: string; label: string; level: number }[] {
   const headings: { id: string; label: string; level: number }[] = [];
-  const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/gm;
-  let match;
-  while ((match = pattern.exec(body)) !== null) {
+  const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/;
+  for (const line of nonFencedMarkdownLines(body)) {
+    const match = line.text.match(pattern);
+    if (!match) continue;
     const level = match[1].length; // 2, 3, or 4
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
     const id =
@@ -211,12 +236,13 @@ function buildSearchIndexFromDocs(
 
   for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
-    const lines = doc.body.split("\n");
+    const lines = nonFencedMarkdownLines(doc.body);
+    const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
     // Find all h2/h3 headings
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
+    for (const line of lines) {
+      const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
         const label = m[2].replace(/`([^`]+)`/g, "$1").trim();
         const id =
@@ -225,16 +251,19 @@ function buildSearchIndexFromDocs(
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-|-$/g, "");
-        sections.push({ id, label, startLine: i + 1 });
+        sections.push({ id, label, startLine: line.lineNumber });
       }
     }
 
     // Add a page-level entry for the title + intro text (before first h2/h3)
     const introEndLine =
-      sections.length > 0 ? sections[0].startLine - 1 : lines.length;
+      sections.length > 0 ? sections[0].startLine - 1 : lastLineNumber;
     const introText = lines
-      .slice(0, introEndLine)
-      .filter((l) => !l.startsWith("```") && !l.startsWith("#"))
+      .filter(
+        (line) => line.lineNumber <= introEndLine, // i18n-ignore -- source-index field, not visible copy.
+      )
+      .map((line) => line.text)
+      .filter((l) => !l.startsWith("#"))
       .join(" ")
       .replace(/[`*_\[\](){}]/g, "")
       .replace(/\s+/g, " ")
@@ -258,10 +287,16 @@ function buildSearchIndexFromDocs(
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       const endLine =
-        i + 1 < sections.length ? sections[i + 1].startLine - 1 : lines.length;
+        i + 1 < sections.length
+          ? sections[i + 1].startLine - 1
+          : lastLineNumber;
       const text = lines
-        .slice(section.startLine, endLine)
-        .filter((l) => !l.startsWith("```") && !l.startsWith("#"))
+        .filter(
+          (line) =>
+            line.lineNumber >= section.startLine && line.lineNumber <= endLine,
+        )
+        .map((line) => line.text)
+        .filter((l) => !l.startsWith("#"))
         .join(" ")
         .replace(/[`*_\[\](){}]/g, "")
         .replace(/\s+/g, " ")

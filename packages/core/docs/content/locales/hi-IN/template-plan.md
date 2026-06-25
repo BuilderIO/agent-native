@@ -119,7 +119,7 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ### वीएस कोड के अंदर योजनाएं खोलें {#vscode-extension}
 
 यदि आप वीएस कोड में रहते हैं, तो इंस्टॉल करें
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 आपको भेजने के बजाय साइड पैनल में उसी योजना समीक्षा सतह को खोलने के लिए
 अलग ब्राउज़र टैब। योजना उपकरण अभी भी सामान्य वेब लिंक और MCP
 मेटाडेटा में VS कोड हैंडऑफ़ URL भी शामिल है:

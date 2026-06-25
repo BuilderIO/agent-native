@@ -1,6 +1,3 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   IconLoader2,
   IconCheck,
@@ -10,8 +7,12 @@ import {
   IconPlayerStop,
   IconSubtask,
 } from "@tabler/icons-react";
-import { cn } from "./utils.js";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import { agentNativePath } from "./api-path.js";
+import { cn } from "./utils.js";
 
 export interface AgentTaskCardProps {
   taskId: string;

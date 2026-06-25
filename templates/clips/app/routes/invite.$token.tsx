@@ -1,10 +1,9 @@
+import { callAction, useSession } from "@agent-native/core/client";
+import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { callAction, useSession } from "@agent-native/core/client";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function meta() {
   return [{ title: "Join team · Clips" }];

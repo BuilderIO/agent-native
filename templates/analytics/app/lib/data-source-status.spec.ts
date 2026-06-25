@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dataSources } from "./data-sources";
+
 import { isSourceConfigured } from "./data-source-status";
+import { dataSources } from "./data-sources";
 
 describe("data source status", () => {
   it("does not require the optional BigQuery app events alias", () => {

@@ -1,7 +1,12 @@
+import { useActionMutation, useT } from "@agent-native/core/client";
+import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+
+import { EmptyState } from "@/components/library/empty-state";
+import { PageHeader } from "@/components/library/page-header";
+import { RecordingCard } from "@/components/library/recording-card";
+import { SortMenu, type SortKey } from "@/components/library/sort-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,12 +17,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RecordingCard } from "@/components/library/recording-card";
-import { EmptyState } from "@/components/library/empty-state";
-import { SortMenu, type SortKey } from "@/components/library/sort-menu";
-import { PageHeader } from "@/components/library/page-header";
+import { Button } from "@/components/ui/button";
 import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
-import { useActionMutation, useT } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Trash · Clips" }];

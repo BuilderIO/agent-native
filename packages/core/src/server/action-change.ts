@@ -5,8 +5,8 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { appStatePut } from "../application-state/store.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 import { recordChange } from "./poll.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export interface NotifyActionChangeOptions {
   actionName: string;

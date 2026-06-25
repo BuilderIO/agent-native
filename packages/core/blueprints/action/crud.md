@@ -89,7 +89,7 @@ Read the `actions` skill. The rules that matter most here:
 
 ## Verify
 
-1. `agent-native typecheck` (or `tsc --noEmit`) passes.
+1. `agent-native typecheck` (or `tsgo --noEmit`) passes.
 2. From the agent chat, invoke the new action and confirm structured
    input/output.
 3. From the UI, confirm the `useActionQuery` / `useActionMutation` path works and

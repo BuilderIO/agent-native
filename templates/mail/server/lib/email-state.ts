@@ -1,3 +1,9 @@
+import {
+  getOAuthTokens,
+  listOAuthAccountsByOwner,
+  saveOAuthTokens,
+} from "@agent-native/core/oauth-tokens";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 /**
  * Shared server functions for email state-change operations.
  *
@@ -7,12 +13,7 @@
  * notes inline.
  */
 import type { EmailMessage, Label } from "@shared/types.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import {
-  getOAuthTokens,
-  listOAuthAccountsByOwner,
-  saveOAuthTokens,
-} from "@agent-native/core/oauth-tokens";
+
 import {
   createOAuth2Client,
   gmailGetMessage,

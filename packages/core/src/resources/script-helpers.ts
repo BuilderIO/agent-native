@@ -6,6 +6,7 @@
  * require a real identity; there is no dev-mode fallback.
  */
 
+import { getRequestUserEmail } from "../server/request-context.js";
 import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
@@ -21,7 +22,6 @@ import {
   type ResourceVisibility,
   type ResourceCreatedBy,
 } from "./store.js";
-import { getRequestUserEmail } from "../server/request-context.js";
 
 type ResourceHelperScope = "personal" | "shared" | "workspace";
 

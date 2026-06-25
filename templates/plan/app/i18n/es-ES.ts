@@ -34,6 +34,10 @@ const messages = {
     agentDescription:
       "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Abrir ajustes del agente",
+    editorTitle: "Extensión de VS Code",
+    editorDescription:
+      "Abre y revisa los planes en un panel lateral dentro de VS Code en lugar de una pestaña aparte del navegador.",
+    openEditorExtension: "Obtener la extensión de VS Code",
   },
   agent: {
     emptyState:

@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
@@ -8,11 +10,29 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import { cn } from "@/lib/utils";
-import { EmailListItem } from "./EmailListItem";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useEmails,
   useMarkRead,
@@ -26,34 +46,16 @@ import {
   useMoveEmail,
   unsuppressThread,
 } from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useDeleteScheduledJob,
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { Spinner } from "@/components/ui/spinner";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import type { EmailMessage } from "@shared/types";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { cn } from "@/lib/utils";
+
+import { EmailListItem } from "./EmailListItem";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -61,8 +63,9 @@ type SnoozeTarget = {
   emailId: string;
   accountEmail?: string;
 };
-import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
+
+import { setUndoAction } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {

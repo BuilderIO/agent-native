@@ -1,5 +1,3 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
@@ -26,30 +24,15 @@ import {
   IconVideo,
   IconWebhook,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
+
 import {
-  type BrainConnectionProvider,
-  type BrainHealthResponse,
-  type BrainCaptureReviewStatus,
-  type BrainCaptureReviewItem,
-  type EnqueueCapturesDistillationResponse,
-  type CapturesResponse,
-  type BrainSource,
-  type BrainWorkspaceConnectionGrantState,
-  type BrainWorkspaceConnectionStatus,
-  type BrainWorkspaceCredentialRef,
-  type ConnectionProvidersResponse,
-  type SourcesResponse,
-  formatPercent,
-  sourceAutoSync,
-  sourceDescription,
-  sourceEnabled,
-  sourceHealth,
-  sourceLastSync,
-  sourceName,
-  sourceRetryAfter,
-  sourceReviewRequired,
-  sourceType,
-} from "@/lib/brain";
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -80,11 +63,29 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type BrainConnectionProvider,
+  type BrainHealthResponse,
+  type BrainCaptureReviewStatus,
+  type BrainCaptureReviewItem,
+  type EnqueueCapturesDistillationResponse,
+  type CapturesResponse,
+  type BrainSource,
+  type BrainWorkspaceConnectionGrantState,
+  type BrainWorkspaceConnectionStatus,
+  type BrainWorkspaceCredentialRef,
+  type ConnectionProvidersResponse,
+  type SourcesResponse,
+  formatPercent,
+  sourceAutoSync,
+  sourceDescription,
+  sourceEnabled,
+  sourceHealth,
+  sourceLastSync,
+  sourceName,
+  sourceRetryAfter,
+  sourceReviewRequired,
+  sourceType,
+} from "@/lib/brain";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
@@ -1661,8 +1662,9 @@ export default function SourcesRoute() {
     { captureId: string; status: "ignored" }
   >("mark-capture-distilled" as any);
 
-  const sources = sourcesQuery.data?.sources ?? [];
-  const connectionProviders = connectionProvidersQuery.data?.providers ?? [];
+  const sources: BrainSource[] = sourcesQuery.data?.sources ?? [];
+  const connectionProviders: BrainConnectionProvider[] =
+    connectionProvidersQuery.data?.providers ?? [];
   const formProviderMetadata = providerMetadataForSource(
     connectionProviders,
     form.provider,
@@ -1680,7 +1682,7 @@ export default function SourcesRoute() {
   const selectedWorkspaceConnection = formWorkspaceConnections.find(
     (connection) => connection.id === form.workspaceConnectionId,
   );
-  const captures = capturesQuery.data?.captures ?? [];
+  const captures: BrainCaptureReviewItem[] = capturesQuery.data?.captures ?? [];
   const queueableCaptures = captures.filter(captureCanQueue);
   const queueableCaptureIds = new Set(
     queueableCaptures.map((capture) => capture.id),

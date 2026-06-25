@@ -1,14 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
   IconMaximize,
   IconPencil,
+  IconRefresh,
   IconTrash,
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,27 +42,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
-import { ViewSqlPopover } from "./ViewSqlPopover";
+
 import type { SqlPanel } from "./types";
+import { ViewSqlPopover } from "./ViewSqlPopover";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -62,18 +65,19 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
 }: SqlChartCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const { t } = useTranslation();
+  const canDrag = editable && panel.chartType !== "section";
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
+    useDraggable({ id: panel.id, disabled: !canDrag });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
+  const [refreshChart, setRefreshChart] = useState<
+    (() => Promise<void>) | null
+  >(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sqlPopoverOpen, setSqlPopoverOpen] = useState(false);
   const [shouldLoadData, setShouldLoadData] = useState(
     panel.chartType === "section",
   );
@@ -90,6 +94,16 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+  const handleRefreshChange = useCallback(
+    (handler: (() => Promise<void>) | null) => {
+      setRefreshChart(() => handler);
+    },
+    [],
+  );
+  const handleRefresh = useCallback(() => {
+    setShouldLoadData(true);
+    void refreshChart?.();
+  }, [refreshChart]);
 
   useEffect(() => {
     if (panel.chartType === "section") {
@@ -122,13 +136,13 @@ export function SqlChartCard({
 
   useEffect(() => {
     setExportCsv(null);
+    setRefreshChart(null);
+    setIsRefreshing(false);
+    setSqlPopoverOpen(false);
   }, [panel.id]);
 
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
+    opacity: isDragging ? 0.45 : 1,
   };
 
   // Section panels render as a flush header row (no card chrome, full width)
@@ -178,19 +192,22 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
-              </Tooltip>
+              {canDrag ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      ref={setActivatorNodeRef}
+                      className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                      aria-label="Drag to reorder"
+                      {...attributes}
+                      {...listeners}
+                    >
+                      <IconGripVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Drag to reorder</TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -241,26 +258,50 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <div
+            className={`flex items-center gap-1 ${
+              sqlPopoverOpen
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            }`}
+          >
             {showPanelMenu ? (
-              <DropdownMenu>
+              <DropdownMenu modal={false}>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="p-1 rounded text-muted-foreground hover:text-foreground"
-                        aria-label="Panel options"
-                      >
-                        <IconDotsVertical className="h-3.5 w-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                  </TooltipTrigger>
+                  <ViewSqlPopover
+                    panel={panel}
+                    resolvedSql={resolvedSql}
+                    onSaveSql={onSaveSql}
+                    editable={editable}
+                    open={sqlPopoverOpen}
+                    onOpenChange={setSqlPopoverOpen}
+                    triggerMode="anchor"
+                  >
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="p-1 rounded text-muted-foreground hover:text-foreground"
+                          aria-label="Panel options"
+                        >
+                          <IconDotsVertical className="h-3.5 w-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                  </ViewSqlPopover>
                   <TooltipContent>Panel options</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
                     Full screen
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleRefresh}>
+                    <IconRefresh
+                      className={`h-4 w-4 mr-2 ${
+                        isRefreshing ? "animate-spin" : ""
+                      }`}
+                    />
+                    {isRefreshing ? "Refreshing..." : "Refresh"}
                   </DropdownMenuItem>
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
@@ -277,23 +318,17 @@ export function SqlChartCard({
                   {editable && panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
-                  {editable && onSaveSql ? (
-                    <ViewSqlPopover
-                      panel={panel}
-                      resolvedSql={resolvedSql}
-                      onSaveSql={onSaveSql}
-                    >
-                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                        <IconCode className="h-4 w-4 mr-2" />
-                        View SQL
-                      </DropdownMenuItem>
-                    </ViewSqlPopover>
+                  {editable || onSaveSql ? (
+                    <DropdownMenuItem onSelect={() => setSqlPopoverOpen(true)}>
+                      <IconCode className="h-4 w-4 mr-2" />
+                      {editable && onSaveSql ? "Edit SQL" : "View SQL"}
+                    </DropdownMenuItem>
                   ) : null}
                   {editable ? <DropdownMenuSeparator /> : null}
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("dashboard.panelSettings")}
                     </DropdownMenuItem>
                   )}
                   {editable ? (
@@ -310,10 +345,11 @@ export function SqlChartCard({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-            {editable ? (
+            {canDrag ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    ref={setActivatorNodeRef}
                     className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
                     aria-label="Drag to reorder"
                     {...attributes}
@@ -333,6 +369,8 @@ export function SqlChartCard({
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
             onExportCsvChange={handleExportCsvChange}
+            onRefreshChange={handleRefreshChange}
+            onRefreshingChange={setIsRefreshing}
           />
         </CardContent>
       </Card>

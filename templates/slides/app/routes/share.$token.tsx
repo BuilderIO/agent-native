@@ -1,7 +1,8 @@
-import SharedPresentation from "@/pages/SharedPresentation";
 import type { SharedDeckResponse } from "@shared/api";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
+
+import SharedPresentation from "@/pages/SharedPresentation";
 
 type LoaderData =
   | { deck: SharedDeckResponse; error?: undefined }
@@ -22,7 +23,7 @@ function appBasePathForRequest(): string {
 
 export async function loader({
   params,
-  request,
+  url: requestUrl,
 }: LoaderFunctionArgs): Promise<LoaderData> {
   if (!params.token) {
     return { deck: null, error: "Token is required" };
@@ -30,7 +31,7 @@ export async function loader({
 
   const url = new URL(
     `${appBasePathForRequest()}/api/share/${params.token}`,
-    request.url,
+    requestUrl,
   );
   const res = await fetch(url, { headers: { accept: "application/json" } });
   const data = await res.json().catch(() => null);

@@ -1,11 +1,11 @@
 ---
 title: "Routage"
-description: "Routage basé sur des fichiers pour les applications natives d'agent avec React Router v7 : pages, paramètres dynamiques et navigation."
+description: "Routage basé sur des fichiers pour les applications natives d'agent avec React Router v8 : pages, paramètres dynamiques et navigation."
 ---
 
 # Routage
 
-Les applications natives d'agent utilisent le **routeur React v7** avec un routage basé sur des fichiers via `flatRoutes()` à partir de `@react-router/fs-routes`. Chaque fichier de `app/routes/` devient un URL. Les modèles utilisent la convention de notation par points : des points séparent les segments URL à l'intérieur d'un seul nom de fichier.
+Les applications natives d'agent utilisent le **routeur React v8** avec un routage basé sur des fichiers via `flatRoutes()` à partir de `@react-router/fs-routes`. Chaque fichier de `app/routes/` devient un URL. Les modèles utilisent la convention de notation par points : des points séparent les segments URL à l'intérieur d'un seul nom de fichier.
 
 ## Routage basé sur des fichiers {#file-based-routing}
 

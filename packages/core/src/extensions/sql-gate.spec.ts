@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   DESTRUCTIVE_SQL_RE,
   SENSITIVE_SQL_RE,

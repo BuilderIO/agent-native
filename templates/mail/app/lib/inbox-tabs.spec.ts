@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { EmailMessage } from "@shared/types";
+import { describe, expect, it } from "vitest";
+
 import { augmentSelfSentLabels, filterInboxTabEmails } from "./inbox-tabs";
 
 const self = { name: "Steve", email: "steve@builder.io" };

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   clearDemoQueryCache,
   DEFAULT_DEMO_PROMETHEUS_URL,

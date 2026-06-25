@@ -1,4 +1,3 @@
-import { useState, useRef } from "react";
 import {
   IconChevronRight,
   IconFolder,
@@ -7,15 +6,17 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useState, useRef } from "react";
+
 import { CompositionCard } from "@/components/CompositionCard";
-import type { CompositionEntry } from "@/remotion/registry";
-import type { VideoFolder } from "@/hooks/use-folders";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VideoFolder } from "@/hooks/use-folders";
+import { cn } from "@/lib/utils";
+import type { CompositionEntry } from "@/remotion/registry";
 
 type LibraryFolderRowProps = {
   folder: VideoFolder;

@@ -1,11 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 import { createAgentNativeEmbeddedPlugin } from "./embedded.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),

@@ -1,5 +1,6 @@
 import { createApp, createRouter, defineEventHandler } from "h3";
 import { describe, expect, it } from "vitest";
+
 import { createCsrfMiddleware } from "./csrf.js";
 
 const PATH = "/_agent-native/actions/do-thing";

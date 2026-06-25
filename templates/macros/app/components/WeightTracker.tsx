@@ -1,16 +1,18 @@
-import { useState } from "react";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import type { Weight } from "@shared/types";
 import { IconScale } from "@tabler/icons-react";
-import { formatLocalDate } from "@/lib/utils";
-import { AddWeightDialog } from "./AddWeightDialog";
-import { WeightCard } from "./WeightCard";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   isOptimisticLogRow,
   useOptimisticLogRows,
 } from "@/hooks/use-optimistic-log-rows";
-import { toast } from "sonner";
-import type { Weight } from "@shared/types";
+import { formatLocalDate } from "@/lib/utils";
+
+import { AddWeightDialog } from "./AddWeightDialog";
+import { WeightCard } from "./WeightCard";
 
 interface WeightTrackerProps {
   currentDate: Date;

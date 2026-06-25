@@ -12,6 +12,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+
 import {
   escapeHtml,
   normalizeOrigin,
@@ -1407,7 +1408,7 @@ startBackgroundProcess("core", "pnpm", [
   "--filter",
   "@agent-native/core",
   "exec",
-  "tsc",
+  "tsgo",
   "--watch",
   "--preserveWatchOutput",
 ]);

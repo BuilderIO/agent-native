@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+
 import type { VideoPlayerHandle } from "@/components/player/video-player";
 import {
   parsePlaybackSpeed,

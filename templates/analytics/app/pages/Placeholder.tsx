@@ -1,6 +1,7 @@
-import { Button } from "@/components/ui/button";
-import { Link, useLocation } from "react-router";
 import { IconBarrierBlock } from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
+
+import { Button } from "@/components/ui/button";
 
 export default function Placeholder() {
   const location = useLocation();

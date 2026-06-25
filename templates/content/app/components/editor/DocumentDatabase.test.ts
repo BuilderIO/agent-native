@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -12,6 +11,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   addDatabaseView,
   appendDatabaseFilter,

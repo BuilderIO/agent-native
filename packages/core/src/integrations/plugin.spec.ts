@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PlatformAdapter } from "./types.js";
+
 import { createIntegrationsPlugin } from "./plugin.js";
+import type { PlatformAdapter } from "./types.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getIntegrationConfigMock = vi.hoisted(() =>

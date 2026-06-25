@@ -1,18 +1,19 @@
+import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
+
+import { getUserSegmentation, queryEvents } from "../lib/amplitude";
+import { runQuery } from "../lib/bigquery";
 import {
   requireCredential,
   runApiHandlerWithContext,
 } from "../lib/credentials";
-import { runQuery } from "../lib/bigquery";
-import { runReport } from "../lib/google-analytics";
-import { getUserSegmentation, queryEvents } from "../lib/amplitude";
-import { readBody } from "@agent-native/core/server";
+import { runDemoPanel, serializeDemoDescriptorInput } from "../lib/demo-source";
 import { queryFirstPartyAnalytics } from "../lib/first-party-analytics";
+import { runReport } from "../lib/google-analytics";
 import {
   runPrometheusPanel,
   serializePanelDescriptorInput,
 } from "../lib/prometheus";
-import { runDemoPanel, serializeDemoDescriptorInput } from "../lib/demo-source";
 
 /**
  * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.

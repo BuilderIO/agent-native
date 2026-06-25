@@ -1,3 +1,5 @@
+import { getSession } from "@agent-native/core/server";
+import { and, eq, isNull } from "drizzle-orm";
 /**
  * Guest-plan claim middleware — the server half of "sign in to keep your work".
  *
@@ -20,8 +22,7 @@
  * identity, so concurrent requests and repeats are safe.
  */
 import { defineEventHandler } from "h3";
-import { and, eq, isNull } from "drizzle-orm";
-import { getSession } from "@agent-native/core/server";
+
 import { getDb, schema } from "../db/index.js";
 import {
   clearGuestAuthorCookie,

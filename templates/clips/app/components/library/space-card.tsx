@@ -1,5 +1,6 @@
-import { useNavigate } from "react-router";
 import { IconUsersGroup, IconVideo } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
+
 import { cn } from "@/lib/utils";
 
 export interface SpaceCardData {

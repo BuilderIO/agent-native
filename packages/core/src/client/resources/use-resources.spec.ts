@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+
+import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 import {
   withAgentScratchFolder,
   withMcpServersFolder,
   type TreeNode,
 } from "./use-resources.js";
-import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 
 function fileNode(
   path: string,

@@ -13,6 +13,7 @@
  *     `onNavigate(table)` then DELETEs the key so it fires exactly once.
  */
 import { useEffect, useRef } from "react";
+
 import { agentNativePath } from "../api-path.js";
 
 const NAVIGATION_PATH = agentNativePath(

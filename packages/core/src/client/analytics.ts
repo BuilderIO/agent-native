@@ -1,10 +1,11 @@
 import * as amplitude from "@amplitude/analytics-browser";
 import * as Sentry from "@sentry/browser";
-import { agentNativePath } from "./api-path.js";
+
 import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { agentNativePath } from "./api-path.js";
 import { scrubUrl } from "./url-scrub.js";
 export { scrubUrl } from "./url-scrub.js";
 

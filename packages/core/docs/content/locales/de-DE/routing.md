@@ -1,11 +1,11 @@
 ---
 title: "Routing"
-description: "Dateibasiertes Routing für agentennative Apps mit React Router v7 – Seiten, dynamische Parameter und Navigation."
+description: "Dateibasiertes Routing für agentennative Apps mit React Router v8 – Seiten, dynamische Parameter und Navigation."
 ---
 
 # Routing
 
-Agent-native Apps verwenden **React Router v7** mit dateibasiertem Routing über `flatRoutes()` von `@react-router/fs-routes`. Jede Datei in `app/routes/` wird zu einem URL. Vorlagen verwenden die Punktnotationskonvention – Punkte trennen URL-Segmente innerhalb eines einzelnen Dateinamens.
+Agent-native Apps verwenden **React Router v8** mit dateibasiertem Routing über `flatRoutes()` von `@react-router/fs-routes`. Jede Datei in `app/routes/` wird zu einem URL. Vorlagen verwenden die Punktnotationskonvention – Punkte trennen URL-Segmente innerhalb eines einzelnen Dateinamens.
 
 ## Dateibasiertes Routing {#file-based-routing}
 

@@ -1,3 +1,4 @@
+import { runAuthGuard } from "@agent-native/core/server";
 /**
  * Global auth middleware — runs for ALL requests (page routes, API routes,
  * framework routes). The auth plugin configures the guard; this middleware
@@ -8,9 +9,9 @@
  * Page routes (/, /settings) and API routes (/api/*) would bypass auth.
  */
 import { defineEventHandler } from "h3";
-import { runAuthGuard } from "@agent-native/core/server";
-import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
+
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
+import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
 const PUBLIC_PLAN_REVIEW_ACTIONS: ReadonlySet<string> = new Set(
   PUBLIC_PLAN_ACTION_PATHS,

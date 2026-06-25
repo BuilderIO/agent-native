@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { getQuery, type H3Event } from "h3";
+
+import { writeAppSecret } from "@agent-native/core/secrets";
 import {
   getSession,
   oauthCallbackResponse,
@@ -8,10 +8,12 @@ import {
   type OAuthStatePayload,
 } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { writeAppSecret } from "@agent-native/core/secrets";
+import { and, eq } from "drizzle-orm";
+import { getQuery, type H3Event } from "h3";
+
 import { getDb, schema } from "../db/index.js";
-import { getActiveOrganizationId } from "./recordings.js";
 import { exchangeCode, getUserInfo } from "./google-calendar-client.js";
+import { getActiveOrganizationId } from "./recordings.js";
 
 export const CLIPS_GOOGLE_OAUTH_APP_ID = process.env.APP_NAME || "clips";
 

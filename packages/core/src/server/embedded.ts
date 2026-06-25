@@ -1,32 +1,33 @@
 import type { H3Event } from "h3";
-import type { AuthOptions, AuthSession } from "./auth.js";
+
 import {
-  awaitBootstrap,
-  markDefaultPluginProvided,
-  trackPluginInit,
-} from "./framework-request-handler.js";
+  createIntegrationsPlugin,
+  type IntegrationsPluginOptions,
+} from "../integrations/index.js";
+import { createOnboardingPlugin } from "../onboarding/plugin.js";
+import type { OnboardingPluginOptions } from "../onboarding/plugin.js";
+import { createOrgPlugin } from "../org/plugin.js";
+import {
+  createTerminalPlugin,
+  type TerminalPluginOptions,
+} from "../terminal/terminal-plugin.js";
 import {
   createAgentChatPlugin,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 import { createAuthPlugin } from "./auth-plugin.js";
+import type { AuthOptions, AuthSession } from "./auth.js";
 import {
   createCoreRoutesPlugin,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+import {
+  awaitBootstrap,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
 import { createResourcesPlugin } from "./resources-plugin.js";
 import { createSentryPlugin } from "./sentry-plugin.js";
-import {
-  createTerminalPlugin,
-  type TerminalPluginOptions,
-} from "../terminal/terminal-plugin.js";
-import { createOrgPlugin } from "../org/plugin.js";
-import { createOnboardingPlugin } from "../onboarding/plugin.js";
-import type { OnboardingPluginOptions } from "../onboarding/plugin.js";
-import {
-  createIntegrationsPlugin,
-  type IntegrationsPluginOptions,
-} from "../integrations/index.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

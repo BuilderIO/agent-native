@@ -1,6 +1,3 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PromptComposer,
   agentNativePath,
@@ -33,15 +30,19 @@ import {
   IconUsersGroup,
   type IconProps,
 } from "@tabler/icons-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
+
+import type { ConnectedAgent } from "@/components/agents-panel";
 import { CreateAppPopover } from "@/components/create-app-popover";
 import { DispatchShell } from "@/components/dispatch-shell";
-import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { WorkspaceAppCard } from "@/components/workspace-app-card";
 import {
   listDispatchAutomations,
   setDispatchAutomationEnabled,
@@ -49,7 +50,7 @@ import {
   type SetDispatchAutomationEnabledInput,
 } from "@/lib/automations";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
-import type { ConnectedAgent } from "@/components/agents-panel";
+import { cn } from "@/lib/utils";
 import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
 interface DispatchOverview {

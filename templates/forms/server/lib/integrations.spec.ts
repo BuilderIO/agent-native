@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildSlackPayload } from "./integrations.js";
+
 import type { FormField } from "../../shared/types.js";
+import { buildSlackPayload } from "./integrations.js";
 
 const field: FormField = {
   id: "msg",

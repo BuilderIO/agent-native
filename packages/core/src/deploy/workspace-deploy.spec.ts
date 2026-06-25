@@ -3,9 +3,11 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runWorkspaceDeploy } from "./workspace-deploy.js";
+
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
+import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;

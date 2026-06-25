@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
 import { common, createLowlight } from "lowlight";
+import type { ReactNode } from "react";
 
 /**
  * Shared synchronous syntax highlighter for the dev-doc code blocks. Wraps

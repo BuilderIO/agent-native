@@ -8,9 +8,9 @@
  * lets callers add or remove servers at runtime without restarting the process.
  */
 
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
-import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,

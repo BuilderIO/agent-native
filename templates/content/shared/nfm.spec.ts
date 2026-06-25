@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 
 /**

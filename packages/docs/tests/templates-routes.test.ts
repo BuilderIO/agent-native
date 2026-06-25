@@ -1,26 +1,28 @@
-import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  loader,
-  meta as genericTemplateMeta,
-} from "../app/routes/templates.$slug";
+
 import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
-import { meta as docsIndexMeta } from "../app/routes/docs._index";
-import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
-import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
-import { meta as designTemplateMeta } from "../app/routes/templates.design";
-import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
-import { featuredTemplates, templates } from "../app/components/TemplateCard";
-import { getTemplateDocsPath } from "../app/components/template-docs";
-import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
-import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
+import { describe, expect, it } from "vitest";
+
+import { loadDoc } from "../app/components/docs-content";
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
 } from "../app/components/docs-seo";
-import { loadDoc } from "../app/components/docs-content";
+import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
+import { getTemplateDocsPath } from "../app/components/template-docs";
+import { featuredTemplates, templates } from "../app/components/TemplateCard";
+import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
+import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
+import { meta as docsIndexMeta } from "../app/routes/docs._index";
+import {
+  loader,
+  meta as genericTemplateMeta,
+} from "../app/routes/templates.$slug";
+import { meta as designTemplateMeta } from "../app/routes/templates.design";
+import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
+import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");

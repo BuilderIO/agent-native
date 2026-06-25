@@ -1,8 +1,9 @@
+import type { Document } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Document } from "@shared/api";
+
 import { useCreateDocument } from "@/hooks/use-documents";
 
 const LIST_DOCUMENTS_QUERY_KEY = [

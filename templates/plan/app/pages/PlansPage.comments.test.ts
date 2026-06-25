@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
+import type { PlanBundle } from "@shared/types";
 import { describe, expect, it } from "vitest";
+
+import { planBundleQueryKey } from "@/hooks/use-plans";
+
 import {
   addPlanCommentToBundle,
   buildNativeAnchorFromElement,
@@ -23,8 +27,6 @@ import {
   shouldKeepCommentPopoverOpenForTarget,
   resolvePlanOrgAccessPrompt,
 } from "./PlansPage";
-import { planBundleQueryKey } from "@/hooks/use-plans";
-import type { PlanBundle } from "@shared/types";
 
 type PlanComment = PlanBundle["comments"][number];
 

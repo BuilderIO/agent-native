@@ -6,8 +6,9 @@
  * Drop this next to transcript displays in any template.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import { IconBolt, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { agentNativePath } from "../api-path.js";
 import { openBuilderConnectPopup } from "../settings/useBuilderStatus.js";
 

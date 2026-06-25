@@ -1,18 +1,4 @@
 import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLoaderData,
-  useLocation,
-  useRouteLoaderData,
-} from "react-router";
-import { useCallback, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { Toaster } from "sonner";
-import {
   AppProviders,
   CommandMenu,
   DefaultSpinner,
@@ -30,10 +16,26 @@ import {
 } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconSun, IconMoon } from "@tabler/icons-react";
-import changelog from "../CHANGELOG.md?raw";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+  useLocation,
+  useRouteLoaderData,
+} from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-import stylesheet from "./global.css?url";
+import { Toaster } from "sonner";
+
+import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,

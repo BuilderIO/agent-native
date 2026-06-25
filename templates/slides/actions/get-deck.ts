@@ -1,8 +1,9 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 function stripHtml(html: string): string {

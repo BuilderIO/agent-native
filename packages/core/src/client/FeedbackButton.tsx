@@ -1,3 +1,6 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { IconMessage2, IconCheck } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -7,14 +10,12 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { IconMessage2, IconCheck } from "@tabler/icons-react";
-import { cn } from "./utils.js";
-import { useSession } from "./use-session.js";
+
+import { DEFAULT_LOCALE, type LocaleCode } from "../localization/shared.js";
 import { getFeedbackClientContext } from "./feedback-context.js";
 import { useLocale } from "./i18n.js";
-import { DEFAULT_LOCALE, type LocaleCode } from "../localization/shared.js";
+import { useSession } from "./use-session.js";
+import { cn } from "./utils.js";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";

@@ -1,9 +1,9 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DEFAULT_APPS,
   TEMPLATES,
   type AppConfig,
 } from "@agent-native/shared-app-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "agent-native:apps";
 

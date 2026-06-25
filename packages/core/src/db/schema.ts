@@ -18,18 +18,19 @@
 
 import { sql } from "drizzle-orm";
 import {
-  sqliteTable,
-  text as sqliteText,
-  integer as sqliteInteger,
-  real as sqliteReal,
-} from "drizzle-orm/sqlite-core";
-import {
   pgTable,
   text as pgText,
   integer as pgInteger,
   boolean as pgBoolean,
   doublePrecision as pgDoublePrecision,
 } from "drizzle-orm/pg-core";
+import {
+  sqliteTable,
+  text as sqliteText,
+  integer as sqliteInteger,
+  real as sqliteReal,
+} from "drizzle-orm/sqlite-core";
+
 import { getDialect } from "./client.js";
 
 // No caching — getDialect() handles its own caching once env is available.
@@ -89,7 +90,7 @@ export function now() {
   return pg() ? sql`now()` : sql`(datetime('now'))`;
 }
 
-export { sql } from "drizzle-orm";
+export { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 // Ownership / sharing primitives — templates opt a resource into the framework
 // sharing system by spreading ownableColumns() into the table and pairing it

@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -7,6 +5,8 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { sendToAgentChat } = vi.hoisted(() => ({
   sendToAgentChat: vi.fn(),

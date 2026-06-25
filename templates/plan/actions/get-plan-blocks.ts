@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
+import { renderPlanBlockAuthoringExamples } from "../server/plan-block-examples.js";
 import {
   describePlanBlocksForAgent,
   renderPlanBlockVocabulary,
 } from "../shared/plan-block-registry.js";
-import { renderPlanBlockAuthoringExamples } from "../server/plan-block-examples.js";
 
 /**
  * Appended to the block vocabulary so the agent learns the heading convention

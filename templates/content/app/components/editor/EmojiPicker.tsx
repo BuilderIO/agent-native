@@ -1,10 +1,11 @@
+import { IconMoodSmile } from "@tabler/icons-react";
 import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
+
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { IconMoodSmile } from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,

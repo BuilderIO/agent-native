@@ -1,17 +1,18 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import type {
   DocumentPropertyValue,
   SuggestSourceJoinKeyResponse,
 } from "../shared/api.js";
+import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
-import { readLocalTableEntries } from "./_local-table-source.js";
 import { suggestJoinKey } from "./_join-suggestion.js";
+import { readLocalTableEntries } from "./_local-table-source.js";
 
 export default defineAction({
   description:

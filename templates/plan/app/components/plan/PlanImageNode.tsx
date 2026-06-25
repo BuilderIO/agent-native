@@ -1,11 +1,12 @@
-import { useRef, type ChangeEvent } from "react";
+import { SharedImage, uploadEditorImage } from "@agent-native/core/client";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { SharedImage, uploadEditorImage } from "@agent-native/core/client";
+import { useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
+
 import { PlanImageViewer } from "./PlanImageViewer";
 
 /**

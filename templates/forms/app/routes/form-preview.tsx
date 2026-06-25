@@ -1,10 +1,5 @@
-import { useSearchParams } from "react-router";
-import { useForm } from "@/hooks/use-forms";
-import { normalizeFields } from "@/lib/normalize-fields";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { isInAgentEmbed, postNavigate } from "@agent-native/core/client";
+import type { FormFieldType } from "@shared/types";
 import {
   IconAlertCircle,
   IconExternalLink,
@@ -20,7 +15,13 @@ import {
   IconSlideshow,
   IconList,
 } from "@tabler/icons-react";
-import type { FormFieldType } from "@shared/types";
+import { useSearchParams } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useForm } from "@/hooks/use-forms";
+import { normalizeFields } from "@/lib/normalize-fields";
 
 const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   text: "Text",

@@ -11,8 +11,9 @@
  */
 
 import { useMemo } from "react";
-import MarkdownRenderer from "./MarkdownRenderer";
+
 import { DocBlock, DocBlocksProvider, splitDocSegments } from "./docBlocks";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 interface Props {
   markdown: string;

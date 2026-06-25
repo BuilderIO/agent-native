@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   signInternalToken,
   verifyInternalToken,

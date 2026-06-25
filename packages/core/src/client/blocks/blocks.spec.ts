@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { BlockRegistry, registerBlocks } from "./registry.js";
-import { defineBlock, type BlockSpec } from "./types.js";
-import { markdown, introspect } from "./schema-form/introspect.js";
+
+import {
+  describeBlocksForAgent,
+  renderBlockVocabularyReference,
+} from "./agent.js";
 import {
   prop,
   serializeSpecBlock,
@@ -12,10 +14,9 @@ import {
   type MdxAttrNode,
   type MdxJsxNode,
 } from "./mdx.js";
-import {
-  describeBlocksForAgent,
-  renderBlockVocabularyReference,
-} from "./agent.js";
+import { BlockRegistry, registerBlocks } from "./registry.js";
+import { markdown, introspect } from "./schema-form/introspect.js";
+import { defineBlock, type BlockSpec } from "./types.js";
 
 /** A callout-shaped spec mirroring the plan callout, sans React Read. */
 function calloutSpec(): BlockSpec<{ tone?: "info" | "risk"; body: string }> {

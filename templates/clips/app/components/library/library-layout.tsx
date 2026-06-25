@@ -1,5 +1,18 @@
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useParams } from "react-router";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  getBrowserTabId,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  InvitationBanner,
+  OrgSwitcher,
+  useOrg,
+} from "@agent-native/core/client/org";
 import {
   IconInbox,
   IconArchive,
@@ -17,22 +30,14 @@ import {
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { NavLink, useLocation, useParams } from "react-router";
+import { toast } from "sonner";
+
 import {
-  AgentSidebar,
-  AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
-import {
-  InvitationBanner,
-  OrgSwitcher,
-  useOrg,
-} from "@agent-native/core/client/org";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+  CaptureInstallButton,
+  CaptureInstallInlineLink,
+} from "@/components/capture-install-options";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +47,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   useFolders,
   useSpaces,
@@ -50,23 +62,13 @@ import {
   useRecordingsCount,
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
-import { FolderTree, type FolderNode } from "./folder-tree";
-import { SearchBar } from "./search-bar";
-import { PageHeaderSlotProvider } from "./page-header";
+import { cn } from "@/lib/utils";
+
 import { CreateSpaceDialog } from "./create-space-dialog";
-import {
-  CaptureInstallButton,
-  CaptureInstallInlineLink,
-} from "@/components/capture-install-options";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { toast } from "sonner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { FolderTree, type FolderNode } from "./folder-tree";
+import { PageHeaderSlotProvider } from "./page-header";
+import { SearchBar } from "./search-bar";
 
 interface LibraryLayoutProps {
   children: ReactNode;

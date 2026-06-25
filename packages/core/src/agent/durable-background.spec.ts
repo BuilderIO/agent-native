@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { signInternalToken } from "../integrations/internal-token.js";
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -11,7 +13,6 @@ import {
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
 } from "./durable-background.js";
-import { signInternalToken } from "../integrations/internal-token.js";
 
 /**
  * The single gate that decides whether a long agent-chat turn is routed through

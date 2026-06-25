@@ -1,6 +1,7 @@
-import { useLocation } from "react-router";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { useLocation } from "react-router";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.library",

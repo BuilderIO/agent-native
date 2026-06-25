@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { loader as rootLoader, resolveLayoutLocale } from "../root";
-import { loader as docsIndexLoader } from "../routes/docs._index";
-import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
+import { loader as defaultDocLoader } from "../routes/docs.$slug";
+import { loader as docsIndexLoader } from "../routes/docs._index";
 import {
   buildSearchIndexAsync,
   hasLocalizedDoc,

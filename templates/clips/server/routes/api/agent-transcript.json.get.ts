@@ -11,7 +11,9 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
 import { buildAgentApiUrls } from "../../../shared/agent-context.js";
+import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
   getServerAppBasePath,
@@ -19,7 +21,6 @@ import {
   loadPublicAgentAccess,
   queryString,
 } from "../../lib/public-agent-context.js";
-import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   applyAgentJsonHeaders(event);

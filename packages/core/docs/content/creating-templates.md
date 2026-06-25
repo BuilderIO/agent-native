@@ -159,7 +159,7 @@ Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `pa
 
 ## Build The UI {#ui}
 
-Routes live in `app/routes/` and use React Router v7 file routing. Query data through actions or API handlers, and make mutations optimistic by default.
+Routes live in `app/routes/` and use React Router v8 file routing. Query data through actions or API handlers, and make mutations optimistic by default.
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";

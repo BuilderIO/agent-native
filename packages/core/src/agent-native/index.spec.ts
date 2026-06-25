@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAgentNativeClient, type AgentNativeRuntime } from "./index.js";
+
 import type { InvokeAgentOptions } from "../a2a/invoke.js";
+import { createAgentNativeClient, type AgentNativeRuntime } from "./index.js";
 
 function runtime(overrides: AgentNativeRuntime = {}): AgentNativeRuntime {
   return {

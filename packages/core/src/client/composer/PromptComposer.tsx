@@ -1,14 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type Ref,
-  type ReactNode,
-} from "react";
-import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   useAui,
@@ -27,8 +17,31 @@ import {
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+  type ReactNode,
+} from "react";
+
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
+import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
+import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
+import {
+  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+  TextAttachmentAdapter,
+} from "./attachment-accept.js";
+import { isPastedTextAttachmentName } from "./pasted-text.js";
+import { PastedTextChip } from "./PastedTextChip.js";
+import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
@@ -36,24 +49,12 @@ import {
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
-import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
 import type {
   AgentComposerLayoutVariant,
   Reference,
   SkillResult,
   SlashCommand,
 } from "./types.js";
-import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
-import { TooltipProvider } from "../components/ui/tooltip.js";
-import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { isPastedTextAttachmentName } from "./pasted-text.js";
-import { PastedTextChip } from "./PastedTextChip.js";
-import {
-  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
-  TextAttachmentAdapter,
-} from "./attachment-accept.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 

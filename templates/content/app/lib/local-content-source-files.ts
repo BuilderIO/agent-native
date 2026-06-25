@@ -1,9 +1,10 @@
+import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   CONTENT_SOURCE_ROOT,
   parseContentSourceFile,
   serializeContentSourceDocument,
 } from "@shared/content-source";
-import type { Document, DocumentSourceInfo } from "@shared/api";
+
 import { getDesktopContentFiles } from "./desktop-content-files";
 
 type PermissionState = "granted" | "denied" | "prompt";

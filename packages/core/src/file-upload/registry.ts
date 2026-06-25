@@ -1,9 +1,9 @@
+import { builderFileUploadProvider } from "./builder.js";
 import type {
   FileUploadInput,
   FileUploadProvider,
   FileUploadResult,
 } from "./types.js";
-import { builderFileUploadProvider } from "./builder.js";
 
 // Why globalThis: in dev (Vite HMR) and in some Nitro/Rollup bundle splits,
 // this module can be evaluated more than once — the plugin file that

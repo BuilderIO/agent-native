@@ -1,8 +1,9 @@
-import { useState } from "react";
 import { IconRefresh } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { useSyncGoogle } from "@/hooks/use-google-auth";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function GoogleSyncButton() {

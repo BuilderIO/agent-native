@@ -1,8 +1,8 @@
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({

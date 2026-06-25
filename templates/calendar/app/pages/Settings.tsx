@@ -1,28 +1,3 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router";
-import {
-  IconBrandZoom,
-  IconExternalLink,
-  IconLink,
-  IconUnlink,
-  IconCircleCheck,
-  IconCircleX,
-} from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
-import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   AppearancePicker,
   callAction,
@@ -32,19 +7,46 @@ import {
   type AppearancePresetId,
   useT,
 } from "@agent-native/core/client";
-import changelog from "../../CHANGELOG.md?raw";
+import {
+  IconBrandZoom,
+  IconExternalLink,
+  IconLink,
+  IconUnlink,
+  IconCircleCheck,
+  IconCircleX,
+} from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+
+import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   useConnectZoom,
   useDisconnectZoom,
   useZoomStatus,
 } from "@/hooks/use-zoom-auth";
-import { toast } from "sonner";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const t = useT();

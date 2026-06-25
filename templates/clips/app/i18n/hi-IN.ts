@@ -20,6 +20,13 @@ const messages = {
       "रिकॉर्डिंग शुरू करने के लिए Clips एक्सटेंशन फिर से खोलें।",
     gotIt: "समझ गया",
   },
+  recorder: {
+    cameraBlurTitle: "बैकग्राउंड धुंधला करें",
+    cameraBlurDescription: "खुद को साफ रखें और पीछे की चीज़ें धुंधली करें",
+    cameraBlurToggle: "कैमरा बैकग्राउंड धुंधला करें",
+    cameraBlurIntensityLabel: "तीव्रता",
+    cameraBlurIntensityAria: "बैकग्राउंड धुंधलापन की तीव्रता",
+  },
   navigation: {
     brand: "Clips",
     library: "लाइब्रेरी",

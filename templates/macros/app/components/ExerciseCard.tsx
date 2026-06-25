@@ -1,11 +1,12 @@
+import type { Exercise } from "@shared/types";
 import {
   IconTrash,
   IconPencil,
   IconFlame,
   IconLoader2,
 } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
-import type { Exercise } from "@shared/types";
 
 interface ExerciseCardProps {
   exercise: Exercise;

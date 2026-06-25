@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   IconPlus,
   IconCheck,
@@ -6,21 +7,26 @@ import {
   IconChevronLeft,
   IconArrowUp,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { useState, useEffect, useRef } from "react";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { useSendToAgentChat, useT } from "@agent-native/core/client";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useApolloPerson } from "@/hooks/use-apollo";
 import {
   useIntegration,
   useAllIntegrations,
@@ -29,13 +35,8 @@ import {
   usePylonContact,
   isAuthError,
 } from "@/hooks/use-integrations";
-import { useApolloPerson } from "@/hooks/use-apollo";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;

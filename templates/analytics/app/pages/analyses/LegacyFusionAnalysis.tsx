@@ -1,4 +1,3 @@
-import { useEffect, type ComponentType, type ReactNode } from "react";
 import { captureError } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
@@ -12,6 +11,8 @@ import {
   IconTrophy,
   IconUsers,
 } from "@tabler/icons-react";
+import { useEffect, type ComponentType, type ReactNode } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Card,

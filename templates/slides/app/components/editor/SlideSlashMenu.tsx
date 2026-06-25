@@ -1,15 +1,3 @@
-import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { createPortal } from "react-dom";
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
-import type { Editor } from "@tiptap/react";
 import {
   IconH1,
   IconH2,
@@ -19,6 +7,19 @@ import {
   IconBlockquote,
   IconLetterT,
 } from "@tabler/icons-react";
+import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import { createPortal } from "react-dom";
+
 import { cn } from "@/lib/utils";
 
 const SLASH_MENU_KEY = new PluginKey("slideSlashMenu");

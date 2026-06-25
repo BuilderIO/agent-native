@@ -15,9 +15,7 @@ import {
   initReactI18next,
   useTranslation,
 } from "react-i18next";
-import { callAction } from "./use-action.js";
-import { setClientAppState } from "./application-state.js";
-import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
+
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -33,6 +31,9 @@ import {
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
+import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
+import { setClientAppState } from "./application-state.js";
+import { callAction } from "./use-action.js";
 
 export {
   DEFAULT_LOCALE,

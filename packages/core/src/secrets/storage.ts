@@ -13,13 +13,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+
 import { getDbExec, isPostgres } from "../db/client.js";
-import { APP_SECRETS_CREATE_SQL } from "./schema.js";
-import type { SecretScope } from "./register.js";
 import {
   encryptSecretValue as encryptValue,
   decryptSecretValue as decryptValue,
 } from "./crypto.js";
+import type { SecretScope } from "./register.js";
+import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Table bootstrap

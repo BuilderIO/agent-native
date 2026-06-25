@@ -2,10 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
-import { getAccessTokens } from "./helpers.js";
+
 import { googleFetch } from "../server/lib/google-api.js";
 import { htmlSignatureToMarkdown } from "../shared/gmail-signature.js";
 import type { UserSettings } from "../shared/types.js";
+import { getAccessTokens } from "./helpers.js";
 
 type SendAsEntry = {
   sendAsEmail?: string;

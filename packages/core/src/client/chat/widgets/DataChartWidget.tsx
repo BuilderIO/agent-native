@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
 import { IconChartBar } from "@tabler/icons-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
 const LazyDataChartRenderer = lazy(() =>

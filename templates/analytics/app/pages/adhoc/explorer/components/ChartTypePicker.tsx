@@ -4,7 +4,9 @@ import {
   IconTable,
   IconHash,
 } from "@tabler/icons-react";
+
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
 import type { ChartType } from "../types";
 
 const CHART_TYPES: {

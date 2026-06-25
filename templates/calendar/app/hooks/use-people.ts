@@ -1,5 +1,5 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { callAction } from "@agent-native/core/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export interface PeopleSearchResult {
   name: string;

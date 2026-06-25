@@ -1,6 +1,7 @@
-import { Link } from "react-router";
-import { IconMail } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconMail } from "@tabler/icons-react";
+import { Link } from "react-router";
+
 import { Button } from "@/components/ui/button";
 
 export function NotFound() {

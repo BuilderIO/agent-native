@@ -1,4 +1,5 @@
 import type { ElementType } from "react";
+
 import type { LocalContentComponentInputs } from "./local-component-config";
 
 const components: Record<string, ElementType> = {};

@@ -34,6 +34,10 @@ const messages = {
     agentDescription:
       "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェント設定を開く",
+    editorTitle: "VS Code 拡張機能",
+    editorDescription:
+      "別のブラウザータブではなく、VS Code のサイドパネルでプランを開いてレビューします。",
+    openEditorExtension: "VS Code 拡張機能を入手",
   },
   agent: {
     emptyState:

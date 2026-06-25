@@ -1,7 +1,16 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { Link } from "react-router";
-import { useTheme } from "next-themes";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  ShareButton,
+  PresenceBar,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import {
   IconArrowLeft,
   IconPlayerPlay,
@@ -29,33 +38,11 @@ import {
   IconPalette,
   IconLoader2,
 } from "@tabler/icons-react";
-import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent } from "@/context/DeckContext";
-import {
-  ASPECT_RATIO_VALUES,
-  type AspectRatio,
-  DEFAULT_ASPECT_RATIO,
-} from "@/lib/aspect-ratios";
-import { ExportMenu } from "./ExportMenu";
-import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-} from "@agent-native/core/client";
+import { useTheme } from "next-themes";
+import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router";
 
-import {
-  AgentToggleButton,
-  NotificationsBell,
-  ShareButton,
-  PresenceBar,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { RunsTray } from "@agent-native/core/client/progress";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,8 +50,22 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
+import { defaultSlideContent } from "@/context/DeckContext";
 import { toast } from "@/hooks/use-toast";
+import {
+  ASPECT_RATIO_VALUES,
+  type AspectRatio,
+  DEFAULT_ASPECT_RATIO,
+} from "@/lib/aspect-ratios";
 import { shortcutLabel } from "@/lib/utils";
+
+import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;

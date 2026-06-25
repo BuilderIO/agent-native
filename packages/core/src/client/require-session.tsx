@@ -28,9 +28,10 @@
  * surfaces that authenticate by another mechanism.
  */
 import React, { useEffect, useRef } from "react";
-import { useSession } from "./use-session.js";
-import { DefaultSpinner } from "./DefaultSpinner.js";
+
 import { agentNativePath } from "./api-path.js";
+import { DefaultSpinner } from "./DefaultSpinner.js";
+import { useSession } from "./use-session.js";
 
 export interface RequireSessionProps {
   children: React.ReactNode;

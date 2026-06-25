@@ -2,6 +2,7 @@
 // and matrix/vector → {rows, schema} transforms. No LLM in this path.
 
 import { z } from "zod";
+
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,

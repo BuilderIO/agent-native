@@ -20,6 +20,13 @@ const messages = {
       "Open the Clips extension again to start recording.",
     gotIt: "Got it",
   },
+  recorder: {
+    cameraBlurTitle: "Blur background",
+    cameraBlurDescription: "Keep yourself sharp, blur what's behind you",
+    cameraBlurToggle: "Blur the camera background",
+    cameraBlurIntensityLabel: "Intensity",
+    cameraBlurIntensityAria: "Background blur intensity",
+  },
   navigation: {
     brand: "Clips",
     library: "Library",

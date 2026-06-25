@@ -5,8 +5,8 @@ import {
   getRegistryBlockSlashSearchText,
   type SlashCommandItem,
 } from "@agent-native/core/client";
-import { createPlanBlockId } from "@shared/plan-content";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
+import { createPlanBlockId } from "@shared/plan-content";
 
 /**
  * The Tiptap editor handed to a slash command's `action`. Derived from the core

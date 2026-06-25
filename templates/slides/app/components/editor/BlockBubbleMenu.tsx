@@ -1,5 +1,3 @@
-import { useEffect, useState, useRef } from "react";
-import { createPortal } from "react-dom";
 import {
   IconBold,
   IconItalic,
@@ -10,6 +8,9 @@ import {
   IconCheck,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
+
 import {
   Tooltip,
   TooltipContent,

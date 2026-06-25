@@ -2,18 +2,17 @@
   "name": "@agent-native/frame",
   "version": "0.1.154",
   "private": true,
-  "type": "module",
+  "description": "Local dev frame — agent chat + CLI sidebar with app iframe",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/frame"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "description": "Local dev frame — agent chat + CLI sidebar with app iframe",
-  "license": "MIT",
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "files": [
     "client",
     "src",
@@ -21,6 +20,7 @@
     "vite.config.ts",
     "CHANGELOG.md"
   ],
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -28,27 +28,28 @@
     "server": "tsx src/server.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.99.2",
     "@tabler/icons-react": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
     "h3": "catalog:",
-    "listhen": "catalog:"
-  },
-  "peerDependencies": {
-    "@agent-native/core": ">=0.24.0",
-    "@agent-native/shared-app-config": ">=0.1.0"
+    "listhen": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "tsx": "catalog:",
     "tailwindcss": "catalog:",
-    "@tailwindcss/vite": "catalog:"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.24.0",
+    "@agent-native/shared-app-config": ">=0.1.0"
   }
 }

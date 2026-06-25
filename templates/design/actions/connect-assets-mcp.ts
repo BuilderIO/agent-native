@@ -1,17 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
+import { fetchOrgApps } from "@agent-native/core/mcp";
 import {
   addFirstPartyRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   listRemoteServers,
   removeRemoteServer,
 } from "@agent-native/core/mcp-client";
-import { fetchOrgApps } from "@agent-native/core/mcp";
 import { refreshGlobalMcpManager } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 const SERVER_NAME = "assets";

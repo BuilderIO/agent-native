@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * query-staged-dataset — run an in-memory aggregation over a staged dataset.
  *
@@ -5,13 +7,12 @@
  * works identically on Postgres and SQLite.
  */
 import { defineAction } from "../../action.js";
-import { z } from "zod";
 import { getCredentialContext } from "../../server/request-context.js";
+import { runAggregateQuery } from "../staged-datasets-aggregate.js";
 import {
   getStagedDatasetRows,
   getStagedDatasetMeta,
 } from "../staged-datasets-store.js";
-import { runAggregateQuery } from "../staged-datasets-aggregate.js";
 
 const WhereSchema = z.object({
   column: z.string().min(1),

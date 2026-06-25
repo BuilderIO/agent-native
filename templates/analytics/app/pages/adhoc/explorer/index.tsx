@@ -1,22 +1,13 @@
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFolderOpen,
+  IconFilePlus,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,21 +18,32 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconFolderOpen,
-  IconFilePlus,
-  IconTrash,
-} from "@tabler/icons-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { useMetricsQuery } from "@/lib/query-metrics";
-import { EventPanel } from "./components/EventPanel";
+
 import { ChartTypePicker } from "./components/ChartTypePicker";
-import { ExplorerChart } from "./components/ExplorerChart";
 import { DateRangePicker } from "./components/DateRangePicker";
+import { EventPanel } from "./components/EventPanel";
+import { ExplorerChart } from "./components/ExplorerChart";
 import { SqlPreview } from "./components/SqlPreview";
-import { useExplorerConfig } from "./use-explorer-config";
 import { buildSql } from "./sql-builder";
+import { useExplorerConfig } from "./use-explorer-config";
 
 export default function ExplorerPage() {
   const [searchParams] = useSearchParams();

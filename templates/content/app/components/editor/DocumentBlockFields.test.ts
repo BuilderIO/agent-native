@@ -1,11 +1,12 @@
+import type { DocumentProperty } from "@shared/api";
 import { describe, expect, it } from "vitest";
+
 import {
   blockFieldsFromProperties,
   blockFieldsRenderState,
   computeFieldReorderTarget,
   isLoadedForDocument,
 } from "./DocumentBlockFields";
-import type { DocumentProperty } from "@shared/api";
 
 function property(
   partial: Partial<DocumentProperty["definition"]> & {

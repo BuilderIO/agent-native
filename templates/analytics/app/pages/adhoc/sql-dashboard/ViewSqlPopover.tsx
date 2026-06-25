@@ -1,19 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useReconciledState } from "@agent-native/core/client";
-import { toast } from "sonner";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { SqlEditor } from "@/components/SqlEditor";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -22,8 +7,32 @@ import {
   IconLoader2,
   IconRotate,
 } from "@tabler/icons-react";
-import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
+
 import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {
@@ -42,6 +51,9 @@ interface ViewSqlPopoverProps {
    *  popover can keep open and surface the error inline. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  triggerMode?: "trigger" | "anchor";
   children: ReactNode;
 }
 
@@ -50,13 +62,24 @@ export function ViewSqlPopover({
   resolvedSql,
   onSaveSql,
   editable = true,
+  open: controlledOpen,
+  onOpenChange,
+  triggerMode = "trigger",
   children,
 }: ViewSqlPopoverProps) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [controlledOpen, onOpenChange],
+  );
 
   // Track whether the user has diverged from the server SQL ("dirty"). While
   // dirty we hold the draft so we don't clobber in-progress edits; otherwise we
@@ -118,17 +141,19 @@ export function ViewSqlPopover({
 
   const handleFormat = () => {
     if (!canFormat) return;
-    try {
-      setDraft(formatPanelSql(draft, panel.source));
+    const result = safeFormatPanelSql(draft, panel.source);
+    setDraft(result.sql);
+    if (result.error) {
+      setError(result.error);
+    } else {
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to format SQL");
     }
   };
+  const Trigger = triggerMode === "anchor" ? PopoverAnchor : PopoverTrigger;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <Trigger asChild>{children}</Trigger>
       <PopoverContent
         align="end"
         sideOffset={8}

@@ -1,16 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import editDocument from "./edit-document";
-import pullDocument from "./pull-document";
-import searchDocuments from "./search-documents";
+
 import {
   createLocalFileDocument,
   localFileDocumentId,
   moveLocalFileDocument,
   updateLocalFileDocument,
 } from "./_local-file-documents";
+import editDocument from "./edit-document";
+import pullDocument from "./pull-document";
+import searchDocuments from "./search-documents";
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),

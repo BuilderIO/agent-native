@@ -1,4 +1,10 @@
-import { agentNativePath } from "../api-path.js";
+import {
+  IconPlugConnected,
+  IconAlertTriangle,
+  IconLoader2,
+  IconCheck,
+  IconTestPipe,
+} from "@tabler/icons-react";
 /**
  * Detail view for a virtual MCP server entry in the Workspace tree.
  *
@@ -7,15 +13,9 @@ import { agentNativePath } from "../api-path.js";
  * create + delete, matching the Settings UX they replaced. Users can
  * delete and recreate if they need to change a URL or headers.
  */
-
 import React, { useState } from "react";
-import {
-  IconPlugConnected,
-  IconAlertTriangle,
-  IconLoader2,
-  IconCheck,
-  IconTestPipe,
-} from "@tabler/icons-react";
+
+import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
 import { type McpServer, type TestMcpUrlResult } from "./use-mcp-servers.js";
 

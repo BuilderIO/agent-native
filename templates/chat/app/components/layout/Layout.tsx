@@ -1,9 +1,3 @@
-import { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   focusAgentChat,
@@ -12,8 +6,10 @@ import {
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
-import { APP_TITLE } from "@/lib/app-config";
-import { TAB_ID } from "@/lib/tab-id";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -21,6 +17,12 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { APP_TITLE } from "@/lib/app-config";
+import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;

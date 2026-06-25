@@ -1,6 +1,18 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router";
-import { nanoid } from "nanoid";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  ShareButton,
+  appPath,
+  useReconciledState,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
+import type {
+  FormField,
+  FormFieldType,
+  FormIntegration,
+  FormSettings,
+  IntegrationType,
+} from "@shared/types";
 import {
   IconExternalLink,
   IconCheck,
@@ -24,22 +36,41 @@ import {
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { format } from "date-fns";
+import { nanoid } from "nanoid";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { FieldRenderer } from "@/components/builder/FieldRenderer";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
+import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -47,43 +78,13 @@ import {
   useDeleteForm,
 } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import {
-  AgentToggleButton,
-  NotificationsBell,
-  ShareButton,
-  appPath,
-  useReconciledState,
-  useSendToAgentChat,
-} from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from "@/components/ui/tooltip";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { normalizeFields } from "@/lib/normalize-fields";
 import {
   formBuilderTabSearchParam,
   normalizeFormBuilderTab,
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
-import type {
-  FormField,
-  FormFieldType,
-  FormIntegration,
-  FormSettings,
-  IntegrationType,
-} from "@shared/types";
+import { normalizeFields } from "@/lib/normalize-fields";
+import { cn } from "@/lib/utils";
 
 const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
   text: { label: "Text Field", placeholder: "Enter text..." },

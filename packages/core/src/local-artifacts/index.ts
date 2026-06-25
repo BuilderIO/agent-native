@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
 import { minimatch } from "minimatch";
 
 export type AgentNativeDataMode = "database" | "local-files";

@@ -14,15 +14,15 @@ import {
   type ObservationalMemoryConfig,
 } from "./config.js";
 import {
-  getObservationLogTokens,
-  insertObservationalMemory,
-  listObservationalMemory,
-} from "./store.js";
-import {
   runInternalAgentCall,
   type InternalAgentRunFn,
 } from "./internal-run.js";
 import { REFLECTOR_SYSTEM_PROMPT, buildReflectorPrompt } from "./prompts.js";
+import {
+  getObservationLogTokens,
+  insertObservationalMemory,
+  listObservationalMemory,
+} from "./store.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,

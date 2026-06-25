@@ -12,14 +12,14 @@
  *                              supports `${keys.NAME}`).
  */
 
-import { registerNotificationChannel } from "./registry.js";
-import type { NotificationChannel } from "./types.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   resolveKeyReferences,
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
-import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { registerNotificationChannel } from "./registry.js";
+import type { NotificationChannel } from "./types.js";
 
 let _registered = false;
 

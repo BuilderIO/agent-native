@@ -1,11 +1,3 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useImperativeHandle,
-  forwardRef,
-} from "react";
-import { createPortal } from "react-dom";
 import {
   IconFile,
   IconFolder,
@@ -24,6 +16,15 @@ import {
   IconClipboardList,
   IconPencil,
 } from "@tabler/icons-react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
+import { createPortal } from "react-dom";
+
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
 export interface MentionPopoverRef {

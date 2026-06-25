@@ -11,6 +11,11 @@
  */
 
 import {
+  hasDatabaseReadTools,
+  hasDatabaseWriteTools,
+  type DatabaseToolsOption,
+} from "../../scripts/db/tool-mode.js";
+import {
   sharedRule8,
   SHARED_RULE_9,
   SHARED_RULE_10,
@@ -18,11 +23,6 @@ import {
   SHARED_RULE_15,
   type PromptExamples,
 } from "./shared-rules.js";
-import {
-  hasDatabaseReadTools,
-  hasDatabaseWriteTools,
-  type DatabaseToolsOption,
-} from "../../scripts/db/tool-mode.js";
 
 export interface FrameworkCoreCompactPromptOptions {
   databaseTools?: DatabaseToolsOption;

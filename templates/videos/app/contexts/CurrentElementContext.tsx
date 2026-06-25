@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
+
 import type { ElementAnimation } from "@/types/elementAnimations";
 import { debug } from "@/utils/debug";
 

@@ -20,8 +20,8 @@ import {
   deleteCredential,
   type CredentialContext,
 } from "@agent-native/core/credentials";
-import { getSession } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
+import { getSession } from "@agent-native/core/server";
 import { type H3Event } from "h3";
 
 export type IntegrationProvider = "apollo" | "hubspot" | "gong" | "pylon";

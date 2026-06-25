@@ -1,5 +1,7 @@
-import { contextBridge, ipcRenderer } from "electron";
 import path from "node:path";
+
+import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -42,8 +44,7 @@ import {
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
-import type { CodeAgentPermissionMode } from "@shared/code-agents";
+import { contextBridge, ipcRenderer } from "electron";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";

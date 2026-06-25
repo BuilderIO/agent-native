@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+
+import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
 import {
   extractGoogleDocId,
   normalizeGoogleDocText,
 } from "../shared/google-docs.js";
-import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
 
 const DEFAULT_MAX_CHARS = 60_000;
 

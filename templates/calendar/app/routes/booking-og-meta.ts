@@ -32,21 +32,21 @@ function appBasePath(): string {
 
 export function bookingOgLoader({
   params,
-  request,
+  url,
 }: LoaderFunctionArgs): BookingOgLoaderData {
   const slug = params.slug ?? "";
   const imageUrl = new URL(
     `${appBasePath()}/api/public/booking-links/${encodeURIComponent(slug)}/og.png`,
-    request.url,
+    url,
   );
   if (params.username) imageUrl.searchParams.set("username", params.username);
   return { ogImageUrl: imageUrl.toString() };
 }
 
 export function bookingOgMeta({
-  data,
+  loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
-  const image = data?.ogImageUrl;
+  const image = loaderData?.ogImageUrl;
   return [
     { title: "Book a Meeting" },
     { property: "og:title", content: "Book a Meeting" },

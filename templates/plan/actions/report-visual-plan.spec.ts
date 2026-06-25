@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { registerShareableResource } from "@agent-native/core/sharing";
 import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { eq } from "drizzle-orm";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import {
   afterAll,
   beforeAll,
@@ -13,8 +16,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { registerShareableResource } from "@agent-native/core/sharing";
-import { runWithRequestContext } from "@agent-native/core/server/request-context";
+
 import * as planSchema from "../server/db/schema.js";
 
 let client: Client;

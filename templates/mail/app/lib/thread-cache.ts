@@ -4,9 +4,10 @@
 // "did this prefetch actually populate the cache?" at a glance; this gives
 // us a direct read/write store with transparent state.
 
-import { useEffect, useState } from "react";
-import type { EmailMessage } from "@shared/types";
 import { appApiPath } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
+import { useEffect, useState } from "react";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 type CacheEntry = {

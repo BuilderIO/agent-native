@@ -3,14 +3,7 @@ import type {
   ChatModelRunOptions,
   ChatModelRunResult,
 } from "@assistant-ui/react";
-import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
-import type { AgentPromptAttachment } from "./composer/prompt-attachments.js";
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import {
-  compareCodeAgentTranscriptEvents,
-  isCodeAgentRunActive,
-  type CodeAgentRunStateLike,
-} from "../code-agents/transcript-order.js";
+
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -19,6 +12,14 @@ import {
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
+import {
+  compareCodeAgentTranscriptEvents,
+  isCodeAgentRunActive,
+  type CodeAgentRunStateLike,
+} from "../code-agents/transcript-order.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
+import type { AgentPromptAttachment } from "./composer/prompt-attachments.js";
 import type { ContentPart } from "./sse-event-processor.js";
 
 export type CodeAgentChatFollowUpMode = "immediate" | "queued";

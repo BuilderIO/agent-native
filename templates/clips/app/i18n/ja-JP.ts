@@ -20,6 +20,13 @@ const messages = {
       "録画を開始するには Clips 拡張機能をもう一度開いてください。",
     gotIt: "了解",
   },
+  recorder: {
+    cameraBlurTitle: "背景をぼかす",
+    cameraBlurDescription: "自分はくっきり、背景はぼかします",
+    cameraBlurToggle: "カメラの背景をぼかす",
+    cameraBlurIntensityLabel: "強さ",
+    cameraBlurIntensityAria: "背景ぼかしの強さ",
+  },
   navigation: {
     brand: "Clips",
     library: "ライブラリ",

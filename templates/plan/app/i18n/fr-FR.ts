@@ -34,6 +34,10 @@ const messages = {
     agentDescription:
       "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
     openAgentSettings: "Ouvrir les paramètres de l’agent",
+    editorTitle: "Extension VS Code",
+    editorDescription:
+      "Ouvrez et examinez les plans dans un panneau latéral de VS Code plutôt que dans un onglet de navigateur séparé.",
+    openEditorExtension: "Obtenir l’extension VS Code",
   },
   agent: {
     emptyState:

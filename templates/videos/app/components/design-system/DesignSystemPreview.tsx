@@ -1,5 +1,6 @@
-import type { DesignSystemData } from "../../../shared/api";
 import { cn } from "@/lib/utils";
+
+import type { DesignSystemData } from "../../../shared/api";
 
 interface DesignSystemPreviewProps {
   data: DesignSystemData;

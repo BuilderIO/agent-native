@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import type { CalendarEvent } from "@shared/api";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import {
   startOfWeek,
   endOfWeek,
@@ -15,22 +16,23 @@ import {
   addMinutes,
   min,
 } from "date-fns";
-import { cn } from "@/lib/utils";
-import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
-import { EventStatusIcon } from "@/lib/rsvp-status";
-import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
-import { EventDetailPopover } from "./EventDetailPopover";
-import type { CalendarEvent } from "@shared/api";
-import { useEventDrag } from "@/hooks/use-event-drag";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEventDrag } from "@/hooks/use-event-drag";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import { EventStatusIcon } from "@/lib/rsvp-status";
+import { cn } from "@/lib/utils";
+
+import { EventDetailPopover } from "./EventDetailPopover";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {

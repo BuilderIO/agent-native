@@ -1,11 +1,9 @@
+import { useAgentChatGenerating, useT } from "@agent-native/core/client";
 import {
-  useState,
-  useRef,
-  useMemo,
-  useEffect,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
+  appendSignatureToBody,
+  splitAppendedSignature,
+} from "@shared/signature";
+import type { ComposeState, EmailMessage } from "@shared/types";
 import {
   IconSend,
   IconBold,
@@ -18,45 +16,49 @@ import {
   IconExternalLink,
   IconChevronDown,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  useState,
+  useRef,
+  useMemo,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAliases } from "@/hooks/use-aliases";
+import {
   useSendEmail,
   useAddOptimisticReply,
   useSettings,
 } from "@/hooks/use-emails";
-import { useAliases } from "@/hooks/use-aliases";
+import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { useAgentChatGenerating, useT } from "@agent-native/core/client";
-import { toast } from "sonner";
-import type { ComposeState, EmailMessage } from "@shared/types";
-import {
-  appendSignatureToBody,
-  splitAppendedSignature,
-} from "@shared/signature";
+import { openFilePicker, uploadFiles } from "@/lib/upload";
+import { cn } from "@/lib/utils";
+
+import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
   splitQuotedContent,
 } from "./compose-draft-context";
+import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import {
   RecipientInput,
   computeRecipientMove,
   type RecipientField,
 } from "./RecipientInput";
-import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
-import { openFilePicker, uploadFiles } from "@/lib/upload";
-import { canUseAgentGenerate } from "@/lib/agent-generate";
-import { AttachmentStrip } from "./AttachmentStrip";
-import { cn } from "@/lib/utils";
 
 export interface InlineReplyHandle {
   focusEditor: () => void;

@@ -1,14 +1,4 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type FormEvent,
-  type ReactNode,
-} from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
-import {
   AgentSidebar,
   FeedbackButton,
   appBasePath,
@@ -48,7 +38,17 @@ import {
   IconShieldCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { NavLink, useLocation, useNavigate } from "react-router";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +67,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 

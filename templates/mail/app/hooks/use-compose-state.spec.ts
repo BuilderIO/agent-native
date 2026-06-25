@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { ComposeState } from "@shared/types";
+import { describe, expect, it } from "vitest";
+
 import {
   filterRemovedDrafts,
   newestUnseenPopoutDraftId,

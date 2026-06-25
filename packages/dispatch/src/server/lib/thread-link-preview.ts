@@ -1,4 +1,5 @@
 import type { ChatThread } from "@agent-native/core/server";
+
 import {
   extractThreadPreviewImageUrl,
   type ThreadLinkPreview,

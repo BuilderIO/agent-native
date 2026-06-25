@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
 import {
   AgentSidebar,
   focusAgentChat,
@@ -9,15 +7,18 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { Sidebar } from "@/components/layout/Sidebar";
-import { TAB_ID } from "@/lib/tab-id";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
+import { TAB_ID } from "@/lib/tab-id";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();

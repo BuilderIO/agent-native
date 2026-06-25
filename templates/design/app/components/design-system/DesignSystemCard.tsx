@@ -1,10 +1,12 @@
 import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
-import type { DesignSystemData } from "../../../shared/api";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import type { DesignSystemData } from "../../../shared/api";
 
 interface DesignSystemCardProps {
   id: string;

@@ -1,5 +1,5 @@
-import { IconBrandSlack } from "@tabler/icons-react";
 import { appPath, useActionQuery } from "@agent-native/core/client";
+import { IconBrandSlack } from "@tabler/icons-react";
 
 interface SlackInstallation {
   status: string;
@@ -29,8 +29,8 @@ export function SlackShareHint({ canManage }: { canManage: boolean }) {
   );
 
   const data = slack.data;
-  const connected =
-    data?.installations?.some((i) => i.status === "connected") ?? false;
+  const installations: SlackInstallation[] = data?.installations ?? [];
+  const connected = installations.some((i) => i.status === "connected");
 
   if (connected) {
     return (

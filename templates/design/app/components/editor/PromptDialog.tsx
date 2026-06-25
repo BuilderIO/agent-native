@@ -1,14 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import {
-  EmbeddedApp,
-  type EmbeddedAppRef,
-} from "@agent-native/core/embedding/react";
 import {
   appBasePath,
   PromptComposer,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
+import {
+  EmbeddedApp,
+  type EmbeddedAppRef,
+} from "@agent-native/core/embedding/react";
 import {
   IconPalette,
   IconPhoto,
@@ -16,7 +14,10 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {

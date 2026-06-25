@@ -1,10 +1,12 @@
+import { CodeSurface } from "@agent-native/core/blocks";
+import { IconLink } from "@tabler/icons-react";
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
 import { isValidElement, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { IconLink } from "@tabler/icons-react";
-import { CodeSurface } from "@agent-native/core/blocks";
+
 import { cn } from "@/lib/utils";
+
 import { PlanImageViewer } from "./PlanImageViewer";
 import { detectPlanTextDirection } from "./planTextDirection";
 

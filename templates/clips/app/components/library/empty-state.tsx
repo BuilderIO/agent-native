@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconVideo,
   IconFolder,
@@ -7,8 +7,9 @@ import {
   IconTrash,
   IconPlayerRecord,
 } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
-import { useT } from "@agent-native/core/client";
 
 type EmptyKind =
   | "library"

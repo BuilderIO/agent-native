@@ -1,3 +1,4 @@
+import { callAction } from "@agent-native/core/client";
 import {
   createContext,
   useContext,
@@ -10,10 +11,10 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { callAction } from "@agent-native/core/client";
-import { compositions, type CompositionEntry } from "@/remotion/registry";
+
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
+import { compositions, type CompositionEntry } from "@/remotion/registry";
 import { debug } from "@/utils/debug";
 
 const PROPS_KEY = (id: string) => `videos-props:${id}`;

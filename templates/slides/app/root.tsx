@@ -1,16 +1,4 @@
 import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLocation,
-} from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { DeckProvider } from "@/context/DeckContext";
-import { Toaster } from "@/components/ui/toaster";
-import {
   AppProviders,
   CommandMenu,
   appPath,
@@ -22,20 +10,35 @@ import {
   useDbSync,
   useT,
 } from "@agent-native/core/client";
-import { Layout as AppLayout } from "@/components/layout/Layout";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-import { useQueryClient } from "@tanstack/react-query";
-import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
-import changelog from "../CHANGELOG.md?raw";
 import {
   getLocaleInitScript,
   getThemeInitScript,
 } from "@agent-native/core/client";
+import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
+import type { LinksFunction } from "react-router";
+
+import { Layout as AppLayout } from "@/components/layout/Layout";
+import { Toaster } from "@/components/ui/toaster";
+import { DeckProvider } from "@/context/DeckContext";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,

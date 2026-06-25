@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createWebSearchToolEntry } from "./web-search-tool.js";
 
 describe("createWebSearchToolEntry", () => {

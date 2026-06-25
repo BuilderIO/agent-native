@@ -1,8 +1,9 @@
 import type { H3Event } from "h3";
-import { getSession } from "../server/auth.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+
 import { getDbExec } from "../db/client.js";
+import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
+import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import type { OrgContext, OrgRole } from "./types.js";
 

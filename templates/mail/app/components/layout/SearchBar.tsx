@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconX } from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -7,15 +9,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
-import { IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useT } from "@agent-native/core/client";
+import { useContacts, type Contact } from "@/hooks/use-emails";
+import { cn } from "@/lib/utils";
 
 interface SearchBarProps {
   onClose: () => void;

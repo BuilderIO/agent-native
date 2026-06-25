@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
  * Resolve the canonical URL of this app — used in transactional emails,
  * invite links, and anywhere we need an absolute URL that remains valid
@@ -24,8 +27,7 @@
  * production base URL.
  */
 import { getRequestURL, type H3Event } from "h3";
-import path from "node:path";
-import fs from "node:fs";
+
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { isLocalDatabase } from "../db/client.js";
 

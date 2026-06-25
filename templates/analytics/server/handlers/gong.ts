@@ -1,11 +1,12 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+
 import { runApiHandlerWithContext } from "../lib/credentials";
+import { getCalls, getUsers, searchCalls } from "../lib/gong";
 import {
   DEFAULT_GONG_CALL_LIMIT,
   limitGongCalls,
   normalizeGongCallLimit,
 } from "../lib/gong-limits";
-import { getCalls, getUsers, searchCalls } from "../lib/gong";
 import { resolveAnalyticsGongCredentials } from "../lib/provider-credentials";
 
 function missingGongCredentials() {

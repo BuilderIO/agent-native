@@ -1,7 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
 import {
   IconArrowLeft,
   IconDotsVertical,
@@ -11,27 +7,32 @@ import {
   IconTool,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import { AgentToggleButton } from "../AgentPanel.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import { useT } from "../i18n.js";
+import { AgentToggleButton } from "../AgentPanel.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
+import { useT } from "../i18n.js";
+import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { cn } from "../utils.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 import {
   TOOLS_ORDER_CHANGE_EVENT,
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
-import {
-  deleteOrHideExtension,
-  invalidateExtensionRemoval,
-} from "./delete-extension.js";
-import { extensionPath } from "../../extensions/path.js";
 
 interface Extension {
   id: string;

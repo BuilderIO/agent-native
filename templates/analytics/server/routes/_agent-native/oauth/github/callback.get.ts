@@ -1,10 +1,4 @@
-import {
-  defineEventHandler,
-  getQuery,
-  setResponseHeader,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
+import { getOrgContext } from "@agent-native/core/org";
 import {
   decodeOAuthState,
   getOrigin,
@@ -12,7 +6,14 @@ import {
   oauthErrorPage,
   resolveOAuthOwner,
 } from "@agent-native/core/server";
-import { getOrgContext } from "@agent-native/core/org";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseHeader,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   exchangeGitHubOAuthCode,
   fetchGitHubViewer,

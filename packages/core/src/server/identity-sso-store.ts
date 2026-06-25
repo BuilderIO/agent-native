@@ -22,8 +22,9 @@
  * Node-only (crypto), bundled alongside the other framework auth modules.
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes } from "node:crypto";
+
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 

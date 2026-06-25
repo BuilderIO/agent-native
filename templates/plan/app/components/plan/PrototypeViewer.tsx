@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
 import type { PlanPrototype } from "@shared/plan-content";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { cn } from "@/lib/utils";
+
 import { Wireframe } from "./wireframe/Wireframe";
 
 type PrototypeViewerProps = {

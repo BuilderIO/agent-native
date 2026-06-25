@@ -1,12 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
   AppBridge,
   PostMessageTransport,
   buildAllowAttribute,
@@ -16,13 +8,22 @@ import {
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
   AGENT_NATIVE_EMBED_VERSION,
 } from "../../embedding/protocol.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import { agentNativePath } from "../api-path.js";
 import { sendToAgentChat, type AgentChatRequestMode } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
 
 export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;

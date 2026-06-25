@@ -1,8 +1,9 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
-import DocsLayout from "../components/DocsLayout";
+
 import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
 import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 const GETTING_STARTED_SLUG = "getting-started";
@@ -19,8 +20,11 @@ export async function loader({
   return doc;
 }
 
-export const meta = ({ data }: { data?: DocEntry } = {}) => {
-  const doc = data ?? getDoc(GETTING_STARTED_SLUG);
+export const meta = ({
+  data,
+  loaderData,
+}: { data?: DocEntry; loaderData?: DocEntry } = {}) => {
+  const doc = data ?? loaderData ?? getDoc(GETTING_STARTED_SLUG);
   if (!doc) {
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   }

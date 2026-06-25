@@ -1,9 +1,9 @@
-import { z } from "zod";
 import {
   defineBlock,
   type BlockMdxConfig,
   type BlockSpec,
 } from "@agent-native/core/blocks/server";
+import { z } from "zod";
 
 export interface InlineDatabaseData {
   databaseId: string;

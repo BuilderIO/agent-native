@@ -1,16 +1,18 @@
 import { existsSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  OG_ARABIC_FONT_FAMILY,
+  OG_FONT_FAMILY,
+  resolveOgFontFiles,
+} from "./og-fonts.js";
 import {
   agentNativeOgImageResponseHeaders,
   isResvgRuntimeUnavailableError,
   renderAgentNativeOgImageSvg,
   resolveAgentNativeOgImageAppName,
 } from "./social-og-image.js";
-import {
-  OG_ARABIC_FONT_FAMILY,
-  OG_FONT_FAMILY,
-  resolveOgFontFiles,
-} from "./og-fonts.js";
 
 describe("social OG image", () => {
   afterEach(() => {

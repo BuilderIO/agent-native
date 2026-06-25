@@ -17,8 +17,9 @@
  * (shared prod DB rule).
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID } from "node:crypto";
+
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 

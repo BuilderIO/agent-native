@@ -1,4 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+
 import {
   requireCredential,
   runApiHandlerWithContext,

@@ -6,11 +6,13 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
+
+import type { CompositionCollabData } from "@/hooks/use-composition-collab";
 import { useTimelineState } from "@/state";
 import type { AnimationTrack } from "@/types";
-import { useCompositionOptional } from "./CompositionContext";
-import type { CompositionCollabData } from "@/hooks/use-composition-collab";
 import { debug } from "@/utils/debug";
+
+import { useCompositionOptional } from "./CompositionContext";
 
 const TRACKS_KEY = (id: string) => `videos-tracks:${id}`;
 const VERSION_KEY = (id: string) => `videos-tracks-version:${id}`;

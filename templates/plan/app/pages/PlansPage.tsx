@@ -1,17 +1,66 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type PointerEvent,
-  type ReactNode,
-  type SyntheticEvent,
-} from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+  SIDEBAR_STATE_CHANGE_EVENT,
+  PromptComposer,
+  BuilderSetupCard,
+  ShareButton,
+  appPath,
+  agentNativePath,
+  sendToAgentChat,
+  setAgentChatContextItem,
+  useAgentEngineConfigured,
+  useActionQuery,
+  useSession,
+  track,
+  emailToColor,
+  emailToName,
+  type AgentSidebarStateChangeDetail,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
+import {
+  useAcceptInvitation,
+  useJoinByDomain,
+  useOrg,
+  type OrgInfo,
+  type OrgInvitationSummary,
+  type DomainMatchOrg,
+} from "@agent-native/core/client/org";
+import {
+  extractCommentMentions,
+  formatPlanCommentAnchorForAgent,
+  formatPlanCommentMentionToken,
+  normalizePlanCommentResolutionTarget,
+  parsePlanCommentAnchor,
+  planCommentAnchorDetails,
+  type PlanCommentAnchor,
+  type PlanCommentMention,
+  type PlanCommentResolutionTarget,
+} from "@shared/comment-context";
+import { mimeTypeFromFilename } from "@shared/plan-assets";
+import type {
+  PlanAnnotation,
+  PlanBlock,
+  PlanContent,
+  PlanContentPatch,
+} from "@shared/plan-content";
+import {
+  diffPlanVersions,
+  formatVersionDiffSummary,
+} from "@shared/plan-version-diff";
+import {
+  PLAN_SHARE_SURFACE,
+  readPlanShareAttribution,
+  withPlanShareAttribution,
+} from "@shared/share-attribution";
+import {
+  type PlanBundle,
+  type PlanKind,
+  type PlanReportReason,
+  type PlanSource,
+  type PlanStatus,
+  type PlanSummary,
+  type PlanVersionDetail,
+  type PlanVersionSummary,
+} from "@shared/types";
 import {
   IconAt,
   IconArrowLeft,
@@ -54,41 +103,38 @@ import {
   IconUserPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+
 import {
-  SIDEBAR_STATE_CHANGE_EVENT,
-  PromptComposer,
-  BuilderSetupCard,
-  ShareButton,
-  appPath,
-  agentNativePath,
-  sendToAgentChat,
-  setAgentChatContextItem,
-  useAgentEngineConfigured,
-  useActionQuery,
-  useSession,
-  track,
-  emailToColor,
-  emailToName,
-  type AgentSidebarStateChangeDetail,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
+import type {
+  CanvasMarkupCreateContext,
+  CanvasMarkupMode,
+} from "@/components/plan/CanvasArea";
+import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
+import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
+import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 import {
-  useAcceptInvitation,
-  useJoinByDomain,
-  useOrg,
-  type OrgInfo,
-  type OrgInvitationSummary,
-  type DomainMatchOrg,
-} from "@agent-native/core/client/org";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  toggleWireframeStyle,
+  useWireframeStyle,
+} from "@/components/plan/wireframe/use-wireframe-style";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,6 +145,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -122,17 +177,21 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -141,14 +200,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -156,21 +209,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { PlanContentRenderer } from "@/components/plan/PlanContentRenderer";
-import { GuestModeBanner } from "@/components/plan/GuestModeBanner";
-import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
-import {
-  toggleWireframeStyle,
-  useWireframeStyle,
-} from "@/components/plan/wireframe/use-wireframe-style";
-import type {
-  CanvasMarkupCreateContext,
-  CanvasMarkupMode,
-} from "@/components/plan/CanvasArea";
 import {
   planBundleQueryKey,
   localPlanBundleQueryKey,
@@ -202,7 +240,6 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
-import { cn } from "@/lib/utils";
 import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
@@ -210,43 +247,8 @@ import {
 } from "@/lib/desktop-plan-files";
 import { syncLocalControlResources } from "@/lib/local-control-resources";
 import { planDocumentTitle } from "@/lib/plan-document-title";
-import {
-  type PlanBundle,
-  type PlanKind,
-  type PlanReportReason,
-  type PlanSource,
-  type PlanStatus,
-  type PlanSummary,
-  type PlanVersionDetail,
-  type PlanVersionSummary,
-} from "@shared/types";
-import {
-  PLAN_SHARE_SURFACE,
-  readPlanShareAttribution,
-  withPlanShareAttribution,
-} from "@shared/share-attribution";
-import {
-  diffPlanVersions,
-  formatVersionDiffSummary,
-} from "@shared/plan-version-diff";
-import {
-  extractCommentMentions,
-  formatPlanCommentAnchorForAgent,
-  formatPlanCommentMentionToken,
-  normalizePlanCommentResolutionTarget,
-  parsePlanCommentAnchor,
-  planCommentAnchorDetails,
-  type PlanCommentAnchor,
-  type PlanCommentMention,
-  type PlanCommentResolutionTarget,
-} from "@shared/comment-context";
-import type {
-  PlanAnnotation,
-  PlanBlock,
-  PlanContent,
-  PlanContentPatch,
-} from "@shared/plan-content";
-import { mimeTypeFromFilename } from "@shared/plan-assets";
+import { cn } from "@/lib/utils";
+
 import { parsePlanMdxFolder } from "../../server/plan-mdx";
 
 function GoogleLogoIcon({ className }: { className?: string }) {

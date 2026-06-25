@@ -1,24 +1,12 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens } from "./helpers.js";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
-import {
-  getAccountDisplayName,
-  invalidateListCacheForOwner,
-  setAccountDisplayName,
-} from "../server/lib/google-auth.js";
-import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
-import {
-  bodyToHtml,
-  buildRawEmail,
-  resolveComposeAttachments,
-  splitReplyQuote,
-} from "../server/lib/outgoing-email.js";
-import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { getAppProductionUrl } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import {
   collectLinks,
   newClickToken,
@@ -26,9 +14,22 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../server/lib/email-tracking.js";
-import { getAppProductionUrl } from "@agent-native/core/server";
-import type { UserSettings } from "../shared/types.js";
+import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
+import {
+  getAccountDisplayName,
+  invalidateListCacheForOwner,
+  setAccountDisplayName,
+} from "../server/lib/google-auth.js";
+import {
+  bodyToHtml,
+  buildRawEmail,
+  resolveComposeAttachments,
+  splitReplyQuote,
+} from "../server/lib/outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { markdownPreviewSnippet } from "../shared/markdown.js";
+import type { UserSettings } from "../shared/types.js";
+import { getAccessTokens } from "./helpers.js";
 
 async function readSettings(): Promise<{
   name: string;

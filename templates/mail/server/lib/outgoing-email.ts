@@ -1,13 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { nanoid } from "nanoid";
-import { marked, type Tokens, Renderer } from "marked";
-import type { ComposeAttachment } from "@shared/types.js";
+
 import {
   decodeCommonHtmlEntities,
   escapeHtml,
   normalizeMarkdownHardBreaks,
 } from "@shared/markdown.js";
+import type { ComposeAttachment } from "@shared/types.js";
+import { marked, type Tokens, Renderer } from "marked";
+import { nanoid } from "nanoid";
+
 import {
   injectTrackingIntoHtml,
   type TrackingContext,

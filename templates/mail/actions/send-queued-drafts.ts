@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import sendEmailAction from "./send-email.js";
+
 import {
   listQueuedDrafts,
   markQueuedDraftSent,
   requireQueuedDraft,
   type QueuedEmailDraft,
 } from "../server/lib/queued-drafts.js";
+import sendEmailAction from "./send-email.js";
 
 function extractSentMessageId(result: unknown): string | undefined {
   if (result && typeof result === "object" && "id" in result) {

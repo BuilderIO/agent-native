@@ -1,14 +1,15 @@
+import { readBody } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
+
 import {
   runApiHandlerWithContext,
   type CredentialContext,
 } from "../lib/credentials";
-import { readBody } from "@agent-native/core/server";
 import {
   searchPRs,
   searchIssues,

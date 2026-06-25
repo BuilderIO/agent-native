@@ -1,11 +1,3 @@
-import { Link, useNavigate, useParams } from "react-router";
-import {
-  useEffect,
-  useState,
-  type ComponentProps,
-  type ReactNode,
-} from "react";
-import { toast } from "sonner";
 import {
   sendToAgentChat,
   useActionMutation,
@@ -20,12 +12,15 @@ import {
   IconTrash,
   IconVideo,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
-import { assetMediaUrl } from "@/lib/asset-urls";
-import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import {
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,11 +32,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import { assetMediaUrl } from "@/lib/asset-urls";
+import { cn } from "@/lib/utils";
 
 export default function AssetDetailPage() {
   const t = useT();

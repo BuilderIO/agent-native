@@ -1,15 +1,17 @@
+import { appBasePath } from "@agent-native/core/client";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { appBasePath } from "@agent-native/core/client";
+
+import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
 
 export function meta() {

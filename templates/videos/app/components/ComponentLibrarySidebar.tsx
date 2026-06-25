@@ -1,10 +1,3 @@
-import { useState, useMemo, Component, type ReactNode } from "react";
-import {
-  libraryComponents,
-  type LibraryComponentEntry,
-  type ComponentCategory,
-} from "@/remotion/componentRegistry";
-import { cn } from "@/lib/utils";
 import {
   IconBox,
   IconAdjustmentsHorizontal,
@@ -12,10 +5,18 @@ import {
   IconFileText,
   IconInfoCircle,
 } from "@tabler/icons-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useState, useMemo, Component, type ReactNode } from "react";
+
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  libraryComponents,
+  type LibraryComponentEntry,
+  type ComponentCategory,
+} from "@/remotion/componentRegistry";
 
 class SafeBoundary extends Component<
   { children: ReactNode },

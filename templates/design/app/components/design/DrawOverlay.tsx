@@ -1,4 +1,3 @@
-import { useState, useRef, useCallback, useEffect } from "react";
 import {
   IconEraser,
   IconArrowBackUp,
@@ -6,15 +5,18 @@ import {
   IconPlus,
   IconCursorText,
 } from "@tabler/icons-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import type { DrawAnnotation } from "./types";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import type { DrawAnnotation } from "./types";
 
 interface DrawOverlayProps {
   visible: boolean;

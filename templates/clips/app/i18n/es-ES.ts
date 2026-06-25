@@ -20,6 +20,13 @@ const messages = {
       "Abre de nuevo la extensión de Clips para empezar a grabar.",
     gotIt: "Entendido",
   },
+  recorder: {
+    cameraBlurTitle: "Desenfocar fondo",
+    cameraBlurDescription: "Mantente nítido y desenfoca lo que hay detrás",
+    cameraBlurToggle: "Desenfocar el fondo de la cámara",
+    cameraBlurIntensityLabel: "Intensidad",
+    cameraBlurIntensityAria: "Intensidad del desenfoque de fondo",
+  },
   navigation: {
     brand: "Clips",
     library: "Biblioteca",

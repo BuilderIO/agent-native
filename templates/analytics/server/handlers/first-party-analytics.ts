@@ -1,10 +1,11 @@
+import { readBody } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getHeader,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
-import { readBody } from "@agent-native/core/server";
+
 import {
   parseAnalyticsTrackPayload,
   recordAnalyticsEvents,
