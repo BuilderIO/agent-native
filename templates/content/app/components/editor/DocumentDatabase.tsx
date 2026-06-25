@@ -3925,6 +3925,12 @@ function DatabaseSettingsSourcePanel({
       changeSet.state === "staged_revision" ||
       changeSet.state === "approved",
   );
+  const pendingOutboundChangeSets = outboundChangeSets.filter(
+    (changeSet) => changeSet.state !== "applied",
+  );
+  const appliedOutboundChangeSets = outboundChangeSets.filter(
+    (changeSet) => changeSet.state === "applied",
+  );
   const conflictChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.conflictState === "source_changed",
@@ -4363,18 +4369,32 @@ function DatabaseSettingsSourcePanel({
                   : "No local outbound push lane is active for this mock source."}
               </div>
               <div className="grid min-w-0 gap-2">
-                {outboundChangeSets.slice(0, 6).map((changeSet) => (
+                {pendingOutboundChangeSets.slice(0, 6).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
                     source={source}
                   />
                 ))}
-                {outboundChangeSets.length === 0 ? (
+                {pendingOutboundChangeSets.length === 0 ? (
                   <div className="text-xs text-muted-foreground">
                     {source.sourceType === "builder-cms"
-                      ? "No pending local Builder changes yet. Rename a source-backed row to see a local outbound diff."
+                      ? "No pending local Builder changes yet. Rename a source-backed row to queue one here."
                       : "No local outbound changes yet."}
+                  </div>
+                ) : null}
+                {appliedOutboundChangeSets.length > 0 ? (
+                  <div className="mt-1 grid min-w-0 gap-1.5">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Recently pushed
+                    </div>
+                    {appliedOutboundChangeSets.slice(0, 4).map((changeSet) => (
+                      <SourceChangeSetReviewCard
+                        key={changeSet.id}
+                        changeSet={changeSet}
+                        source={source}
+                      />
+                    ))}
                   </div>
                 ) : null}
               </div>
@@ -5130,36 +5150,11 @@ function SourceChangeSetReviewCard({
         </div>
       ) : null}
 
-      <div className="mt-2 grid min-w-0 gap-1.5">
-        {changeSet.fieldChanges.slice(0, 3).map((field) => (
-          <div
-            key={`${changeSet.id}-${field.localFieldKey}`}
-            className="min-w-0 rounded border border-border/60 bg-muted/20 p-1.5 text-xs"
-          >
-            <div className="font-medium">
-              {field.propertyName ?? field.sourceFieldKey}
-            </div>
-            <div className="mt-1 grid min-w-0 gap-1 text-muted-foreground">
-              <div className="min-w-0 break-words">
-                Current: {sourceValueText(field.currentValue)}
-              </div>
-              <div className="min-w-0 break-words">
-                Proposed: {sourceValueText(field.proposedValue)}
-              </div>
-            </div>
-          </div>
-        ))}
-        {changeSet.fieldChanges.length > 3 ? (
-          <div className="text-xs text-muted-foreground">
-            +{changeSet.fieldChanges.length - 3} more field changes
-          </div>
-        ) : null}
-        {changeSet.bodyChange ? (
-          <div className="rounded border border-border/60 bg-muted/20 p-1.5 text-xs">
-            <div className="font-medium">{changeSet.bodyChange.summary}</div>
-            <div className="mt-1 text-muted-foreground">Body diff</div>
-          </div>
-        ) : null}
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        {changeSet.fieldChanges.length} field change
+        {changeSet.fieldChanges.length === 1 ? "" : "s"}
+        {changeSet.bodyChange ? " · body diff" : ""} · open “Review diff” to see
+        details
       </div>
 
       {blockers.length > 0 ? (
