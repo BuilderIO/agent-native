@@ -295,7 +295,10 @@ function WireframeStyleToggleButton() {
   const copy = useBlockCopy();
   const nextStyle = style === "sketchy" ? "clean" : "sketchy";
   const label = nextStyle === "clean" ? copy.clean : copy.sketchy;
-  const description = copy.switchVisualStyle.replace("{{style}}", label);
+  const description = copy.switchVisualStyle.replace(
+    "{{style}}",
+    label.toLocaleLowerCase(),
+  );
 
   return (
     <button

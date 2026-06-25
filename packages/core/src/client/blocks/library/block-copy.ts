@@ -1,4 +1,4 @@
-import { useLocale } from "../../i18n.js";
+import { useOptionalLocale } from "../../i18n.js";
 import {
   DEFAULT_LOCALE,
   type LocaleCode,
@@ -362,6 +362,6 @@ const BLOCK_COPY: Record<
 };
 
 export function useBlockCopy() {
-  const { locale } = useLocale();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   return BLOCK_COPY[locale] ?? BLOCK_COPY[DEFAULT_LOCALE];
 }
