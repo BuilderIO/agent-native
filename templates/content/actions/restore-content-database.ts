@@ -9,18 +9,27 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
   ownerDocumentId: string | null;
   ownerBlockId: string | null;
 }) {
   if (!args.ownerDocumentId || !args.ownerBlockId) return false;
-  const hostAccess = await resolveAccess("document", args.ownerDocumentId);
-  if (!hostAccess) return false;
+  let content: string | null = null;
+  try {
+    const host = await pullDocumentAction.run({
+      id: args.ownerDocumentId,
+      format: "markdown",
+    });
+    content = String(host.content ?? "");
+  } catch {
+    const hostAccess = await resolveAccess("document", args.ownerDocumentId);
+    if (!hostAccess) return false;
+    content = String(hostAccess.resource.content ?? "");
+  }
 
-  const parsed = await collectInlineDatabaseOwnerBlockIds(
-    String(hostAccess.resource.content ?? ""),
-  );
+  const parsed = await collectInlineDatabaseOwnerBlockIds(content);
   return parsed.ok && !parsed.ownerBlockIds.has(args.ownerBlockId);
 }
 

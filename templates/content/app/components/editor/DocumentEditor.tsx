@@ -154,6 +154,13 @@ interface DocumentEditorBodyProps {
   document: Document;
 }
 
+type PendingDocumentSave = {
+  title: string;
+  content: string;
+  save: (title: string, content: string) => void | Promise<void>;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 function useMinViewportWidth(minWidth: number) {
   const [matches, setMatches] = useState(false);
 
@@ -292,6 +299,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     string | null
   >(document.updatedAt ?? null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
@@ -386,6 +394,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
       }
     }
     if (!isInitializedRef.current) {
@@ -513,6 +522,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
       }
       setLocalContent(serverContent);
       lastSavedContentRef.current = {
@@ -681,29 +691,35 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
-  const saveDocumentImmediatelyRef = useRef(saveDocumentImmediately);
-  saveDocumentImmediatelyRef.current = saveDocumentImmediately;
-
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        saveTimeoutRef.current = null;
-        void saveDocumentImmediately(title, content);
-      }, 500);
+      const pending: PendingDocumentSave = {
+        title,
+        content,
+        save: saveDocumentImmediately,
+        timeout: setTimeout(() => {
+          if (pendingDocumentSaveRef.current === pending) {
+            pendingDocumentSaveRef.current = null;
+          }
+          saveTimeoutRef.current = null;
+          void pending.save(pending.title, pending.content);
+        }, 500),
+      };
+      pendingDocumentSaveRef.current = pending;
+      saveTimeoutRef.current = pending.timeout;
     },
     [saveDocumentImmediately],
   );
 
   useEffect(() => {
     return () => {
-      if (!saveTimeoutRef.current) return;
-      clearTimeout(saveTimeoutRef.current);
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending) return;
+      clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
-      void saveDocumentImmediatelyRef.current(
-        localTitleRef.current,
-        localContentRef.current,
-      );
+      pendingDocumentSaveRef.current = null;
+      void pending.save(pending.title, pending.content);
     };
   }, [documentId]);
 
@@ -797,6 +813,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);

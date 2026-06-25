@@ -1,10 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import {
-  accessFilter,
-  resolveAccess,
-  roleSatisfies,
-} from "@agent-native/core/sharing";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -18,6 +15,16 @@ export default defineAction({
   readOnly: true,
   run: async (): Promise<ListTrashedContentDatabasesResponse> => {
     const db = getDb();
+    const hostDocuments = alias(schema.documents, "host_documents");
+    const isBlockOwned = and(
+      isNotNull(schema.contentDatabases.ownerDocumentId),
+      eq(schema.documents.parentId, schema.contentDatabases.ownerDocumentId),
+    );
+    const isNotBlockOwned = or(
+      isNull(schema.contentDatabases.ownerDocumentId),
+      isNull(schema.documents.parentId),
+      ne(schema.documents.parentId, schema.contentDatabases.ownerDocumentId),
+    );
     const rows = await db
       .select({
         databaseId: schema.contentDatabases.id,
@@ -26,38 +33,45 @@ export default defineAction({
         ownerDocumentId: schema.contentDatabases.ownerDocumentId,
         deletedAt: schema.contentDatabases.deletedAt,
         documentTitle: schema.documents.title,
-        documentParentId: schema.documents.parentId,
       })
       .from(schema.contentDatabases)
       .innerJoin(
         schema.documents,
         eq(schema.documents.id, schema.contentDatabases.documentId),
       )
+      .leftJoin(
+        hostDocuments,
+        eq(hostDocuments.id, schema.contentDatabases.ownerDocumentId),
+      )
       .where(
         and(
           isNotNull(schema.contentDatabases.deletedAt),
-          accessFilter(schema.documents, schema.documentShares),
+          or(
+            and(
+              isBlockOwned,
+              accessFilter(
+                hostDocuments,
+                schema.documentShares,
+                undefined,
+                "editor",
+              ),
+            ),
+            and(
+              isNotBlockOwned,
+              accessFilter(
+                schema.documents,
+                schema.documentShares,
+                undefined,
+                "admin",
+              ),
+            ),
+          ),
         ),
       )
       .orderBy(desc(schema.contentDatabases.deletedAt));
 
-    const restorableRows: typeof rows = [];
-    for (const row of rows) {
-      const isBlockOwned =
-        !!row.ownerDocumentId && row.documentParentId === row.ownerDocumentId;
-      const restoreAccess = isBlockOwned
-        ? await resolveAccess("document", row.ownerDocumentId!)
-        : await resolveAccess("document", row.documentId);
-      if (
-        restoreAccess &&
-        roleSatisfies(restoreAccess.role, isBlockOwned ? "editor" : "admin")
-      ) {
-        restorableRows.push(row);
-      }
-    }
-
     return {
-      databases: restorableRows.map((row) => ({
+      databases: rows.map((row) => ({
         databaseId: row.databaseId,
         title:
           row.documentTitle?.trim() ||

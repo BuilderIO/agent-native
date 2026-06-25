@@ -90,9 +90,12 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("const saveDocumentImmediately");
-    expect(source).toContain("const saveDocumentImmediatelyRef");
+    expect(source).toContain("type PendingDocumentSave");
+    expect(source).toContain("pendingDocumentSaveRef.current = pending");
     expect(source).toContain("clearTimeout(saveTimeoutRef.current)");
-    expect(source).toContain("localContentRef.current");
+    expect(source).toContain(
+      "void pending.save(pending.title, pending.content)",
+    );
   });
 
   it("lets slash-created page references use the editor save pipeline", () => {
