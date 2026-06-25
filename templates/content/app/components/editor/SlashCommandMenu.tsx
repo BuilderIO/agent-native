@@ -590,7 +590,7 @@ export function SlashCommandMenu({
         );
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
-          if (!persisted) throw new Error(t("tryAgain"));
+          if (!persisted) throw new Error(t("empty.genericError"));
         } else {
           await onDraftCommitted?.();
         }
