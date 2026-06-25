@@ -446,7 +446,7 @@ export function AgentNativeI18nProvider({
       setPreference,
       loading,
     }),
-    [loading, locale, preference, setPreference],
+    [loading, locale, preference, setPreference, sourceLocale],
   );
 
   return (
