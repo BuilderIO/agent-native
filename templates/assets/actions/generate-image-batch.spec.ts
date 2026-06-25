@@ -4,6 +4,7 @@ const assertAccessMock = vi.hoisted(() => vi.fn());
 const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
 const readImageModelDefaultMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
@@ -45,6 +46,10 @@ vi.mock("./generate-image.js", () => ({
   },
 }));
 
+vi.mock("./variant-slots.js", () => ({
+  upsertVariantSlot: upsertVariantSlotMock,
+}));
+
 import action from "./generate-image-batch.js";
 
 function createDb() {
@@ -63,6 +68,7 @@ describe("generate-image-batch", () => {
     });
     readImageModelDefaultMock.mockResolvedValue(undefined);
     generateImageRunMock.mockResolvedValue({ assetId: "asset-1" });
+    upsertVariantSlotMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue(createDb());
   });
 
@@ -80,6 +86,7 @@ describe("generate-image-batch", () => {
     ).rejects.toThrow(/does not belong to this library/);
 
     expect(generateImageRunMock).not.toHaveBeenCalled();
+    expect(upsertVariantSlotMock).not.toHaveBeenCalled();
   });
 
   it("chooses the first successful batch output as the active session asset", async () => {
@@ -131,9 +138,22 @@ describe("generate-image-batch", () => {
       ],
     });
 
+    expect(upsertVariantSlotMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: expect.stringMatching(/^pending-.+-1$/),
+        batchId: expect.any(String),
+        libraryId: "lib-1",
+        variantScopeId: "picker:tab-1",
+        slotId: "picker-candidate-1",
+        prompt: "First",
+        status: "pending",
+      }),
+    );
+    const pendingBatchId = upsertVariantSlotMock.mock.calls[0][0].batchId;
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: "picker-candidate-1",
+        variantBatchId: pendingBatchId,
         variantScopeId: "picker:tab-1",
         dismissible: false,
         activateSessionAsset: false,

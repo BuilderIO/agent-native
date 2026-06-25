@@ -8,6 +8,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import generateImage from "./generate-image.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
 import { readImageModelDefault } from "./_image-model-default.js";
+import { upsertVariantSlot } from "./variant-slots.js";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 import {
@@ -89,8 +90,25 @@ export default defineAction({
     if (base.sessionId) {
       await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
     }
-    const limit = pLimit(4);
     const variantBatchId = nanoid();
+    await Promise.all(
+      slots.map((slot, index) =>
+        upsertVariantSlot({
+          runId: `pending-${variantBatchId}-${index + 1}`,
+          batchId: variantBatchId,
+          libraryId: base.libraryId,
+          collectionId: base.collectionId ?? null,
+          presetId: base.presetId ?? null,
+          sessionId: base.sessionId ?? null,
+          threadId: context?.threadId ?? null,
+          variantScopeId: base.variantScopeId ?? null,
+          prompt: slot.prompt,
+          slotId: slot.slotId,
+          status: "pending",
+        }),
+      ),
+    );
+    const limit = pLimit(4);
     const results = await Promise.allSettled(
       slots.map((slot) =>
         limit(() =>
