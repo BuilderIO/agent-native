@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   databaseMembershipDatabaseTitle,
+  documentEditorBreadcrumbItems,
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
@@ -38,6 +39,87 @@ describe("document editor layout", () => {
     expect(source).toContain(
       'className="flex min-h-0 min-w-0 flex-1 flex-col"',
     );
+  });
+
+  it("keeps desktop comments inside the document scroll surface", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    const scrollIndex = source.indexOf("data-document-print-scroll");
+    const contentIndex = source.indexOf("data-document-scroll-content");
+    const desktopCommentsIndex = source.indexOf(
+      "{showDesktopComments ? sidebar : null}",
+    );
+    const mobileSheetIndex = source.indexOf("<Sheet");
+
+    expect(scrollIndex).toBeGreaterThan(-1);
+    expect(contentIndex).toBeGreaterThan(scrollIndex);
+    expect(desktopCommentsIndex).toBeGreaterThan(contentIndex);
+    expect(desktopCommentsIndex).toBeLessThan(mobileSheetIndex);
+    expect(source).not.toContain("hasComments && sidebar");
+  });
+
+  it("keeps the document toolbar in normal layout flow", () => {
+    const source = readFileSync(
+      new URL("./DocumentToolbar.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
+    );
+    expect(source).toContain("ToolbarBreadcrumb");
+    expect(source).toContain("formatEditedLabel");
+    expect(source).toContain("Copy page link");
+    expect(source).not.toContain("absolute top-2 right-2");
+    expect(source).not.toContain("shadow-sm");
+  });
+
+  it("flushes pending document saves when leaving an editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("const saveDocumentImmediately");
+    expect(source).toContain("const saveDocumentImmediatelyRef");
+    expect(source).toContain("clearTimeout(saveTimeoutRef.current)");
+    expect(source).toContain("localContentRef.current");
+  });
+
+  it("builds a Notion-style breadcrumb from parent documents", () => {
+    expect(
+      documentEditorBreadcrumbItems(
+        {
+          id: "child",
+          parentId: "parent",
+          title: "Draft",
+          icon: null,
+        },
+        [
+          {
+            id: "root",
+            parentId: null,
+            title: "Workspace",
+            icon: "W",
+          },
+          {
+            id: "parent",
+            parentId: "root",
+            title: "Project",
+            icon: null,
+          },
+        ],
+      ).map((item) => item.title),
+    ).toEqual(["Workspace", "Project", "Draft"]);
   });
 
   it("defaults database pages to the database icon in the editor", () => {

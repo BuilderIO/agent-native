@@ -42,6 +42,20 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("{canManage && (");
   });
 
+  it("keeps hovered page row actions readable on inactive rows", () => {
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+
+    expect(treeItem).toContain("hover:bg-accent hover:text-foreground");
+    expect(treeItem).toContain("pointer-events-none");
+    expect(treeItem).toContain("group-focus-within:opacity-100");
+    expect(treeItem).toContain('"bg-accent text-foreground"');
+    expect(treeItem).toContain("More actions for");
+    expect(treeItem).not.toContain("bg-inherit");
+    expect(treeItem).not.toContain("hover:bg-accent/50");
+    expect(treeItem).not.toContain("hover:bg-background/70");
+    expect(treeItem).not.toContain("transition-opacity");
+  });
+
   it("defaults database pages to the database icon before the page icon", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");

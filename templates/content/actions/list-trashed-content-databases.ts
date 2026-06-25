@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -22,6 +26,7 @@ export default defineAction({
         ownerDocumentId: schema.contentDatabases.ownerDocumentId,
         deletedAt: schema.contentDatabases.deletedAt,
         documentTitle: schema.documents.title,
+        documentParentId: schema.documents.parentId,
       })
       .from(schema.contentDatabases)
       .innerJoin(
@@ -36,8 +41,23 @@ export default defineAction({
       )
       .orderBy(desc(schema.contentDatabases.deletedAt));
 
+    const restorableRows: typeof rows = [];
+    for (const row of rows) {
+      const isBlockOwned =
+        !!row.ownerDocumentId && row.documentParentId === row.ownerDocumentId;
+      const restoreAccess = isBlockOwned
+        ? await resolveAccess("document", row.ownerDocumentId!)
+        : await resolveAccess("document", row.documentId);
+      if (
+        restoreAccess &&
+        roleSatisfies(restoreAccess.role, isBlockOwned ? "editor" : "admin")
+      ) {
+        restorableRows.push(row);
+      }
+    }
+
     return {
-      databases: rows.map((row) => ({
+      databases: restorableRows.map((row) => ({
         databaseId: row.databaseId,
         title:
           row.documentTitle?.trim() ||

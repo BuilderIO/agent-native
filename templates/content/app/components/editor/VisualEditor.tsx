@@ -870,6 +870,17 @@ export function shouldPersistLocalFileEditorUpdate({
   return Boolean(transactionUiEvent);
 }
 
+function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
+  const { state } = editor;
+  if (!state.selection.empty) return false;
+  const { from, $from } = state.selection;
+  if (!$from.parent.isTextblock) return false;
+
+  const blockStart = $from.start();
+  const textBefore = state.doc.textBetween(blockStart, from, "\n");
+  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
+}
+
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -1576,6 +1587,7 @@ export function VisualEditor({
     return (
       notionPageLinksRef.current.find(
         (link) =>
+          link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
     );
@@ -1604,9 +1616,10 @@ export function VisualEditor({
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
+      localAwareness?.setLocalState(null);
       fallbackAwareness?.destroy();
     };
-  }, [fallbackAwareness]);
+  }, [fallbackAwareness, localAwareness]);
 
   const extensions = useMemo(
     () =>
@@ -1643,6 +1656,27 @@ export function VisualEditor({
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
   }, []);
+  const persistEditorContent = useCallback(
+    (editorToPersist: CoreEditor) => {
+      const guards = guardsRef.current;
+      if (!guards) return;
+      try {
+        const normalized = docToNfm(editorToPersist.getJSON() as any);
+        if (localFileMode && normalized === content) return;
+        // Don't persist an empty doc before Collaboration has seeded (would
+        // clobber DB content with an empty string). `registerEmitted` records
+        // this as the last-emitted value and returns false to skip the save.
+        if (!guards.registerEmitted(normalized)) return;
+        queueMicrotask(() => onChangeRef.current(normalized));
+      } catch (err: any) {
+        toast.error(
+          t("editor.markdownSerializationError", { message: err.message }),
+        );
+        console.error("Markdown serialization error:", err);
+      }
+    },
+    [content, localFileMode, t],
+  );
 
   const editor = useEditor({
     extensions,
@@ -1796,20 +1830,8 @@ export function VisualEditor({
       ) {
         return;
       }
-      try {
-        const normalized = docToNfm(editor.getJSON() as any);
-        if (localFileMode && normalized === content) return;
-        // Don't persist an empty doc before Collaboration has seeded (would
-        // clobber DB content with an empty string). `registerEmitted` records
-        // this as the last-emitted value and returns false to skip the save.
-        if (!guards.registerEmitted(normalized)) return;
-        queueMicrotask(() => onChangeRef.current(normalized));
-      } catch (err: any) {
-        toast.error(
-          t("editor.markdownSerializationError", { message: err.message }),
-        );
-        console.error("Markdown serialization error:", err);
-      }
+      if (isActiveSlashCommandDraft(editor)) return;
+      persistEditorContent(editor);
     },
   });
 
@@ -2038,6 +2060,7 @@ export function VisualEditor({
           editor={editor}
           documentId={documentId}
           notionPageId={notionPageId}
+          onDraftCommitted={() => persistEditorContent(editor)}
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
