@@ -138,15 +138,19 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   return `/library?${params.toString()}`;
 }
 
-function navigateCommandKey() {
+function navigateCommandKey(): string | null {
   const browserTabId = getRequestRunContext()?.browserTabId?.trim();
-  return browserTabId && SAFE_BROWSER_TAB_ID_RE.test(browserTabId)
-    ? `navigate:${browserTabId}`
-    : "navigate";
+  if (browserTabId && SAFE_BROWSER_TAB_ID_RE.test(browserTabId)) {
+    return `navigate:${browserTabId}`;
+  }
+  return null;
 }
 
-function shouldWriteNavigateCommand(context?: ActionRunContext): boolean {
-  return context?.caller !== "mcp";
+function shouldWriteNavigateCommand(
+  context: ActionRunContext | undefined,
+  commandKey: string | null,
+): commandKey is string {
+  return Boolean(commandKey) && context?.caller !== "mcp";
 }
 
 const action = defineAction({
@@ -190,7 +194,8 @@ const action = defineAction({
   },
   run: async (args, context) => {
     const path = pickerPath(args);
-    if (shouldWriteNavigateCommand(context)) {
+    const commandKey = navigateCommandKey();
+    if (shouldWriteNavigateCommand(context, commandKey)) {
       const command = {
         view: "picker" as const,
         mediaType: args.mediaType,
@@ -204,7 +209,7 @@ const action = defineAction({
           .toString(36)
           .slice(2, 8)}`,
       };
-      await writeAppState(navigateCommandKey(), command);
+      await writeAppState(commandKey, command);
     }
     return {
       app: "assets",

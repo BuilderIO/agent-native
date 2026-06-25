@@ -43,7 +43,6 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import {
-  assertCanReplaceVariantSlots,
   upsertVariantSlot,
   wasVariantSlotDismissed,
 } from "./variant-slots.js";
@@ -328,16 +327,6 @@ export default defineAction({
     const now = nowIso();
     const slotId = args.slotId ?? runId;
     const variantScopeId = args.variantScopeId ?? context?.threadId ?? null;
-    await assertCanReplaceVariantSlots({
-      runId,
-      batchId: args.variantBatchId ?? null,
-      libraryId: args.libraryId,
-      collectionId: resolvedCollectionId ?? null,
-      presetId: preset?.id ?? null,
-      sessionId: session?.id ?? null,
-      threadId: context?.threadId ?? null,
-      variantScopeId,
-    });
     // Capture identity at insert time so the org-admin audit log can filter
     // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;

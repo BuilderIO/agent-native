@@ -24,6 +24,7 @@ import {
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -556,7 +557,7 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-const MCP_IMAGE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+const MCP_IMAGE_CONTENT_MAX_BYTES = 2.5 * 1024 * 1024;
 
 function base64ByteLength(data: string) {
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
@@ -807,10 +808,6 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
   );
 }
 
-function formatAssetCount(count: number) {
-  return `${count} asset${count === 1 ? "" : "s"}`;
-}
-
 function LibraryShellHeader({
   selectedLibraryId = null,
   libraries,
@@ -822,11 +819,13 @@ function LibraryShellHeader({
   isLoading?: boolean;
   onCreateKit: () => void;
 }) {
+  const t = useT();
   const selectedLibrary = selectedLibraryId
     ? libraries.find((library) => library.id === selectedLibraryId)
     : null;
   const title =
-    selectedLibrary?.title ?? (selectedLibraryId ? "Library" : "All assets");
+    selectedLibrary?.title ??
+    (selectedLibraryId ? t("library.library") : t("library.allAssets"));
   const visibility = (selectedLibrary as any)?.visibility;
 
   return (
@@ -852,7 +851,7 @@ function LibraryShellHeader({
             <div
               id="assets-library-detail-primary-actions"
               className="contents"
-              aria-label="Primary kit actions"
+              aria-label={t("library.primaryKitActions")}
             />
           ) : null}
           <Button
@@ -861,13 +860,13 @@ function LibraryShellHeader({
             onClick={onCreateKit}
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New kit
+            {t("library.newKit")}
           </Button>
           {selectedLibraryId ? (
             <div
               id="assets-library-detail-more-actions"
               className="contents"
-              aria-label="More kit actions"
+              aria-label={t("library.kitActions")}
             />
           ) : null}
         </div>
@@ -891,6 +890,7 @@ function LibraryKitSelector({
   triggerStyle?: "button" | "title";
   onCreateKit: () => void;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -931,7 +931,7 @@ function LibraryKitSelector({
             className="-ml-1.5 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xl font-semibold leading-tight tracking-tight transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <span className="block min-w-0 max-w-[min(48rem,calc(100vw-7rem))] truncate sm:max-w-none">
-              {triggerLabel ?? selectedLibrary?.title ?? "All assets"}
+              {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
             </span>
             <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </button>
@@ -943,7 +943,7 @@ function LibraryKitSelector({
           >
             <IconLibraryPhoto className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">
-              {triggerLabel ?? selectedLibrary?.title ?? "All assets"}
+              {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
             </span>
             <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </Button>
@@ -958,7 +958,7 @@ function LibraryKitSelector({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search kits"
+            placeholder={t("library.searchKits")}
             className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
@@ -976,10 +976,10 @@ function LibraryKitSelector({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">
-                All assets
+                {t("library.allAssets")}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
-                Every accessible kit
+                {t("library.allAssetsDescription")}
               </span>
             </span>
             {!selectedLibraryId ? <IconCheck className="h-4 w-4" /> : null}
@@ -1011,10 +1011,14 @@ function LibraryKitSelector({
                       </span>
                       <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
                         <Badge variant="secondary" className="px-1.5 py-0">
-                          {library.referenceCount ?? 0} refs
+                          {t("library.referenceCount", {
+                            count: library.referenceCount ?? 0,
+                          })}
                         </Badge>
                         <Badge variant="outline" className="px-1.5 py-0">
-                          {library.generatedCount ?? 0} assets
+                          {t("library.assetCount", {
+                            count: library.generatedCount ?? 0,
+                          })}
                         </Badge>
                       </span>
                     </span>
@@ -1025,7 +1029,7 @@ function LibraryKitSelector({
             </div>
           ) : (
             <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-              No kits match your search.
+              {t("library.noKitsMatch")}
             </div>
           )}
         </div>
@@ -1040,7 +1044,7 @@ function LibraryKitSelector({
             }}
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New kit
+            {t("library.newKit")}
           </Button>
         </div>
       </PopoverContent>
@@ -1049,6 +1053,7 @@ function LibraryKitSelector({
 }
 
 function AllAssetsBrowser() {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [assetTab, setAssetTab] = useState<AssetTab>("all");
@@ -1073,10 +1078,10 @@ function AllAssetsBrowser() {
   const visibleAssetCount = assets.length;
   const assetCountLabel =
     isLoading
-      ? "Loading"
+      ? t("library.loading")
       : query.trim() || assetTab !== "all"
-        ? `${visibleAssetCount} shown`
-        : formatAssetCount(allAssets.length);
+        ? t("library.shownCount", { count: visibleAssetCount })
+        : t("library.assetCount", { count: allAssets.length });
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1095,10 +1100,10 @@ function AllAssetsBrowser() {
       try {
         await navigator.clipboard.writeText(text);
         setStandaloneCopyOk(true);
-        toast.success("Selection copied");
+        toast.success(t("library.selectionCopied"));
       } catch {
         setStandaloneCopyOk(false);
-        toast.info("Selection ready");
+        toast.info(t("library.selectionReady"));
       }
     },
     [],
@@ -1121,9 +1126,13 @@ function AllAssetsBrowser() {
               onValueChange={(value) => setAssetTab(value as AssetTab)}
             >
               <TabsList className="h-9">
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="generated">Generated</TabsTrigger>
-                <TabsTrigger value="references">References</TabsTrigger>
+                <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                <TabsTrigger value="generated">
+                  {t("library.generated")}
+                </TabsTrigger>
+                <TabsTrigger value="references">
+                  {t("library.references")}
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <Badge
@@ -1140,7 +1149,7 @@ function AllAssetsBrowser() {
               value={query}
               onInput={(event) => setQuery(event.currentTarget.value)}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search assets"
+              placeholder={t("library.searchAssets")}
               className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
@@ -1172,7 +1181,7 @@ function AllAssetsBrowser() {
                 ) : (
                   <IconClipboard className="h-3.5 w-3.5" />
                 )}
-                {standaloneCopyOk ? "Copied" : "Copy"}
+                {standaloneCopyOk ? t("library.copied") : t("library.copy")}
               </Button>
               <Button
                 asChild
@@ -1186,14 +1195,14 @@ function AllAssetsBrowser() {
                   )}`}
                 >
                   <IconArrowUpRight className="h-3.5 w-3.5" />
-                  Open
+                  {t("library.open")}
                 </Link>
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
-                aria-label="Close"
+                title={t("library.close")}
+                aria-label={t("library.close")}
                 className="h-8 w-8 shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
@@ -1206,13 +1215,13 @@ function AllAssetsBrowser() {
           </div>
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-              Show paste text
+              {t("library.showPasteText")}
             </summary>
             <Textarea
               readOnly
               value={standaloneSelectionText}
               className="mt-2 h-24 max-w-full resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
-              onFocus={(event) => event.currentTarget.select()}
+              onFocus={(event) => event.currentmTarget.select()}
             />
           </details>
         </section>
@@ -1229,8 +1238,8 @@ function AllAssetsBrowser() {
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
-                ? "No matching assets across your kits."
-                : "No reusable assets yet. Select a kit to upload references or generate assets."}
+                ? t("library.noMatchingAssets")
+                : t("library.noReusableAssets")}
             </div>
           </div>
         ) : (
@@ -1242,7 +1251,9 @@ function AllAssetsBrowser() {
               >
                 <button
                   type="button"
-                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  aria-label={t("library.selectAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
                   onClick={() => setPreviewAsset(asset)}
                   title={assetDisplayTitle(asset)}
                   className="block w-full text-left focus-visible:outline-none"
@@ -1276,7 +1287,7 @@ function AllAssetsBrowser() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        aria-label={t("library.copyToClipboard")}
                         onClick={(event) => {
                           event.stopPropagation();
                           chooseAsset(asset);
@@ -1286,7 +1297,9 @@ function AllAssetsBrowser() {
                         <IconClipboard className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Copy to clipboard</TooltipContent>
+                    <TooltipContent>
+                      {t("library.copyToClipboard")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -1313,6 +1326,7 @@ function AssetPreviewDialog({
   assets: Asset[];
   onAssetChange: (asset: Asset | null) => void;
 }) {
+  const t = useT();
   return (
     <Dialog
       open={Boolean(asset)}
@@ -1346,17 +1360,19 @@ function AssetPreviewDialog({
                 {assetDisplayTitle(asset)}
               </DialogTitle>
               <DialogDescription className="sr-only">
-                Full-size preview of {assetDisplayTitle(asset)}
+                {t("library.fullSizePreview", {
+                  title: assetDisplayTitle(asset),
+                })}
               </DialogDescription>
               <div className="relative">
                 <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
                   <Button asChild variant="outline" size="sm">
                     <Link to={`/asset/${encodeURIComponent(asset.id)}`}>
-                      View details
+                      {t("library.viewDetails")}
                     </Link>
                   </Button>
                   <DialogClose
-                    aria-label="Close preview"
+                    aria-label={t("library.closePreview")}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     <IconX className="h-5 w-5" />
@@ -1380,7 +1396,7 @@ function AssetPreviewDialog({
                 <div className="mt-5 flex justify-center gap-2">
                   <button
                     type="button"
-                    aria-label="Previous image"
+                    aria-label={t("library.previousImage")}
                     onClick={showPreviousAsset}
                     disabled={!hasPrev}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1389,7 +1405,7 @@ function AssetPreviewDialog({
                   </button>
                   <button
                     type="button"
-                    aria-label="Next image"
+                    aria-label={t("library.nextImage")}
                     onClick={showNextAsset}
                     disabled={!hasNext}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1409,6 +1425,11 @@ function variantSlotTime(slot: AssetVariantState["slots"][number]): number {
   const raw = slot.updatedAt ?? slot.createdAt ?? "";
   const time = Date.parse(raw);
   return Number.isNaN(time) ? 0 : time;
+}
+
+function assetVariantStateKey(scopeId?: string | null) {
+  const scopedId = typeof scopeId === "string" ? scopeId.trim() : "";
+  return scopedId ? `asset-variants:${scopedId}` : "asset-variants";
 }
 
 function referenceRoleForLibraryCandidate(asset?: Asset | null) {
@@ -1471,35 +1492,51 @@ function setLibraryAssetReferenceInCache(
 function updateLibraryVariantSlotsInCache(
   queryClient: ReturnType<typeof useQueryClient>,
   shouldRemove: (slot: any) => boolean,
+  variantScopeId?: string | null,
 ) {
-  queryClient.setQueryData(["app-state", "asset-variants"], (current: any) => {
-    if (!current || !Array.isArray(current.slots)) return current;
-    const slots = current.slots.filter((slot: any) => !shouldRemove(slot));
-    if (slots.length === current.slots.length) return current;
-    if (slots.length === 0) return null;
-    return { ...current, slots, updatedAt: new Date().toISOString() };
-  });
+  const stateKeys = new Set([
+    "asset-variants",
+    assetVariantStateKey(variantScopeId),
+  ]);
+  for (const stateKey of stateKeys) {
+    queryClient.setQueryData(["app-state", stateKey], (current: any) => {
+      if (!current || !Array.isArray(current.slots)) return current;
+      const slots = current.slots.filter((slot: any) => !shouldRemove(slot));
+      if (slots.length === current.slots.length) return current;
+      if (slots.length === 0) return null;
+      return { ...current, slots, updatedAt: new Date().toISOString() };
+    });
+  }
 }
 
 function removeLibraryVariantSlotFromCache(
   queryClient: ReturnType<typeof useQueryClient>,
   slot: VariantSlot,
+  variantScopeId?: string | null,
 ) {
   updateLibraryVariantSlotsInCache(
     queryClient,
     (candidate) =>
       candidate.slotId === slot.slotId ||
       (!!slot.assetId && candidate.assetId === slot.assetId),
+    variantScopeId,
   );
 }
 
 function LibraryCandidateStage({
   activeLibraryId = null,
   foldersByLibraryId = {},
+  variantScopeId = null,
+  onUseAsset,
+  inline = false,
 }: {
   activeLibraryId?: string | null;
   foldersByLibraryId?: Record<string, any[]>;
+  variantScopeId?: string | null;
+  onUseAsset?: (asset: Asset) => void;
+  inline?: boolean;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [savingCandidateSlotId, setSavingCandidateSlotId] = useState<
     string | null
@@ -1508,9 +1545,12 @@ function LibraryCandidateStage({
     Set<string>
   >(() => new Set());
   const { data: variants } = useQuery({
-    queryKey: ["app-state", "asset-variants"],
+    queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
     queryFn: ({ signal }) =>
-      readClientAppState<AssetVariantState>("asset-variants", { signal }),
+      readClientAppState<AssetVariantState>(
+        assetVariantStateKey(variantScopeId),
+        { signal },
+      ),
     refetchInterval: 1000,
   });
   const isAllAssetsStage = !activeLibraryId;
@@ -1629,12 +1669,14 @@ function LibraryCandidateStage({
           savedAsset,
         );
       }
-      removeLibraryVariantSlotFromCache(queryClient, slot);
+      removeLibraryVariantSlotFromCache(queryClient, slot, variantScopeId);
       invalidateStage(liveLibraryId);
-      toast.success("Saved to Library.");
+      toast.success(t("library.savedToLibrary"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save candidate.",
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotSaveCandidate"),
       );
     } finally {
       setSavingCandidateSlotId(null);
@@ -1661,10 +1703,10 @@ function LibraryCandidateStage({
         savedAsset,
       );
       invalidateStage(targetLibraryId);
-      toast.success("Saved to Library.");
+      toast.success(t("library.savedToLibrary"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save draft.",
+        error instanceof Error ? error.message : t("library.couldNotSaveDraft"),
       );
     } finally {
       setSavingCandidateSlotId(null);
@@ -1692,14 +1734,15 @@ function LibraryCandidateStage({
         (candidate) =>
           candidate.assetId === asset.id ||
           (!!slot?.slotId && candidate.slotId === slot.slotId),
+        variantScopeId,
       );
       invalidateStage(targetLibraryId);
-      toast.success("Added to References.");
+      toast.success(t("library.addedToReferences"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not add asset to References.",
+          : t("library.couldNotAddToReferences"),
       );
     } finally {
       setReferencePromoting(key, false);
@@ -1719,8 +1762,32 @@ function LibraryCandidateStage({
     );
   }
 
+  function handleUseLiveCandidate(slot: VariantSlot) {
+    if (!slot.assetId || !onUseAsset) return;
+    onUseAsset(
+      assetById.get(slot.assetId) ?? {
+        id: slot.assetId,
+        libraryId: liveLibraryId ?? stageLibraryId,
+        mediaType: "image",
+        status: "candidate",
+        title: t("library.readyCandidate"),
+        previewUrl: slot.previewUrl,
+        thumbnailUrl: slot.thumbnailUrl,
+        downloadUrl: slot.previewUrl,
+        url: slot.previewUrl,
+      },
+    );
+  }
+
   return (
-    <section className="min-w-0 shrink-0 overflow-hidden border-b border-border bg-background px-3 py-3 sm:px-4 md:px-6">
+    <section
+      className={cn(
+        "min-w-0 overflow-hidden",
+        inline
+          ? "mb-3"
+          : "shrink-0 border-b border-border bg-background px-3 py-3 sm:px-4 md:px-6",
+      )}
+    >
       <LiveCandidatesStage
         slots={slots}
         draftAssets={draftAssets}
@@ -1741,6 +1808,8 @@ function LibraryCandidateStage({
         onMoveDraftToReferences={(asset) => {
           void handleMoveToReferences(asset);
         }}
+        onUse={onUseAsset ? handleUseLiveCandidate : undefined}
+        onUseDraft={onUseAsset}
       />
     </section>
   );
@@ -1843,6 +1912,7 @@ export function LibraryWorkspace({
 }
 
 export function AssetPickerSurface() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const mcpChatBridgeActive =
@@ -1873,6 +1943,11 @@ export function AssetPickerSurface() {
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
   const embedded = useMemo(() => isEmbeddedWindow() || isEmbedAuthActive(), []);
+  const pickerVariantScopeId = useMemo(
+    () =>
+      typeof window === "undefined" ? null : `picker:${getBrowserTabId()}`,
+    [],
+  );
   const [hostConfig, setHostConfig] = useState<HostConfig>(() => urlHostConfig);
   const [mediaType, setMediaType] = useState<PickerMediaType>(
     () => hostConfig.mediaType ?? "image",
@@ -1919,10 +1994,10 @@ export function AssetPickerSurface() {
   const starterLibrary: Library = useMemo(
     () => ({
       id: STARTER_LIBRARY_ID,
-      title: "Starter assets",
+      title: t("library.starterAssets"),
       description: STARTER_PRESET.description,
     }),
-    [],
+    [t],
   );
   const displayLibraries = libraries.length
     ? libraries
@@ -2070,15 +2145,15 @@ export function AssetPickerSurface() {
       try {
         await navigator.clipboard.writeText(text);
         setStandaloneCopyOk(true);
-        toast.success("Selection copied");
+        toast.success(t("library.selectionCopied"));
         return true;
       } catch {
         setStandaloneCopyOk(false);
-        toast.info("Selection ready");
+        toast.info(t("library.selectionReady"));
         return false;
       }
     },
-    [],
+    [t],
   );
 
   const postEmbeddedSelectionMessage = useCallback(
@@ -2108,7 +2183,7 @@ export function AssetPickerSurface() {
         if (ok) {
           toast.success(`Selected ${selectedAssetLabel(payload)}`);
         } else {
-          toast.error("Could not send the selected asset back to chat");
+          toast.error(t("library.selectedAssetSendFailed"));
         }
       });
       return;
@@ -2125,7 +2200,7 @@ export function AssetPickerSurface() {
         if (!result?.id) return;
         const library = {
           id: result.id,
-          title: result.title || "MCP image picks",
+          title: result.title || t("library.mcpImagePicks"),
           description: result.description ?? null,
         };
         setCreatedPickerLibrary(library);
@@ -2136,7 +2211,7 @@ export function AssetPickerSurface() {
         // Allow the auto-create effect to retry after a transient failure;
         // otherwise the picker stays stuck on "Preparing..." until reload.
         autoCreateLibraryRef.current = false;
-        toast.error(error.message || "Could not prepare an image library");
+        toast.error(error.message || t("library.couldNotPrepareImageLibrary"));
       },
     } as any,
   );
@@ -2196,7 +2271,8 @@ export function AssetPickerSurface() {
       mediaType: "image",
     });
     if (embedded) {
-      const variantScopeId = `picker:${getBrowserTabId()}`;
+      const variantScopeId =
+        pickerVariantScopeId ?? `picker:${getBrowserTabId()}`;
       void writeClientGenerationContext(nextGenerationContext).catch(() => {});
       generateBatch.mutate({
         libraryId: selectedLibraryId,
@@ -2245,6 +2321,7 @@ export function AssetPickerSurface() {
     hostConfig.styleStrength,
     hostConfig.tier,
     prompt,
+    pickerVariantScopeId,
     setVisibleCandidateRunIds,
     selectedLibraryId,
     selectedPreset,
@@ -2343,8 +2420,8 @@ export function AssetPickerSurface() {
     typeof config?.lastIssue?.message === "string"
       ? config.lastIssue.message
       : config?.builderEnabled === false
-        ? "Add a generation key in Settings."
-        : "Connect generation models.";
+        ? t("library.addGenerationKey")
+        : t("library.connectGenerationModels");
   const needsGenerationLibrary =
     mediaType === "image" &&
     libraryListReady &&
@@ -2362,24 +2439,24 @@ export function AssetPickerSurface() {
       preparingGenerationLibrary);
   const generationButtonLabel =
     embedded && generateBatch.isPending
-      ? "Generating..."
+      ? t("library.generating")
       : waitingForRequestedPreset
-        ? "Loading preset..."
-        : setupNeeded
-          ? "Setup needed"
-          : preparingAutoLibrary
-            ? "Preparing..."
-            : embedded
-              ? "Generate"
-              : "Open chat";
+      ? t("library.loadingPreset")
+      : setupNeeded
+        ? t("library.setupNeeded")
+        : preparingAutoLibrary
+          ? t("library.preparing")
+          : embedded
+            ? t("library.generate")
+            : t("library.openChat");
   const generationStatus = preparingAutoLibrary
     ? waitingForLibraries
-      ? "Checking image libraries..."
-      : "Preparing an image library..."
+      ? t("library.checkingImageLibraries")
+      : t("library.preparingImageLibrary")
     : embedded && generateBatch.isPending
-      ? "Generating candidates..."
+      ? t("library.generatingCandidates")
       : waitingForRequestedPreset
-        ? "Loading the requested preset..."
+        ? t("library.loadingRequestedPreset")
         : null;
 
   useEffect(() => {
@@ -2390,10 +2467,10 @@ export function AssetPickerSurface() {
   const prepareGenerationLibrary = useCallback(() => {
     createPickerLibrary.mutate({
       presetId: STARTER_PRESET.id,
-      title: "MCP image picks",
-      description: "Generated and selected images from MCP chat hosts.",
+      title: t("library.mcpImagePicks"),
+      description: t("library.mcpImagePicksDescription"),
     } as any);
-  }, [createPickerLibrary]);
+  }, [createPickerLibrary, t]);
 
   useEffect(() => {
     if (!prompt.trim()) return;
@@ -2451,7 +2528,7 @@ export function AssetPickerSurface() {
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="min-w-0 truncate text-sm font-semibold">
-          {embedded ? "Assets" : "Library"}
+          {embedded ? t("navigation.brand") : t("library.library")}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {mediaType === "image" && (
@@ -2466,12 +2543,17 @@ export function AssetPickerSurface() {
               ) : (
                 <IconPhotoPlus className="h-3.5 w-3.5" />
               )}
-              {showCreatePane ? "Close" : "Create"}
+              {showCreatePane ? t("library.close") : t("library.createPane")}
             </Button>
           )}
           {embedded && (
             <>
-              <Button asChild variant="ghost" size="icon" title="Open Assets">
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                title={t("library.openAssets")}
+              >
                 <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
@@ -2479,7 +2561,7 @@ export function AssetPickerSurface() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
+                title={t("library.close")}
                 onClick={() => bridgeRef.current?.close()}
               >
                 <IconX className="h-4 w-4" />
@@ -2509,7 +2591,7 @@ export function AssetPickerSurface() {
                   event.preventDefault();
                   if (canGenerate) runGenerate();
                 }}
-                placeholder="Generate an image asset"
+                placeholder={t("library.generateImagePlaceholder")}
                 className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <div className="flex items-center gap-1 px-2 pb-2">
@@ -2605,7 +2687,7 @@ export function AssetPickerSurface() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Settings
+                  {t("library.settings")}
                 </a>
               </Button>
             </div>
@@ -2615,8 +2697,8 @@ export function AssetPickerSurface() {
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">
                 {preparingGenerationLibrary
-                  ? "Preparing an image library for generated candidates..."
-                  : "Create an image library to generate new candidates."}
+                  ? t("library.preparingImageLibraryCandidates")
+                  : t("library.createImageLibraryToGenerate")}
               </span>
               <Button
                 variant="outline"
@@ -2625,7 +2707,9 @@ export function AssetPickerSurface() {
                 onClick={prepareGenerationLibrary}
                 disabled={preparingGenerationLibrary}
               >
-                {preparingGenerationLibrary ? "Preparing..." : "Create library"}
+                {preparingGenerationLibrary
+                  ? t("library.preparing")
+                  : t("library.createLibrary")}
               </Button>
             </div>
           )}
@@ -2657,7 +2741,7 @@ export function AssetPickerSurface() {
                 ) : (
                   <IconClipboard className="h-3.5 w-3.5" />
                 )}
-                {standaloneCopyOk ? "Copied" : "Copy"}
+                {standaloneCopyOk ? t("library.copied") : t("library.copy")}
               </Button>
               {canOpenStandaloneAsset && (
                 <Button
@@ -2672,15 +2756,15 @@ export function AssetPickerSurface() {
                     )}`}
                   >
                     <IconArrowUpRight className="h-3.5 w-3.5" />
-                    Open
+                    {t("library.open")}
                   </Link>
                 </Button>
               )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
-                aria-label="Close"
+                title={t("library.close")}
+                aria-label={t("library.close")}
                 className="h-8 w-8 shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
@@ -2693,13 +2777,13 @@ export function AssetPickerSurface() {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {standaloneCopyOk
-              ? "Copied to your clipboard — paste it into your agent chat to use it"
-              : "Copy the text below and paste it into your agent chat"}
-            , or just tell your agent which one (e.g. “use this”).
+              ? t("library.copiedPasteInstruction")
+              : t("library.copyPasteInstruction")}
+            . {t("library.tellAgentUseThis")}
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-              Show paste text
+              {t("library.showPasteText")}
             </summary>
             <Textarea
               readOnly
@@ -2720,7 +2804,7 @@ export function AssetPickerSurface() {
                 onValueChange={setSelectedLibraryId}
               >
                 <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
-                  <SelectValue placeholder="Library" />
+                  <SelectValue placeholder={t("library.library")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -2738,9 +2822,13 @@ export function AssetPickerSurface() {
                   onValueChange={(value) => setAssetTab(value as AssetTab)}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="generated">Generated</TabsTrigger>
-                    <TabsTrigger value="references">References</TabsTrigger>
+                    <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                    <TabsTrigger value="generated">
+                      {t("library.generated")}
+                    </TabsTrigger>
+                    <TabsTrigger value="references">
+                      {t("library.references")}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               )}
@@ -2751,17 +2839,26 @@ export function AssetPickerSurface() {
                 value={query}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${mediaLabel}s`}
+                placeholder={t("library.searchMedia", { mediaLabel })}
                 className="h-9 border-border/70 bg-background sm:max-w-xs"
               />
             )}
           </div>
         )}
 
+        {mediaType === "image" && selectedLibraryId && pickerVariantScopeId && (
+          <LibraryCandidateStage
+            activeLibraryId={selectedLibraryId}
+            variantScopeId={pickerVariantScopeId}
+            onUseAsset={chooseAsset}
+            inline
+          />
+        )}
+
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">
-              <Link to="/library">Create a brand kit</Link>
+              <Link to="/library">{t("library.createBrandKit")}</Link>
             </Button>
           </div>
         )}
@@ -2778,8 +2875,8 @@ export function AssetPickerSurface() {
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
-                ? `No matching ${mediaLabel} assets in this library.`
-                : `No ${mediaLabel} assets in this library yet.`}
+                ? t("library.noMatchingLibraryAssets", { mediaLabel })
+                : t("library.noAssetsInLibrary", { mediaLabel })}
             </div>
           </div>
         )}
@@ -2793,7 +2890,9 @@ export function AssetPickerSurface() {
               >
                 <button
                   type="button"
-                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  aria-label={t("library.selectAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
                   onClick={() => {
                     if (embedded) {
                       chooseAsset(asset);
@@ -2824,7 +2923,9 @@ export function AssetPickerSurface() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        aria-label={t("library.copyAsset", {
+                          title: assetDisplayTitle(asset),
+                        })}
                         onClick={(event) => {
                           event.stopPropagation();
                           chooseAsset(asset);
@@ -2834,7 +2935,9 @@ export function AssetPickerSurface() {
                         <IconClipboard className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Copy to clipboard</TooltipContent>
+                    <TooltipContent>
+                      {t("library.copyToClipboard")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -2876,7 +2979,9 @@ export function AssetPickerSurface() {
                   {assetDisplayTitle(previewAsset)}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                  {t("library.fullSizePreview", {
+                    title: assetDisplayTitle(previewAsset),
+                  })}
                 </DialogDescription>
                 <div className="relative">
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
@@ -2884,11 +2989,11 @@ export function AssetPickerSurface() {
                       <Link
                         to={`/asset/${encodeURIComponent(previewAsset.id)}`}
                       >
-                        View details
+                        {t("library.viewDetails")}
                       </Link>
                     </Button>
                     <DialogClose
-                      aria-label="Close preview"
+                      aria-label={t("library.closePreview")}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       <IconX className="h-5 w-5" />
@@ -2916,7 +3021,7 @@ export function AssetPickerSurface() {
                   <div className="mt-5 flex justify-center gap-2">
                     <button
                       type="button"
-                      aria-label="Previous image"
+                      aria-label={t("library.previousImage")}
                       onClick={showPreviousAsset}
                       disabled={!hasPrev}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -2925,7 +3030,7 @@ export function AssetPickerSurface() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Next image"
+                      aria-label={t("library.nextImage")}
                       onClick={showNextAsset}
                       disabled={!hasNext}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"

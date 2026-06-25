@@ -32,6 +32,7 @@ import {
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -355,6 +356,7 @@ export function BrandKitDetailRoute({
   libraryId?: string | null;
   headerMode?: "full" | "actions";
 } = {}) {
+  const t = useT();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -647,10 +649,12 @@ export function BrandKitDetailRoute({
         queryKey: ["app-state"],
         refetchType: "active",
       });
-      toast.success("Saved to Library.");
+      toast.success(t("library.savedToLibrary"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save candidate.",
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotSaveCandidate"),
       );
     } finally {
       setSavingCandidateSlotId(null);
@@ -688,11 +692,9 @@ export function BrandKitDetailRoute({
         queryKey: ["app-state"],
         refetchType: "active",
       });
-      toast.success("Saved to Library.");
+      toast.success(t("library.savedToLibrary"));
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not save draft.",
-      );
+      toast.error(error instanceof Error ? error.message : t("library.couldNotSaveDraft"));
     } finally {
       setSavingCandidateSlotId(null);
     }
@@ -934,47 +936,48 @@ export function BrandKitDetailRoute({
       }
       if (failedCount > 0) {
         toast.warning(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; ${failedCount} failed.`,
+          t("library.uploadedWithFailures", {
+            uploadedCount,
+            failedCount,
+          }),
           {
             id: toastId,
             description:
               skippedCount > 0
-                ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                ? t("library.skippedDuplicates", { count: skippedCount })
                 : null,
           },
         );
       } else if (uploadedCount > 0 && skippedCount > 0) {
         toast.success(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`,
+          t("library.uploadedAndSkippedDuplicates", {
+            uploadedCount,
+            skippedCount,
+          }),
           { id: toastId, description: null },
         );
       } else if (uploadedCount > 0) {
         toast.success(
-          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`,
+          t("library.uploadedAssets", { count: uploadedCount }),
           {
             id: toastId,
             description: null,
           },
         );
       } else if (skippedCount > 0) {
-        toast.warning(
-          `Skipped ${skippedCount} duplicate asset${
-            skippedCount === 1 ? "" : "s"
-          }.`,
-          {
-            id: toastId,
-            description: "Already in this brand kit.",
-          },
-        );
+        toast.warning(t("library.skippedDuplicateAssets", { count: skippedCount }), {
+          id: toastId,
+          description: t("library.alreadyInThisBrandKit"),
+        });
       } else {
-        toast.warning("No new assets were uploaded.", {
+        toast.warning(t("library.noNewAssetsUploaded"), {
           id: toastId,
           description: null,
         });
       }
       await refreshLibrary();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Upload failed";
+      const message = e instanceof Error ? e.message : t("library.uploadFailed");
       const indeterminate =
         /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
           message,
@@ -984,10 +987,9 @@ export function BrandKitDetailRoute({
         setPendingUploads(
           pending.map((upload) => ({ ...upload, status: "checking" })),
         );
-        toast.warning("Upload is taking longer than expected.", {
+        toast.warning(t("library.uploadTakingLonger"), {
           id: toastId,
-          description:
-            "The server may still finish saving these assets. We will keep checking this brand kit.",
+          description: t("library.uploadTakingLongerDescription"),
         });
         void refreshLibrary();
         window.setTimeout(() => void refreshLibrary(), 4_000);
@@ -1048,7 +1050,7 @@ export function BrandKitDetailRoute({
           });
         },
         onError: (error: Error) => {
-          toast.error(error.message || "Could not prepare handoff.");
+          toast.error(error.message || t("library.couldNotPrepareHandoff"));
         },
       },
     );
@@ -1057,10 +1059,10 @@ export function BrandKitDetailRoute({
   function createHandoffFromRun(run: any) {
     const outputIds = outputAssetIds(run);
     if (!outputIds.length) {
-      toast.error("This run does not have generated assets to hand off.");
+      toast.error(t("library.runHasNoGeneratedAssets"));
       return;
     }
-    const prompt = run.originalPrompt || run.prompt || "Generated asset";
+    const prompt = run.originalPrompt || run.prompt || t("library.generatedAsset");
     createSession.mutate(
       {
         libraryId,
@@ -1085,7 +1087,7 @@ export function BrandKitDetailRoute({
   if (!library) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Loading brand kit...
+        {t("library.loadingBrandKit")}
       </div>
     );
   }
@@ -1106,7 +1108,9 @@ export function BrandKitDetailRoute({
       ) : (
         <IconUpload className="h-4 w-4" />
       )}
-      {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
+      {uploading
+        ? t("library.uploadingCount", { count: pendingUploads.length })
+        : t("library.upload")}
     </Button>
   );
   const moreActions = (
@@ -1115,7 +1119,7 @@ export function BrandKitDetailRoute({
         <Button
           variant="outline"
           size="icon"
-          aria-label="Brand kit actions"
+          aria-label={t("library.kitActions")}
           disabled={archiveLibrary.isPending || duplicateLibrary.isPending}
         >
           <IconDotsVertical className="h-4 w-4" />
@@ -1129,7 +1133,7 @@ export function BrandKitDetailRoute({
           }}
         >
           <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-          New folder
+          {t("library.newFolder")}
         </DropdownMenuItem>
         <ShareButton
           resourceType="asset-library"
@@ -1146,7 +1150,9 @@ export function BrandKitDetailRoute({
           }}
         >
           <IconCopy className="mr-2 h-4 w-4 shrink-0" />
-          {duplicateLibrary.isPending ? "Duplicating..." : "Duplicate"}
+          {duplicateLibrary.isPending
+            ? t("library.duplicating")
+            : t("library.duplicate")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -1156,7 +1162,7 @@ export function BrandKitDetailRoute({
           }}
         >
           <IconArchive className="mr-2 h-4 w-4 shrink-0" />
-          Archive brand kit
+          {t("library.archiveBrandKit")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1194,14 +1200,14 @@ export function BrandKitDetailRoute({
                   size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
                   onClick={() => setEditOpen(true)}
-                  aria-label="Edit brand kit name and description"
+                  aria-label={t("library.editBrandKit")}
                 >
                   <IconPencil className="h-4 w-4" />
                 </Button>
               </div>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
                 {library.description ||
-                  "Upload, generate, describe, and organize reusable assets across agents."}
+                  t("library.defaultKitDescription")}
               </p>
             </div>
             {headerActions}
@@ -1226,21 +1232,22 @@ export function BrandKitDetailRoute({
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive this brand kit?</AlertDialogTitle>
+            <AlertDialogTitle>{t("library.archiveKitTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the brand kit from the Library list. Its assets and
-              generation history stay stored.
+              {t("library.archiveKitDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={archiveLibrary.isPending}
               onClick={() => {
                 void archiveCurrentLibrary();
               }}
             >
-              {archiveLibrary.isPending ? "Archiving..." : "Archive"}
+              {archiveLibrary.isPending
+                ? t("library.archiving")
+                : t("library.archive")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1306,9 +1313,9 @@ export function BrandKitDetailRoute({
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="assets">Assets</TabsTrigger>
-            <TabsTrigger value="runs">Runs</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="assets">{t("library.assetsTab")}</TabsTrigger>
+            <TabsTrigger value="runs">{t("library.runs")}</TabsTrigger>
+            <TabsTrigger value="settings">{t("library.settings")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
@@ -1317,13 +1324,13 @@ export function BrandKitDetailRoute({
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <FolderChip
                     active={activeFolderId === "all"}
-                    label="All assets"
+                    label={t("library.allAssets")}
                     count={libraryAssets.length}
                     onClick={() => setActiveFolderId("all")}
                   />
                   <FolderChip
                     active={activeFolderId === null}
-                    label="Unfiled"
+                    label={t("library.unfiled")}
                     count={unfiledCount}
                     onClick={() => setActiveFolderId(null)}
                   />
@@ -1347,13 +1354,13 @@ export function BrandKitDetailRoute({
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search assets"
+                      placeholder={t("library.searchAssets")}
                       className="h-9 w-full pl-8 pr-8 sm:w-64"
                     />
                     {search && (
                       <button
                         type="button"
-                        aria-label="Clear search"
+                        aria-label={t("library.clearSearch")}
                         className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                         onClick={() => setSearch("")}
                       >
@@ -1982,6 +1989,7 @@ function GenerationPresetsPanel({
   libraryId: string;
   presets: any[];
 }) {
+  const t = useT();
   const createPreset = useActionMutation("create-generation-preset");
   const deletePreset = useActionMutation("delete-generation-preset");
   const [open, setOpen] = useState(false);
@@ -1990,18 +1998,14 @@ function GenerationPresetsPanel({
   const [category, setCategory] = useState<ImageCategory>("social");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [promptTemplate, setPromptTemplate] = useState("");
-  const [textPolicy, setTextPolicy] = useState(
-    "Prefer no embedded text. Keep any requested text short and readable.",
-  );
+  const [textPolicy, setTextPolicy] = useState(t("library.defaultTextPolicy"));
 
   function reset() {
     setTitle("");
     setCategory("social");
     setAspectRatio("1:1");
     setPromptTemplate("");
-    setTextPolicy(
-      "Prefer no embedded text. Keep any requested text short and readable.",
-    );
+    setTextPolicy(t("library.defaultTextPolicy"));
   }
 
   function submit() {
@@ -2115,7 +2119,7 @@ function GenerationPresetsPanel({
                 );
               }}
             >
-              Delete
+              {t("assetDetail.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2186,7 +2190,7 @@ function GenerationPresetsPanel({
                 id="preset-template"
                 value={promptTemplate}
                 onChange={(event) => setPromptTemplate(event.target.value)}
-                placeholder="Create a social post visual about {{prompt}}..."
+                placeholder={t("library.promptTemplatePlaceholder")}
               />
             </div>
             <div className="grid gap-2">
@@ -2350,6 +2354,7 @@ function AssetSwimlaneBoard({
   onOptimisticDelete?: (ids: string[]) => void;
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
+  const t = useT();
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2453,11 +2458,11 @@ function AssetSwimlaneBoard({
         {
           onSuccess: () => {
             finishDeleting(ids);
-            toast.success("Deleted asset.");
+            toast.success(t("library.deletedAsset"));
           },
           onError: (error) => {
             restoreAfterDeleteError(ids);
-            toast.error(error.message || "Could not delete asset.");
+            toast.error(error.message || t("library.couldNotDeleteAsset"));
           },
         },
       );
@@ -2472,11 +2477,11 @@ function AssetSwimlaneBoard({
         onSuccess: (result: any) => {
           finishDeleting(ids);
           const count = Number(result?.deletedCount ?? ids.length);
-          toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
+          toast.success(t("library.deletedAssets", { count }));
         },
         onError: (error) => {
           restoreAfterDeleteError(ids);
-          toast.error(error.message || "Could not delete selected assets.");
+          toast.error(error.message || t("library.couldNotDeleteSelectedAssets"));
         },
       },
     );
@@ -2531,16 +2536,20 @@ function AssetSwimlaneBoard({
       }
       toast.success(
         enabled
-          ? `Added ${assetList.length} asset${assetList.length === 1 ? "" : "s"} to References.`
-          : `Removed ${assetList.length} asset${assetList.length === 1 ? "" : "s"} from References.`,
+          ? t("library.addedAssetsToReferences", {
+              count: assetList.length,
+            })
+          : t("library.removedAssetsFromReferences", {
+              count: assetList.length,
+            }),
       );
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : enabled
-            ? "Could not add selected assets to References."
-            : "Could not remove selected assets from References.",
+            ? t("library.couldNotAddSelectedToReferences")
+            : t("library.couldNotRemoveSelectedFromReferences"),
       );
       return;
     } finally {
@@ -2553,8 +2562,8 @@ function AssetSwimlaneBoard({
     return {
       id: `upload:${upload.id}`,
       title: upload.name,
-      subtitle: isChecking ? "Checking upload" : "Uploading",
-      status: isChecking ? "Checking" : "Uploading",
+      subtitle: isChecking ? t("library.checkingUpload") : t("library.uploading"),
+      status: isChecking ? t("library.checking") : t("library.uploading"),
       mediaType: upload.mediaType,
       busy: true,
       showBusyOverlay: false,
@@ -2597,11 +2606,11 @@ function AssetSwimlaneBoard({
       asset,
       metadata:
         asset.mediaType === "video"
-          ? "Video"
+          ? t("library.video")
           : asset.mimeType?.startsWith("image/")
-            ? "Image"
-            : asset.mimeType || "Asset",
-      status: isReference ? "Reference" : "Saved",
+            ? t("library.image")
+            : asset.mimeType || t("library.asset"),
+      status: isReference ? t("library.reference") : t("library.saved"),
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       selected: selectedIds.has(asset.id),
@@ -2637,7 +2646,7 @@ function AssetSwimlaneBoard({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : t("library.save")}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -2649,12 +2658,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Add to References"
+                title={t("library.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Add to References"
+                  t("library.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -2667,12 +2676,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onRemoveFromReferences}
                 disabled={busy}
-                title="Remove from References"
+                title={t("library.removeFromReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Remove from References"
+                  t("library.removeFromReferences")
                 )}
               </Button>
             ) : null}
@@ -2707,10 +2716,10 @@ function AssetSwimlaneBoard({
         <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
           <IconSearch className="h-9 w-9 text-muted-foreground" />
           <span className="mt-4 text-base font-semibold">
-            No assets match this view
+            {t("library.noAssetsMatchView")}
           </span>
           <span className="mt-2 max-w-md text-sm text-muted-foreground">
-            Try All assets, a different folder, or a broader search.
+            {t("library.noAssetsMatchViewBody")}
           </span>
         </div>
       );
@@ -2729,10 +2738,11 @@ function AssetSwimlaneBoard({
         className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
-        <span className="mt-4 text-base font-semibold">Add assets</span>
+        <span className="mt-4 text-base font-semibold">
+          {t("library.addAssets")}
+        </span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          Upload source material or generate candidates, then mark only the
-          assets that should guide future generations as references.
+          {t("library.addAssetsDescription")}
         </span>
       </button>
     );
@@ -2750,17 +2760,19 @@ function AssetSwimlaneBoard({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmDeleteIds.length > 1
-                ? `Delete ${confirmDeleteIds.length} assets?`
-                : "Delete asset?"}
+                ? t("library.deleteAssetsTitle", {
+                    count: confirmDeleteIds.length,
+                  })
+                : t("library.deleteAssetTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? "This permanently removes the selected assets from the brand kit. To stop using an asset as a reference but keep it, use Remove from References instead."
-                : "This permanently removes the asset from the brand kit. To keep it in the library but stop using it as a reference, use Remove from References instead."}
+                ? t("library.deleteAssetsDescription")
+                : t("library.deleteAssetDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmDeleteIds.length || deleting}
@@ -2782,15 +2794,16 @@ function AssetSwimlaneBoard({
               checked={allSelected}
               disabled={!boardAssets.length || deleting}
               onCheckedChange={(checked) => toggleAll(checked === true)}
-              aria-label="Select all visible assets"
+              aria-label={t("library.selectAllVisibleAssets")}
             />
-            {allSelected ? "Deselect all" : "Select all"}
+            {allSelected ? t("library.deselectAll") : t("library.selectAll")}
           </label>
           <span className="text-xs text-muted-foreground">
-            {boardAssets.length} visible asset
-            {boardAssets.length === 1 ? "" : "s"}
+            {t("library.visibleAssetsCount", { count: boardAssets.length })}
             {referenceAssets.length > 0
-              ? ` · ${referenceAssets.length} reference${referenceAssets.length === 1 ? "" : "s"}`
+              ? ` · ${t("library.referencesCount", {
+                  count: referenceAssets.length,
+                })}`
               : ""}
           </span>
           {selectedCount > 0 ? (
@@ -2800,7 +2813,7 @@ function AssetSwimlaneBoard({
               size="sm"
               onClick={() => onSelectedIdsChange(new Set())}
             >
-              Clear
+              {t("library.clear")}
             </Button>
           ) : null}
         </div>
@@ -2821,8 +2834,7 @@ function AssetSwimlaneBoard({
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
               <span className="truncate">
-                Deleting {pendingDeleteCount} asset
-                {pendingDeleteCount === 1 ? "" : "s"}...
+                {t("library.deletingAssets", { count: pendingDeleteCount })}
               </span>
             </div>
           ) : (
@@ -2830,15 +2842,18 @@ function AssetSwimlaneBoard({
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(checked) => toggleAll(checked === true)}
-                aria-label="Select all assets in this board"
+                aria-label={t("library.selectAllAssetsInBoard")}
               />
               <span className="truncate">
                 {selectedCount > 0
-                  ? `${selectedCount} selected`
-                  : `${boardAssets.length} asset${boardAssets.length === 1 ? "" : "s"}`}
+                  ? t("library.selectedCount", { count: selectedCount })
+                  : t("library.assetCount", { count: boardAssets.length })}
               </span>
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                {referenceAssets.length} references · {savedAssets.length} saved
+                {t("library.referencesAndSavedCount", {
+                  referenceCount: referenceAssets.length,
+                  savedCount: savedAssets.length,
+                })}
               </span>
             </div>
           )}
@@ -2902,7 +2917,7 @@ function AssetSwimlaneBoard({
                 ) : (
                   <IconTrash className="h-4 w-4" />
                 )}
-                Delete
+                {t("assetDetail.delete")}
               </Button>
             </div>
           ) : null}
@@ -2913,37 +2928,39 @@ function AssetSwimlaneBoard({
         <AssetCardsView items={visibleGalleryItems} />
       ) : (
         <SwimLane
-          title={scope === "references" ? "References" : "Library"}
+          title={
+            scope === "references" ? t("library.references") : t("library.library")
+          }
           eyebrow={
             scope === "references"
-              ? "Assets currently marked for generation reference."
-              : "Saved assets in this filtered view. Mark the ones that should guide future generations."
+              ? t("library.referencesEyebrow")
+              : t("library.libraryEyebrow")
           }
           items={visibleGalleryItems}
           action={
             <Button variant="outline" size="sm" onClick={onUploadClick}>
-              Add
+              {t("library.add")}
             </Button>
           }
           empty={
             scope === "references" && assets.length > 0 ? (
               <LaneActionEmpty
-                title="No references in this view"
-                body="Switch back to all assets and mark the keepers as references."
+                title={t("library.noReferencesInView")}
+                body={t("library.noReferencesInViewBody")}
                 onClick={() => onScopeChange("all")}
-                action="Show all"
+                action={t("library.showAll")}
               />
             ) : hideEmptyLanes ? (
               <LaneActionEmpty
-                title="No assets match this view"
-                body="Try All assets, a different folder, or a broader search."
+                title={t("library.noAssetsMatchView")}
+                body={t("library.noAssetsMatchViewBody")}
                 onClick={() => onScopeChange("all")}
-                action="Show all"
+                action={t("library.showAll")}
               />
             ) : (
               <LaneDropTarget
-                title="Drop assets here"
-                body="Upload source material, generated exports, logos, products, or style boards."
+                title={t("library.dropAssetsHere")}
+                body={t("library.dropAssetsHereBody")}
                 onClick={onUploadClick}
                 onDrop={onDrop}
               />
@@ -2962,6 +2979,7 @@ function AssetViewModeToggle({
   value: AssetViewMode;
   onChange: (mode: AssetViewMode) => void;
 }) {
+  const t = useT();
   const options: Array<{
     value: AssetViewMode;
     label: string;
@@ -2969,12 +2987,12 @@ function AssetViewModeToggle({
   }> = [
     {
       value: "lanes",
-      label: "Lanes",
+      label: t("library.lanes"),
       icon: <IconLayoutBottombar className="h-4 w-4" />,
     },
     {
       value: "cards",
-      label: "Cards",
+      label: t("library.cards"),
       icon: <IconLayoutGrid className="h-4 w-4" />,
     },
   ];
@@ -2983,7 +3001,7 @@ function AssetViewModeToggle({
     <TooltipProvider delayDuration={150}>
       <div
         role="group"
-        aria-label="Asset view"
+        aria-label={t("library.assetView")}
         className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
       >
         {options.map((option) => {
@@ -3000,14 +3018,18 @@ function AssetViewModeToggle({
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
                   ].join(" ")}
-                  aria-label={`${option.label} view`}
+                  aria-label={t("library.assetViewMode", {
+                    mode: option.label,
+                  })}
                   aria-pressed={active}
-                  title={`${option.label} view`}
+                  title={t("library.assetViewMode", { mode: option.label })}
                 >
                   {option.icon}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">{option.label} view</TooltipContent>
+              <TooltipContent side="bottom">
+                {t("library.assetViewMode", { mode: option.label })}
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -3027,19 +3049,20 @@ function AssetScopeToggle({
   allCount: number;
   referenceCount: number;
 }) {
+  const t = useT();
   const options: Array<{
     value: AssetLibraryScope;
     label: string;
     count: number;
   }> = [
-    { value: "all", label: "All", count: allCount },
-    { value: "references", label: "References", count: referenceCount },
+    { value: "all", label: t("library.tabsAll"), count: allCount },
+    { value: "references", label: t("library.references"), count: referenceCount },
   ];
 
   return (
     <div
       role="group"
-      aria-label="Asset scope"
+      aria-label={t("library.assetScope")}
       className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
     >
       {options.map((option) => {
@@ -3076,6 +3099,7 @@ function AssetScopeToggle({
 }
 
 function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
+  const t = useT();
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
 
   async function copyItem(item: LaneGalleryItem) {
@@ -3083,19 +3107,19 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
     try {
       await navigator.clipboard.writeText(detailAssetClipboardText(item.asset));
       setCopiedItemId(item.id);
-      toast.success("Selection copied");
+      toast.success(t("library.selectionCopied"));
       window.setTimeout(() => {
         setCopiedItemId((current) => (current === item.id ? null : current));
       }, 1400);
     } catch {
-      toast.info("Selection ready");
+      toast.info(t("library.selectionReady"));
     }
   }
 
   if (!items.length) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
-        No assets to show.
+        {t("library.noAssetsToShow")}
       </div>
     );
   }
@@ -3134,7 +3158,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                     onCheckedChange={(checked) =>
                       item.onToggle?.(checked === true)
                     }
-                    aria-label={`Select ${item.title}`}
+                    aria-label={t("library.selectAsset", {
+                      title: item.title,
+                    })}
                     className="border-background bg-background/90 shadow-sm"
                   />
                 ) : null}
@@ -3154,7 +3180,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                             event.stopPropagation();
                             void copyItem(item);
                           }}
-                          aria-label={`Copy ${item.title}`}
+                          aria-label={t("library.copyAsset", {
+                            title: item.title,
+                          })}
                         >
                           {copied ? (
                             <IconCheck className="h-4 w-4" />
@@ -3164,7 +3192,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {copied ? "Copied" : "Copy to clipboard"}
+                        {copied ? t("library.copied") : t("library.copyToClipboard")}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -3449,6 +3477,7 @@ function PendingUploadPreview({
   upload: PendingUpload;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const isChecking = upload.status === "checking";
   return (
     <div
@@ -3460,7 +3489,7 @@ function PendingUploadPreview({
       <div className="flex flex-col items-center gap-2 text-muted-foreground">
         <Spinner className={fit === "contain" ? "h-6 w-6" : "h-4 w-4"} />
         <span className="text-xs font-medium">
-          {isChecking ? "Checking" : "Uploading"}
+          {isChecking ? t("library.checking") : t("library.uploading")}
         </span>
       </div>
     </div>
@@ -3484,6 +3513,7 @@ function AssetActionsMenu({
   onMoveToReferences?: () => void;
   onRemoveFromReferences?: () => void;
 }) {
+  const t = useT();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -3492,7 +3522,7 @@ function AssetActionsMenu({
           variant="secondary"
           size="icon"
           className="h-8 w-8 shadow-sm"
-          aria-label="Asset actions"
+          aria-label={t("library.assetActions")}
           disabled={busy}
         >
           <IconDotsVertical className="h-4 w-4" />
@@ -3502,7 +3532,7 @@ function AssetActionsMenu({
         <DropdownMenuItem asChild>
           <Link to={`/asset/${asset.id}`}>
             <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-            View details
+            {t("library.viewDetails")}
           </Link>
         </DropdownMenuItem>
         {onMoveToReferences ? (
@@ -3513,7 +3543,7 @@ function AssetActionsMenu({
             }}
           >
             <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            Add to References
+            {t("library.addToReferences")}
           </DropdownMenuItem>
         ) : null}
         {onRemoveFromReferences ? (
@@ -3524,13 +3554,13 @@ function AssetActionsMenu({
             }}
           >
             <IconX className="mr-2 h-4 w-4 shrink-0" />
-            Remove from References
+            {t("library.removeFromReferences")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            Move to
+            {t("library.moveTo")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             <DropdownMenuItem
@@ -3541,7 +3571,7 @@ function AssetActionsMenu({
                 })
               }
             >
-              Unfiled
+              {t("library.unfiled")}
             </DropdownMenuItem>
             {folders.map((folder) => (
               <DropdownMenuItem
@@ -3564,7 +3594,7 @@ function AssetActionsMenu({
           onSelect={onDelete}
         >
           <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          Delete
+          {t("assetDetail.delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -3572,6 +3602,7 @@ function AssetActionsMenu({
 }
 
 function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
+  const t = useT();
   const isChecking = upload.status === "checking";
   return (
     <div className="w-[144px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-[156px]">
@@ -3579,7 +3610,7 @@ function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Spinner className="h-5 w-5" />
           <span className="text-xs font-medium">
-            {isChecking ? "Checking" : "Uploading"}
+            {isChecking ? t("library.checking") : t("library.uploading")}
           </span>
         </div>
       </div>
@@ -3622,6 +3653,7 @@ function AssetLaneTile({
   onSave?: () => void;
   onMoveToReferences?: () => void;
 }) {
+  const t = useT();
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
@@ -3644,7 +3676,7 @@ function AssetLaneTile({
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onToggle(checked === true)}
-          aria-label={`Select ${displayTitle}`}
+          aria-label={t("library.selectAsset", { title: displayTitle })}
           className={[
             "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
             selected ? "sm:opacity-100" : "",
@@ -3659,7 +3691,7 @@ function AssetLaneTile({
               variant="secondary"
               size="icon"
               className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Asset actions"
+              aria-label={t("library.assetActions")}
               disabled={busy}
             >
               <IconDotsVertical className="h-4 w-4" />
@@ -3669,7 +3701,7 @@ function AssetLaneTile({
             <DropdownMenuItem asChild>
               <Link to={`/asset/${asset.id}`}>
                 <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-                View details
+                {t("library.viewDetails")}
               </Link>
             </DropdownMenuItem>
             {canMoveToReferences ? (
@@ -3680,13 +3712,13 @@ function AssetLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                Add to References
+                {t("library.addToReferences")}
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                Move to
+                {t("library.moveTo")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuItem
@@ -3697,7 +3729,7 @@ function AssetLaneTile({
                     })
                   }
                 >
-                  Unfiled
+                  {t("library.unfiled")}
                 </DropdownMenuItem>
                 {folders.map((folder) => (
                   <DropdownMenuItem
@@ -3720,7 +3752,7 @@ function AssetLaneTile({
               onSelect={onDelete}
             >
               <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              Delete
+              {t("assetDetail.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -3773,7 +3805,7 @@ function AssetLaneTile({
                 onClick={onSave}
                 disabled={busy}
               >
-                {saving ? <Spinner className="h-3.5 w-3.5" /> : "Save"}
+                {saving ? <Spinner className="h-3.5 w-3.5" /> : t("library.save")}
               </Button>
             ) : null}
             {canMoveToReferences ? (
@@ -3785,12 +3817,12 @@ function AssetLaneTile({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title="Add to References"
+                title={t("library.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  "Add to References"
+                  t("library.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -3814,6 +3846,8 @@ export function LiveCandidatesStage({
   onSaveDraft,
   onMoveToReferences,
   onMoveDraftToReferences,
+  onUse,
+  onUseDraft,
 }: {
   slots: VariantSlot[];
   draftAssets: any[];
@@ -3827,7 +3861,10 @@ export function LiveCandidatesStage({
   onSaveDraft: (asset: any, folderId: string | null) => void;
   onMoveToReferences: (slot: VariantSlot) => void;
   onMoveDraftToReferences: (asset: any) => void;
+  onUse?: (slot: VariantSlot) => void;
+  onUseDraft?: (asset: any) => void;
 }) {
+  const t = useT();
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
@@ -3873,10 +3910,12 @@ export function LiveCandidatesStage({
         queryKey: ["action", "list-assets"],
         refetchType: "active",
       });
-      toast.success("Dismissed candidate.");
+      toast.success(t("library.dismissedCandidate"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not dismiss candidate.",
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotDismissCandidate"),
       );
     }
   }
@@ -3888,6 +3927,7 @@ export function LiveCandidatesStage({
     candidateLibraryId,
     onSaveCandidate,
     onAddToReferences,
+    onUseCandidate,
     onDismiss,
   }: {
     canUseCandidate: boolean;
@@ -3896,6 +3936,7 @@ export function LiveCandidatesStage({
     candidateLibraryId?: string | null;
     onSaveCandidate?: (folderId: string | null) => void;
     onAddToReferences?: () => void;
+    onUseCandidate?: () => void;
     onDismiss: () => void;
   }) {
     const busy = saving || promoting || dismissing;
@@ -3912,12 +3953,22 @@ export function LiveCandidatesStage({
           onClick={onDismiss}
           disabled={busy}
         >
-          Dismiss
+          {t("library.dismiss")}
         </Button>
       );
     }
     return (
       <div className="grid min-w-0 gap-2">
+        {onUseCandidate ? (
+          <Button
+            size="sm"
+            className="h-8 min-w-0 justify-center px-2 text-xs"
+            onClick={onUseCandidate}
+            disabled={busy}
+          >
+            {t("library.useCandidate")}
+          </Button>
+        ) : null}
         <div className="grid min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
           <CandidateSaveMenu
             libraryId={actionLibraryId}
@@ -3937,7 +3988,7 @@ export function LiveCandidatesStage({
             {promoting ? (
               <Spinner className="h-3.5 w-3.5" />
             ) : (
-              "Add to References"
+              t("library.addToReferences")
             )}
           </Button>
         </div>
@@ -3948,7 +3999,7 @@ export function LiveCandidatesStage({
           onClick={onDismiss}
           disabled={busy}
         >
-          Dismiss
+          {t("library.dismiss")}
         </Button>
       </div>
     );
@@ -3966,15 +4017,17 @@ export function LiveCandidatesStage({
       Boolean(promotingKey) && promotingReferenceKeys.has(promotingKey);
     const busy = saving || promoting || dismissing;
     const title = isFailed
-      ? "Failed candidate"
+      ? t("library.failedCandidate")
       : slot.status === "ready"
-        ? "Ready candidate"
-        : "Generating candidate";
+        ? t("library.readyCandidate")
+        : t("library.generatingCandidate");
     return {
       id: `slot:${slot.slotId}`,
       title,
-      subtitle: slot.slotId ? shortId(String(slot.slotId)) : "Live slot",
-      metadata: "Live",
+      subtitle: slot.slotId
+        ? shortId(String(slot.slotId))
+        : t("library.liveSlot"),
+      metadata: t("library.live"),
       status: slot.status,
       mediaType: "image",
       href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
@@ -3988,6 +4041,7 @@ export function LiveCandidatesStage({
         candidateLibraryId: libraryId,
         onSaveCandidate: (folderId) => onSave(slot, folderId),
         onAddToReferences: () => onMoveToReferences(slot),
+        onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
             kind: "slot",
@@ -4013,10 +4067,10 @@ export function LiveCandidatesStage({
           .join(" / ") || assetCategoryLabel(asset),
       metadata:
         asset.mediaType === "video"
-          ? "Video"
+          ? t("library.video")
           : asset.mimeType?.startsWith("image/")
-            ? "Image"
-            : "Draft",
+            ? t("library.image")
+            : t("library.draft"),
       status: "draft",
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
@@ -4030,6 +4084,7 @@ export function LiveCandidatesStage({
         candidateLibraryId: asset.libraryId,
         onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
         onAddToReferences: () => onMoveDraftToReferences(asset),
+        onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({
             kind: "asset",
@@ -4067,14 +4122,19 @@ export function LiveCandidatesStage({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Dismiss this candidate?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("library.dismissCandidateTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {dismissTarget?.title ?? "this candidate"} from the
-              candidate stage. Saved library assets stay untouched.
+              {t("library.dismissCandidateDescription", {
+                title: dismissTarget?.title ?? t("library.thisCandidate"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={dismissing}>
+              {t("library.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={dismissing}
@@ -4086,10 +4146,10 @@ export function LiveCandidatesStage({
               {dismissing ? (
                 <>
                   <Spinner className="h-4 w-4" />
-                  Dismissing...
+                  {t("library.dismissing")}
                 </>
               ) : (
-                "Dismiss"
+                t("library.dismiss")
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -4099,7 +4159,9 @@ export function LiveCandidatesStage({
       <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
         <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center">
-            <h3 className="shrink-0 text-sm font-semibold">Candidates</h3>
+            <h3 className="shrink-0 text-sm font-semibold">
+              {t("library.candidates")}
+            </h3>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <LiveCandidatesActions
@@ -4141,7 +4203,7 @@ export function LiveCandidatesStage({
                 >
                   <Link to={activeItem.href}>
                     <IconArrowUpRight className="h-3.5 w-3.5" />
-                    Details
+                    {t("library.details")}
                   </Link>
                 </Button>
               ) : null}
@@ -4160,7 +4222,9 @@ export function LiveCandidatesStage({
                         ? "border-primary ring-2 ring-primary/25"
                         : "border-border/80 hover:border-foreground/30",
                     ].join(" ")}
-                    aria-label={`Show ${item.title}`}
+                    aria-label={t("library.showCandidate", {
+                      title: item.title,
+                    })}
                     aria-pressed={active}
                   >
                     {item.thumbnail}
@@ -4208,7 +4272,7 @@ export function LiveCandidatesStage({
               <Button asChild variant="ghost" size="sm" className="gap-1.5">
                 <Link to={activeItem.href}>
                   <IconArrowUpRight className="h-3.5 w-3.5" />
-                  Open details
+                  {t("library.openDetails")}
                 </Link>
               </Button>
             ) : null}
@@ -4220,16 +4284,17 @@ export function LiveCandidatesStage({
 }
 
 function CandidateStatusPill({ status }: { status: string }) {
+  const t = useT();
   const normalized = status.toLowerCase();
   const label =
     normalized === "pending"
-      ? "Generating"
+      ? t("library.generating")
       : normalized === "ready"
-        ? "Ready"
+        ? t("library.ready")
         : normalized === "failed"
-          ? "Failed"
+          ? t("library.failed")
           : normalized === "draft"
-            ? "Draft"
+            ? t("library.draft")
             : status;
   const className =
     normalized === "ready"
@@ -4260,6 +4325,7 @@ function VariantPreview({
   slot: VariantSlot;
   fit?: "cover" | "contain";
 }) {
+  const t = useT();
   const [sourceIndex, setSourceIndex] = useState(0);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const previewSources = assetPreviewSources(slot, "thumbnail");
@@ -4297,13 +4363,15 @@ function VariantPreview({
         </div>
       ) : previewUnavailable ? (
         <div className="p-4 text-center text-xs text-muted-foreground">
-          Preview unavailable
+          {t("assetDetail.previewUnavailable")}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <IconPhoto className="h-8 w-8 animate-pulse" />
           {fit === "contain" ? (
-            <span className="text-xs font-medium">Rendering</span>
+            <span className="text-xs font-medium">
+              {t("library.rendering")}
+            </span>
           ) : null}
         </div>
       )}
@@ -4326,6 +4394,7 @@ function CandidateSaveMenu({
   disabled?: boolean;
   onSave: (folderId: string | null) => void;
 }) {
+  const t = useT();
   const createFolder = useActionMutation("create-folder");
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -4364,13 +4433,13 @@ function CandidateSaveMenu({
             className="h-8 min-w-0 px-2 text-xs"
             disabled={disabled}
           >
-            {pending ? <Spinner className="h-3.5 w-3.5" /> : "Save to..."}
+            {pending ? <Spinner className="h-3.5 w-3.5" /> : t("library.saveTo")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuItem onSelect={() => onSave(null)}>
             <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            Unfiled
+            {t("library.unfiled")}
           </DropdownMenuItem>
           {folders.map((folder) => (
             <DropdownMenuItem
@@ -4378,7 +4447,7 @@ function CandidateSaveMenu({
               onSelect={() => onSave(folder.id)}
             >
               <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-              Folder: {folder.title}
+              {t("library.folderLabel", { title: folder.title })}
             </DropdownMenuItem>
           ))}
           {allowCreateFolder ? (
@@ -4391,7 +4460,7 @@ function CandidateSaveMenu({
                 }}
               >
                 <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-                New folder...
+                {t("library.newFolderEllipsis")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -4412,6 +4481,7 @@ function CreateFolderDialog({
   onSubmit: (title: string) => void | Promise<void>;
   pending?: boolean;
 }) {
+  const t = useT();
   const [title, setTitle] = useState("");
   async function submit() {
     const trimmed = title.trim();
@@ -4421,7 +4491,7 @@ function CreateFolderDialog({
       setTitle("");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not create folder",
+        error instanceof Error ? error.message : t("library.couldNotCreateFolder"),
       );
     }
   }
@@ -4429,14 +4499,13 @@ function CreateFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
+          <DialogTitle>{t("library.newFolder")}</DialogTitle>
           <DialogDescription>
-            Group uploaded and generated assets for a campaign, channel, or
-            reusable collection.
+            {t("library.newFolderDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="folder-title">Name</Label>
+          <Label htmlFor="folder-title">{t("library.name")}</Label>
           <Input
             id="folder-title"
             value={title}
@@ -4447,13 +4516,13 @@ function CreateFolderDialog({
                 void submit();
               }
             }}
-            placeholder="Campaign launch"
+            placeholder={t("library.folderNamePlaceholder")}
             autoFocus
           />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("library.cancel")}
           </Button>
           <Button
             disabled={!title.trim() || pending}
@@ -4461,7 +4530,7 @@ function CreateFolderDialog({
               void submit();
             }}
           >
-            Create
+            {t("library.create")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -4478,6 +4547,7 @@ function LiveCandidatesActions({
   draftAssets: any[];
   libraryId: string;
 }) {
+  const t = useT();
   const dismissSlots = useActionMutation("dismiss-variant-slots");
   const deleteAssets = useActionMutation("delete-assets");
   const queryClient = useQueryClient();
@@ -4487,8 +4557,10 @@ function LiveCandidatesActions({
   const totalCount = slots.length + draftCount;
   const hasFailed = failedCount > 0;
   const isClearing = dismissSlots.isPending || deleteAssets.isPending;
-  const actionLabel = pending === "failed" ? "Dismiss failed" : "Clear all";
-  const busyLabel = pending === "failed" ? "Dismissing..." : "Clearing...";
+  const actionLabel =
+    pending === "failed" ? t("library.dismissFailed") : t("library.clearAll");
+  const busyLabel =
+    pending === "failed" ? t("library.dismissing") : t("library.clearing");
 
   async function handleClear(scope: "failed" | "all") {
     const slotAssetIds = slots
@@ -4528,7 +4600,9 @@ function LiveCandidatesActions({
       });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not clear candidates.",
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotClearCandidates"),
       );
     }
   }
@@ -4545,17 +4619,19 @@ function LiveCandidatesActions({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending === "failed"
-                ? `Dismiss ${failedCount} failed ${failedCount === 1 ? "slot" : "slots"}?`
-                : `Clear ${totalCount} candidate${totalCount === 1 ? "" : "s"}?`}
+                ? t("library.dismissFailedSlotsTitle", { count: failedCount })
+                : t("library.clearCandidatesTitle", { count: totalCount })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending === "failed"
-                ? "Removes every failed slot from the panel. Successful candidates stay."
-                : "Clears the live stage and deletes unsaved draft candidates."}
+                ? t("library.dismissFailedSlotsDescription")
+                : t("library.clearCandidatesDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isClearing}>
+              {t("library.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={isClearing || pending === null}
@@ -4586,8 +4662,8 @@ function LiveCandidatesActions({
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            aria-label="Candidate actions"
-            title="Candidate actions"
+            aria-label={t("library.candidateActions")}
+            title={t("library.candidateActions")}
             disabled={isClearing}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -4602,7 +4678,7 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Dismiss failed ({failedCount})
+            {t("library.dismissFailedWithCount", { count: failedCount })}
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -4613,7 +4689,7 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            Clear all
+            {t("library.clearAll")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

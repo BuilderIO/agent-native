@@ -145,20 +145,6 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
   });
 }
 
-export async function assertCanReplaceVariantSlots(input: VariantScopeInput) {
-  await withVariantStateLock(async () => {
-    const previous = await readVariantStateUnlocked(variantScopeIdFor(input));
-    if (!previous || isSameVariantScope(previous, input)) return;
-    const activeSlots = previous.slots.filter(
-      (slot) => slot.status === "pending" || slot.status === "ready",
-    );
-    if (activeSlots.length === 0) return;
-    throw new Error(
-      "The generation tray already has unsaved candidates. Save, delete, or clear them before starting a new generation.",
-    );
-  });
-}
-
 function isSameVariantScope(
   previous: AssetVariantState | null,
   input: VariantScopeInput,

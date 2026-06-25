@@ -14,11 +14,7 @@ vi.mock("../server/lib/json.js", () => ({
   nowIso: vi.fn(() => "2026-05-28T00:00:00.000Z"),
 }));
 
-import {
-  assertCanReplaceVariantSlots,
-  upsertVariantSlot,
-  wasVariantSlotDismissed,
-} from "./variant-slots.js";
+import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
@@ -157,29 +153,7 @@ describe("variant slot state", () => {
     ).resolves.toBe(true);
   });
 
-  it("does not block a different thread from starting a generation", async () => {
-    await upsertVariantSlot({
-      runId: "run-1",
-      batchId: "batch-1",
-      libraryId: "lib-1",
-      prompt: "Generate a diagram",
-      slotId: "slot-1",
-      status: "ready",
-      assetId: "asset-1",
-      threadId: "thread-1",
-    });
-
-    await expect(
-      assertCanReplaceVariantSlots({
-        runId: "run-2",
-        batchId: "batch-2",
-        libraryId: "lib-1",
-        threadId: "thread-2",
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("does not block a different picker scope from starting a generation", async () => {
+  it("keeps slots visible within their own picker scope", async () => {
     await upsertVariantSlot({
       runId: "run-1",
       batchId: "batch-1",
@@ -191,14 +165,6 @@ describe("variant slot state", () => {
       variantScopeId: "picker:tab-1",
     });
 
-    await expect(
-      assertCanReplaceVariantSlots({
-        runId: "run-2",
-        batchId: "batch-2",
-        libraryId: "lib-1",
-        variantScopeId: "picker:tab-2",
-      }),
-    ).resolves.toBeUndefined();
     await expect(
       wasVariantSlotDismissed("lib-1", "slot-1", {
         variantScopeId: "picker:tab-1",

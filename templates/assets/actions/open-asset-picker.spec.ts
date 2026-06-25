@@ -36,14 +36,7 @@ describe("open-asset-picker", () => {
     });
     expect(result.message).toContain("browser tab");
     expect(result.message).toContain("paste");
-    expect(writeAppStateMock).toHaveBeenCalledWith(
-      "navigate",
-      expect.objectContaining({
-        view: "picker",
-        mediaType: "image",
-        path: "/library?__an_picker=1&mediaType=image",
-      }),
-    );
+    expect(writeAppStateMock).not.toHaveBeenCalled();
     expect(action.http).toEqual({ method: "GET" });
     expect(action.readOnly).toBe(true);
     expect(action.mcpApp?.compactCatalog).toBe(true);
@@ -112,6 +105,33 @@ describe("open-asset-picker", () => {
       callerAppId: "design",
       autoGenerate: true,
     });
+    expect(writeAppStateMock).not.toHaveBeenCalled();
+  });
+
+  it("does not write a global navigation command when no tab target exists", async () => {
+    const result = await action.run(
+      {
+        prompt: "Generate a hero image",
+        autoGenerate: true,
+      },
+      { caller: "tool" } as any,
+    );
+
+    expect(result).toMatchObject({
+      embed: true,
+      path: "/library?__an_picker=1&mediaType=image&prompt=Generate+a+hero+image&autoGenerate=1",
+    });
+    expect(writeAppStateMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores unsafe tab ids instead of writing global navigation", async () => {
+    getRequestRunContextMock.mockReturnValue({ browserTabId: "../design" });
+
+    await action.run(
+      { prompt: "Generate a hero image" },
+      { caller: "tool" } as any,
+    );
+
     expect(writeAppStateMock).not.toHaveBeenCalled();
   });
 
