@@ -194,10 +194,9 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
     const dialog = readBuilderReviewDialogSource();
 
-    expect(dialog).toContain("Stage autosave");
-    expect(dialog).toContain(
-      "Update in place (keeps current published/draft state)",
-    );
+    expect(dialog).toContain("Creates a new draft entry");
+    expect(dialog).toContain("builderReviewRowEffectLabel(effect)");
+    expect(dialog).toContain("{destinationLine}");
     expect(dialog).toContain('aria-pressed={');
     expect(dialog).toContain("Publish");
     expect(dialog).toContain("Unpublish");
@@ -206,9 +205,7 @@ describe("document database layout", () => {
     expect(dialog).toContain(
       "source?.metadata.allowPublicationTransitions === true",
     );
-    expect(dialog).toContain(
-      'return `${defaultAction} ${defaultLabel} · ${publish} publish · ${unpublish} unpublish`;',
-    );
+    expect(dialog).toContain("builderReviewIntentSummary(");
     expect(dialog).toContain(
       "builderReviewPublicationTransitionsMap(transitionSelections)",
     );

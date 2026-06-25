@@ -817,6 +817,13 @@ export interface PrepareBuilderSourceReviewRequest {
   confirmUnpublish?: boolean;
 }
 
+export type BuilderCmsWriteEffect =
+  | "autosave"
+  | "update_in_place"
+  | "create_draft"
+  | "publish"
+  | "unpublish";
+
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
   databaseItemId: string | null;
@@ -827,6 +834,8 @@ export interface ContentDatabaseSourceReviewRowSummary {
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
+  /** Resolved write effect for this row — drives plain-language UI labels. */
+  effect: BuilderCmsWriteEffect;
   execution: ContentDatabaseSourceExecution | null;
 }
 

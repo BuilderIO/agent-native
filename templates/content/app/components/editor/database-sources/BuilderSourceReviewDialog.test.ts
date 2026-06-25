@@ -1,24 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
-  builderReviewDefaultPublicationEffectLabel,
-  builderReviewPublicationIntentSummary,
+  builderReviewDestinationLine,
+  builderReviewEffectiveRowEffect,
+  builderReviewIntentSummary,
   builderReviewPublicationTransitionsMap,
+  builderReviewResultStatus,
+  builderReviewRowEffectLabel,
 } from "./BuilderSourceReviewDialog";
 
 describe("BuilderSourceReviewDialog publication intent helpers", () => {
-  it("labels the default Builder publication effect from the source tier", () => {
-    expect(builderReviewDefaultPublicationEffectLabel("stage_only")).toBe(
-      "Stage autosave",
-    );
-    expect(builderReviewDefaultPublicationEffectLabel("publish_updates")).toBe(
-      "Update in place (keeps current published/draft state)",
-    );
+  it("labels each write effect in plain language", () => {
+    expect(builderReviewRowEffectLabel("create_draft")).toEqual({
+      tag: "New",
+      sentence: "Creates a new draft entry",
+    });
+    expect(builderReviewRowEffectLabel("update_in_place").tag).toBe("Edit");
+    expect(builderReviewRowEffectLabel("unpublish").tag).toBe("Unpublish");
   });
 
-  it("summarizes per-row publication intent selections", () => {
+  it("lets a chosen transition override the base effect", () => {
+    expect(builderReviewEffectiveRowEffect("create_draft", undefined)).toBe(
+      "create_draft",
+    );
     expect(
-      builderReviewPublicationIntentSummary(
-        ["change-1", "change-2", "change-3"],
+      builderReviewEffectiveRowEffect("update_in_place", {
+        publicationTransition: "publish",
+      }),
+    ).toBe("publish");
+    expect(
+      builderReviewEffectiveRowEffect("update_in_place", {
+        publicationTransition: "unpublish",
+        confirmUnpublish: true,
+      }),
+    ).toBe("unpublish");
+  });
+
+  it("summarizes per-row intent in plain language, honoring transitions", () => {
+    expect(
+      builderReviewIntentSummary(
+        [
+          { changeSetId: "change-1", effect: "create_draft" },
+          { changeSetId: "change-2", effect: "update_in_place" },
+          { changeSetId: "change-3", effect: "update_in_place" },
+        ],
         {
           "change-2": { publicationTransition: "publish" },
           "change-3": {
@@ -26,9 +50,49 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
             confirmUnpublish: true,
           },
         },
-        "publish_updates",
       ),
-    ).toBe("1 update in place · 1 publish · 1 unpublish");
+    ).toBe("1 draft to create · 1 to publish · 1 to unpublish");
+  });
+
+  it("describes the destination from the dominant effect", () => {
+    expect(
+      builderReviewDestinationLine({
+        rows: [{ changeSetId: "change-1", effect: "create_draft" }],
+        selections: {},
+        liveWritesEnabled: true,
+      }),
+    ).toBe("Writes a new draft to Builder — won't publish.");
+
+    expect(
+      builderReviewDestinationLine({
+        rows: [{ changeSetId: "change-1", effect: "update_in_place" }],
+        selections: {},
+        liveWritesEnabled: true,
+      }),
+    ).toBe("Updates content in Builder — publication state is preserved.");
+
+    expect(
+      builderReviewDestinationLine({
+        rows: [{ changeSetId: "change-1", effect: "create_draft" }],
+        selections: {},
+        liveWritesEnabled: false,
+      }),
+    ).toBe("Checks the update only — nothing is sent to Builder.");
+  });
+
+  it("maps execution status to plain-language result labels", () => {
+    expect(builderReviewResultStatus("succeeded")).toEqual({
+      label: "Pushed",
+      tone: "ok",
+    });
+    expect(builderReviewResultStatus("validated").label).toBe("Ready");
+    expect(builderReviewResultStatus("blocked")).toEqual({
+      label: "Needs attention",
+      tone: "warn",
+    });
+    expect(builderReviewResultStatus("write_disabled").label).toBe(
+      "Checks only",
+    );
   });
 
   it("builds a batch transition map without defaulting unselected rows", () => {

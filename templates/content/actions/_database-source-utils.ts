@@ -382,16 +382,9 @@ function reviewedChangeSet(args: {
     riskLevel = maxRisk(riskLevel, "high");
     riskReasons.push("external write");
   }
-  if (args.changeSet.pushMode === "publish") {
+  if (!args.changeSet.localOnly && args.changeSet.pushMode === "publish") {
     riskLevel = maxRisk(riskLevel, "high");
     riskReasons.push("publish mode");
-  }
-  if (
-    args.changeSet.direction === "outbound" &&
-    normalizeCapabilities(args.source.capabilitiesJson).liveWritesEnabled
-  ) {
-    riskLevel = maxRisk(riskLevel, "high");
-    riskReasons.push("live writes enabled");
   }
 
   const sourceRow = args.changeSet.documentId

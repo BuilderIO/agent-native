@@ -178,6 +178,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "@shared/api";
+import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -3748,12 +3749,12 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
   {
     mode: "stage_only",
     label: "Stage only",
-    description: "Autosave revisions only.",
+    description: "Saves drafts to Builder — never publishes.",
   },
   {
     mode: "publish_updates",
     label: "Publish updates",
-    description: "Update live content in place.",
+    description: "Writes updates to live entries.",
   },
 ];
 
@@ -3803,6 +3804,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
       execution: latestExecution,
     };
   });
@@ -4349,8 +4351,8 @@ function DatabaseSettingsSourcePanel({
               <div className="text-xs text-muted-foreground">
                 {source.sourceType === "builder-cms"
                   ? source.capabilities.liveWritesEnabled
-                    ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
-                    : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
+                    ? "Review local edits before they’re written to Builder."
+                    : "Live writes are off — local edits are staged for review only."
                   : "No local outbound push lane is active for this mock source."}
               </div>
               <div className="grid min-w-0 gap-2">
@@ -5025,17 +5027,16 @@ function SourceChangeSetReviewCard({
         <span className={sourceRiskClass(changeSet.riskLevel)}>
           {changeSet.riskLevel} risk
         </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.conflictState === "source_changed"
-            ? "source changed"
-            : "no conflict"}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {sourcePushModeLabel(changeSet.pushMode)}
-        </span>
-        <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-          {changeSet.localOnly ? "local-only" : "external write"}
-        </span>
+        {changeSet.conflictState === "source_changed" ? (
+          <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            source changed
+          </span>
+        ) : null}
+        {!changeSet.localOnly ? (
+          <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+            external write
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-2 grid min-w-0 gap-1.5">
@@ -5073,10 +5074,6 @@ function SourceChangeSetReviewCard({
       <div className="mt-2 break-words text-xs text-muted-foreground">
         {changeSet.riskReasons.join(", ")}
         {" • "}
-        {source.capabilities.liveWritesEnabled
-          ? "live writes enabled"
-          : "live writes disabled"}
-        {" • "}
         {formatSourceTimestamp(changeSet.updatedAt)}
       </div>
 
@@ -5099,11 +5096,6 @@ function SourceChangeSetReviewCard({
           <div className="mt-1 break-words text-muted-foreground">
             {latestExecution.summary}
           </div>
-          {builderExecutionRequestLine(latestExecution.payload) ? (
-            <div className="mt-1 break-words text-muted-foreground">
-              Would call {builderExecutionRequestLine(latestExecution.payload)}
-            </div>
-          ) : null}
           {builderExecutionBlockers(latestExecution.payload).length > 0 ? (
             <div className="mt-1 grid gap-1 text-muted-foreground">
               {builderExecutionBlockers(latestExecution.payload)
@@ -5128,9 +5120,19 @@ function SourceChangeSetReviewCard({
               {latestExecution.lastError}
             </div>
           ) : null}
-          <div className="mt-1 break-all text-muted-foreground">
-            {latestExecution.idempotencyKey}
-          </div>
+          <details className="mt-1.5">
+            <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
+              Technical details
+            </summary>
+            <div className="mt-1 grid gap-1 text-muted-foreground">
+              {builderExecutionRequestLine(latestExecution.payload) ? (
+                <div className="break-words">
+                  {builderExecutionRequestLine(latestExecution.payload)}
+                </div>
+              ) : null}
+              <div className="break-all">{latestExecution.idempotencyKey}</div>
+            </div>
+          </details>
         </div>
       ) : null}
     </div>
@@ -5256,15 +5258,6 @@ function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
     return "Local fixture; Builder credentials unavailable";
   }
   return "Local fixture";
-}
-
-function sourcePushModeLabel(
-  mode: ContentDatabaseSource["metadata"]["pushMode"] | null | undefined,
-) {
-  if (mode === "autosave") return "Save revision / autosave";
-  if (mode === "draft") return "Draft";
-  if (mode === "publish") return "Publish";
-  return "No push";
 }
 
 function sourceFieldMappingForColumn(

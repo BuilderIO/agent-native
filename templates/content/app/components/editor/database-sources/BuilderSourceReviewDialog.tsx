@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconCheck, IconX } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconCloudUpload,
+  IconX,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,10 +16,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
 import type {
   BuilderCmsPublicationTransitionIntent,
+  BuilderCmsWriteEffect,
   ContentDatabaseSource,
-  ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceReviewPayload,
-  ContentDatabaseSourceWriteMode,
   DocumentPropertyValue,
   ExecuteBuilderSourceBatchTransition,
   ExecuteBuilderSourceBatchResponse,
@@ -35,34 +39,128 @@ export type BuilderReviewPublicationTransitions = Record<
   ExecuteBuilderSourceBatchTransition
 >;
 
-export function builderReviewDefaultPublicationEffectLabel(
-  writeMode?: ContentDatabaseSourceWriteMode,
-) {
-  if (writeMode === "stage_only") return "Stage autosave";
-  if (writeMode === "publish_updates") {
-    return "Update in place (keeps current published/draft state)";
-  }
-  return "Check only";
+const EFFECT_LABELS: Record<
+  BuilderCmsWriteEffect,
+  { tag: string; sentence: string }
+> = {
+  create_draft: { tag: "New", sentence: "Creates a new draft entry" },
+  update_in_place: { tag: "Edit", sentence: "Updates the live entry" },
+  autosave: { tag: "Draft", sentence: "Saves a draft revision" },
+  publish: { tag: "Publish", sentence: "Publishes this entry" },
+  unpublish: { tag: "Unpublish", sentence: "Unpublishes the live entry" },
+};
+
+export function builderReviewRowEffectLabel(effect: BuilderCmsWriteEffect) {
+  return EFFECT_LABELS[effect] ?? EFFECT_LABELS.update_in_place;
 }
 
-export function builderReviewPublicationIntentSummary(
-  changeSetIds: string[],
-  selections: BuilderReviewPublicationTransitionSelections,
-  writeMode?: ContentDatabaseSourceWriteMode,
-) {
-  const publish = changeSetIds.filter(
-    (changeSetId) =>
-      selections[changeSetId]?.publicationTransition === "publish",
-  ).length;
-  const unpublish = changeSetIds.filter(
-    (changeSetId) =>
-      selections[changeSetId]?.publicationTransition === "unpublish",
-  ).length;
-  const defaultAction = Math.max(changeSetIds.length - publish - unpublish, 0);
-  const defaultLabel =
-    writeMode === "stage_only" ? "stage autosave" : "update in place";
+/** The effect a row will actually run, accounting for a chosen transition. */
+export function builderReviewEffectiveRowEffect(
+  baseEffect: BuilderCmsWriteEffect,
+  selection?: BuilderReviewPublicationTransitionSelection,
+): BuilderCmsWriteEffect {
+  if (selection?.publicationTransition === "publish") return "publish";
+  if (selection?.publicationTransition === "unpublish") return "unpublish";
+  return baseEffect;
+}
 
-  return `${defaultAction} ${defaultLabel} · ${publish} publish · ${unpublish} unpublish`;
+export function builderReviewIntentSummary(
+  rows: { changeSetId: string; effect: BuilderCmsWriteEffect }[],
+  selections: BuilderReviewPublicationTransitionSelections,
+) {
+  const counts: Record<BuilderCmsWriteEffect, number> = {
+    create_draft: 0,
+    update_in_place: 0,
+    autosave: 0,
+    publish: 0,
+    unpublish: 0,
+  };
+  for (const row of rows) {
+    counts[
+      builderReviewEffectiveRowEffect(row.effect, selections[row.changeSetId])
+    ] += 1;
+  }
+  const parts: string[] = [];
+  if (counts.create_draft) {
+    parts.push(
+      `${counts.create_draft} draft${counts.create_draft === 1 ? "" : "s"} to create`,
+    );
+  }
+  if (counts.update_in_place) {
+    parts.push(
+      `${counts.update_in_place} update${counts.update_in_place === 1 ? "" : "s"}`,
+    );
+  }
+  if (counts.autosave) {
+    parts.push(
+      `${counts.autosave} draft save${counts.autosave === 1 ? "" : "s"}`,
+    );
+  }
+  if (counts.publish) parts.push(`${counts.publish} to publish`);
+  if (counts.unpublish) parts.push(`${counts.unpublish} to unpublish`);
+  return parts.join(" · ") || "No changes";
+}
+
+export function builderReviewDestinationLine(args: {
+  rows: { changeSetId: string; effect: BuilderCmsWriteEffect }[];
+  selections: BuilderReviewPublicationTransitionSelections;
+  liveWritesEnabled: boolean;
+}) {
+  if (!args.liveWritesEnabled) {
+    return "Checks the update only — nothing is sent to Builder.";
+  }
+  const effects = new Set(
+    args.rows.map((row) =>
+      builderReviewEffectiveRowEffect(
+        row.effect,
+        args.selections[row.changeSetId],
+      ),
+    ),
+  );
+  if (effects.has("unpublish")) {
+    return "Unpublishes selected entries in Builder.";
+  }
+  if (effects.has("publish")) {
+    return "Publishes selected entries in Builder.";
+  }
+  if (effects.size === 1 && effects.has("create_draft")) {
+    return args.rows.length === 1
+      ? "Writes a new draft to Builder — won't publish."
+      : "Writes new drafts to Builder — nothing is published.";
+  }
+  return "Updates content in Builder — publication state is preserved.";
+}
+
+export function builderReviewResultStatus(status?: string): {
+  label: string;
+  tone: "ok" | "warn" | "danger" | "muted";
+} {
+  switch (status) {
+    case "succeeded":
+      return { label: "Pushed", tone: "ok" };
+    case "validated":
+      return { label: "Ready", tone: "ok" };
+    case "partial":
+    case "blocked":
+      return { label: "Needs attention", tone: "warn" };
+    case "failed":
+      return { label: "Failed — you can retry", tone: "danger" };
+    case "stale":
+      return { label: "Needs a fresh review", tone: "warn" };
+    case "running":
+      return { label: "Working…", tone: "muted" };
+    case "write_disabled":
+      return { label: "Checks only", tone: "muted" };
+    default:
+      return { label: "Ready", tone: "muted" };
+  }
+}
+
+function resultToneClass(tone: "ok" | "warn" | "danger" | "muted") {
+  if (tone === "ok") return "text-emerald-600 dark:text-emerald-400";
+  if (tone === "warn") return "text-amber-700 dark:text-amber-300";
+  if (tone === "danger") return "text-destructive";
+  return "text-muted-foreground";
 }
 
 export function builderReviewPublicationTransitionsMap(
@@ -90,14 +188,14 @@ export function builderReviewPublicationTransitionsMap(
   return transitions;
 }
 
-function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
-  if (risk === "high") {
-    return "rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-destructive";
-  }
-  if (risk === "medium") {
-    return "rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700";
-  }
-  return "rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-700";
+const ATTENTION_TAG_EFFECTS: ReadonlySet<BuilderCmsWriteEffect> = new Set([
+  "unpublish",
+]);
+
+function rowEffectTagClass(effect: BuilderCmsWriteEffect) {
+  return ATTENTION_TAG_EFFECTS.has(effect)
+    ? "rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+    : "rounded border border-border bg-muted/40 px-1.5 py-0.5 text-muted-foreground";
 }
 
 function sourceValueText(value: DocumentPropertyValue) {
@@ -105,33 +203,6 @@ function sourceValueText(value: DocumentPropertyValue) {
   if (Array.isArray(value)) return value.join(", ") || "empty";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
-}
-
-function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
-  if (source.metadata.readMode === "builder-api")
-    return "Builder API read-only";
-  if (source.metadata.readMode === "local-fixture") return "Local fixture";
-  if (source.metadata.readMode === "unconfigured") return "Not configured";
-  if (source.metadata.readMode === "error") return "Read error";
-  return "Local review";
-}
-
-function sourcePushModeLabel(
-  mode: ContentDatabaseSource["metadata"]["pushMode"],
-) {
-  if (mode === "autosave") return "Save revision / autosave";
-  if (mode === "draft") return "Draft";
-  if (mode === "publish") return "Publish";
-  return "None";
-}
-
-function SourceMetadataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-start justify-between gap-3">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-words text-right">{value}</span>
-    </div>
-  );
 }
 
 export function BuilderSourceReviewDialog({
@@ -160,15 +231,14 @@ export function BuilderSourceReviewDialog({
     source?.sourceType === "builder-cms" &&
     source.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
   const writeMode = source?.metadata.writeMode;
-  const defaultEffectLabel =
-    builderReviewDefaultPublicationEffectLabel(writeMode);
   const allowPublicationTransitionControls =
     safeModel &&
     writeMode === "publish_updates" &&
     source?.metadata.allowPublicationTransitions === true;
+  const reviewRows = useMemo(() => review?.rows ?? [], [review]);
   const reviewRowIds = useMemo(
-    () => review?.rows.map((row) => row.changeSetId) ?? [],
-    [review],
+    () => reviewRows.map((row) => row.changeSetId),
+    [reviewRows],
   );
   const reviewRowIdsKey = reviewRowIds.join("\u0000");
   const [transitionSelections, setTransitionSelections] =
@@ -196,11 +266,15 @@ export function BuilderSourceReviewDialog({
     () => builderReviewPublicationTransitionsMap(transitionSelections),
     [transitionSelections],
   );
-  const intentSummary = builderReviewPublicationIntentSummary(
-    reviewRowIds,
+  const intentSummary = builderReviewIntentSummary(
+    reviewRows,
     transitionSelections,
-    writeMode,
   );
+  const destinationLine = builderReviewDestinationLine({
+    rows: reviewRows,
+    selections: transitionSelections,
+    liveWritesEnabled: review?.liveWritesEnabled === true,
+  });
   const hasUnconfirmedUnpublish = Object.values(transitionSelections).some(
     (selection) =>
       selection.publicationTransition === "unpublish" &&
@@ -224,43 +298,52 @@ export function BuilderSourceReviewDialog({
     unsafeLiveTarget ||
     hasUnconfirmedUnpublish;
   const rowTitleById = new Map(
-    review?.rows.map((row) => [row.changeSetId, row.title]) ?? [],
+    reviewRows.map((row) => [row.changeSetId, row.title]),
   );
   const batchIssueResults =
     batchResult?.results.filter((result) => result.status !== "succeeded") ??
     [];
-  const batchSummaryText = batchResult
-    ? `${batchResult.summary.succeeded} succeeded, ${batchResult.summary.blocked} blocked, ${batchResult.summary.failed} failed.`
-    : null;
-  const resultMessage = batchSummaryText ?? review?.result.message;
-  const resultStatus = batchResult
-    ? batchHasIssues
-      ? "partial"
-      : "succeeded"
-    : review?.result.status;
-  const footerText = pending
+  const resultStatus = builderReviewResultStatus(
+    batchResult
+      ? batchHasIssues
+        ? "partial"
+        : "succeeded"
+      : review?.result.status,
+  );
+  const footerHint = pending
     ? review?.liveWritesEnabled
-      ? "Preparing the Builder gate and sending through the guarded write path."
-      : "Checking the Builder gate locally."
+      ? "Sending to Builder…"
+      : "Checking…"
     : hasUnconfirmedUnpublish
-      ? "Confirm unpublish on selected rows before pushing."
+      ? "Confirm unpublish on the selected rows first."
       : unsafeLiveTarget
-        ? `Live batch pushes are limited to ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
-        : checked
-          ? review?.result.status === "succeeded"
-            ? "Pushed to Builder and reconciled locally."
-            : batchResult
-              ? batchSummaryText
-              : review?.liveWritesEnabled
-                ? (review?.result.message ?? "Builder push finished.")
-                : "Checked just now. Nothing was sent to Builder."
-          : review?.liveWritesEnabled
-            ? "Push will send approved writes through the guarded Builder path."
-            : "Builder writes are disabled. Push will check the update only.";
+        ? `Live pushes are limited to the ${BUILDER_CMS_SAFE_WRITE_MODEL} test model.`
+        : null;
+  const effectiveEffects = new Set(
+    reviewRows.map((row) =>
+      builderReviewEffectiveRowEffect(
+        row.effect,
+        transitionSelections[row.changeSetId],
+      ),
+    ),
+  );
+  const pushVerb = !review?.liveWritesEnabled
+    ? "Check"
+    : effectiveEffects.has("unpublish")
+      ? "Unpublish"
+      : effectiveEffects.has("publish")
+        ? "Publish"
+        : effectiveEffects.size === 1 && effectiveEffects.has("create_draft")
+          ? reviewRows.length > 1
+            ? `Create ${reviewRows.length} drafts`
+            : "Create draft"
+          : reviewRows.length > 1
+            ? `Push ${reviewRows.length} updates`
+            : "Push update";
   const buttonLabel = pending
     ? review?.liveWritesEnabled
-      ? "Pushing..."
-      : "Checking..."
+      ? "Working…"
+      : "Checking…"
     : checked && batchResult
       ? batchHasIssues
         ? "Retry"
@@ -269,9 +352,7 @@ export function BuilderSourceReviewDialog({
         ? "Pushed"
         : checked && !retryable
           ? "Checked"
-          : review?.liveWritesEnabled && (review?.rows.length ?? 0) > 1
-            ? `Push all approved (${review?.rows.length ?? 0})`
-            : "Push";
+          : pushVerb;
 
   function setRowPublicationTransition(
     changeSetId: string,
@@ -350,242 +431,194 @@ export function BuilderSourceReviewDialog({
               <section className="grid gap-2">
                 <div className="text-sm font-medium">What changed</div>
                 <div className="grid gap-2">
-                  {review.rows.map((row) => (
-                    <div
-                      key={row.changeSetId}
-                      className="rounded-md border border-border p-3"
-                    >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {row.title}
+                  {reviewRows.map((row) => {
+                    const selection = transitionSelections[row.changeSetId];
+                    const effect = builderReviewEffectiveRowEffect(
+                      row.effect,
+                      selection,
+                    );
+                    const { tag, sentence } =
+                      builderReviewRowEffectLabel(effect);
+                    const showConflict =
+                      effect !== "create_draft" &&
+                      row.conflictState === "source_changed";
+                    return (
+                      <div
+                        key={row.changeSetId}
+                        className="rounded-md border border-border p-3"
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {row.title}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {sentence}
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {row.fieldChanges.length} field change
-                            {row.fieldChanges.length === 1 ? "" : "s"}
-                            {row.bodyChange ? " plus body diff" : ""}
-                          </div>
+                          <span
+                            className={
+                              "shrink-0 text-[11px] " +
+                              rowEffectTagClass(effect)
+                            }
+                          >
+                            {tag}
+                          </span>
                         </div>
-                        <span className={sourceRiskClass(row.riskLevel)}>
-                          {row.riskLevel} risk
-                        </span>
+                        <div className="mt-3 grid gap-2">
+                          {allowPublicationTransitionControls ? (
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={
+                                  transitionSelections[row.changeSetId]
+                                    ?.publicationTransition === "publish"
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                                className="h-7 px-2 text-xs"
+                                disabled={pending}
+                                aria-pressed={
+                                  transitionSelections[row.changeSetId]
+                                    ?.publicationTransition === "publish"
+                                }
+                                onClick={() =>
+                                  setRowPublicationTransition(
+                                    row.changeSetId,
+                                    "publish",
+                                  )
+                                }
+                              >
+                                Publish
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={
+                                  transitionSelections[row.changeSetId]
+                                    ?.publicationTransition === "unpublish"
+                                    ? "destructive"
+                                    : "outline"
+                                }
+                                className="h-7 px-2 text-xs"
+                                disabled={pending}
+                                aria-pressed={
+                                  transitionSelections[row.changeSetId]
+                                    ?.publicationTransition === "unpublish"
+                                }
+                                onClick={() =>
+                                  setRowPublicationTransition(
+                                    row.changeSetId,
+                                    "unpublish",
+                                  )
+                                }
+                              >
+                                Unpublish
+                              </Button>
+                              {transitionSelections[row.changeSetId]
+                                ?.publicationTransition === "unpublish" ? (
+                                <label className="flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+                                  <input
+                                    type="checkbox"
+                                    className="size-3 accent-destructive"
+                                    checked={
+                                      transitionSelections[row.changeSetId]
+                                        ?.confirmUnpublish === true
+                                    }
+                                    disabled={pending}
+                                    onChange={(event) =>
+                                      setRowConfirmUnpublish(
+                                        row.changeSetId,
+                                        event.currentTarget.checked,
+                                      )
+                                    }
+                                  />
+                                  Confirm unpublish
+                                </label>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {row.fieldChanges.map((field) => (
+                            <div
+                              key={`${row.changeSetId}-${field.localFieldKey}`}
+                              className="grid gap-1 rounded border border-border/70 bg-muted/20 p-2 text-xs"
+                            >
+                              <div className="font-medium">
+                                {field.propertyName ?? field.sourceFieldKey}
+                              </div>
+                              <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
+                                <div className="min-w-0 break-words">
+                                  From: {sourceValueText(field.currentValue)}
+                                </div>
+                                <div className="min-w-0 break-words">
+                                  To: {sourceValueText(field.proposedValue)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {row.bodyChange ? (
+                            <div className="rounded border border-border/70 bg-muted/20 p-2 text-xs">
+                              <div className="font-medium">
+                                {row.bodyChange.summary}
+                              </div>
+                              <div className="mt-1 text-muted-foreground">
+                                Builder body edits need a safer push path before
+                                they can be sent.
+                              </div>
+                            </div>
+                          ) : null}
+                          {showConflict ? (
+                            <div className="flex items-start gap-1.5 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                              <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                              <span>
+                                Changed in Builder since you synced — review
+                                before pushing.
+                              </span>
+                            </div>
+                          ) : null}
+                          {effect === "unpublish" ? (
+                            <div className="flex items-start gap-1.5 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                              <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                              <span>
+                                This unpublishes the live entry in Builder.
+                              </span>
+                            </div>
+                          ) : null}
+                          {row.execution?.lastError ? (
+                            <div className="rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+                              {row.execution.lastError}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="mt-3 grid gap-2">
-                        {safeModel ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <span className="rounded border border-border bg-muted/30 px-1.5 py-0.5 text-muted-foreground">
-                              {defaultEffectLabel}
-                            </span>
-                            {allowPublicationTransitionControls ? (
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={
-                                    transitionSelections[row.changeSetId]
-                                      ?.publicationTransition === "publish"
-                                      ? "secondary"
-                                      : "outline"
-                                  }
-                                  className="h-7 px-2 text-xs"
-                                  disabled={pending}
-                                  aria-pressed={
-                                    transitionSelections[row.changeSetId]
-                                      ?.publicationTransition === "publish"
-                                  }
-                                  onClick={() =>
-                                    setRowPublicationTransition(
-                                      row.changeSetId,
-                                      "publish",
-                                    )
-                                  }
-                                >
-                                  Publish
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={
-                                    transitionSelections[row.changeSetId]
-                                      ?.publicationTransition === "unpublish"
-                                      ? "destructive"
-                                      : "outline"
-                                  }
-                                  className="h-7 px-2 text-xs"
-                                  disabled={pending}
-                                  aria-pressed={
-                                    transitionSelections[row.changeSetId]
-                                      ?.publicationTransition === "unpublish"
-                                  }
-                                  onClick={() =>
-                                    setRowPublicationTransition(
-                                      row.changeSetId,
-                                      "unpublish",
-                                    )
-                                  }
-                                >
-                                  Unpublish
-                                </Button>
-                                {transitionSelections[row.changeSetId]
-                                  ?.publicationTransition === "unpublish" ? (
-                                  <label className="flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
-                                    <input
-                                      type="checkbox"
-                                      className="size-3 accent-destructive"
-                                      checked={
-                                        transitionSelections[row.changeSetId]
-                                          ?.confirmUnpublish === true
-                                      }
-                                      disabled={pending}
-                                      onChange={(event) =>
-                                        setRowConfirmUnpublish(
-                                          row.changeSetId,
-                                          event.currentTarget.checked,
-                                        )
-                                      }
-                                    />
-                                    Confirm unpublish
-                                  </label>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {row.fieldChanges.map((field) => (
-                          <div
-                            key={`${row.changeSetId}-${field.localFieldKey}`}
-                            className="grid gap-1 rounded border border-border/70 bg-muted/20 p-2 text-xs"
-                          >
-                            <div className="font-medium">
-                              {field.propertyName ?? field.sourceFieldKey}
-                            </div>
-                            <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
-                              <div className="min-w-0 break-words">
-                                From: {sourceValueText(field.currentValue)}
-                              </div>
-                              <div className="min-w-0 break-words">
-                                To: {sourceValueText(field.proposedValue)}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        {row.bodyChange ? (
-                          <div className="rounded border border-border/70 bg-muted/20 p-2 text-xs">
-                            <div className="font-medium">
-                              {row.bodyChange.summary}
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              Builder body edits need a safer push path before
-                              they can be sent.
-                            </div>
-                          </div>
-                        ) : null}
-                        {row.execution?.lastError ? (
-                          <div className="rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
-                            {row.execution.lastError}
-                          </div>
-                        ) : null}
-                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <IconCloudUpload className="mt-0.5 size-3.5 shrink-0" />
+                <span>{destinationLine}</span>
+              </div>
+
+              {batchResult && batchIssueResults.length > 0 ? (
+                <section className="grid gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                  <div className="font-medium">
+                    Needs attention before this can finish
+                  </div>
+                  {batchIssueResults.map((result) => (
+                    <div key={result.changeSetId} className="break-words">
+                      <span className="font-medium">
+                        {rowTitleById.get(result.changeSetId) ??
+                          result.changeSetId}
+                      </span>
+                      {" — "}
+                      {result.message ?? "No details returned."}
                     </div>
                   ))}
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Where it will go</div>
-                <div className="grid gap-2 text-xs">
-                  <SourceMetadataRow label="Source" value={review.sourceName} />
-                  <SourceMetadataRow
-                    label="Builder model"
-                    value={review.sourceTable}
-                  />
-                  <SourceMetadataRow
-                    label="Push mode"
-                    value={sourcePushModeLabel(review.pushMode)}
-                  />
-                  <SourceMetadataRow
-                    label="Live writes"
-                    value={review.liveWritesEnabled ? "enabled" : "disabled"}
-                  />
-                  <SourceMetadataRow
-                    label="Read mode"
-                    value={
-                      source ? sourceBuilderReadModeSummary(source) : "unknown"
-                    }
-                  />
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Risk check</div>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  <span className={sourceRiskClass(review.riskLevel)}>
-                    {review.riskLevel} risk
-                  </span>
-                  {(review.riskReasons.length
-                    ? review.riskReasons
-                    : ["single field diff"]
-                  ).map((reason) => (
-                    <span
-                      key={reason}
-                      className="rounded border border-border px-1.5 py-0.5 text-muted-foreground"
-                    >
-                      {reason}
-                    </span>
-                  ))}
-                  <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                    {review.dryRunOnly ? "checks only" : "can send to Builder"}
-                  </span>
-                </div>
-              </section>
-
-              <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Result</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {resultMessage}
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {resultStatus?.replace(/_/g, " ")}
-                  </span>
-                </div>
-                {batchResult ? (
-                  <div className="grid gap-2 border-t border-border pt-3 text-xs">
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
-                        {batchResult.summary.succeeded} succeeded
-                      </span>
-                      <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700">
-                        {batchResult.summary.blocked} blocked
-                      </span>
-                      <span className="rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-destructive">
-                        {batchResult.summary.failed} failed
-                      </span>
-                    </div>
-                    {batchIssueResults.length > 0 ? (
-                      <div className="grid gap-1.5">
-                        {batchIssueResults.map((result) => (
-                          <div
-                            key={result.changeSetId}
-                            className="rounded border border-border/70 bg-muted/20 p-2"
-                          >
-                            <div className="font-medium">
-                              {rowTitleById.get(result.changeSetId) ??
-                                result.changeSetId}
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              {result.status}:{" "}
-                              {result.message ?? "No details returned."}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
+                </section>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
@@ -596,10 +629,28 @@ export function BuilderSourceReviewDialog({
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
           <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-            {safeModel && review ? (
-              <div className="font-medium text-foreground">{intentSummary}</div>
+            {review ? (
+              <div
+                className={
+                  "flex items-center gap-1.5 font-medium " +
+                  resultToneClass(resultStatus.tone)
+                }
+              >
+                {checked ? (
+                  resultStatus.tone === "ok" ? (
+                    <IconCheck className="size-3.5 shrink-0" />
+                  ) : (
+                    <IconAlertTriangle className="size-3.5 shrink-0" />
+                  )
+                ) : null}
+                <span>
+                  {checked
+                    ? `${resultStatus.label} · ${intentSummary}`
+                    : intentSummary}
+                </span>
+              </div>
             ) : null}
-            <div>{footerText}</div>
+            {footerHint ? <div>{footerHint}</div> : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>

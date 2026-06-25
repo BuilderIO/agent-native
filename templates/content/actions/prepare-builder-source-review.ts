@@ -16,6 +16,7 @@ import type {
 import { getDb, schema } from "../server/db/index.js";
 import {
   buildBuilderCmsExecutionPlan,
+  resolveBuilderCmsWriteEffect,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
@@ -102,6 +103,10 @@ export function buildBuilderSourceReviewPayload(args: {
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      effect: resolveBuilderCmsWriteEffect({
+        source: args.source,
+        changeSet,
+      }),
       execution: latestExecution,
     };
   });

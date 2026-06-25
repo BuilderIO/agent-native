@@ -1,5 +1,6 @@
 import type {
   BuilderCmsPublicationTransitionIntent,
+  BuilderCmsWriteEffect,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecutionState,
@@ -10,12 +11,7 @@ import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.
 import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
 
-export type BuilderCmsWriteEffect =
-  | "autosave"
-  | "update_in_place"
-  | "create_draft"
-  | "publish"
-  | "unpublish";
+export type { BuilderCmsWriteEffect };
 
 export interface BuilderCmsExecutionOperation {
   sourceFieldKey: string;
@@ -119,6 +115,64 @@ export function resolveBuilderCmsExecutionPushMode(args: {
     return builderCmsPushModeForTier(sourceWriteMode);
   }
   return args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave";
+}
+
+/**
+ * Resolve the Builder entry this change-set targets. A synthetic-fixture row
+ * (sourceRowId `builder-<documentId>`, never matched to a real entry) resolves
+ * to a null entry id, which is what makes the effect a create.
+ */
+export function resolveBuilderCmsWriteTarget(args: {
+  source: ContentDatabaseSource;
+  changeSet: ContentDatabaseSourceChangeSet;
+}) {
+  const targetRow =
+    args.source.rows.find(
+      (row) =>
+        row.documentId === args.changeSet.documentId ||
+        row.databaseItemId === args.changeSet.databaseItemId,
+    ) ?? null;
+  const target = targetRow
+    ? builderCmsSourceRowIdentityState({ row: targetRow })
+    : null;
+  const entryId = target?.isSyntheticFixture
+    ? null
+    : (target?.sourceRowId ?? null);
+  const sourceQualifiedId = target?.isSyntheticFixture
+    ? null
+    : (target?.sourceQualifiedId ?? null);
+  return { targetRow, target, entryId, sourceQualifiedId };
+}
+
+/**
+ * The resolved write effect (create_draft / update_in_place / autosave /
+ * publish / unpublish) for a change-set. Unlike buildBuilderCmsExecutionPlan
+ * this does not require the change-set to be approved, so it is safe to call
+ * while building review payloads for plain-language labels.
+ */
+export function resolveBuilderCmsWriteEffect(args: {
+  source: ContentDatabaseSource;
+  changeSet: ContentDatabaseSourceChangeSet;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
+}): BuilderCmsWriteEffect {
+  const sourceWriteMode = normalizeSourceWriteMode(
+    args.source.metadata.writeMode,
+  );
+  const pushMode = resolveBuilderCmsExecutionPushMode({
+    source: args.source,
+    changeSet: args.changeSet,
+  });
+  const effectivePushMode = pushMode === "none" ? "autosave" : pushMode;
+  const { entryId } = resolveBuilderCmsWriteTarget({
+    source: args.source,
+    changeSet: args.changeSet,
+  });
+  return builderEffectForWrite({
+    pushMode: effectivePushMode,
+    writeMode: sourceWriteMode,
+    entryId,
+    publicationTransition: args.publicationTransition,
+  });
 }
 
 function nestedBuilderPatch(
@@ -345,23 +399,14 @@ export function buildBuilderCmsExecutionPlan(args: {
     );
   }
 
-  const targetRow =
-    args.source.rows.find(
-      (row) =>
-        row.documentId === args.changeSet.documentId ||
-        row.databaseItemId === args.changeSet.databaseItemId,
-    ) ?? null;
-  const target = targetRow
-    ? builderCmsSourceRowIdentityState({
-        row: targetRow,
-      })
-    : null;
-  const targetEntryId = target?.isSyntheticFixture
-    ? null
-    : (target?.sourceRowId ?? null);
-  const targetSourceQualifiedId = target?.isSyntheticFixture
-    ? null
-    : (target?.sourceQualifiedId ?? null);
+  const {
+    target,
+    entryId: targetEntryId,
+    sourceQualifiedId: targetSourceQualifiedId,
+  } = resolveBuilderCmsWriteTarget({
+    source: args.source,
+    changeSet: args.changeSet,
+  });
   const effect = builderEffectForWrite({
     pushMode: effectivePushMode,
     writeMode: sourceWriteMode,
