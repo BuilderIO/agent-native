@@ -119,7 +119,7 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 ### 在 VS Code 中打开计划 {#vscode-extension}
 
 如果您使用 VS Code，请安装
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 在侧面板中打开相同的计划审核界面，而不是让您进入
 单独的浏览器选项卡。计划工具仍然返回正常的 Web 链接，并且 MCP
 元数据还包括 VS Code 切换 URL：

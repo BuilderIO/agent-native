@@ -1,11 +1,11 @@
-# Agent Native Plans for VS Code
+# Agent-Native Plans for VS Code
 
-Open Agent-Native Plans and handoff links inside VS Code.
+Open [Agent-Native Plans](https://www.agent-native.com/docs/template-plan) and handoff links inside VS Code.
 
 ## Install
 
 Install
-[Agent Native Plans](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 from the Visual Studio Marketplace, or run:
 
 ```bash

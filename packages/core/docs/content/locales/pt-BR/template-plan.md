@@ -119,7 +119,7 @@ conector, então use o caminho Agent-Native CLI quando desejar a configuração 
 ### Planos abertos dentro do VS Code {#vscode-extension}
 
 Se você mora no VS Code, instale o
-[Agent Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
 para abrir a mesma superfície de revisão do plano em um painel lateral em vez de direcioná-lo para um
 guia separada do navegador. As ferramentas de planos ainda retornam o link normal da web e o MCP
 metadados também incluem uma transferência de código VS URL:
