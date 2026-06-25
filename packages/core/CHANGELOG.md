@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.77.11
+
+### Patch Changes
+
+- 7560a7c: Clear collaborative awareness state immediately when an editor leaves a document.
+
 ## 0.77.10
 
 ### Patch Changes
