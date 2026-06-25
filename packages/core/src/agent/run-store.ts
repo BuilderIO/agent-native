@@ -4,6 +4,7 @@
  * reliable reconnection after page refreshes.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import type { AgentChatEvent } from "./types.js";
@@ -82,7 +83,10 @@ async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+
+      // Shared CREATE SQL strings — referenced by both the Postgres and SQLite
+      // branches so the column definitions stay in one place.
+      const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -98,30 +102,117 @@ async function ensureRunTables(): Promise<void> {
           dispatch_mode TEXT,
           diag_stage TEXT
         )
-      `);
-      // Backfill heartbeat_at on older deployments.
-      try {
-        if (isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at ${intType()}`,
-          );
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS abort_reason TEXT`,
-          );
-        } else {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+      `;
+      const agentRunEventsCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_run_events (
+          run_id TEXT NOT NULL,
+          seq ${intType()} NOT NULL,
+          event_data TEXT NOT NULL,
+          PRIMARY KEY (run_id, seq)
+        )
+      `;
+      // Tool-call result ledger: persists the outcome of write tool calls that
+      // completed AFTER their chunk was abandoned (zombie completions). A
+      // resumed continuation can recover the real result by matching
+      // thread_id + tool_key (name:stableInputHash) instead of re-executing
+      // the side effect. Entries are scoped to the thread and expire with it.
+      const agentToolLedgerCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_tool_ledger (
+          thread_id TEXT NOT NULL,
+          tool_key TEXT NOT NULL,
+          result_summary TEXT NOT NULL,
+          completed_at ${intType()} NOT NULL,
+          PRIMARY KEY (thread_id, tool_key)
+        )
+      `;
+
+      if (isPostgres()) {
+        // Hot path: in production the tables and all additive columns are
+        // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
+        // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
+        // background-worker process behind a concurrent connection on the shared
+        // Neon DB, can block ~indefinitely. So check `information_schema` first
+        // (plain reads, no lock) and run DDL ONLY for what is actually missing.
+        // The `ensureTableExists` / `ensureColumnExists` wrappers probe →
+        // guarded-DDL (bounded `lock_timeout`) → re-probe, and THROW if the
+        // schema is still missing after a swallowed lock-timeout so a poisoned
+        // init never memoizes success against absent schema (the `_initPromise`
+        // rejects and the next call retries).
+        await ensureTableExists("agent_runs", agentRunsCreateSql);
+        // Additive columns — all listed in the CREATE TABLE above, so on a
+        // fresh DB they already exist after the CREATE and these checks are
+        // instant short-circuits. On an older deployment that predates a
+        // column, the wrapper issues one bounded ALTER.
+        //
+        // Backfill heartbeat_at on older deployments.
+        // heartbeat_at = "the producer process is alive" (bumped on a timer).
+        // last_progress_at = "the agent is actually emitting events" (bumped on
+        // each emit). The gap between them is the stuck-detector signal.
+        for (const [col, colType] of [
+          ["heartbeat_at", intType()],
+          ["abort_reason", "TEXT"],
+          ["last_progress_at", intType()],
+          // Backfill turn_id / error_code / error_detail.
+          //   turn_id    = stable identity for one logical assistant turn that may
+          //                span several continuation runs, so the durable record
+          //                can be folded across runs instead of dropped per-run.
+          //   error_code / error_detail = terminal failure classification captured
+          //                at completion so errored/cut-off runs are queryable for
+          //                pattern analysis (see listErroredRuns).
+          // dispatch_mode marks how a run was started: NULL/"foreground" for the
+          // normal synchronous path, "background" for a run dispatched into a
+          // Netlify background function. The reaper/claim widen the stale window
+          // for background rows so a slow cold-start isn't falsely reaped.
+          // diag_stage records the last reached pipeline stage (+ any error) for a
+          // background-dispatched run so a silent worker death is DIAGNOSABLE from
+          // the client (/runs/active surfaces it) without reading the unreadable
+          // Netlify background-function logs. See recordRunDiagnostic.
+          ["turn_id", "TEXT"],
+          ["error_code", "TEXT"],
+          ["error_detail", "TEXT"],
+          ["dispatch_mode", "TEXT"],
+          ["diag_stage", "TEXT"],
+        ] as const) {
+          await ensureColumnExists(
+            "agent_runs",
+            col,
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
           );
         }
+        await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        // Widen millisecond-timestamp columns that older deployments created as
+        // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+        // on every turn, so an int4 column makes every agent prompt fail on
+        // Postgres with "value … is out of range for type integer". No-op once
+        // widened (and on fresh DBs that already use BIGINT). See
+        // widenIntColumnsToBigInt.
+        await widenIntColumnsToBigInt("agent_runs", [
+          "started_at",
+          "completed_at",
+          "heartbeat_at",
+          "last_progress_at",
+        ]);
+        await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep the
+      // original create-then-additive-alter behaviour. SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
+      await client.execute(agentRunsCreateSql);
+      // Backfill heartbeat_at on older deployments.
+      try {
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
+        );
       } catch {
         // Column already exists — ignore
       }
       try {
-        if (!isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
-          );
-        }
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
+        );
       } catch {
         // Column already exists — ignore
       }
@@ -130,15 +221,9 @@ async function ensureRunTables(): Promise<void> {
       // last_progress_at = "the agent is actually emitting events" (bumped on
       // each emit). The gap between them is the stuck-detector signal.
       try {
-        if (isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_progress_at ${intType()}`,
-          );
-        } else {
-          await client.execute(
-            `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
-          );
-        }
+        await client.execute(
+          `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
+        );
       } catch {
         // Column already exists — ignore
       }
@@ -165,41 +250,13 @@ async function ensureRunTables(): Promise<void> {
         "diag_stage",
       ] as const) {
         try {
-          if (isPostgres()) {
-            await client.execute(
-              `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} TEXT`,
-            );
-          } else {
-            await client.execute(
-              `ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`,
-            );
-          }
+          await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
         } catch {
           // Column already exists — ignore
         }
       }
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS agent_run_events (
-          run_id TEXT NOT NULL,
-          seq ${intType()} NOT NULL,
-          event_data TEXT NOT NULL,
-          PRIMARY KEY (run_id, seq)
-        )
-      `);
-      // Tool-call result ledger: persists the outcome of write tool calls that
-      // completed AFTER their chunk was abandoned (zombie completions). A
-      // resumed continuation can recover the real result by matching
-      // thread_id + tool_key (name:stableInputHash) instead of re-executing
-      // the side effect. Entries are scoped to the thread and expire with it.
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS agent_tool_ledger (
-          thread_id TEXT NOT NULL,
-          tool_key TEXT NOT NULL,
-          result_summary TEXT NOT NULL,
-          completed_at ${intType()} NOT NULL,
-          PRIMARY KEY (thread_id, tool_key)
-        )
-      `);
+      await client.execute(agentRunEventsCreateSql);
+      await client.execute(agentToolLedgerCreateSql);
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
       // on every turn, so an int4 column makes every agent prompt fail on

@@ -46,7 +46,7 @@ interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
   onDraftCommitted?: () => void | Promise<void>;
-  onDraftPersisted?: (markdown: string) => void | Promise<void>;
+  onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
    * registry-derived block slash items are filtered to specs that round-trip to
@@ -589,7 +589,8 @@ export function SlashCommandMenu({
           },
         );
         if (onDraftPersisted) {
-          await onDraftPersisted(content);
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("tryAgain"));
         } else {
           await onDraftCommitted?.();
         }

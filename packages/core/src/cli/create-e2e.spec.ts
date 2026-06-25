@@ -282,7 +282,9 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@sentry/browser-utils"');
     expect(workspaceYaml).toContain('"@sentry/node"');
+    expect(workspaceYaml).toContain('"@sentry/replay"');
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
 });

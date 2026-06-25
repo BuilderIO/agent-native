@@ -8,6 +8,11 @@
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 /**
@@ -191,7 +196,7 @@ async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
           id ${intType()} PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -206,11 +211,9 @@ async function ensureUsageTable(): Promise<void> {
           ref_id TEXT NOT NULL DEFAULT '',
           created_at ${intType()} NOT NULL
         )
-      `);
+      `;
 
-      // Add columns on older deployments that pre-date the label/cache
-      // fields. Each ALTER is wrapped so a dialect without IF NOT EXISTS
-      // (SQLite) still makes progress if only some columns are missing.
+      // Additive columns for older deployments that pre-date the label/cache fields.
       const additions: Array<[string, string]> = [
         ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
         ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
@@ -218,27 +221,59 @@ async function ensureUsageTable(): Promise<void> {
         ["app", `TEXT NOT NULL DEFAULT ''`],
         ["ref_id", `TEXT NOT NULL DEFAULT ''`],
       ];
+
+      if (isPostgres()) {
+        // Hot path: the `token_usage` table and its index are virtually always
+        // already present in production. Issuing `CREATE TABLE`/`ALTER TABLE`/
+        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
+        // process behind a concurrent connection on the shared Neon DB, can
+        // block ~indefinitely. The ensure* wrappers probe `information_schema`/
+        // `pg_indexes` first (plain reads, no lock) and run DDL ONLY for what is
+        // actually missing, bounded by a transaction-scoped `lock_timeout`. If a
+        // swallowed lock-timeout leaves the schema still missing they RE-PROBE
+        // and THROW rather than letting init memoize success against absent
+        // schema.
+        await ensureTableExists("token_usage", createSql);
+        // Add columns on older deployments — guarded so the hot path (columns
+        // already present) skips the ACCESS EXCLUSIVE ALTER.
+        for (const [col, def] of additions) {
+          await ensureColumnExists(
+            "token_usage",
+            col,
+            `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+        // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
+        // the `Date.now()` written per run by recordUsage() overflows int4. Widen
+        // it in place (no-op once done / on fresh BIGINT databases).
+        await widenIntColumnsToBigInt("token_usage", ["created_at"]);
+        // Probe pg_indexes first (no lock) and skip the SHARE-locking CREATE
+        // INDEX when the index is already present.
+        await ensureIndexExists(
+          "idx_token_usage_owner_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
+      // Add columns on older deployments that pre-date the label/cache
+      // fields. Each ALTER is wrapped so a dialect without IF NOT EXISTS
+      // (SQLite) still makes progress if only some columns are missing.
       for (const [col, def] of additions) {
         try {
-          if (isPostgres()) {
-            await client.execute(
-              `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-            );
-          } else {
-            await client.execute(
-              `ALTER TABLE token_usage ADD COLUMN ${col} ${def}`,
-            );
-          }
+          await client.execute(
+            `ALTER TABLE token_usage ADD COLUMN ${col} ${def}`,
+          );
         } catch {
           // Column already exists — ignore
         }
       }
-
       // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
       // the `Date.now()` written per run by recordUsage() overflows int4. Widen
       // it in place (no-op once done / on fresh BIGINT databases).
       await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-
       try {
         await client.execute(
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,

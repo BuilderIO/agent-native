@@ -8,6 +8,7 @@
  */
 
 import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 export type ProviderCorpusJobStatus =
   | "running"
@@ -81,7 +82,7 @@ async function ensureTables(): Promise<void> {
     initPromise = (async () => {
       const db = getDbExec();
       const integerType = intType();
-      await db.execute(`
+      const createJobsSql = `
         CREATE TABLE IF NOT EXISTS provider_corpus_jobs (
           id TEXT NOT NULL,
           app_id TEXT NOT NULL,
@@ -108,18 +109,37 @@ async function ensureTables(): Promise<void> {
           updated_at ${integerType} NOT NULL,
           PRIMARY KEY (id)
         )
-      `);
-      await db.execute(`
+      `;
+      const createHitsSql = `
         CREATE TABLE IF NOT EXISTS provider_corpus_job_hits (
           job_id TEXT NOT NULL,
           hit_index ${integerType} NOT NULL,
           hit_data TEXT NOT NULL,
           PRIMARY KEY (job_id, hit_index)
         )
-      `);
+      `;
       if (isPostgres()) {
-        await widenPostgresIntegerColumns(db);
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("provider_corpus_jobs", createJobsSql);
+        await ensureTableExists("provider_corpus_job_hits", createHitsSql);
+        await widenPostgresIntegerColumns(db); // best-effort type widening — unchanged
+        await ensureIndexExists(
+          "provider_corpus_jobs_scope_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
+        );
+        await ensureIndexExists(
+          "provider_corpus_jobs_status_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,
+        );
+        await ensureIndexExists(
+          "provider_corpus_job_hits_job_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_job_hits_job_idx ON provider_corpus_job_hits (job_id)`,
+        );
+        return;
       }
+      // SQLite (local dev): keep existing behavior
+      await db.execute(createJobsSql);
+      await db.execute(createHitsSql);
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,

@@ -157,8 +157,12 @@ interface DocumentEditorBodyProps {
 type PendingDocumentSave = {
   title: string;
   content: string;
-  save: (title: string, content: string) => void | Promise<void>;
+  save: (title: string, content: string) => unknown | Promise<unknown>;
   timeout: ReturnType<typeof setTimeout>;
+};
+
+type DocumentSaveResult = {
+  contentPersisted: boolean;
 };
 
 function useMinViewportWidth(minWidth: number) {
@@ -625,7 +629,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   const saveDocumentImmediately = useCallback(
-    async (title: string, content: string) => {
+    async (title: string, content: string): Promise<DocumentSaveResult> => {
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.
@@ -643,9 +647,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       const updates: Record<string, string> = {};
       if (title !== lastSavedTitleRef.current.title && !titleIsStale)
         updates.title = title;
-      if (content !== lastSavedContentRef.current.content && !contentIsStale)
-        updates.content = content;
-      if (Object.keys(updates).length === 0) return;
+      const contentChanged = content !== lastSavedContentRef.current.content;
+      if (contentChanged && !contentIsStale) updates.content = content;
+      if (Object.keys(updates).length === 0) {
+        return { contentPersisted: !contentChanged };
+      }
 
       const saved = await persistDocumentUpdates(updates);
       // Adopt the server updatedAt per saved field.
@@ -682,6 +688,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           }
         }
       }
+      return {
+        contentPersisted: !contentChanged || updates.content !== undefined,
+      };
     },
     [
       documentId,
@@ -809,7 +818,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   const handleContentSaveNow = useCallback(
     async (newContent: string) => {
-      if (!canEdit) return;
+      if (!canEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -817,7 +826,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      await saveDocumentImmediately(localTitleRef.current, newContent);
+      const result = await saveDocumentImmediately(
+        localTitleRef.current,
+        newContent,
+      );
+      return result.contentPersisted;
     },
     [canEdit, saveDocumentImmediately],
   );

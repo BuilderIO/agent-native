@@ -735,7 +735,7 @@ interface VisualEditorProps {
    */
   contentUpdatedAt?: string | null;
   onChange: (markdown: string) => void;
-  onSaveContent?: (markdown: string) => void | Promise<void>;
+  onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
   /** Shared awareness instance for collaborative cursors/presence. */
@@ -1666,24 +1666,26 @@ export function VisualEditor({
       options?: { markdown?: string; immediate?: boolean },
     ) => {
       const guards = guardsRef.current;
-      if (!guards) return;
+      if (!guards) return false;
       try {
         const normalized =
           options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
-        if (localFileMode && normalized === content) return;
-        // Don't persist an empty doc before Collaboration has seeded (would
-        // clobber DB content with an empty string). `registerEmitted` records
-        // this as the last-emitted value and returns false to skip the save.
-        if (!guards.registerEmitted(normalized)) return;
+        if (localFileMode && normalized === content) return true;
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
+        // Don't persist an empty doc before Collaboration has seeded (would
+        // clobber DB content with an empty string). `registerEmitted` records
+        // this as the last-emitted value and returns false to skip the save.
+        if (!guards.registerEmitted(normalized)) return true;
         queueMicrotask(() => onChangeRef.current(normalized));
+        return true;
       } catch (err: any) {
         toast.error(
           t("editor.markdownSerializationError", { message: err.message }),
         );
         console.error("Markdown serialization error:", err);
+        return false;
       }
     },
     [content, localFileMode, t],
@@ -2071,7 +2073,9 @@ export function VisualEditor({
           editor={editor}
           documentId={documentId}
           notionPageId={notionPageId}
-          onDraftCommitted={() => persistEditorContent(editor)}
+          onDraftCommitted={() => {
+            void persistEditorContent(editor);
+          }}
           onDraftPersisted={(markdown) =>
             persistEditorContent(editor, { markdown, immediate: true })
           }

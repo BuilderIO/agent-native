@@ -119,8 +119,12 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain("const handleContentSaveNow");
+    expect(documentEditorSource).toContain("contentPersisted");
     expect(visualEditorSource).toContain("onDraftPersisted");
-    expect(slashMenuSource).toContain("await onDraftPersisted(content)");
+    expect(slashMenuSource).toContain(
+      "const persisted = await onDraftPersisted(content)",
+    );
+    expect(slashMenuSource).toContain("if (!persisted) throw new Error");
     expect(slashMenuSource).not.toContain("useUpdateDocument");
     expect(slashMenuSource).not.toContain("updateDocument.mutateAsync");
   });
