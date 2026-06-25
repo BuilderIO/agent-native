@@ -6,6 +6,7 @@
  */
 
 import { getDbExec, isPostgres } from "../db/client.js";
+import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -14,7 +15,7 @@ async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       const nowDefault = isPostgres() ? "NOW()::text" : "datetime('now')";
-      await client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS _collab_docs (
           doc_id TEXT PRIMARY KEY,
           yjs_state TEXT NOT NULL,
@@ -22,7 +23,24 @@ async function ensureTable(): Promise<void> {
           version INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT NOT NULL DEFAULT (${nowDefault})
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema first (no lock) and only issue
+        // DDL when the table/column is actually missing, wrapped in a
+        // transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists("_collab_docs", createSql);
+        await ensureColumnExists(
+          "_collab_docs",
+          "version",
+          `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // create-then-additive-alter behaviour.
+      await client.execute(createSql);
       try {
         await client.execute(
           `ALTER TABLE _collab_docs ADD COLUMN version INTEGER NOT NULL DEFAULT 0`,
