@@ -32,6 +32,10 @@ const messages = {
     agentDescription:
       "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
     openAgentSettings: "打开代理设置",
+    editorTitle: "VS Code 扩展",
+    editorDescription:
+      "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",
+    openEditorExtension: "获取 VS Code 扩展",
   },
   agent: {
     emptyState:

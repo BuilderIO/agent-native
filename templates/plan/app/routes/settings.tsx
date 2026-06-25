@@ -82,6 +82,26 @@ export default function SettingsRoute() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.editorTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.editorDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" asChild>
+            <a
+              href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {t("settings.openEditorExtension")}
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+
       <ChangelogSettingsCard markdown={changelog} />
     </main>
   );
