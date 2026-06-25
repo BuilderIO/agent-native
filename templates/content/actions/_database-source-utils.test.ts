@@ -200,6 +200,86 @@ describe("database source helpers", () => {
     });
   });
 
+  it("creates a create_draft change-set for a new local row not linked to Builder", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-linked",
+          documentId: "doc-linked",
+          sourceDisplayKey: "Linked entry",
+        },
+      ],
+      documentTitleById: new Map([
+        ["doc-linked", "Linked entry"],
+        ["doc-new", "Brand New Article"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-linked", documentId: "doc-linked" },
+        { databaseItemId: "item-new", documentId: "doc-new" },
+      ],
+      localValuesByDocument: new Map([
+        ["doc-new", new Map([["prop-body", "Hello body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    const create = pending.find((cs) => cs.documentId === "doc-new");
+    expect(create).toMatchObject({
+      direction: "outbound",
+      state: "pending_push",
+      databaseItemId: "item-new",
+      summary: 'Pending new Builder entry "Brand New Article".',
+      fieldChanges: [
+        {
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: null,
+          proposedValue: "Brand New Article",
+        },
+        {
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          currentValue: null,
+          proposedValue: "Hello body",
+        },
+      ],
+    });
+    // The already-linked row with no title change yields nothing.
+    expect(
+      pending.find((cs) => cs.documentId === "doc-linked"),
+    ).toBeUndefined();
+  });
+
+  it("skips creates for titleless rows or rows that already have a stored change", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([["doc-titled", "Has Title"]]),
+      storedChangeSets: [
+        {
+          direction: "outbound",
+          state: "pending_push",
+          documentId: "doc-titled",
+        },
+      ],
+      databaseItems: [
+        { databaseItemId: "item-empty", documentId: "doc-empty" },
+        { databaseItemId: "item-titled", documentId: "doc-titled" },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(pending).toHaveLength(0);
+  });
+
   it("does not synthesize live Builder push diffs for legacy fixture rows", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: {

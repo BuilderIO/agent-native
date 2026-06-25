@@ -423,6 +423,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   rowRows: ContentDatabaseSourceRecordRowDb[];
   documentTitleById: Map<string, string>;
   storedChangeSets: ContentDatabaseSourceChangeSet[];
+  // Optional inputs that enable new-row creates. When omitted (e.g. legacy
+  // callers/tests) the function behaves exactly as before (title diffs only).
+  databaseItems?: Array<{ databaseItemId: string; documentId: string }>;
+  localValuesByDocument?: Map<string, Map<string, unknown>>;
+  writableFields?: Array<{
+    propertyId: string | null;
+    localFieldKey: string;
+    sourceFieldKey: string;
+    sourceFieldLabel: string;
+  }>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -495,6 +505,76 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  // New-row creates: a local database item NOT linked to a Builder entry (no
+  // source row) and with a non-empty title becomes a create_draft change-set.
+  // No baseline comparison here — we send the local values; the create_draft
+  // effect (derived from a null target entryId) writes the entry as a draft.
+  if (args.databaseItems && args.databaseItems.length > 0) {
+    const linkedDocumentIds = new Set(
+      args.rowRows.map((row) => row.documentId),
+    );
+    const documentIdsWithStoredChange = new Set(
+      args.storedChangeSets
+        .filter(
+          (changeSet) =>
+            changeSet.direction === "outbound" &&
+            changeSet.state !== "applied" &&
+            changeSet.state !== "rejected",
+        )
+        .map((changeSet) => changeSet.documentId),
+    );
+    for (const item of args.databaseItems) {
+      if (linkedDocumentIds.has(item.documentId)) continue;
+      if (documentIdsWithStoredChange.has(item.documentId)) continue;
+      const title = args.documentTitleById.get(item.documentId)?.trim() ?? "";
+      if (!title) continue;
+      const localValues = args.localValuesByDocument?.get(item.documentId);
+      const fieldChanges: ContentDatabaseSourceFieldChange[] = [
+        {
+          propertyId: null,
+          propertyName: "Title",
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: null,
+          proposedValue: title,
+        },
+      ];
+      for (const field of args.writableFields ?? []) {
+        if (!localValues?.has(field.localFieldKey)) continue;
+        fieldChanges.push({
+          propertyId: field.propertyId,
+          propertyName: field.sourceFieldLabel,
+          localFieldKey: field.localFieldKey,
+          sourceFieldKey: field.sourceFieldKey,
+          currentValue: null,
+          proposedValue: (localValues.get(field.localFieldKey) ??
+            null) as DocumentPropertyValue,
+        });
+      }
+      const now = new Date().toISOString();
+      pending.push({
+        id: `local-pending-create-${item.databaseItemId}`,
+        databaseItemId: item.databaseItemId,
+        documentId: item.documentId,
+        kind: "field_update",
+        direction: "outbound",
+        state: "pending_push",
+        pushMode: "autosave",
+        localOnly: true,
+        summary: `Pending new Builder entry "${title}".`,
+        fieldChanges,
+        bodyChange: null,
+        riskLevel: "low",
+        riskReasons: ["new Builder entry (create as draft)"],
+        conflictState: "none",
+        reviewEvents: [],
+        executions: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
 
   return pending;
@@ -632,8 +712,32 @@ async function loadSourceSnapshot(
     executions.push(serializeExecution(row));
     executionsByChangeSetId.set(row.changeSetId, executions);
   }
+  const isBuilderSource =
+    normalizeSourceType(source.sourceType) === "builder-cms";
+  // For Builder sources, load ALL database items (not just synced source rows)
+  // so brand-new local rows (no source link) can become create_draft change-sets.
+  const databaseItemRows = isBuilderSource
+    ? await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            eq(schema.contentDatabaseItems.ownerEmail, source.ownerEmail),
+          ),
+        )
+    : [];
+  const allDocumentIds = Array.from(
+    new Set([
+      ...rowRows.map((row) => row.documentId),
+      ...databaseItemRows.map((item) => item.documentId),
+    ]),
+  );
   const rowDocuments =
-    rowRows.length > 0
+    allDocumentIds.length > 0
       ? await db
           .select({
             id: schema.documents.id,
@@ -642,10 +746,7 @@ async function loadSourceSnapshot(
           .from(schema.documents)
           .where(
             and(
-              inArray(
-                schema.documents.id,
-                rowRows.map((row) => row.documentId),
-              ),
+              inArray(schema.documents.id, allDocumentIds),
               eq(schema.documents.ownerEmail, source.ownerEmail),
             ),
           )
@@ -653,11 +754,56 @@ async function loadSourceSnapshot(
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
   );
+  const propertyValueRows =
+    isBuilderSource && allDocumentIds.length > 0
+      ? await db
+          .select({
+            documentId: schema.documentPropertyValues.documentId,
+            propertyId: schema.documentPropertyValues.propertyId,
+            valueJson: schema.documentPropertyValues.valueJson,
+          })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              inArray(schema.documentPropertyValues.documentId, allDocumentIds),
+              eq(schema.documentPropertyValues.ownerEmail, source.ownerEmail),
+            ),
+          )
+      : [];
+  const localValuesByDocument = new Map<string, Map<string, unknown>>();
+  for (const valueRow of propertyValueRows) {
+    let byField = localValuesByDocument.get(valueRow.documentId);
+    if (!byField) {
+      byField = new Map<string, unknown>();
+      localValuesByDocument.set(valueRow.documentId, byField);
+    }
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(valueRow.valueJson);
+    } catch {
+      parsed = null;
+    }
+    byField.set(valueRow.propertyId, parsed);
+  }
+  const writableFields = fieldRows
+    .filter((row) => row.mappingType === "property")
+    .map((row) => ({
+      propertyId: row.propertyId ?? null,
+      localFieldKey: row.localFieldKey,
+      sourceFieldKey: row.sourceFieldKey,
+      sourceFieldLabel: row.sourceFieldLabel,
+    }));
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
     rowRows,
     documentTitleById,
     storedChangeSets,
+    databaseItems: databaseItemRows.map((item) => ({
+      databaseItemId: item.id,
+      documentId: item.documentId,
+    })),
+    localValuesByDocument,
+    writableFields,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
