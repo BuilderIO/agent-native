@@ -1492,7 +1492,7 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
   const [activeSection, setActiveSection] =
-    useState<SettingsSection>("drafting");
+    useState<SettingsSection>("general");
 
   useEffect(() => {
     const section = searchParams.get("section");
@@ -1527,14 +1527,14 @@ export function SettingsPage() {
               className={cn(
                 "flex items-center gap-2.5 sm:w-full rounded-md px-3 sm:px-2.5 py-2.5 sm:py-2 text-[13px] transition-colors text-start whitespace-nowrap",
                 isActive
-                  ? "bg-indigo-500/15 text-indigo-300 font-medium"
+                  ? "bg-blue-500/15 text-blue-400 font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
               )}
             >
               <Icon
                 className={cn(
                   "h-4 w-4 shrink-0",
-                  isActive ? "text-indigo-400" : "text-muted-foreground/60",
+                  isActive ? "text-blue-400" : "text-muted-foreground/60",
                 )}
               />
               {label}
