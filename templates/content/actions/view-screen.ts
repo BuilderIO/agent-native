@@ -3,15 +3,16 @@ import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, inArray } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { z } from "zod";
 import type {
   ContentDatabaseColumnCalculation,
   ContentDatabaseFilterMode,
@@ -29,23 +30,23 @@ import {
   isEmptyPropertyValue,
 } from "../shared/properties.js";
 import {
-  listPropertiesForDocument,
-  serializeDatabase,
-} from "./_property-utils.js";
-import {
   filterDatabaseContainedDocuments,
   getContentDatabaseResponse,
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
   isContentLocalFileMode,
   isLocalDocumentId,
   localContentViewScreenSummary,
 } from "./_local-file-documents.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  listPropertiesForDocument,
+  serializeDatabase,
+} from "./_property-utils.js";
 
 type ScreenTreeDocument = Pick<
   typeof schema.documents.$inferSelect,

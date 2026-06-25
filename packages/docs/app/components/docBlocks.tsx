@@ -22,7 +22,6 @@
  * the shared `BlockView`.
  */
 
-import { useMemo, type ReactNode } from "react";
 import {
   BlockRegistry,
   BlockRegistryProvider,
@@ -33,6 +32,8 @@ import {
   type NestedBlock,
 } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client";
+import { useMemo, type ReactNode } from "react";
+
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 /* -------------------------------------------------------------------------- */

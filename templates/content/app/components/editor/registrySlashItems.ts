@@ -1,4 +1,3 @@
-import { IconComponents } from "@tabler/icons-react";
 import type { BlockRegistry, BlockSpec } from "@agent-native/core/blocks";
 import {
   buildRegistryBlockSlashItems,
@@ -6,6 +5,8 @@ import {
   getRegistryBlockSlashSearchText,
 } from "@agent-native/core/client";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
+import { IconComponents } from "@tabler/icons-react";
+
 import { createContentBlockId } from "./extensions/registryBlocks";
 
 /**

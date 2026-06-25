@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { CommandMenu, useT } from "@agent-native/core/client";
 import {
   IconInbox,
   IconStar,
@@ -21,10 +21,12 @@ import {
   IconAlarm,
   IconCheck,
 } from "@tabler/icons-react";
-import { CommandMenu, useT } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
+import { useNavigate } from "react-router";
+
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { getResolvedTheme } from "@/lib/theme";
+
 import changelog from "../../../CHANGELOG.md?raw";
 
 interface CommandPaletteProps {

@@ -10,14 +10,15 @@ import type {
   DocumentPropertyValue,
 } from "@shared/api";
 import { isComputedPropertyType } from "@shared/properties";
+
+import { databaseCalculationSummaries } from "./calculations";
+import { propertyValueText } from "./filter-sort";
+import { databaseCalendarDateProperty } from "./grouping";
 import type {
   DatabaseSort,
   DatabaseFilter,
   DatabaseDateViewRange,
 } from "./types";
-import { databaseCalendarDateProperty } from "./grouping";
-import { databaseCalculationSummaries } from "./calculations";
-import { propertyValueText } from "./filter-sort";
 
 export function databaseItemPreviewTitle(
   item: Pick<ContentDatabaseItem, "document"> | null | undefined,

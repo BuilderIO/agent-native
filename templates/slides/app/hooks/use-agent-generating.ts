@@ -1,5 +1,5 @@
-import { useCallback } from "react";
 import { useAgentChatGenerating } from "@agent-native/core/client";
+import { useCallback } from "react";
 
 /**
  * Tracks whether an agent chat submission is in progress.

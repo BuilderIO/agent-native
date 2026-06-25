@@ -1,11 +1,3 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  useIsFetching,
-  useIsMutating,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
 import {
   AgentSidebar,
   DevDatabaseLink,
@@ -16,8 +8,6 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { apiFetch } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import {
   IconFlame,
   IconLoader2,
@@ -26,6 +16,15 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
+import {
+  useIsFetching,
+  useIsMutating,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -33,6 +32,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 

@@ -1,6 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
-import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
+
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
+import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
 // In local dev mode, all plan action paths are open. The action handlers gate
 // ownership via requirePlanOwnerEmailForWrite (returns the local identity) so

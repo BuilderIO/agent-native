@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
-import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import "../server/db/index.js";
 
 export default defineAction({

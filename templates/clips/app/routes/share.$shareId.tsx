@@ -1,25 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useNavigate, useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import {
-  IconAlertTriangle,
-  IconArrowLeft,
-  IconDownload,
-  IconDots,
-  IconExternalLink,
-  IconLogin2,
-  IconShare3,
-} from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
-import {
   agentNativePath,
   appBasePath,
   appPath,
@@ -29,21 +8,46 @@ import {
   getBrowserTabId,
 } from "@agent-native/core/client";
 import {
+  getRequestUserEmail,
+  signShortLivedToken,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconDownload,
+  IconDots,
+  IconExternalLink,
+  IconLogin2,
+  IconShare3,
+} from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { eq } from "drizzle-orm";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useNavigate, useParams } from "react-router";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { CommentsPanel } from "@/components/player/comments-panel";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { ReactionsTray } from "@/components/player/reactions-tray";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
+import { TranscriptPanel } from "@/components/player/transcript-panel";
+import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { TranscriptPanel } from "@/components/player/transcript-panel";
-import { CommentsPanel } from "@/components/player/comments-panel";
-import { ReactionsTray } from "@/components/player/reactions-tray";
-import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
-import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
-import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
-import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,28 +58,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { getDb, schema } from "../../server/db";
-import {
-  getRequestUserEmail,
-  signShortLivedToken,
-} from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
+import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+
+import { getDb, schema } from "../../server/db";
 import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  buildSignupAttributionQuery,
+  readShareAttribution,
+} from "../../shared/share-attribution";
+import {
   buildClipsShareMeta,
   clipsSharePageTitle,
   displayRecordingTitle,
 } from "../../shared/share-meta";
-import {
-  buildSignupAttributionQuery,
-  readShareAttribution,
-} from "../../shared/share-attribution";
 
 type SharePageMetaRecording = {
   id: string;
@@ -127,14 +129,13 @@ function shouldShowGeneratedTitleSkeleton(
   return true;
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
-  const requestUrl = new URL(request.url);
   if (!id)
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -160,7 +161,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     return {
       recording: null,
       agentContextUrl: null,
-      origin: requestUrl.origin,
+      origin: url.origin,
       shareUrl: null,
     };
 
@@ -171,7 +172,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       return {
         recording: null,
         agentContextUrl: null,
-        origin: requestUrl.origin,
+        origin: url.origin,
         shareUrl: null,
       };
   }
@@ -199,12 +200,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return {
     recording,
-    origin: requestUrl.origin,
-    shareUrl: `${requestUrl.origin}${requestUrl.pathname}`,
+    origin: url.origin,
+    shareUrl: `${url.origin}${url.pathname}`,
     agentContextUrl:
       canExposeAnonymousAgentContext || canExposeOwnerAgentContext
         ? buildAgentApiUrls(id, {
-            origin: requestUrl.origin,
+            origin: url.origin,
             basePath:
               process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
             token,
@@ -213,11 +214,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) => {
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   return buildClipsShareMeta({
-    recording: data?.recording ?? null,
-    origin: data?.origin ?? null,
-    shareUrl: data?.shareUrl ?? null,
+    recording: loaderData?.recording ?? null,
+    origin: loaderData?.origin ?? null,
+    shareUrl: loaderData?.shareUrl ?? null,
   });
 };
 

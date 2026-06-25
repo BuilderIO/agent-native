@@ -9,17 +9,19 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
-import type { Slide } from "@/context/DeckContext";
+
 import { Skeleton } from "@/components/ui/skeleton";
-import { MermaidRenderer } from "./MermaidRenderer";
-import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
-import type { DesignSystemData } from "../../../shared/api";
+import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
+import { MermaidRenderer } from "./MermaidRenderer";
 
 interface SlideRendererProps {
   slide: Slide;

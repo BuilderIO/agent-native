@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+
 /**
  * Booking lifecycle — create, reschedule, cancel — wired to providers and
  * workflow hooks.
@@ -23,15 +25,14 @@ import {
   markAttendeeNoShow,
   addBookingReference,
 } from "./bookings-repo.js";
+import { getSchedulingContext } from "./context.js";
 import { getEventTypeById } from "./event-types-repo.js";
-import { getCalendarProvider, getVideoProvider } from "./providers/registry.js";
 import {
   onBookingCreated,
   onBookingCancelled,
   onBookingRescheduled,
 } from "./hooks.js";
-import { getSchedulingContext } from "./context.js";
-import { eq } from "drizzle-orm";
+import { getCalendarProvider, getVideoProvider } from "./providers/registry.js";
 
 export interface CreateBookingInput {
   eventType: EventType;

@@ -1,13 +1,14 @@
-import { IconDatabase } from "@tabler/icons-react";
 import type {
   BlockReadProps,
   BlockRenderContext,
   BlockSpec,
 } from "@agent-native/core/blocks";
-import { lazy, Suspense } from "react";
-import { useDocument } from "@/hooks/use-documents";
 import { inlineDatabaseBlockConfig } from "@shared/inline-database-block";
 import type { InlineDatabaseData } from "@shared/inline-database-block";
+import { IconDatabase } from "@tabler/icons-react";
+import { lazy, Suspense } from "react";
+
+import { useDocument } from "@/hooks/use-documents";
 
 const InlineDatabaseView = lazy(async () => {
   const module = await import("@/components/editor/database/DatabaseView");

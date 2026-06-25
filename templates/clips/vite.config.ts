@@ -1,9 +1,15 @@
 import fs from "fs";
-import path from "path";
 import { createRequire } from "module";
-import { reactRouter } from "@react-router/dev/vite";
+import path from "path";
+
 import { agentNative } from "@agent-native/core/vite";
+import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type Plugin } from "vite";
+
+const reactRouterPlugins = reactRouter as unknown as () => any[];
+const agentNativePlugins = agentNative as unknown as (
+  options?: Parameters<typeof agentNative>[0],
+) => any[];
 
 const _require = createRequire(import.meta.url);
 const ffmpegDir = path.resolve(
@@ -48,8 +54,8 @@ function copyMediapipeWasm(): Plugin {
 
 export default defineConfig({
   plugins: [
-    reactRouter(),
-    agentNative({
+    ...reactRouterPlugins(),
+    ...agentNativePlugins({
       // shiki only runs in AssistantChat's useEffect — keep it out of the
       // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],

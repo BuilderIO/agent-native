@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { NavSidebar } from "./NavSidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router";
+
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { NavSidebar } from "./NavSidebar";
 
 interface LayoutProps {
   children: React.ReactNode;

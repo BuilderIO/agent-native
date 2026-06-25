@@ -1,8 +1,11 @@
-import { useMemo } from "react";
-import { IconMailFast, IconUsers } from "@tabler/icons-react";
 import { useActionQuery, useSession } from "@agent-native/core/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { IconMailFast, IconUsers } from "@tabler/icons-react";
+import { useMemo } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -11,14 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
 import { BrandingEditor } from "@/components/workspace/branding-editor";
+import { InviteDialog } from "@/components/workspace/invite-dialog";
 import {
   MembersList,
   type MemberRole,
 } from "@/components/workspace/members-list";
-import { InviteDialog } from "@/components/workspace/invite-dialog";
-import { PageHeader } from "@/components/library/page-header";
 
 export function meta() {
   return [{ title: "Organization settings · Clips" }];
@@ -58,8 +59,8 @@ export default function OrganizationSettingsRoute() {
   );
 
   const organization = data?.organization ?? null;
-  const members = data?.members ?? [];
-  const invites = data?.invites ?? [];
+  const members: OrganizationStateResponse["members"] = data?.members ?? [];
+  const invites: OrganizationStateResponse["invites"] = data?.invites ?? [];
 
   const isOwner = !!(
     organization?.ownerEmail && organization.ownerEmail === email

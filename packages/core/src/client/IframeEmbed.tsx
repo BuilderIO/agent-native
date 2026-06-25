@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
 import { AGENT_NAVIGATE_MESSAGE_TYPE } from "./embed.js";
 
 export interface IframeEmbedProps {

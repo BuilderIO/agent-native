@@ -9,9 +9,9 @@
  * function on a Buffer — no storage, queue, or job coupling.
  */
 
-import * as zlib from "node:zlib";
 import * as crypto from "node:crypto";
-import * as pako from "pako";
+import * as zlib from "node:zlib";
+
 import { decompress as zstdDecompress } from "fzstd";
 import {
   ByteBuffer,
@@ -19,6 +19,7 @@ import {
   decodeBinarySchema,
   type Schema,
 } from "kiwi-schema";
+import * as pako from "pako";
 
 const MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024; // 512 MB cap per chunk to prevent compression bombs
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);

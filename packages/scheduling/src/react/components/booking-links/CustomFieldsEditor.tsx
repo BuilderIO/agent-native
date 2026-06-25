@@ -1,3 +1,13 @@
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconGripVertical,
+  IconListCheck,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 /**
  * CustomFieldsEditor — add, remove, reorder, and configure custom form
  * fields shown on a booking page.
@@ -13,20 +23,12 @@
  * textarea, switch. Icons from `@tabler/icons-react`.
  */
 import { useState } from "react";
-import { nanoid } from "nanoid";
-import {
-  IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-  IconGripVertical,
-  IconListCheck,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+
 import { useSchedulingT } from "../../i18n.js";
 
 export type CustomFieldType =

@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 /**
  * Security regression test for the CRM-integration key exposure fix.
  *
@@ -15,7 +16,6 @@
  * scope a value lands under.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { H3Event } from "h3";
 
 // --- In-memory stand-in for the framework credential vault -------------------
 // Keyed by `<scope>::<KEY>` where scope is `u:<email>` (per-user) or
@@ -49,14 +49,14 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: getOrgContextMock,
 }));
 
+import { apolloStatus } from "../handlers/apollo.js";
+import { hubspotStatus } from "../handlers/hubspot.js";
 import {
   getIntegrationKey,
   saveIntegrationKey,
   deleteIntegrationKey,
   getIntegrationContext,
 } from "./integration-credentials.js";
-import { apolloStatus } from "../handlers/apollo.js";
-import { hubspotStatus } from "../handlers/hubspot.js";
 
 const APOLLO_KEY = "apollo-secret-key-abc123";
 const HUBSPOT_KEY = "pat-na1-hubspot-secret-xyz789";

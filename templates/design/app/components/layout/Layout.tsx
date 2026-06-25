@@ -1,4 +1,11 @@
 import {
+  AgentSidebar,
+  isEmbedAuthActive,
+  getBrowserTabId,
+  useT,
+} from "@agent-native/core/client";
+import { IconMenu2 } from "@tabler/icons-react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -7,18 +14,13 @@ import {
   useState,
 } from "react";
 import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
-import {
-  AgentSidebar,
-  isEmbedAuthActive,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
+
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;

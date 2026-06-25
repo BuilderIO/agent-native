@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
-import { getDbExec, intType } from "../db/client.js";
-import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
+import { getDbExec, intType } from "../db/client.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { emitChatThreadChange } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;

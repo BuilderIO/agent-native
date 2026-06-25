@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState } from "react";
 
 interface BorderRect {
   x: number;

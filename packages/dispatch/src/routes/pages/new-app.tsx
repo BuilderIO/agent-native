@@ -1,4 +1,5 @@
 import { NewWorkspaceAppFlow, useT } from "@agent-native/core/client";
+
 import { DispatchShell } from "@/components/dispatch-shell";
 
 export function meta() {

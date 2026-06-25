@@ -1,11 +1,12 @@
+import type { Meal } from "@shared/types";
 import {
   IconTrash,
   IconPencil,
   IconToolsKitchen2,
   IconLoader2,
 } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
-import type { Meal } from "@shared/types";
 
 interface MealCardProps {
   meal: Meal;

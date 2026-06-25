@@ -28,8 +28,10 @@ const config = async () => {
 };
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import pLimit from "p-limit";
+
 import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
+import pLimit from "p-limit";
+
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 function parseArgs(args: string[]): Record<string, string> {

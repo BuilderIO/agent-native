@@ -1,3 +1,7 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+
 /**
  * Adversarial INSTALL / CLI / FIRST-RUN coverage focused on the Plans
  * (`templates/plan`) app and its shipped skills.
@@ -19,9 +23,6 @@
  * templates-meta.ts as the user hits them on a fresh machine.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import os from "os";
-import path from "path";
 
 import {
   createApp,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());

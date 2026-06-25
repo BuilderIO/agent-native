@@ -1,24 +1,78 @@
+import Ajv, { type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
   setResponseHeader,
   setResponseStatus,
   getMethod,
 } from "h3";
-import Ajv, { type ValidateFunction } from "ajv";
+import type { EventHandler as H3EventHandler } from "h3";
+
+import { isAgentActionStopError } from "../action.js";
+import { readAppState } from "../application-state/script-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
+import { extensionIdFromPathname } from "../extensions/path.js";
+import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import {
+  completeRun as completeProgressRun,
+  startRun as startProgressRun,
+  updateRunProgress,
+} from "../progress/registry.js";
+import {
+  getFrontmatterValue,
+  parseFrontmatter,
+} from "../resources/metadata.js";
 import {
   isDeployCredentialFallbackAllowed,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
-import type { EventHandler as H3EventHandler } from "h3";
-import type {
-  ActionTool,
-  AgentNativeJsonSchema,
-  AgentChatAttachment,
-  AgentChatRequest,
-  AgentChatEvent,
-  AgentChatReference,
-  AgentChatStructuredMessage,
-} from "./types.js";
+import { readBody } from "../server/h3-helpers.js";
+import {
+  getRequestRunContext,
+  ensureRequestRunContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
+import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  isReasoningEffort,
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+import { applyContextDirectives } from "./context-xray/apply-directives.js";
+import { loadContextDirectives } from "./context-xray/directives-store.js";
+import {
+  buildManifest,
+  writeContextManifest,
+} from "./context-xray/manifest.js";
+import { computeProtectedSegmentIds } from "./context-xray/segments.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  isAgentChatDurableBackgroundEnabled,
+  isInBackgroundFunctionRuntime,
+  resolveAgentChatProcessRunDispatchPath,
+} from "./durable-background.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+  userFacingLlmCredentialError,
+} from "./engine/credential-errors.js";
+import {
+  resolveEngine,
+  registerBuiltinEngines,
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+} from "./engine/index.js";
+import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
+import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
+import {
+  backfillEngineMessagesToolResults,
+  stringifyToolUseInputForGateway,
+  unmatchedToolResultReplayText,
+} from "./engine/translate-anthropic.js";
 import type {
   AgentEngine,
   EngineTool,
@@ -28,32 +82,23 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
-import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import {
-  backfillEngineMessagesToolResults,
-  stringifyToolUseInputForGateway,
-  unmatchedToolResultReplayText,
-} from "./engine/translate-anthropic.js";
+  getDefaultMaxIterations,
+  normalizeMaxIterations,
+  readAgentLoopSettings,
+} from "./loop-settings.js";
 import {
-  resolveEngine,
-  registerBuiltinEngines,
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-} from "./engine/index.js";
+  maybeCompactThread,
+  buildObservationalContext,
+  hasObservationalMemory,
+  serializeObservationalMemoryBlock,
+} from "./observational-memory/index.js";
 import {
-  LLM_MISSING_CREDENTIALS_ERROR_CODE,
-  LLM_MISSING_CREDENTIALS_MESSAGE,
-  userFacingLlmCredentialError,
-} from "./engine/credential-errors.js";
-import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
-import { readAppState } from "../application-state/script-helpers.js";
-import { isDemoModeEnabled } from "../demo/config.js";
-import { redactDemoData, redactDemoString } from "../demo/redact.js";
-import {
-  redactSensitiveFields,
-  sanitizeToolErrorText,
-  sanitizeToolErrorValue,
-} from "./tool-error-redaction.js";
+  ProcessorChain,
+  TripWire,
+  toolCallsFromContent,
+  type Processor,
+} from "./processors.js";
 import {
   startRun,
   subscribeToRun,
@@ -64,42 +109,6 @@ import {
   tryClaimRunSlot,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
-import {
-  AGENT_CHAT_BACKGROUND_RUN_FIELD,
-  isAgentChatDurableBackgroundEnabled,
-  isInBackgroundFunctionRuntime,
-  resolveAgentChatProcessRunDispatchPath,
-} from "./durable-background.js";
-import { fireInternalDispatch } from "../server/self-dispatch.js";
-import { readBody } from "../server/h3-helpers.js";
-import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import {
-  getRequestRunContext,
-  ensureRequestRunContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../server/request-context.js";
-import {
-  getFrontmatterValue,
-  parseFrontmatter,
-} from "../resources/metadata.js";
-import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
-import {
-  createToolSearchEntry,
-  TOOL_SEARCH_ACTION_NAME,
-} from "./tool-search.js";
-import {
-  getDefaultMaxIterations,
-  normalizeMaxIterations,
-  readAgentLoopSettings,
-} from "./loop-settings.js";
-import {
-  isReasoningEffort,
-  normalizeReasoningEffortForModel,
-  type ReasoningEffort,
-} from "../shared/reasoning-effort.js";
-import { isAgentActionStopError } from "../action.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
@@ -118,32 +127,24 @@ import {
   findCompletedJournalEntry,
   type ToolCallJournal,
 } from "./tool-call-journal.js";
-import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
-import { extensionIdFromPathname } from "../extensions/path.js";
-import { applyContextDirectives } from "./context-xray/apply-directives.js";
 import {
-  ProcessorChain,
-  TripWire,
-  toolCallsFromContent,
-  type Processor,
-} from "./processors.js";
+  redactSensitiveFields,
+  sanitizeToolErrorText,
+  sanitizeToolErrorValue,
+} from "./tool-error-redaction.js";
 import {
-  completeRun as completeProgressRun,
-  startRun as startProgressRun,
-  updateRunProgress,
-} from "../progress/registry.js";
-import { loadContextDirectives } from "./context-xray/directives-store.js";
-import {
-  buildManifest,
-  writeContextManifest,
-} from "./context-xray/manifest.js";
-import { computeProtectedSegmentIds } from "./context-xray/segments.js";
-import {
-  maybeCompactThread,
-  buildObservationalContext,
-  hasObservationalMemory,
-  serializeObservationalMemoryBlock,
-} from "./observational-memory/index.js";
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "./tool-search.js";
+import type {
+  ActionTool,
+  AgentNativeJsonSchema,
+  AgentChatAttachment,
+  AgentChatRequest,
+  AgentChatEvent,
+  AgentChatReference,
+  AgentChatStructuredMessage,
+} from "./types.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();

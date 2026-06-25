@@ -1,21 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import { useTheme } from "next-themes";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { toast } from "sonner";
-import {
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-  type QueryKey,
-} from "@tanstack/react-query";
 import {
   IconChartBar,
-  IconLogout,
   IconChevronDown,
-  IconSun,
-  IconMoon,
   IconTrash,
   IconDots,
   IconLoader2,
@@ -38,7 +23,19 @@ import {
   IconEye,
   IconEyeOff,
 } from "@tabler/icons-react";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { getIdToken } from "@/lib/auth";
+import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -56,25 +53,20 @@ type SidebarDashboard = {
   visibility?: Visibility;
 };
 import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+  DevDatabaseLink,
+  FeedbackButton,
+  LanguagePicker,
+  appApiPath,
+  callAction,
+  appPath,
+  navigateWithAgentChatViewTransition,
+  useActionMutation,
+  useChangeVersions,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -85,28 +77,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appApiPath,
-  callAction,
-  appPath,
-  navigateWithAgentChatViewTransition,
-  useActionMutation,
-  useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { NewDashboardDialog } from "./NewDashboardDialog";
-import { NewAnalysisDialog } from "./NewAnalysisDialog";
-import { useUserPref } from "@/hooks/use-user-pref";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import {
   useDashboardViews,
   useDeleteDashboardView,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
@@ -114,6 +111,9 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+
+import { NewAnalysisDialog } from "./NewAnalysisDialog";
+import { NewDashboardDialog } from "./NewDashboardDialog";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 
@@ -1171,23 +1171,14 @@ function restoreQuerySnapshots<T>(
   }
 }
 
-function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
-}
-
 // --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const { logout } = useAuth();
   const queryClient = useQueryClient();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
 
   const [dashOpen, setDashOpen] = useState(() =>
     getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
@@ -1207,8 +1198,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const popularity = usePopularity();
 
-  const light = resolvedTheme === "light";
-
   useEffect(() => {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
@@ -1222,7 +1211,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       })
       .catch(() => {});
   }, [setTheme]);
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
@@ -2289,69 +2277,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       </p>
                     </TooltipContent>
                   </Tooltip>
-                  <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                            <IconLogout className="h-4 w-4 rtl:-scale-x-100" />
-                          </button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>{t("sidebar.signOut")}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <PopoverContent
-                      className="w-48 p-3"
-                      side="top"
-                      align="start"
-                    >
-                      <p className="text-sm mb-3">
-                        {t("sidebar.signOutTitle")}
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setLogoutOpen(false);
-                            logout();
-                          }}
-                          className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                        >
-                          {t("sidebar.yes")}
-                        </button>
-                        <button
-                          onClick={() => setLogoutOpen(false)}
-                          className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
-                        >
-                          {t("sidebar.cancel")}
-                        </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => {
-                          const next = light ? "dark" : "light";
-                          setTheme(next);
-                          persistThemePreference(next);
-                        }}
-                        className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                      >
-                        {light ? (
-                          <IconMoon className="h-4 w-4" />
-                        ) : (
-                          <IconSun className="h-4 w-4" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p>
-                        {light ? t("sidebar.darkMode") : t("sidebar.lightMode")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <LanguagePicker
+                    variant="icon"
+                    label={t("settings.languageLabel")}
+                    className="[&_[role=combobox]]:rounded-lg [&_[role=combobox]]:border-0 [&_[role=combobox]]:bg-transparent [&_[role=combobox]]:text-muted-foreground [&_[role=combobox]]:hover:bg-sidebar-accent/50 [&_[role=combobox]]:hover:text-primary"
+                  />
                 </div>
               </div>
             </TooltipProvider>

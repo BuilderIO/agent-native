@@ -1,14 +1,16 @@
-import { useLocation } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router";
+
 import { dashboards } from "@/pages/adhoc/registry";
+
 import {
   DashboardTitleSkeleton,
   useHeaderTitle,
   useHeaderActions,
 } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { useT } from "@agent-native/core/client";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.overview",

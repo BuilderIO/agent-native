@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
+import type { ToolRendererContext } from "@agent-native/core/client";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ToolRendererContext } from "@agent-native/core/client";
+
 import VisualAnswerInline from "./VisualAnswerInline";
 
 /**

@@ -1,12 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import React, {
-  Suspense,
-  lazy,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   IconChevronDown,
@@ -32,29 +23,39 @@ import {
   IconUserCircle,
   IconApps,
 } from "@tabler/icons-react";
-import { SettingsSection } from "./SettingsSection.js";
-import {
-  type BuilderConnectFlow,
-  useBuilderConnectFlow,
-  useBuilderStatus,
-} from "./useBuilderStatus.js";
-import { BuilderBMark } from "../builder-mark.js";
-import { AgentsSection } from "./AgentsSection.js";
-import { UsageSection } from "./UsageSection.js";
-import { SecretsSection } from "./SecretsSection.js";
-import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-import { DemoModeSection } from "./DemoModeSection.js";
-import { AutomationsSection } from "./AutomationsSection.js";
+import React, {
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import { saveAgentEngineApiKey } from "../agent-engine-key.js";
+import { agentNativePath } from "../api-path.js";
+import { BuilderBMark } from "../builder-mark.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useSession } from "../use-session.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { callAction } from "../use-action.js";
-import { saveAgentEngineApiKey } from "../agent-engine-key.js";
+import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
+import { useSession } from "../use-session.js";
+import { AgentsSection } from "./AgentsSection.js";
+import { AutomationsSection } from "./AutomationsSection.js";
+import { DemoModeSection } from "./DemoModeSection.js";
+import { SecretsSection } from "./SecretsSection.js";
+import { SettingsSection } from "./SettingsSection.js";
+import { UsageSection } from "./UsageSection.js";
+import {
+  type BuilderConnectFlow,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+} from "./useBuilderStatus.js";
+import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -2368,7 +2369,7 @@ export function SettingsPanel({
             trackingFlow="database"
           />
           <ManualSetupCard
-            hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
+            hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
             docsUrl="https://www.builder.io/c/docs/agent-native-database"
             dim={connected}
           />

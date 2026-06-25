@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
-import { withDefaultSocialImage } from "../seo";
 import { useT } from "@agent-native/core/client";
+import type { ReactNode } from "react";
+
+import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "June 23, 2026";
 

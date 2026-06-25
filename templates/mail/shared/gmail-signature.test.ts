@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { htmlSignatureToMarkdown } from "./gmail-signature";
 
 describe("htmlSignatureToMarkdown", () => {

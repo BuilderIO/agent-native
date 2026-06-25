@@ -1,21 +1,22 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, desc } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { assertAccess } from "@agent-native/core/sharing";
-import { writeAppState } from "@agent-native/core/application-state";
-import { z } from "zod";
+import type { DocumentUpdateResponse } from "../shared/api.js";
+import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   isLocalDocumentId,
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
-import { serializeDocumentSource } from "./_document-source.js";
-import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
-import type { DocumentUpdateResponse } from "../shared/api.js";
 
 function nanoid(size = 12): string {
   const chars =

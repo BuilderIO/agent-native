@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconClock } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
+
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useT } from "@agent-native/core/client";
+import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
+import { cn } from "@/lib/utils";
 
 interface SnoozeModalProps {
   open: boolean;

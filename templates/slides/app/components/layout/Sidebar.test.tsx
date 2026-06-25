@@ -1,10 +1,11 @@
+import { render, screen, cleanup } from "@testing-library/react";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(() => cleanup());
-import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@agent-native/core", () => ({

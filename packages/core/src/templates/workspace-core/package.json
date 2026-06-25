@@ -1,7 +1,12 @@
 {
   "name": "@{{APP_NAME}}/shared",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "src",
+    "AGENTS.md"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -20,18 +25,14 @@
       "default": "./dist/client/index.js"
     }
   },
-  "files": [
-    "dist",
-    "src",
-    "AGENTS.md"
-  ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch --preserveWatchOutput",
-    "typecheck": "tsc --noEmit",
-    "prepare": "tsc"
+    "build": "tsgo",
+    "dev": "tsgo --watch --preserveWatchOutput",
+    "typecheck": "tsgo --noEmit",
+    "prepare": "tsgo"
   },
   "devDependencies": {
+    "@typescript/native-preview": "catalog:",
     "typescript": "^6.0.3"
   }
 }

@@ -1,7 +1,22 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router";
-import { cn } from "@/lib/utils";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  AgentToggleButton,
+  agentNativePath,
+  NotificationsBell,
+} from "@agent-native/core/client";
+import type {
+  CalendarEvent,
+  CalendarEventDraft,
+  UpdateEventScope,
+} from "@shared/api";
+import {
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronDown,
+  IconMenu2,
+  IconSearch,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   format,
   startOfMonth,
@@ -17,14 +32,25 @@ import {
   parseISO,
   startOfDay,
 } from "date-fns";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router";
+import { toast } from "sonner";
+
+import { CommandPalette } from "@/components/calendar/CommandPalette";
+import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
+import { DayView } from "@/components/calendar/DayView";
+import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
+import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
+import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import {
-  IconCheck,
-  IconChevronLeft,
-  IconChevronRight,
-  IconChevronDown,
-  IconMenu2,
-  IconSearch,
-} from "@tabler/icons-react";
+  shouldPromptGuests,
+  useGuestNotificationPrompt,
+} from "@/components/calendar/GuestNotificationDialog";
+import { MonthView } from "@/components/calendar/MonthView";
+import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
+import { WeekView } from "@/components/calendar/WeekView";
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import type { ViewMode } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,27 +60,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Spinner } from "@/components/ui/spinner";
-import { MonthView } from "@/components/calendar/MonthView";
-import { WeekView } from "@/components/calendar/WeekView";
-import { DayView } from "@/components/calendar/DayView";
-import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
-import { CommandPalette } from "@/components/calendar/CommandPalette";
-import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
-import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
-import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
-import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
-import {
-  shouldPromptGuests,
-  useGuestNotificationPrompt,
-} from "@/components/calendar/GuestNotificationDialog";
-import { useCalendarContext } from "@/components/layout/AppLayout";
 import {
   useEvents,
   useCreateEvent,
@@ -63,32 +75,20 @@ import {
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
-import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useSettings } from "@/hooks/use-settings";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  AgentToggleButton,
-  agentNativePath,
-  NotificationsBell,
-} from "@agent-native/core/client";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { toast } from "sonner";
+import { useOverlayPeople } from "@/hooks/use-overlay-people";
+import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
-import type {
-  CalendarEvent,
-  CalendarEventDraft,
-  UpdateEventScope,
-} from "@shared/api";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
 } from "@/lib/event-form-utils";
-import { getGoogleEventColorHex } from "@/lib/event-colors";
-
-import type { ViewMode } from "@/components/layout/AppLayout";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { cn } from "@/lib/utils";
 
 const viewModeLabels: Record<ViewMode, string> = {
   month: "Month",
@@ -380,7 +380,9 @@ export default function CalendarView() {
     isFetching,
     isPlaceholderData,
   } = useEvents(from, to, overlayEmails);
-  const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
+  const rawEvents: CalendarEvent[] = Array.isArray(rawEventsData)
+    ? rawEventsData
+    : [];
   const draftEvent = useMemo(
     () => (eventDraft ? draftToCalendarEvent(eventDraft, selectedDate) : null),
     [eventDraft, selectedDate],

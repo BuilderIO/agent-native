@@ -1,3 +1,5 @@
+import path from "path";
+
 import {
   createApp,
   createRouter,
@@ -8,14 +10,9 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import path from "path";
-import { agentEnv } from "../shared/agent-env.js";
+
 import { readBody } from "../server/h3-helpers.js";
-import {
-  getAllowedCorsOrigin,
-  readCorsAllowedOrigins,
-} from "./cors-origins.js";
-import { isEnvVarWriteAllowed } from "./env-var-writes.js";
+import { agentEnv } from "../shared/agent-env.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -24,6 +21,11 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import { BUILDER_ENV_KEYS } from "./builder-browser.js";
+import {
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
+import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */

@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { getFrameOrigin } from "./frame.js";
+
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   getEmbedAuthToken,
   isEmbedAuthActive,
@@ -7,11 +12,7 @@ import {
   isEmbedMcpChatBridgeActive,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
-import {
-  EMBED_MODE_QUERY_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-} from "../shared/embed-auth.js";
+import { getFrameOrigin } from "./frame.js";
 
 export const AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES = {
   HOST_CONTEXT: "agentNative.mcpHostContext",

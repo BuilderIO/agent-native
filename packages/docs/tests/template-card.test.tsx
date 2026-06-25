@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { describe, expect, it } from "vitest";
+
+import { getTemplateDocsPath } from "../app/components/template-docs";
 import { TemplateCard, templates } from "../app/components/TemplateCard";
 import { docsI18nCatalog } from "../app/i18n";
-import { getTemplateDocsPath } from "../app/components/template-docs";
 
 describe("TemplateCard", () => {
   it("renders View Docs links to template docs pages", () => {

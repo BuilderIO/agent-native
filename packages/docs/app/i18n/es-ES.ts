@@ -239,7 +239,7 @@ const esES = {
       uiSurfaces: "UI superficies",
       i18n: "i18n",
       mcpAuth: "MCP Autenticación",
-      battleTestedComponents: "Componentes probados",
+      battleTestedComponents: "Bloques probados",
       mcpA2a: "MCP + A2A",
       externalAgents: "Agentes externos",
       a2aHandoffs: "A2A traspasos",

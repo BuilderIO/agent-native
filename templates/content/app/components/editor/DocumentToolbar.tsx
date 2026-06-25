@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+  PresenceBar,
+  appPath,
+  useActionMutation,
+  type CollabUser,
+} from "@agent-native/core/client";
+import { ShareButton } from "@agent-native/core/client";
+import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -21,12 +29,12 @@ import {
   IconRefresh,
   IconShare3,
 } from "@tabler/icons-react";
-import { VersionHistoryPanel } from "./VersionHistoryPanel";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,21 +47,17 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import {
-  AgentToggleButton,
-  NotificationsBell,
-  PresenceBar,
-  appPath,
-  useActionMutation,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { ShareButton } from "@agent-native/core/client";
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
   useDocumentSyncStatus,
@@ -65,15 +69,13 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import type { DocumentSourceInfo } from "@shared/api";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
 } from "@/lib/local-content-source-files";
+import { cn } from "@/lib/utils";
+
+import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
 

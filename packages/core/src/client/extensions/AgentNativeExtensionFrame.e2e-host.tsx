@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+
 import { defineClientAction } from "../client-action.js";
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
 

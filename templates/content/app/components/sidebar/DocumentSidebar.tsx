@@ -1,6 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useCodeMode,
+  useT,
+} from "@agent-native/core/client";
+import {
+  ExtensionSlot,
+  ExtensionsSidebarSection,
+} from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   DndContext,
   KeyboardSensor,
@@ -34,49 +43,12 @@ import {
   IconRestore,
   IconTrashX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useCodeMode,
-  useT,
-} from "@agent-native/core/client";
-import {
-  ExtensionSlot,
-  ExtensionsSidebarSection,
-} from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
-import {
-  documentSection,
-  isDocumentDropTargetId,
-  resolveDocumentSidebarMove,
-  type SidebarDocumentSection,
-} from "./document-sidebar-dnd";
-import {
-  useDocuments,
-  useCreateDocument,
-  useDeleteDocument,
-  useMoveDocument,
-  useUpdateDocument,
-  buildDocumentTree,
-  filterDocumentTreeDocuments,
-} from "@/hooks/use-documents";
-import {
-  useCreateContentDatabase,
-  useRestoreContentDatabase,
-  useTrashedContentDatabases,
-} from "@/hooks/use-content-database";
-import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,6 +66,36 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  useCreateContentDatabase,
+  useRestoreContentDatabase,
+  useTrashedContentDatabases,
+} from "@/hooks/use-content-database";
+import {
+  useDocuments,
+  useCreateDocument,
+  useDeleteDocument,
+  useMoveDocument,
+  useUpdateDocument,
+  buildDocumentTree,
+  filterDocumentTreeDocuments,
+} from "@/hooks/use-documents";
+import { cn } from "@/lib/utils";
+
+import {
+  documentSection,
+  isDocumentDropTargetId,
+  resolveDocumentSidebarMove,
+  type SidebarDocumentSection,
+} from "./document-sidebar-dnd";
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
 
 function nanoid(size = 12): string {
   const chars =

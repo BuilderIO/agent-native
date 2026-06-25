@@ -1,5 +1,5 @@
 // Concatenate all docs into a single llms-full.txt bundle for AI consumption.
-// Run by `pnpm build` after `tsc`.
+// Run by `pnpm build` after `tsgo`.
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";

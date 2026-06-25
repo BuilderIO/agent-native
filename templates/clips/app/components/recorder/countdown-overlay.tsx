@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { IconPlayerSkipForward, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface CountdownOverlayProps {
   /** Total seconds to count down from. Default 3. */

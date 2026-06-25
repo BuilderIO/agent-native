@@ -11,18 +11,19 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: vi.fn(),
 }));
 
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+
+import { canonicalizeNfm } from "../../shared/nfm";
+import {
+  normalizeNfmForStorage,
+  parseNfmForEditor,
+} from "../../shared/notion-markdown";
 import {
   createNotionPageWithMarkdown,
   getNotionConnectionForOwner,
   resolveNotionMarkdownResponse,
   type NotionPageMarkdown,
 } from "./notion";
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
-import { canonicalizeNfm } from "../../shared/nfm";
-import {
-  normalizeNfmForStorage,
-  parseNfmForEditor,
-} from "../../shared/notion-markdown";
 
 describe("normalizeNfmForStorage", () => {
   it("upgrades legacy toggle marker syntax into details blocks", () => {

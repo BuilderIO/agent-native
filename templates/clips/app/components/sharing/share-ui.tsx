@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconBuilding,
   IconCheck,
@@ -8,7 +7,9 @@ import {
   IconTrash,
   IconWorld,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -345,7 +346,7 @@ export function SharePeopleTab({
   const hasInviteEmail = email.trim().length > 0;
 
   const data = sharesQuery.data;
-  const shares = data?.shares ?? [];
+  const shares: Share[] = data?.shares ?? [];
 
   const handleAdd = () => {
     const trimmed = email.trim().toLowerCase();

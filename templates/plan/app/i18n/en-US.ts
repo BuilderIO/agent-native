@@ -34,6 +34,10 @@ const messages = {
     agentDescription:
       "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
     openAgentSettings: "Open agent settings",
+    editorTitle: "VS Code extension",
+    editorDescription:
+      "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",
+    openEditorExtension: "Get the VS Code extension",
   },
   agent: {
     emptyState:

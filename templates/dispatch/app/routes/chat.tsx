@@ -1,12 +1,12 @@
 export { default } from "@agent-native/dispatch/routes/pages/chat";
-import type { LoaderFunctionArgs } from "react-router";
 import {
   buildThreadLinkPreviewMeta,
   type ThreadLinkPreview,
 } from "@agent-native/dispatch/lib/thread-link-preview";
+import type { LoaderFunctionArgs } from "react-router";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const threadId = new URL(request.url).searchParams.get("thread");
+export async function loader({ url }: LoaderFunctionArgs) {
+  const threadId = url.searchParams.get("thread");
   const { loadThreadLinkPreview } =
     await import("@agent-native/dispatch/server/lib/thread-link-preview");
   return {
@@ -15,11 +15,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export function meta({
-  data,
+  loaderData,
 }: {
-  data?: { threadPreview: ThreadLinkPreview | null };
+  loaderData?: { threadPreview: ThreadLinkPreview | null };
 }) {
-  return data?.threadPreview
-    ? buildThreadLinkPreviewMeta(data.threadPreview)
+  return loaderData?.threadPreview
+    ? buildThreadLinkPreviewMeta(loaderData.threadPreview)
     : [{ title: "Chat — Dispatch" }];
 }

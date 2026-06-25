@@ -1,11 +1,13 @@
+import crypto from "node:crypto";
+
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
-import crypto from "node:crypto";
-import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
+
 import { handleRemoteCodeCommand } from "./dispatch-remote-commands.js";
+import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
 
 type SlackSenderProfile = {
   email: string | null;

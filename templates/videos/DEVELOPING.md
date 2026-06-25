@@ -5,7 +5,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 ## Tech Stack
 
 - **PNPM**: Prefer pnpm
-- **Frontend**: React 18 + React Router 6 (spa) + TypeScript + Vite + TailwindCSS 3
+- **Frontend**: React 19 + React Router 8 (spa) + TypeScript + Vite + TailwindCSS 3
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Testing**: Vitest
 - **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
@@ -84,7 +84,7 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ## Routing System
 
-The routing system uses React Router v7 framework mode with file-based routing:
+The routing system uses React Router v8 framework mode with file-based routing:
 
 - Routes are auto-discovered from `app/routes/` via `flatRoutes()`.
 - `app/routes/_index.tsx` is the home page (`/`).

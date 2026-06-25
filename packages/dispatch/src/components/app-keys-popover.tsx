@@ -1,4 +1,3 @@
-import { useMemo, useState, type ReactNode } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -6,13 +5,15 @@ import {
   IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
+import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface VaultSecret {

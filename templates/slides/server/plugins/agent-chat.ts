@@ -1,9 +1,10 @@
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { getOrgContext } from "@agent-native/core/org";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 

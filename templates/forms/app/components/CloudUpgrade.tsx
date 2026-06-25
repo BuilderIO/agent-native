@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 import {
   IconCheck,
   IconLoader2,
@@ -6,9 +6,9 @@ import {
   IconCloud,
   IconChevronRight,
 } from "@tabler/icons-react";
+import { useState, useRef, useCallback } from "react";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -16,8 +16,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 interface CloudUpgradeProps {
   title?: string;

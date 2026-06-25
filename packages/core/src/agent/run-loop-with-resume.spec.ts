@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import { EngineError } from "./engine/types.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
@@ -6,8 +9,6 @@ import {
   continuationReasonForResumableError,
   runAgentLoop,
 } from "./production-agent.js";
-import { EngineError } from "./engine/types.js";
-import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoopDirectWithSoftTimeout,
   MAX_RUN_LOOP_CONTINUATIONS,

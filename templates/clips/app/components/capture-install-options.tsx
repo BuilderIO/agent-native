@@ -1,5 +1,3 @@
-import { type ReactNode } from "react";
-import { Link } from "react-router";
 import {
   IconBrandApple,
   IconBrandChrome,
@@ -8,17 +6,20 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
+import { type ReactNode } from "react";
+import { Link } from "react-router";
+
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
 } from "@/lib/capture-install-options";
+import { cn } from "@/lib/utils";
 
 type PopoverPlacement = {
   align?: "start" | "center" | "end";

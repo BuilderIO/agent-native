@@ -2,14 +2,15 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import type { CreateInlineDatabaseResponse } from "../shared/api.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { nanoid } from "./_property-utils.js";
 import {
   createContentDatabaseRecord,
   databaseTitleForPage,
 } from "./create-content-database.js";
-import { nanoid } from "./_property-utils.js";
 
 function createInlineDatabaseBlockId(): string {
   return `inline-database-${nanoid(8)}`;

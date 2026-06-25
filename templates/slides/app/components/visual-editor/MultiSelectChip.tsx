@@ -1,5 +1,5 @@
-import { createPortal } from "react-dom";
 import { IconX, IconArrowRight } from "@tabler/icons-react";
+import { createPortal } from "react-dom";
 
 interface MultiSelectChipProps {
   /** Number of currently-selected elements */

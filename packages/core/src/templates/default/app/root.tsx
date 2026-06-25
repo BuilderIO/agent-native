@@ -1,3 +1,14 @@
+import { useDbSync } from "@agent-native/core/client";
+import {
+  AppProviders,
+  appPath,
+  getLocaleInitScript,
+  getThemeInitScript,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -8,17 +19,7 @@ import {
   Link,
   useRouteError,
 } from "react-router";
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useDbSync } from "@agent-native/core/client";
-import {
-  AppProviders,
-  appPath,
-  getLocaleInitScript,
-  getThemeInitScript,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { TAB_ID } from "./lib/tab-id";
@@ -132,8 +133,7 @@ const ERROR_COPY = {
     genericTitle: "कुछ गलत हुआ",
     genericDetails: "एक अनपेक्षित त्रुटि हुई।",
     notFoundTitle: "पेज नहीं मिला",
-    notFoundDetails:
-      "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
+    notFoundDetails: "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
     statusTitle: (status: number) => `${status} त्रुटि`,
     goHome: "होम जाएं",
   },

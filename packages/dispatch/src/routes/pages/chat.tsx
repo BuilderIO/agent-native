@@ -1,4 +1,10 @@
 import {
+  AgentChatSurface,
+  appBasePath,
+  appPath,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -6,12 +12,7 @@ import {
   type ComponentProps,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
-import {
-  AgentChatSurface,
-  appBasePath,
-  appPath,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+
 import { submitOverviewPrompt } from "@/lib/overview-chat";
 
 function chatThreadPath(threadId: string | null): string {

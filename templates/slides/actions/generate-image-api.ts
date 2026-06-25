@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import type { ImageGenResponse } from "@shared/api";
-import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 import { z } from "zod";
+
+import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 interface ReferenceImage {
   data: string; // base64

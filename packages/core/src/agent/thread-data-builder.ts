@@ -1,5 +1,3 @@
-import type { AgentChatAttachment, RunEvent } from "./types.js";
-import type { EngineMessage } from "./engine/types.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   normalizeCodeAgentTranscript,
@@ -9,6 +7,8 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import type { EngineMessage } from "./engine/types.js";
+import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
   type: string;

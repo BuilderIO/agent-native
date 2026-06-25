@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -10,16 +11,16 @@ import {
   ForbiddenError,
   resolveAccess,
 } from "./access.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
-import { registerShareableResource } from "./registry.js";
+import listResourceShares from "./actions/list-resource-shares.js";
+import setResourceVisibility from "./actions/set-resource-visibility.js";
 import shareResource from "./actions/share-resource.js";
 import {
   isSyntheticQaEmail,
   resolveShareNotificationUrl,
 } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
-import listResourceShares from "./actions/list-resource-shares.js";
-import setResourceVisibility from "./actions/set-resource-visibility.js";
+import { registerShareableResource } from "./registry.js";
+import { createSharesTable, type ShareRole } from "./schema.js";
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";

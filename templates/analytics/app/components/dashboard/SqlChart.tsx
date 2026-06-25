@@ -1,4 +1,15 @@
 import {
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconTrendingUp,
+  IconTrendingDown,
+} from "@tabler/icons-react";
+import {
   createContext,
   useCallback,
   useContext,
@@ -28,20 +39,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
 import { Button } from "@/components/ui/button";
-import {
-  IconArrowsSort,
-  IconSortAscending,
-  IconSortDescending,
-  IconChevronLeft,
-  IconChevronRight,
-  IconAlertTriangle,
-  IconInfoCircle,
-  IconTrendingUp,
-  IconTrendingDown,
-} from "@tabler/icons-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -49,17 +49,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
+import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
+import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
-import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -835,6 +836,8 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  onRefreshChange?: (handler: (() => Promise<void>) | null) => void;
+  onRefreshingChange?: (refreshing: boolean) => void;
 }
 
 export function SqlChart({
@@ -842,21 +845,64 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
+  onRefreshChange,
+  onRefreshingChange,
 }: SqlChartProps) {
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const { data: result, isLoading } = useSqlQuery(
+  const queryIdentity = `${panel.id}\n${panel.source}\n${sql}`;
+  const [loadedQueryIdentity, setLoadedQueryIdentity] = useState<string | null>(
+    null,
+  );
+  const queryEnabled = shouldQuery && loadedQueryIdentity !== queryIdentity;
+  const {
+    data: result,
+    isFetching,
+    isLoading,
+    refetch,
+  } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: shouldQuery },
+    {
+      enabled: queryEnabled,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
   );
 
   const rawRows = result?.rows ?? [];
   const error = result?.error;
+
+  useEffect(() => {
+    if (!shouldQuery || !result || isFetching || isLoading) return;
+    setLoadedQueryIdentity((current) =>
+      current === queryIdentity ? current : queryIdentity,
+    );
+  }, [isFetching, isLoading, queryIdentity, result, shouldQuery]);
+
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  useEffect(() => {
+    if (!onRefreshChange) return;
+    if (!shouldQuery) {
+      onRefreshChange(null);
+      return;
+    }
+    onRefreshChange(handleRefresh);
+    return () => onRefreshChange(null);
+  }, [handleRefresh, onRefreshChange, shouldQuery]);
+
+  useEffect(() => {
+    onRefreshingChange?.(shouldQuery && isFetching && !isLoading);
+    return () => onRefreshingChange?.(false);
+  }, [isFetching, isLoading, onRefreshingChange, shouldQuery]);
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {

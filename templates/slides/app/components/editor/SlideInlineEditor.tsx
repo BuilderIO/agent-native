@@ -1,17 +1,19 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { isReconcileLeadClient } from "@agent-native/core/client";
 import { Extension } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
-import { TextStyle } from "@tiptap/extension-text-style";
-import { Color } from "@tiptap/extension-color";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import { Color } from "@tiptap/extension-color";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef, useCallback, useState } from "react";
-import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
-import { isReconcileLeadClient } from "@agent-native/core/client";
+import type * as Y from "yjs";
+
 import type { Slide } from "@/context/DeckContext";
+
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
 import {
   SlashCommandExtension,

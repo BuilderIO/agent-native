@@ -1,22 +1,23 @@
-import { useState } from "react";
-import {
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebar,
-  IconShare2,
-} from "@tabler/icons-react";
 import {
   AgentToggleButton,
   NotificationsBell,
   ShareButton,
   useT,
 } from "@agent-native/core/client";
-import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebar,
+  IconShare2,
+} from "@tabler/icons-react";
+import { useState } from "react";
+
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useDbStatus } from "@/hooks/use-db-status";
 
 type StudioHeaderProps = {
   sidebarOpen: boolean;

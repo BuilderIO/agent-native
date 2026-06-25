@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import type {
   BuilderCmsModelFieldSummary,
   ContentDatabaseResponse,
@@ -8,6 +9,10 @@ import type {
   ContentDatabaseSourceType,
 } from "../shared/api.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+} from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
   getExistingSource,
@@ -25,15 +30,11 @@ import {
   updateBuilderCmsSourceReadMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
-import {
-  readBuilderCmsContentEntries,
-  readBuilderCmsModelFields,
-} from "./_builder-cms-read-client.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   readLocalTableEntries,
   resolveReadableLocalTableSource,
 } from "./_local-table-source.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const sourceTypeSchema = z
   .enum(["mock-local", "builder-cms", "local-table"])

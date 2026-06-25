@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  agentNativePath,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import {
   IconPuzzle,
   IconGripVertical,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -12,17 +20,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import { formatMs } from "@/lib/timestamp-mapping";
-import {
-  agentNativePath,
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client";
 import { exportConcat } from "@/lib/ffmpeg-export";
-import { toast } from "sonner";
+import { formatMs } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 /** Client-side upload via the framework's auto-mounted `/file-upload` route. */
 async function uploadFileClient(

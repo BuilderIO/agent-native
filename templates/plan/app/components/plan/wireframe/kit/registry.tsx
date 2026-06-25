@@ -1,8 +1,9 @@
-import { type ReactNode } from "react";
 import type {
   PlanWireframeElName,
   PlanWireframeNode,
 } from "@shared/plan-content";
+import { type ReactNode } from "react";
+
 import {
   Avatar,
   Bar,

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
 import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface BookingOgImageInput {

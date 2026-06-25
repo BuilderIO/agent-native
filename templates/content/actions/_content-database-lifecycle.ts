@@ -1,9 +1,10 @@
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
-import { nfmToDoc, type PMNode } from "../shared/nfm.js";
-import { parseRegistryBlockData } from "../shared/nfm-registry.js";
 import type { InlineDatabaseData } from "../shared/inline-database-block.js";
+import { parseRegistryBlockData } from "../shared/nfm-registry.js";
+import { nfmToDoc, type PMNode } from "../shared/nfm.js";
 
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type DocumentRow = typeof schema.documents.$inferSelect;

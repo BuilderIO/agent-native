@@ -1,11 +1,30 @@
-import { useState } from "react";
+import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   IconPlus,
   IconCheck,
   IconSettings,
   IconChevronLeft,
 } from "@tabler/icons-react";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useState } from "react";
+
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useApolloPerson } from "@/hooks/use-apollo";
 import {
   useIntegration,
   useAllIntegrations,
@@ -13,24 +32,6 @@ import {
   useGongCalls,
   usePylonContact,
 } from "@/hooks/use-integrations";
-import { useApolloPerson } from "@/hooks/use-apollo";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;

@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getAccessToken } from "../server/lib/gcloud";
+
 import { getBigQueryProjectId } from "../server/lib/bigquery";
+import { getAccessToken } from "../server/lib/gcloud";
 import { cliBoolean } from "./schema-helpers";
 
 interface BigQueryField {

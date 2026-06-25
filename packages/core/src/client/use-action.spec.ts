@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { callAction, serializeActionQueryParams } from "./use-action.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {

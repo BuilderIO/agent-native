@@ -1,4 +1,3 @@
-import { useState, useRef, useCallback, useEffect } from "react";
 import {
   IconEraser,
   IconArrowBackUp,
@@ -6,14 +5,16 @@ import {
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface DrawAnnotation {
   id: string;

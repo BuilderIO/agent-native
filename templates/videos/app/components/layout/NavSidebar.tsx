@@ -1,4 +1,11 @@
-import { Link, useLocation } from "react-router";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconVideo,
   IconComponents,
@@ -6,15 +13,9 @@ import {
   IconSettings,
   IconUsers,
 } from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
+
 import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useT,
-} from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 
 const navItems = [
   { icon: IconVideo, labelKey: "navigation.animations", href: "/" },

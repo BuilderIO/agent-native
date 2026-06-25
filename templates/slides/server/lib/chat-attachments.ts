@@ -1,7 +1,9 @@
-import type { AgentChatAttachment } from "@agent-native/core/server";
 import path from "path";
-import { saveUploadedReferenceFile } from "../handlers/uploads.js";
+
+import type { AgentChatAttachment } from "@agent-native/core/server";
+
 import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
+import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
 

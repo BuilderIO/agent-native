@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { normalizeCodeAgentTranscriptForConversation } from "./code-agent-transcript.js";
 import type { CodeAgentConversationTranscriptEvent } from "./code-agent-transcript.js";
 

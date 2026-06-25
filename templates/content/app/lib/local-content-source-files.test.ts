@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "@shared/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   localSourceAbsolutePath,
   readDocumentFromLinkedLocalSource,

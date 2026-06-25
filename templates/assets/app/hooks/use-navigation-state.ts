@@ -4,6 +4,7 @@ import {
   getBrowserTabId,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 function optionalParam(params: URLSearchParams, key: string) {

@@ -1,4 +1,5 @@
 import { desc, eq, sql } from "drizzle-orm";
+
 import { db, schema } from "../db/index.js";
 
 function makeId(owner: string, contact: string): string {

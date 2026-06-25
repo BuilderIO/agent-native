@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
   AddDatabaseItemRequest,
@@ -27,6 +26,7 @@ import type {
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;

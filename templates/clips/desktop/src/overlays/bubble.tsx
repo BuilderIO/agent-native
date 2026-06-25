@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconCameraOff } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
 type BubbleSize = "small" | "medium";
 
 /**

@@ -14,8 +14,8 @@
  * dialog automatically — most templates never touch these directly.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
 import { IconX, IconHistory } from "@tabler/icons-react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { parseChangelog, type ChangelogEntry } from "../../changelog/parse.js";
 import {

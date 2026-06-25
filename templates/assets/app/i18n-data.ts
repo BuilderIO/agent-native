@@ -922,8 +922,7 @@ export const messagesByLocale = {
     create: {
       imageModel: "इमेज मॉडल",
       emptyState: "Assets से पूछें कि क्या बनाना है।",
-      composerPlaceholder:
-        "एसेट का वर्णन करें - + से images या text context जोड़ें",
+      composerPlaceholder: "एसेट का वर्णन करें - + से images या text context जोड़ें",
       heroTitle: "हम कौन सा एसेट बनाएं?",
       heroDescription:
         "hero image, product reveal, reference edit या खोजने की दिशा से शुरू करें।",

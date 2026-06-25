@@ -1,4 +1,5 @@
 import { Editor, type JSONContent } from "@tiptap/core";
+
 import { createSharedEditorExtensions } from "./extensions.js";
 import { RunId } from "./RunId.js";
 

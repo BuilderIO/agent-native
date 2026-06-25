@@ -1,22 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useImperativeHandle,
-  useMemo,
-} from "react";
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import type { EditorView } from "@tiptap/pm/view";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { FileReference } from "./extensions/FileReference.js";
-import { SkillReference } from "./extensions/SkillReference.js";
-import { MentionReference } from "./extensions/MentionReference.js";
-import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
-import { useMentionSearch } from "./use-mention-search.js";
-import { useSkills } from "./use-skills.js";
 import {
   IconArrowUp,
   IconCheck,
@@ -31,7 +13,48 @@ import {
   IconPencil,
   IconPlugConnected,
 } from "@tabler/icons-react";
+import Placeholder from "@tiptap/extension-placeholder";
+import type { EditorView } from "@tiptap/pm/view";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+} from "react";
+
+import {
+  getReasoningEffortOptionsForModel,
+  reasoningEffortLabel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
+import { AgentComposerReference, normalizeAgentComposerReference, sendToAgentChat, type AgentChatContextItem, AgentComposerReferenceInsertPayload, AGENT_CHAT_INSERT_REFERENCE_EVENT, AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE } from "../agent-chat.js";
+import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import { getComposerDraftKey } from "./draft-key.js";
+import { FileReference } from "./extensions/FileReference.js";
+import { MentionReference } from "./extensions/MentionReference.js";
+import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import {
+  createPastedAttachmentFile,
+  readClipboardPaste,
+  shouldConvertClipboardToAttachment,
+} from "./pasted-text.js";
 import type {
   MentionItem,
   SkillResult,
@@ -40,45 +63,12 @@ import type {
   ComposerMode,
   AgentComposerLayoutVariant,
 } from "./types.js";
+import { useMentionSearch } from "./use-mention-search.js";
+import { useSkills } from "./use-skills.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
-import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
-import {
-  AGENT_CHAT_INSERT_REFERENCE_EVENT,
-  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
-  normalizeAgentComposerReference,
-  sendToAgentChat,
-  type AgentChatContextItem,
-  type AgentComposerReference,
-  type AgentComposerReferenceInsertPayload,
-} from "../agent-chat.js";
-import {
-  isTrustedBuilderMessage,
-  tryDelegateBuildRequestToBuilder,
-} from "../builder-frame.js";
 import { isTrustedFrameMessage } from "../frame.js";
-import { getComposerDraftKey } from "./draft-key.js";
-import {
-  createPastedAttachmentFile,
-  readClipboardPaste,
-  shouldConvertClipboardToAttachment,
-} from "./pasted-text.js";
-import {
-  getReasoningEffortOptionsForModel,
-  reasoningEffortLabel,
-  type ReasoningEffort,
-} from "../../shared/reasoning-effort.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-
+import { isTrustedBuilderMessage } from "../builder-frame.js";
 export interface TiptapComposerHandle {
   focus(): void;
   setText(text: string): void;

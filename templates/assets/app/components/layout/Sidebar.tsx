@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  navigateWithAgentChatViewTransition,
+  useActionQuery,
+  useChatThreads,
+  useT,
+  type ChatThreadSummary,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArchive,
   IconClipboardList,
@@ -14,21 +24,10 @@ import {
   IconSettings,
   IconShare3,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  navigateWithAgentChatViewTransition,
-  useActionQuery,
-  useChatThreads,
-  useT,
-  type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +40,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+import { cn } from "@/lib/utils";
 
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },

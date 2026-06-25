@@ -1,5 +1,50 @@
 # @agent-native/core
 
+## 0.77.0
+
+### Minor Changes
+
+- dd40496: Add a `"none"` block `editSurface` so a registered block can render its `Read` view in edit mode with no data form and no corner edit (pencil) button — for blocks whose whole-block operations live in the editor chrome/menu rather than a generated or custom editor.
+- 2a03c35: Upgrade framework and template React Router support to v8 and require the v8 runtime baselines.
+
+### Patch Changes
+
+- 2a03c35: Animate the standard agent sidebar drawer when it opens and closes.
+- 2a03c35: Preserve signed Builder connect callback query parameters on mounted framework routes so docs and other app surfaces can complete Connect Builder flows reliably.
+- 2a03c35: Durable background diagnostics: preserve the background-function worker's last
+  `diag_stage` (`route_entered` / `auth_failed` / etc., or `none` if it never
+  reached the route) in the foreground circuit-breaker's
+  `foreground_inline_recovery` detail instead of overwriting it. This makes a
+  silent worker death diagnosable from `/runs/active` without reading the
+  unreadable Netlify background-function logs. `readBackgroundRunClaim` now also
+  returns `diagStage`.
+- 2a03c35: Durable background agent runs: add a foreground **circuit-breaker** so a dead
+  background worker can no longer break chat. A Netlify async background function
+  returns `202` the instant it enqueues the invocation, but the worker may never
+  execute — e.g. the generated function wrapper fails to import `./main.mjs` or
+  hand off to the Nitro `_process-run` route, so it never reaches
+  `claimBackgroundRun` and the run is reaped as "worker never claimed the run".
+  After a successful dispatch the foreground now polls briefly for the worker to
+  actually claim the run; if it doesn't within the grace window, the turn is
+  recovered **inline** (the same safe atomic-claim path used for a fast dispatch
+  failure), so a dead worker degrades to a working synchronous turn instead of a
+  reaped failure. Also harden the generated background-function wrapper to pass
+  Netlify's `context` through to the Nitro handler and wrap the handoff in
+  try/catch so a pre-route failure is logged loudly instead of silently swallowed
+  behind the async 202.
+- 2a03c35: Add a linkable API reference section for authenticated extension data routes to the Extensions docs.
+- 2a03c35: Keep note-only FileTree file rows inline without disclosure chevrons, truncating long notes and showing the hover tooltip only when the text is actually clipped.
+- 2a03c35: Link the first actions mention in Getting Started to the actions docs.
+- 2a03c35: Bundle an Arabic-capable OG image font so localized Arabic docs previews render real text instead of missing-glyph boxes.
+- 2a03c35: Show a New chat button on full-page Ask chat surfaces with visible conversation tabs after a conversation starts.
+- 2a03c35: Prevent default-closed agent sidebars from reopening because of stale global sidebar state.
+- 2a03c35: Add an `agentNative()` Vite plugin preset so app `vite.config.ts` files can use
+  Vite's native `defineConfig` while keeping Agent-Native framework defaults.
+- 2a03c35: Preserve first-touch referral attribution through email and Google OAuth signups, and make Postgres parameter conversion ignore question marks inside SQL literals.
+- 2a03c35: Stop showing previous scoped chats in the empty chat state.
+- 2a03c35: Let the agent composer model picker shrink to its content instead of forcing a tall popover.
+- 2a03c35: Make PR visual recap comments report screenshot failures explicitly and cache-bust embedded screenshot URLs per workflow run so GitHub does not reuse stale image proxy entries.
+
 ## 0.76.14
 
 ### Patch Changes

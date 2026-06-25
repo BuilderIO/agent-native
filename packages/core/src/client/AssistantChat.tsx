@@ -1,13 +1,3 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-  useLayoutEffect,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -25,79 +15,6 @@ import type {
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
-  createAgentChatAdapter,
-  type AgentChatSurfaceKind,
-} from "./agent-chat-adapter.js";
-import {
-  createAgentChatRuntimeAdapter,
-  type AgentChatRuntime,
-} from "./chat/runtime.js";
-import {
-  appendAgentChatContextToMessage,
-  formatAgentChatContextItemsForPrompt,
-  normalizeAgentChatContextItem,
-  publishAgentChatContextItems,
-  refreshAgentChatContext,
-  type AgentChatContextItem,
-} from "./agent-chat.js";
-import {
-  useAgentDynamicSuggestionsResult,
-  type AgentDynamicSuggestionsOption,
-} from "./dynamic-suggestions.js";
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import type {
-  ChatThreadScope,
-  ChatThreadSnapshot,
-} from "./use-chat-threads.js";
-import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
-import {
-  getActiveRun,
-  resolveReconnectAfterSeq,
-  setActiveRun,
-  updateActiveRunSeq,
-} from "./active-run-state.js";
-import {
-  AgentAutoContinueSignal,
-  type ContentPart,
-  readSSEStreamRaw,
-  settleInterruptedToolCalls,
-} from "./sse-event-processor.js";
-import { captureError } from "./analytics.js";
-import {
-  AssistantMessageListErrorBoundary,
-  AssistantUiStaleIndexErrorBoundary,
-} from "./assistant-ui-recovery.js";
-import { cn } from "./utils.js";
-import { useNearBottomAutoscroll } from "./conversation/index.js";
-import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./components/ui/tooltip.js";
-import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
-import {
-  GuidedQuestionFlow,
-  useGuidedQuestionFlow,
-} from "./guided-questions.js";
-import { useDevMode } from "./use-dev-mode.js";
-import { agentNativePath } from "./api-path.js";
-import {
-  TiptapComposer,
-  type ComposerSubmitIntent,
-  type ComposerImageModelMenu,
-  type TiptapComposerHandle,
-} from "./composer/TiptapComposer.js";
-import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import type {
-  AgentComposerLayoutVariant,
-  Reference,
-} from "./composer/types.js";
-import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
-import { PastedTextChip } from "./composer/PastedTextChip.js";
-import { ContextMeter } from "./context-xray/ContextMeter.js";
-import {
   IconMessage,
   IconX,
   IconPlayerStop,
@@ -106,6 +23,43 @@ import {
   IconAlertTriangle,
   IconRefresh,
 } from "@tabler/icons-react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import {
+  getActiveRun,
+  resolveReconnectAfterSeq,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "./active-run-state.js";
+import {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+} from "./agent-chat-adapter.js";
+import {
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
+  normalizeAgentChatContextItem,
+  publishAgentChatContextItems,
+  refreshAgentChatContext,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
+import { captureError } from "./analytics.js";
+import { agentNativePath } from "./api-path.js";
+import {
+  AssistantMessageListErrorBoundary,
+  AssistantUiStaleIndexErrorBoundary,
+} from "./assistant-ui-recovery.js";
+import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
 // ─── chat/ module imports ─────────────────────────────────────────────────────
 import {
   DownscalingImageAttachmentAdapter,
@@ -121,12 +75,6 @@ import {
 } from "./chat/attachment-adapters.js";
 import { TextStreamingContext } from "./chat/markdown-renderer.js";
 import {
-  ChatRunningContext,
-  ApprovalContext,
-  type ApprovalContextValue,
-  ReconnectStreamMessage,
-} from "./chat/tool-call-display.js";
-import {
   CheckpointContext,
   MessageActionsContext,
   UserMessage,
@@ -134,6 +82,13 @@ import {
   SelectionAttachedPill,
   RunningActivityStatus,
 } from "./chat/message-components.js";
+import {
+  repoHasAssistantMessage,
+  getRepoMessages,
+  getRepoMessage,
+  shouldImportServerThreadData,
+  dedupeRepoMessagesById,
+} from "./chat/repo-helpers.js";
 import {
   BuilderSetupCard,
   LoopLimitContinueCard,
@@ -147,12 +102,58 @@ import {
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
 import {
-  repoHasAssistantMessage,
-  getRepoMessages,
-  getRepoMessage,
-  shouldImportServerThreadData,
-  dedupeRepoMessagesById,
-} from "./chat/repo-helpers.js";
+  createAgentChatRuntimeAdapter,
+  type AgentChatRuntime,
+} from "./chat/runtime.js";
+import {
+  ChatRunningContext,
+  ApprovalContext,
+  type ApprovalContextValue,
+  ReconnectStreamMessage,
+} from "./chat/tool-call-display.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
+import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
+import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
+import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
+import { PastedTextChip } from "./composer/PastedTextChip.js";
+import {
+  TiptapComposer,
+  type ComposerSubmitIntent,
+  type ComposerImageModelMenu,
+  type TiptapComposerHandle,
+} from "./composer/TiptapComposer.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+} from "./composer/types.js";
+import { ContextMeter } from "./context-xray/ContextMeter.js";
+import { useNearBottomAutoscroll } from "./conversation/index.js";
+import {
+  useAgentDynamicSuggestionsResult,
+  type AgentDynamicSuggestionsOption,
+} from "./dynamic-suggestions.js";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
+import {
+  AgentAutoContinueSignal,
+  type ContentPart,
+  readSSEStreamRaw,
+  settleInterruptedToolCalls,
+} from "./sse-event-processor.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import type {
+  ChatThreadScope,
+  ChatThreadSnapshot,
+} from "./use-chat-threads.js";
+import { useDevMode } from "./use-dev-mode.js";
+import { cn } from "./utils.js";
 
 export {
   AssistantMessageListErrorBoundary,

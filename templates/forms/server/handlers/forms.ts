@@ -1,13 +1,13 @@
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRequestURL,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
 
-import { getDb, schema } from "../db/index.js";
 import { toPublicFormSettings, type FormSettings } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
 
 // ---------------------------------------------------------------------------
 // Public form handler (unauthenticated — stays as API route)

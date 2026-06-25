@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconBlur,
   IconBrowser,
@@ -19,20 +12,28 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -40,27 +41,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
-import { cn } from "@/lib/utils";
-import {
-  NO_CAMERA_DEVICE_ID,
-  NO_MIC_DEVICE_ID,
-  type DisplaySurface,
-  type RecordingMode,
-} from "./recorder-engine";
-import type { CameraBubbleSize } from "./camera-bubble";
+import { Switch } from "@/components/ui/switch";
 import { DEFAULT_BLUR_PX, MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
+import { cn } from "@/lib/utils";
+
+import type { CameraBubbleSize } from "./camera-bubble";
 import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   friendlyMicError,
   type MicrophoneTestStatus,
 } from "./microphone-visualizer";
+import {
+  NO_CAMERA_DEVICE_ID,
+  NO_MIC_DEVICE_ID,
+  type DisplaySurface,
+  type RecordingMode,
+} from "./recorder-engine";
 
 export interface PreRecordPanelProps {
   onStart: (opts: {
@@ -191,6 +193,7 @@ export function PreRecordPanel({
   cameraSize = "md",
   onCameraSizeChange,
 }: PreRecordPanelProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loomInputRef = useRef<HTMLInputElement>(null);
   // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
@@ -856,16 +859,18 @@ export function PreRecordPanel({
                         <IconBlur className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm">Blur background</p>
+                        <p className="text-sm">
+                          {t("recorder.cameraBlurTitle")}
+                        </p>
                         <p className="text-[11px] text-muted-foreground">
-                          Keep yourself sharp, blur what's behind you
+                          {t("recorder.cameraBlurDescription")}
                         </p>
                       </div>
                       <Switch
                         checked={cameraBlur}
                         onCheckedChange={chooseCameraBlur}
                         disabled={busy}
-                        aria-label="Blur the camera background"
+                        aria-label={t("recorder.cameraBlurToggle")}
                       />
                     </label>
                   ) : null}
@@ -873,7 +878,7 @@ export function PreRecordPanel({
                   {needsCamera && cameraBlur ? (
                     <div className="flex items-center gap-3 px-1 pb-1">
                       <span className="w-14 shrink-0 text-[11px] text-muted-foreground">
-                        Intensity
+                        {t("recorder.cameraBlurIntensityLabel")}
                       </span>
                       <Slider
                         value={[cameraBlurRadius]}
@@ -889,7 +894,7 @@ export function PreRecordPanel({
                             cameraBlurRadius: value[0] ?? DEFAULT_BLUR_PX,
                           })
                         }
-                        aria-label="Background blur intensity"
+                        aria-label={t("recorder.cameraBlurIntensityAria")}
                         className="flex-1"
                       />
                     </div>

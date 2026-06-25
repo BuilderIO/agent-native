@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";

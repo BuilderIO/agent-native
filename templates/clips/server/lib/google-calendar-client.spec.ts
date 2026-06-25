@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { refreshAccessTokenWithFallback } from "./google-calendar-client";
 
 describe("Clips Google Calendar OAuth client", () => {

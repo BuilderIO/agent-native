@@ -26,8 +26,9 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+
 import { agentNativePath } from "../client/api-path.js";
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 

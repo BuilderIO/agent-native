@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import Team from "@/pages/Team";
+
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
+import Team from "@/pages/Team";
 
 export function meta() {
   return [{ title: "Team — Calendar" }];

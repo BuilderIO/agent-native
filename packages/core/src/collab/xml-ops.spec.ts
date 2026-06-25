@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
+
 import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 /** Build a <paragraph> element wrapping a single text node. */

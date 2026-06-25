@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { IconAlertCircle, IconClock, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IconAlertCircle, IconClock, IconX } from "@tabler/icons-react";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { useEffect, useRef, useState } from "react";
 
 interface NotificationData {
   type: "calendar" | "adhoc";

@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { focusAgentChat } from "@agent-native/core/client";
+import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 export function isAgentSidebarVisible() {
   const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+
 import { cn } from "@/lib/utils";
 import type { WaveformPeaks } from "@/lib/waveform-peaks";
 

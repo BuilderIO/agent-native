@@ -1,5 +1,6 @@
-import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,

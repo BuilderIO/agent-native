@@ -8,6 +8,20 @@
  */
 import { appBasePath, captureClientException } from "@agent-native/core/client";
 import {
+  chunkUploadUrl,
+  pickMimeType,
+  pickMimeTypeCandidates,
+} from "@shared/recording-core";
+
+import {
+  createBackgroundBlurStream,
+  type CameraBlurHandle,
+} from "@/lib/camera-blur";
+import {
+  createCameraCompositeStream,
+  type CameraCompositeHandle,
+} from "@/lib/camera-composite";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -15,19 +29,6 @@ import {
   formatMb,
   type CompressionResult,
 } from "@/lib/compress";
-import {
-  createCameraCompositeStream,
-  type CameraCompositeHandle,
-} from "@/lib/camera-composite";
-import {
-  createBackgroundBlurStream,
-  type CameraBlurHandle,
-} from "@/lib/camera-blur";
-import {
-  chunkUploadUrl,
-  pickMimeType,
-  pickMimeTypeCandidates,
-} from "@shared/recording-core";
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.

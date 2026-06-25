@@ -1,4 +1,10 @@
 import { z } from "zod";
+
+import { emit as emitBusEvent } from "../event-bus/bus.js";
+import { registerEvent } from "../event-bus/registry.js";
+import type { EventDefinition } from "../event-bus/types.js";
+import { truncate } from "../shared/truncate.js";
+import { insertNotification, updateDeliveredChannels } from "./store.js";
 import {
   NOTIFICATION_SEVERITIES,
   type NotificationChannel,
@@ -6,11 +12,6 @@ import {
   type NotificationMeta,
   type Notification,
 } from "./types.js";
-import { insertNotification, updateDeliveredChannels } from "./store.js";
-import { emit as emitBusEvent } from "../event-bus/bus.js";
-import { registerEvent } from "../event-bus/registry.js";
-import type { EventDefinition } from "../event-bus/types.js";
-import { truncate } from "../shared/truncate.js";
 
 registerEvent({
   name: "notification.sent",

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { toast } from "sonner";
-import { Editor } from "@tiptap/react";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconTypography,
   IconH1,
@@ -23,8 +23,11 @@ import {
   IconDatabase,
   IconVideo,
 } from "@tabler/icons-react";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
+import { Editor } from "@tiptap/react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { toast } from "sonner";
+
+import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import {
   Popover,
   PopoverContent,
@@ -32,13 +35,12 @@ import {
 } from "@/components/ui/popover";
 import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
-import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
-import { buildRegistrySlashItems } from "./registrySlashItems";
+import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
+
+import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
-import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
-import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
   editor: Editor;

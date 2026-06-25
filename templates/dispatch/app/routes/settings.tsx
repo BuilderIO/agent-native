@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import {
   ChangelogSettingsCard,
   LanguagePicker,
@@ -14,6 +13,8 @@ import {
   CardTitle,
 } from "@agent-native/dispatch/components/ui/card";
 import { Label } from "@agent-native/dispatch/components/ui/label";
+import { Link } from "react-router";
+
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {

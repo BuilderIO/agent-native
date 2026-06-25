@@ -1,11 +1,13 @@
 import { createHash } from "crypto";
-import { getAccessToken } from "./gcloud";
+
+import { getDbExec } from "@agent-native/core/db";
+
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
-import { getDbExec } from "@agent-native/core/db";
+import { getAccessToken } from "./gcloud";
 
 async function getProjectContext(): Promise<{
   projectId: string;

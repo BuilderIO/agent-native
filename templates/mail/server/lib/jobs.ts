@@ -1,4 +1,3 @@
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   getOAuthTokens,
   saveOAuthTokens,
@@ -6,17 +5,13 @@ import {
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { markdownPreviewSnippet } from "@shared/markdown.js";
+import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { markdownPreviewSnippet } from "@shared/markdown.js";
+
 import { db, schema } from "../db/index.js";
-import {
-  getAccountDisplayName,
-  isConnected,
-  gmailToEmailMessage,
-  setAccountDisplayName,
-} from "./google-auth.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -26,6 +21,12 @@ import {
   gmailModifyThread,
   googleFetch,
 } from "./google-api.js";
+import {
+  getAccountDisplayName,
+  isConnected,
+  gmailToEmailMessage,
+  setAccountDisplayName,
+} from "./google-auth.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,

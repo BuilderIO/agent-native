@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { planBlockSchema, type PlanContent } from "../shared/plan-content.js";
+
 import { describePlanBlocksForAgent } from "../shared/plan-block-registry.js";
+import { planBlockSchema, type PlanContent } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
 
 /* -------------------------------------------------------------------------- */

@@ -1,12 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { z } from "zod";
-import { notifyClients } from "../server/handlers/decks.js";
-import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
   awaitLayoutFitCheck,

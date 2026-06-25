@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarOpenPreferenceKey,
   getInitialAgentSidebarOpen,
   requestAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
@@ -40,15 +41,28 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(getInitialAgentSidebarOpen(false)).toBe(false);
   });
 
-  it("uses the saved desktop preference outside Builder", () => {
+  it("does not auto-open default-closed sidebars from saved state", () => {
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
-    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
 
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "false");
     expect(getInitialAgentSidebarOpen(true)).toBe(false);
   });
 
-  it("can persist and request sidebar open state", () => {
+  it("scopes saved sidebar state by storage key", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    setAgentSidebarOpenPreference(false, "docs");
+
+    expect(getInitialAgentSidebarOpen(true, "plans")).toBe(true);
+    expect(getInitialAgentSidebarOpen(true, "docs")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "plans")).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
+  });
+
+  it("can persist sidebar state and request a transient open", () => {
     const openEvents: string[] = [];
     window.addEventListener("agent-panel:open", () => openEvents.push("open"));
 
@@ -57,7 +71,7 @@ describe("getInitialAgentSidebarOpen", () => {
 
     requestAgentSidebarOpen();
 
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
     expect(openEvents).toEqual(["open"]);
   });
 
@@ -87,8 +101,11 @@ describe("getInitialAgentSidebarOpen", () => {
       "/inbox?threadId=t1&agentSidebar=closed#message",
     );
 
-    expect(consumeAgentSidebarUrlOpenOverride()).toBe(false);
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(consumeAgentSidebarUrlOpenOverride("docs")).toBe(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
     expect(window.location.pathname).toBe("/inbox");
     expect(window.location.search).toBe("?threadId=t1");
     expect(window.location.hash).toBe("#message");
@@ -98,7 +115,7 @@ describe("getInitialAgentSidebarOpen", () => {
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
     const seen: Array<boolean | null> = [];
     const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
-      seen.push(consumeAgentSidebarUrlOpenOverride());
+      seen.push(consumeAgentSidebarUrlOpenOverride("docs"));
     });
 
     window.history.pushState(
@@ -109,7 +126,10 @@ describe("getInitialAgentSidebarOpen", () => {
 
     unsubscribe();
     expect(seen).toContain(false);
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(
+      window.localStorage.getItem(getAgentSidebarOpenPreferenceKey("docs")),
+    ).toBe("false");
     expect(window.location.pathname).toBe("/inbox");
     expect(window.location.search).toBe("?threadId=t1");
   });

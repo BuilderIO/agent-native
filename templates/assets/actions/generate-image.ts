@@ -4,17 +4,17 @@ import {
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
-import { compositeLogo } from "../server/lib/image-processing.js";
 import { applyPromptTemplate } from "../server/lib/generation-presets.js";
 import {
   compilePrompt,
@@ -23,8 +23,9 @@ import {
   isImageGenerationSetupError,
   selectReferences,
 } from "../server/lib/generation.js";
-import { getObject } from "../server/lib/storage.js";
+import { compositeLogo } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { getObject } from "../server/lib/storage.js";
 import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,

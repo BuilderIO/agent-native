@@ -1,16 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  createEmbeddedAppBridge,
-  type EmbeddedAppBridge,
-} from "@agent-native/core/embedding/bridge";
 import {
   appPath,
   getBrowserTabId,
@@ -28,6 +16,10 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client";
 import {
+  createEmbeddedAppBridge,
+  type EmbeddedAppBridge,
+} from "@agent-native/core/embedding/bridge";
+import {
   IconArrowUpRight,
   IconCheck,
   IconChevronDown,
@@ -39,19 +31,15 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams,   useLocation,
+  useNavigate,
+  useParams,
+ } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -62,37 +50,42 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
+import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import type { AssetVariantState, ImageQualityTier, StyleStrength } from "../../shared/api";
+import { DEFAULT_LIBRARY_PRESETS, LibraryPreset } from "../../shared/library-presets";
+import {
+  sortLibrariesByUsage,
+  type ImageLibrarySummary,
+} from "@/lib/libraries";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
-import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import {
-  sortLibrariesByUsage,
-  type ImageLibrarySummary,
-} from "@/lib/libraries";
-import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogClose
+} from "@/components/ui/dialog";
+
 import {
   BrandKitDetailRoute,
   LiveCandidatesStage,
   type VariantSlot,
 } from "./brand-kits.$id";
-import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
-import type { LibraryPreset } from "../../shared/library-presets";
-import type {
-  AssetVariantState,
-  ImageQualityTier,
-  StyleStrength,
-} from "../../shared/api";
+import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
 
 type AssetTab = "all" | "generated" | "references";
 

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
+
 import { mountPrototypeRuntime } from "./prototype-runtime";
 import { sanitizeWireframeHtml } from "./sanitize-html";
 

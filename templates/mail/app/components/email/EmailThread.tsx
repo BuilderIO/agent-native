@@ -1,56 +1,5 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  forwardRef,
-  Fragment,
-} from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
-import {
-  cn,
-  formatEmailDate,
-  formatFileSize,
-  formatShortcut,
-} from "@/lib/utils";
-import { useTheme } from "next-themes";
-import { useComposeState } from "@/hooks/use-compose-state";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import {
-  useThreadMessages,
-  useArchiveEmail,
-  useTrashEmail,
-  useUntrashEmail,
-  useToggleStar,
-  useMarkRead,
-  useMarkThreadRead,
-  useUnarchiveEmail,
-  useSettings,
-  useUpdateSettings,
-  useEmailTracking,
-  unsuppressThread,
-} from "@/hooks/use-emails";
-import { useQueryClient } from "@tanstack/react-query";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import { getResolvedTheme } from "@/lib/theme";
 import { appApiPath, useT } from "@agent-native/core/client";
-import {
-  decodeHtmlEntities,
-  processHtmlImages,
-} from "@/lib/email-image-policy";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { setUndoAction } from "@/hooks/use-undo";
-import { toast } from "sonner";
 import type { EmailMessage, MobileActionId } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   IconArchive,
   IconArrowLeft,
@@ -71,12 +20,65 @@ import {
   IconArrowsMinimize,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  forwardRef,
+  Fragment,
+} from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  useThreadMessages,
+  useArchiveEmail,
+  useTrashEmail,
+  useUntrashEmail,
+  useToggleStar,
+  useMarkRead,
+  useMarkThreadRead,
+  useUnarchiveEmail,
+  useSettings,
+  useUpdateSettings,
+  useEmailTracking,
+  unsuppressThread,
+} from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { setUndoAction } from "@/hooks/use-undo";
+import {
+  decodeHtmlEntities,
+  processHtmlImages,
+} from "@/lib/email-image-policy";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { getResolvedTheme } from "@/lib/theme";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import type { ThreadSummary } from "@/lib/threads";
+import {
+  cn,
+  formatEmailDate,
+  formatFileSize,
+  formatShortcut,
+} from "@/lib/utils";
+
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
 } from "./InlineReplyComposer";
 import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
   activeThreadId,

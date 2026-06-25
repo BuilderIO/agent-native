@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -7,11 +8,6 @@ import type {
   AnnotatedCodeAnnotation,
   AnnotatedCodeData,
 } from "./annotated-code.config.js";
-import {
-  highlightCode,
-  inferLanguageFromFilename,
-  normalizeCodeLanguage,
-} from "./code-highlight.js";
 import {
   AnnotationHiddenStack,
   AnnotationHoverCard,
@@ -25,9 +21,14 @@ import {
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
-import { CodeFilenameLabel } from "./code-filename-label.js";
-import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 import { useBlockCopy } from "./block-copy.js";
+import { CodeFilenameLabel } from "./code-filename-label.js";
+import {
+  highlightCode,
+  inferLanguageFromFilename,
+  normalizeCodeLanguage,
+} from "./code-highlight.js";
+import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
  * "Explain this code" walkthrough block: a standard syntax-highlighted code

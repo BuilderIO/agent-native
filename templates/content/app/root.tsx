@@ -1,23 +1,4 @@
 import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  isRouteErrorResponse,
-  useLoaderData,
-  useLocation,
-  useRouteLoaderData,
-  useRouteError,
-} from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
-import { Toaster } from "@/components/ui/toaster";
-// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import {
   AgentSidebar,
   AppProviders,
   appPath,
@@ -31,14 +12,36 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  isRouteErrorResponse,
+  useLoaderData,
+  useLocation,
+  useRouteLoaderData,
+  useRouteError,
+} from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+
+// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
+import { Toaster as Sonner } from "@/components/ui/sonner";
+// shadcn useToast-based toaster — separate from sonner, must stay inline.
+import { Toaster } from "@/components/ui/toaster";
+
+import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
-import changelog from "../CHANGELOG.md?raw";
-import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,

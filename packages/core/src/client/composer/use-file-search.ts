@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import type { FileResult } from "./types.js";
+
 import { agentNativePath } from "../api-path.js";
+import type { FileResult } from "./types.js";
 
 export function useFileSearch(query: string, enabled: boolean) {
   const [files, setFiles] = useState<FileResult[]>([]);

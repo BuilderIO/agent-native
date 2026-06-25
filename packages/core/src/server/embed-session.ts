@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import type { H3Event } from "h3";
 import {
   getCookie,
@@ -7,15 +8,16 @@ import {
   setCookie,
   setResponseHeader,
 } from "h3";
+
 import { getDbExec, intType } from "../db/client.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;

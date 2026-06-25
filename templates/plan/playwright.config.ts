@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+
 import { planE2eAuthStatePath, planE2eBaseUrl } from "./e2e/auth-state";
 
 const baseURL = planE2eBaseUrl();

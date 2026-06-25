@@ -1,22 +1,48 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent as ReactDragEvent,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import {
   agentNativePath,
   getBrowserTabId,
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
 } from "@agent-native/core/client";
+import {
+  BUILDER_CMS_SAFE_WRITE_MODEL,
+  type BuilderCmsModelSummary,
+  type ContentDatabaseItem,
+  type ContentDatabaseResponse,
+  type ContentDatabaseSource,
+  type ContentDatabaseSourceChangeSet,
+  type ContentDatabaseSourceJoinRequest,
+  type ContentDatabaseSourceReviewPayload,
+  type SourceJoinSuggestion,
+  type ContentDatabaseView,
+  type ContentDatabaseViewConfig,
+  type ContentDatabaseColumnCalculation,
+  type ContentDatabaseFilter,
+  type ContentDatabaseFilterMode,
+  type ContentDatabaseFilterOperator,
+  type ContentDatabaseOpenPagesIn,
+  type ContentDatabaseRowDensity,
+  type ContentDatabaseSort,
+  type ContentDatabaseSortDirection,
+  type ContentDatabaseViewType,
+  type Document,
+  type DocumentProperty,
+  type DocumentPropertyOption,
+  type DocumentPropertyType,
+  type DocumentPropertyValue,
+} from "@shared/api";
+import {
+  type DocumentPropertyOptionColor,
+  countWords,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  evaluateNormalizationFormula,
+  formatWordCount,
+  formulaValueText,
+  isComputedPropertyType,
+  isEmptyPropertyValue,
+} from "@shared/properties";
 import {
   IconArrowDown,
   IconArrowLeft,
@@ -56,6 +82,20 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,7 +164,9 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+
+import { BuilderSourceReviewDialog } from "../database-sources/BuilderSourceReviewDialog";
+import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
   DocumentProperties,
@@ -144,53 +186,13 @@ import {
   updatePropertyOptionColor,
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
-import { VisualEditor } from "../VisualEditor";
-import { DocumentBlockFields } from "../DocumentBlockFields";
 import { createPreviewDocumentSaveController } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
   peekPreviewDocumentSaveController,
   releasePreviewDocumentSaveController,
 } from "../previewDocumentSaveRegistry";
-import { BuilderSourceReviewDialog } from "../database-sources/BuilderSourceReviewDialog";
-import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
-  type BuilderCmsModelSummary,
-  type ContentDatabaseItem,
-  type ContentDatabaseResponse,
-  type ContentDatabaseSource,
-  type ContentDatabaseSourceChangeSet,
-  type ContentDatabaseSourceJoinRequest,
-  type ContentDatabaseSourceReviewPayload,
-  type SourceJoinSuggestion,
-  type ContentDatabaseView,
-  type ContentDatabaseViewConfig,
-  type ContentDatabaseColumnCalculation,
-  type ContentDatabaseFilter,
-  type ContentDatabaseFilterMode,
-  type ContentDatabaseFilterOperator,
-  type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseRowDensity,
-  type ContentDatabaseSort,
-  type ContentDatabaseSortDirection,
-  type ContentDatabaseViewType,
-  type Document,
-  type DocumentProperty,
-  type DocumentPropertyOption,
-  type DocumentPropertyType,
-  type DocumentPropertyValue,
-} from "@shared/api";
-import {
-  type DocumentPropertyOptionColor,
-  countWords,
-  documentPropertyDateKey,
-  documentPropertyDatePart,
-  evaluateNormalizationFormula,
-  formatWordCount,
-  formulaValueText,
-  isComputedPropertyType,
-  isEmptyPropertyValue,
-} from "@shared/properties";
+import { VisualEditor } from "../VisualEditor";
 
 export interface DatabaseViewProps {
   databaseId: string;

@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { useBlockFieldEditor } from "./DocumentBlockFields";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { __resetBlockFieldSaveRegistry } from "./blockFieldSaveRegistry";
+import { useBlockFieldEditor } from "./DocumentBlockFields";
 
 // A save record we can assert against: which (documentId, propertyId) each
 // write targeted, and with what value. Resolves immediately so single-flight +

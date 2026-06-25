@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconArrowNarrowRight,
   IconChevronRight,
@@ -6,6 +5,8 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -23,7 +24,6 @@ import {
   API_PARAM_LOCATIONS,
 } from "./api-endpoint.config.js";
 import { useBlockCopy } from "./block-copy.js";
-import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 import {
   DevBadge,
   DevInput,
@@ -31,6 +31,7 @@ import {
   DevTextarea,
   DevSelect,
 } from "./dev-doc-ui.js";
+import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 
 /**
  * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style

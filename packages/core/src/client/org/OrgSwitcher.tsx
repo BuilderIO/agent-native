@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconApps,
@@ -37,6 +35,10 @@ import {
   IconVideo,
   IconWorld,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+
+import { agentNativePath } from "../api-path.js";
 import {
   useOrg,
   useSwitchOrg,
@@ -45,7 +47,6 @@ import {
   useAcceptInvitation,
   useJoinByDomain,
 } from "./hooks.js";
-import { agentNativePath } from "../api-path.js";
 import {
   ORG_SWITCHER_MAX_APP_LINKS,
   useOrgSwitcherAppLinks,

@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type { DocumentTreeNode } from "@shared/api";
 import {
   IconChevronRight,
   IconDatabase,
@@ -9,22 +12,8 @@ import {
   IconTrash,
   IconDots,
 } from "@tabler/icons-react";
-import { useDroppable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
-import { useSortable } from "@dnd-kit/sortable";
-import { cn } from "@/lib/utils";
-import type { DocumentTreeNode } from "@shared/api";
-import {
-  documentSection,
-  type SidebarDocumentSection,
-} from "./document-sidebar-dnd";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,10 +25,23 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import {
+  documentSection,
+  type SidebarDocumentSection,
+} from "./document-sidebar-dnd";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;

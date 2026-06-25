@@ -30,6 +30,21 @@
  * Route: GET /api/video/:recordingId
  */
 
+import { readAppState } from "@agent-native/core/application-state";
+import {
+  createSsrfSafeDispatcher,
+  isBlockedExtensionUrlWithDns,
+} from "@agent-native/core/extensions/url-safety";
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  captureRouteError,
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
@@ -41,29 +56,15 @@ import {
   setCookie,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
-import { readAppState } from "@agent-native/core/application-state";
-import {
-  createSsrfSafeDispatcher,
-  isBlockedExtensionUrlWithDns,
-} from "@agent-native/core/extensions/url-safety";
-import { getOrgContext } from "@agent-native/core/org";
-import { resolveAccess } from "@agent-native/core/sharing";
-import {
-  captureRouteError,
-  getSession,
-  runWithRequestContext,
-  signShortLivedToken,
-  verifyShortLivedToken,
-} from "@agent-native/core/server";
+
 import {
   LOOM_START_MS_QUERY_PARAM,
   isLoomEmbedBackedRecording,
   loomEmbedUrlWithTimestamp,
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
-import { verifySharePassword } from "../../../lib/share-password.js";
 import { getDb, schema } from "../../../db/index.js";
+import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;

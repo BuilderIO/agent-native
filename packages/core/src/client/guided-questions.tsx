@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconCheck,
   IconChevronRight,
@@ -7,8 +5,11 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath } from "./api-path.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath } from "./api-path.js";
 import { setClientAppState } from "./application-state.js";
 import { cn } from "./utils.js";
 

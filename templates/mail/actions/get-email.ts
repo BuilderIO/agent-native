@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
+
 import { gmailGetMessage } from "../server/lib/google-api.js";
 import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
-import { z } from "zod";
+import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 export default defineAction({
   description:

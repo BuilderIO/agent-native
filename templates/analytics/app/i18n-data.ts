@@ -22,6 +22,9 @@ const enUS = {
     updated: "Updated {{date}}",
     created: "Created {{date}}",
   },
+  dashboard: {
+    panelSettings: "Panel settings",
+  },
   sidebar: {
     collapseDashboards: "Collapse dashboards",
     expandDashboards: "Expand dashboards",
@@ -172,6 +175,7 @@ function mergeMessages(overrides: {
   return {
     navigation: { ...enUS.navigation, ...overrides.navigation },
     dashboardHeader: { ...enUS.dashboardHeader, ...overrides.dashboardHeader },
+    dashboard: { ...enUS.dashboard, ...overrides.dashboard },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
@@ -1300,15 +1304,13 @@ export const messagesByLocale = {
       deleteFailed: "{{name}} हटाया नहीं जा सका",
       deleteFailedWithMessage: "{{name}} हटाया नहीं जा सका: {{message}}",
       archiveFailed: "{{name}} आर्काइव नहीं किया जा सका",
-      archiveFailedWithMessage:
-        "{{name}} आर्काइव नहीं किया जा सका: {{message}}",
+      archiveFailedWithMessage: "{{name}} आर्काइव नहीं किया जा सका: {{message}}",
       hideFailed: "{{name}} छिपाया नहीं जा सका",
       hideFailedWithMessage: "{{name}} छिपाया नहीं जा सका: {{message}}",
       unhideFailed: "{{name}} दिखाया नहीं जा सका",
       unhideFailedWithMessage: "{{name}} दिखाया नहीं जा सका: {{message}}",
       updateVisibilityFailed: "दृश्यता अपडेट नहीं हो सकी",
-      updateVisibilityFailedWithMessage:
-        "दृश्यता अपडेट नहीं हो सकी: {{message}}",
+      updateVisibilityFailedWithMessage: "दृश्यता अपडेट नहीं हो सकी: {{message}}",
       archivedName: "“{{name}}” आर्काइव किया गया",
       nameSharedWithOrg: "“{{name}}” संगठन के साथ साझा किया गया",
       nameMadePrivate: "“{{name}}” निजी किया गया",
@@ -1362,8 +1364,7 @@ export const messagesByLocale = {
         "मुझसे डैशबोर्ड का विश्लेषण, ट्रेंड की तुलना या डेटा में गहराई से देखने को कहें...",
       suggestionArrGrowth: "इस तिमाही ARR वृद्धि को क्या चला रहा है?",
       suggestionChurn: "पिछले 6 महीनों के churn ट्रेंड दिखाएं",
-      suggestionAnomalies:
-        "HubSpot Sales डैशबोर्ड में anomalies का विश्लेषण करें",
+      suggestionAnomalies: "HubSpot Sales डैशबोर्ड में anomalies का विश्लेषण करें",
       suggestionMrr: "enterprise और SMB के बीच MRR की तुलना करें",
     },
     guidedQuestions: {

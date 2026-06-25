@@ -1,4 +1,5 @@
 import type { Document } from "@shared/api";
+
 import { DatabaseView } from "./database/DatabaseView";
 
 export * from "./database/DatabaseView";

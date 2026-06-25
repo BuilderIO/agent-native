@@ -1,14 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import type { ActionRunContext } from "@agent-native/core/action";
-import { z } from "zod";
-import pLimit from "p-limit";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
-import generateImage from "./generate-image.js";
-import { requireGenerationSessionInLibrary } from "./_helpers.js";
-import { readImageModelDefault } from "./_image-model-default.js";
-import { upsertVariantSlot } from "./variant-slots.js";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import pLimit from "p-limit";
+import { z } from "zod";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 import {
@@ -20,6 +16,10 @@ import {
   IMAGE_SIZES,
   STYLE_STRENGTHS,
 } from "../shared/api.js";
+import { requireGenerationSessionInLibrary } from "./_helpers.js";
+import generateImage from "./generate-image.js";
+import { readImageModelDefault } from "./_image-model-default.js";
+import { upsertVariantSlot } from "./variant-slots.js";
 
 export default defineAction({
   description:

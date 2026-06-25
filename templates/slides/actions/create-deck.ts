@@ -1,19 +1,20 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),

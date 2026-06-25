@@ -1,8 +1,8 @@
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { getOrgContext } from "@agent-native/core/org";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, desc, inArray, isNull } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";

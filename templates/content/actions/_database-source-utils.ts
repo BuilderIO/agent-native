@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabase,
@@ -30,6 +31,12 @@ import type {
   DocumentProperty,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+  type BuilderCmsReadState,
+} from "./_builder-cms-read-client.js";
 import {
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
@@ -41,13 +48,7 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
-import {
-  readBuilderCmsContentEntries,
-  readBuilderCmsModelFields,
-  type BuilderCmsReadState,
-} from "./_builder-cms-read-client.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
-import { sanitizeNormalizationFormula } from "../shared/properties.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type ContentDatabaseSourceRowDb =

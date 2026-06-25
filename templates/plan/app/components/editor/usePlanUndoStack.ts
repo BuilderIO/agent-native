@@ -1,5 +1,5 @@
-import { useRef, type MutableRefObject } from "react";
 import type { PlanBlock } from "@shared/plan-content";
+import { useRef, type MutableRefObject } from "react";
 
 /* -------------------------------------------------------------------------- */
 /* Unified plan-editor undo/redo over the authoritative blocks[] tree.        */

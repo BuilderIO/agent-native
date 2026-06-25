@@ -1,5 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { A2AConfig } from "./types.js";
 
 const handleJsonRpcH3Mock = vi.hoisted(() =>

@@ -1,6 +1,7 @@
+import { readFileSync, writeFileSync, existsSync } from "fs";
+
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { readFileSync, writeFileSync, existsSync } from "fs";
 
 function upsertEnvLine(content: string, key: string, value: string): string {
   if (/[\r\n\0]/.test(value)) {

@@ -33,6 +33,7 @@ import {
   type ParsedBlockBase,
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
+
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
 
 /**

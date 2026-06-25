@@ -1,16 +1,9 @@
-import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import {
-  type ChangeEvent,
-  type FormEvent,
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { sendToAgentChat } from "@agent-native/core/client";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
   IconArrowsMinimize,
@@ -26,9 +19,17 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core/client";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,18 +38,19 @@ import {
   DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Skeleton } from "@/components/ui/skeleton";
+
 import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
 import type { ContentImageOptions } from "./ImageNode";
 

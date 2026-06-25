@@ -1,26 +1,3 @@
-import { useState, useRef, useEffect, type MouseEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  IconUsers,
-  IconArrowUp,
-  IconPlus,
-  IconMenu2,
-  IconX,
-  IconMessageCircle,
-  IconSettings,
-} from "@tabler/icons-react";
-import { OrgSwitcher } from "@agent-native/core/client/org";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { useForms, useCreateForm } from "@/hooks/use-forms";
-import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import {
   useSendToAgentChat,
   DevDatabaseLink,
@@ -31,6 +8,28 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  IconUsers,
+  IconArrowUp,
+  IconPlus,
+  IconMenu2,
+  IconX,
+  IconMessageCircle,
+  IconSettings,
+} from "@tabler/icons-react";
+import { useState, useRef, useEffect, type MouseEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -38,6 +37,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
+import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 

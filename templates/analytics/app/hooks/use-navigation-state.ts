@@ -3,6 +3,7 @@ import {
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
 

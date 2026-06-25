@@ -1,5 +1,6 @@
-import { IconCloudUpload } from "@tabler/icons-react";
 import { useT } from "@agent-native/core/client";
+import { IconCloudUpload } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 
 /**

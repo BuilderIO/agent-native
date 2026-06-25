@@ -1,6 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type { Settings } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useSettings() {
   return useActionQuery<Settings>("get-settings");

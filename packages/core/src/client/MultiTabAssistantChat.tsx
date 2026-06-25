@@ -1,10 +1,3 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
 import {
   IconX,
   IconPlus,
@@ -14,33 +7,14 @@ import {
   IconLinkOff,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  AssistantChat,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-} from "./AssistantChat.js";
-import { isTrustedFrameMessage } from "./frame.js";
-import { cn } from "./utils.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.js";
-import {
-  useChatThreads,
-  type ChatThreadScope,
-  type ChatThreadSummary,
-} from "./use-chat-threads.js";
-import { agentNativePath, appPath } from "./api-path.js";
-import { callAction } from "./use-action.js";
-import { RunStuckBanner } from "./RunStuckBanner.js";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -58,6 +32,33 @@ import {
   parseSubmitChatMessage,
   type AgentChatContextItem,
 } from "./agent-chat.js";
+import { agentNativePath, appPath } from "./api-path.js";
+import {
+  AssistantChat,
+  type AssistantChatProps,
+  type AssistantChatHandle,
+} from "./AssistantChat.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
+import { isTrustedFrameMessage } from "./frame.js";
+import { RunStuckBanner } from "./RunStuckBanner.js";
+import { callAction } from "./use-action.js";
+import {
+  useChatThreads,
+  type ChatThreadScope,
+  type ChatThreadSummary,
+} from "./use-chat-threads.js";
+import { cn } from "./utils.js";
 
 interface EngineModelGroup {
   engine: string;

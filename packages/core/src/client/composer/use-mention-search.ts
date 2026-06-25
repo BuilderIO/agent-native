@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import type { MentionItem } from "./types.js";
+
 import { agentNativePath } from "../api-path.js";
+import type { MentionItem } from "./types.js";
 
 export function useMentionSearch(query: string, enabled: boolean) {
   const [items, setItems] = useState<MentionItem[]>([]);

@@ -1,10 +1,4 @@
-import { useState } from "react";
-import {
-  Link,
-  redirect,
-  useParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -12,14 +6,21 @@ import {
   IconExternalLink,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import {
+  Link,
+  redirect,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
+
+import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
-import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
-import { useT } from "@agent-native/core/client";
 
 function findTemplate(slug: string | undefined) {
   if (slug === "videos") slug = "video";

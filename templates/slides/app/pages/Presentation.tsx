@@ -1,9 +1,10 @@
-import { useParams, Navigate, useSearchParams } from "react-router";
+import { callAction } from "@agent-native/core/client";
 import { useEffect, useState } from "react";
+import { useParams, Navigate, useSearchParams } from "react-router";
+
+import PresentationView from "@/components/presentation/PresentationView";
 import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
-import PresentationView from "@/components/presentation/PresentationView";
-import { callAction } from "@agent-native/core/client";
 
 export default function Presentation() {
   const { id } = useParams<{ id: string }>();

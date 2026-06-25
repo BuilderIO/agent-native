@@ -1,4 +1,5 @@
 import { runMigrations } from "@agent-native/core/db";
+
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";

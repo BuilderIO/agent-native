@@ -22,8 +22,7 @@ const messages = {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     languageTitle: "भाषा",
-    languageDescription:
-      "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
@@ -34,6 +33,10 @@ const messages = {
     agentDescription:
       "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
     openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    editorTitle: "VS Code एक्सटेंशन",
+    editorDescription:
+      "अलग ब्राउज़र टैब के बजाय VS Code के साइड पैनल में योजनाएँ खोलें और उनकी समीक्षा करें।",
+    openEditorExtension: "VS Code एक्सटेंशन पाएँ",
   },
   agent: {
     emptyState:
@@ -79,8 +82,7 @@ const messages = {
     suggestionAuth: "auth API कब बदला?",
     suggestionApi: "billing API का आकार कैसा है?",
     emptyState: "Plan से पूछें",
-    placeholder:
-      "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
+    placeholder: "पूछें कि क्या शिप हुआ, क्या बदला, या मौजूदा code क्या दिखाता है...",
     heading: "Plan से पूछें",
     description:
       "merged PR recaps खोजें, visual blocks देखें, और code answers को diagrams, wireframes, API specs और data models के रूप में प्रकाशित करें।",
