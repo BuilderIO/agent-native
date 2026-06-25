@@ -75,13 +75,14 @@ The claim is observed via `dispatch_mode` flipping from `background` to
 `background-processing` (only the worker's atomic claim does that). The grace
 window must cover the worker's cold-start; heavy apps were observed needing
 longer than the original 8s, so it is **15s** (still well within the
-foreground's ~40s soft-timeout). A genuinely dead worker simply falls back to
-inline after the grace — chat never breaks.
+foreground's ~40s soft-timeout). A worker that never claims — dead, or just
+slow to start — falls back to inline after the grace, so the turn still
+completes; the cost is the added latency of waiting out the grace first.
 
 ```an-callout
 {
   "tone": "success",
-  "body": "The foreground always returns a working turn: the background worker when it claims in time, an inline turn otherwise. Enabling durable runs can never break chat — worst case it behaves like the non-durable path."
+  "body": "The foreground returns a working turn either way: the background worker when it claims in time, an inline turn otherwise. So durable runs should preserve chat correctness even when a worker fails — but a misconfigured or slow-to-claim worker can add fallback latency (up to the grace window) before the inline recovery takes over."
 }
 ```
 
