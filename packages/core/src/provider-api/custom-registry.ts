@@ -21,6 +21,7 @@
  */
 
 import { getDbExec, isPostgres } from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
 
@@ -91,10 +92,20 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      const sql = isPostgres()
-        ? CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : CREATE_SQL;
-      await client.execute(sql);
+
+      if (isPostgres()) {
+        const pgSql = CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("custom_api_providers", pgSql);
+        // Widen any pre-existing int4 timestamp columns to BIGINT (no-op once done)
+        await widenIntColumnsToBigInt("custom_api_providers", [
+          "created_at",
+          "updated_at",
+        ]);
+        return;
+      }
+      // SQLite (local dev): keep existing behavior
+      await client.execute(CREATE_SQL);
       // Fresh Postgres tables get BIGINT via the replace above, but tables
       // created before that compat existed kept int4 timestamp columns; widen
       // them so `Date.now()` writes don't overflow. No-op once done.

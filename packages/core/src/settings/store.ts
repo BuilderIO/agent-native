@@ -1,11 +1,7 @@
 import { EventEmitter } from "events";
 
 import { getDbExec, isPostgres, intType } from "../db/client.js";
-import {
-  pgIndexExists,
-  pgTableExists,
-  runGuardedDdl,
-} from "../db/ddl-guard.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -39,26 +35,25 @@ async function ensureTable(): Promise<void> {
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
         // process behind a concurrent connection on the shared Neon DB, can
         // block ~indefinitely (ACCESS EXCLUSIVE for CREATE TABLE; a write-
-        // blocking SHARE lock for CREATE INDEX). So check `information_schema`/
-        // `pg_indexes` first (plain reads, no lock) and run DDL ONLY for what
-        // is actually missing. `runGuardedDdl` bounds any DDL that must run
-        // with a transaction-scoped `lock_timeout` so a contended lock fails
-        // fast instead of hanging. `settingsTable()` is `public.settings` on
-        // Postgres; the existence checks use the unqualified table name.
-        if (!(await pgTableExists("settings"))) {
-          await runGuardedDdl(createSql);
-        }
+        // blocking SHARE lock for CREATE INDEX). `ensureTableExists` /
+        // `ensureIndexExists` probe `information_schema`/`pg_indexes` first
+        // (plain reads, no lock) and run DDL ONLY for what is actually missing,
+        // bounding any DDL with a transaction-scoped `lock_timeout`. They also
+        // re-probe after a swallowed lock-timeout and THROW if the schema is
+        // still missing, so a timed-out DDL never poisons this init memo with
+        // missing schema. `settingsTable()` is `public.settings` on Postgres;
+        // the existence checks use the unqualified table name.
+        await ensureTableExists("settings", createSql);
         // Older deployments (pre BIGINT-compat) have a 32-bit `updated_at`; on
         // Postgres the `Date.now()` written on every setSetting overflows int4.
         // widenIntColumnsToBigInt already probes information_schema and only
         // ALTERs columns that are still int4 — a no-op on fresh/widened DBs.
         await widenIntColumnsToBigInt("settings", ["updated_at"]);
         // Index for the poll watermark query: `SELECT MAX(updated_at)`.
-        if (!(await pgIndexExists("settings_updated_at_idx"))) {
-          await runGuardedDdl(
-            `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-          );
-        }
+        await ensureIndexExists(
+          "settings_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+        );
         return;
       }
 
