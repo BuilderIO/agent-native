@@ -98,7 +98,7 @@ const targets: PackageTarget[] = [
     id: "shared-app-config",
     name: "@agent-native/shared-app-config",
     dir: "packages/shared-app-config",
-    expectedOutputs: ["dist/index.js"],
+    expectedOutputs: exportedDistOutputs("packages/shared-app-config"),
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/shared-app-config.tsbuildinfo",
     ],
@@ -120,11 +120,7 @@ const targets: PackageTarget[] = [
     id: "code-agents-ui",
     name: "@agent-native/code-agents-ui",
     dir: "packages/code-agents-ui",
-    expectedOutputs: [
-      "dist/index.js",
-      "dist/code-agents.js",
-      "dist/styles.css",
-    ],
+    expectedOutputs: exportedDistOutputs("packages/code-agents-ui"),
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/code-agents-ui.tsbuildinfo",
     ],
@@ -133,14 +129,14 @@ const targets: PackageTarget[] = [
     id: "migrate",
     name: "@agent-native/migrate",
     dir: "packages/migrate",
-    expectedOutputs: ["dist/index.js"],
+    expectedOutputs: exportedDistOutputs("packages/migrate"),
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/migrate.tsbuildinfo"],
   },
   {
     id: "pinpoint",
     name: "@agent-native/pinpoint",
     dir: "packages/pinpoint",
-    expectedOutputs: ["dist/index.js"],
+    expectedOutputs: exportedDistOutputs("packages/pinpoint"),
   },
   {
     id: "scheduling",
@@ -155,7 +151,7 @@ const targets: PackageTarget[] = [
     id: "embedding",
     name: "@agent-native/embedding",
     dir: "packages/embedding",
-    expectedOutputs: ["dist/index.js"],
+    expectedOutputs: exportedDistOutputs("packages/embedding"),
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/embedding.tsbuildinfo"],
   },
   {
