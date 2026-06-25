@@ -366,10 +366,11 @@ templates/assets/app/routes/brand-kits.$id.tsx|Upload is taking longer than expe
 templates/assets/app/routes/brand-kits.$id.tsx|Upload source material or generate candidates, then mark only the assets that should guide future generations as references.
 templates/assets/app/routes/brand-kits.$id.tsx|Video candidate
 templates/assets/app/routes/brand-kits.$id.tsx|View details
-templates/assets/app/routes/brand-kits.tsx|Brand Kits - Assets
+templates/assets/app/routes/brand-kits.tsx|Library - Assets
 templates/assets/app/routes/extensions.$id.tsx|Extension - Assets
 templates/assets/app/routes/extensions._index.tsx|Extensions - Assets
 templates/assets/app/routes/extensions.tsx|Extensions - Assets
+templates/assets/app/routes/library.$id.tsx|Library - Assets
 templates/assets/app/routes/library.tsx|Aspect ratio
 templates/assets/app/routes/library.tsx|Candidate count
 templates/assets/app/routes/library.tsx|Close preview

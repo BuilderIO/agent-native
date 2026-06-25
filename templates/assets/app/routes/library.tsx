@@ -757,6 +757,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
 }
 
 function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
+  const t = useT();
   const navigate = useNavigate();
   const { data: presetData } = useActionQuery("list-library-presets", {});
   const createFromPreset = useActionMutation("create-library-from-preset");
@@ -774,7 +775,7 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset brand kit.");
+          toast.error(error.message || t("brandKits.presetCreateFailed"));
         },
       } as any,
     );
@@ -785,11 +786,10 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
       <div className="mx-auto max-w-2xl text-center">
         <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
         <h2 className="mt-4 text-xl font-semibold tracking-tight">
-          Build your first kit
+          {t("library.buildYourFirstKit")}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Start from a reusable style preset or create an empty library for your
-          own references.
+          {t("library.buildYourFirstKitDescription")}
         </p>
       </div>
       <div className="mt-6">
@@ -801,7 +801,7 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
       </div>
       <div className="mt-5 flex justify-center">
         <Button variant="outline" onClick={onCreateBlank}>
-          Create blank kit
+          {t("library.createBlankKit")}
         </Button>
       </div>
     </div>
@@ -1545,11 +1545,12 @@ function LibraryCandidateStage({
   >(() => new Set());
   const { data: variants } = useQuery({
     queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
-    queryFn: ({ signal }) =>
-      readClientAppState<AssetVariantState>(
+    queryFn: ({ signal }) => {
+      return readClientAppState<AssetVariantState>(
         assetVariantStateKey(variantScopeId),
         { signal },
-      ),
+      );
+    },
     refetchInterval: 1000,
   });
   const isAllAssetsStage = !activeLibraryId;

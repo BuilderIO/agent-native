@@ -3,6 +3,7 @@ import {
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,14 +55,16 @@ function stalePendingRunId(
 }
 
 export function GenerationResults({ threadId }: { threadId: string | null }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const stateKey = variantStateKey(threadId);
   const stateQueryKey = useMemo(() => ["app-state", stateKey], [stateKey]);
   const { data: variants } = useQuery({
     queryKey: stateQueryKey,
-    queryFn: async ({ signal }) =>
-      readClientAppState<AssetVariantState>(stateKey, { signal }),
+    queryFn: async ({ signal }) => {
+      return readClientAppState<AssetVariantState>(stateKey, { signal });
+    },
     refetchInterval: 1000,
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
@@ -127,9 +130,11 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const readyCount = slots.filter((slot) => slot.status === "ready").length;
   const failedCount = slots.filter((slot) => slot.status === "failed").length;
   const statusSummary = [
-    pendingCount > 0 ? `${pendingCount} generating` : null,
-    readyCount > 0 ? `${readyCount} ready` : null,
-    failedCount > 0 ? `${failedCount} failed` : null,
+    pendingCount > 0
+      ? t("library.generatingCount", { count: pendingCount })
+      : null,
+    readyCount > 0 ? t("library.readyCount", { count: readyCount }) : null,
+    failedCount > 0 ? t("library.failedCount", { count: failedCount }) : null,
   ]
     .filter(Boolean)
     .join(" / ");
@@ -145,7 +150,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
           });
         },
         onError: (error) =>
-          toast.error(error.message || "Could not clear candidates."),
+          toast.error(error.message || t("library.couldNotClearCandidates")),
       },
     );
   }
@@ -155,16 +160,16 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
       <AlertDialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Clear generated candidates?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("library.clearGeneratedCandidatesTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes every unsaved candidate from the thread and deletes
-              the generated asset rows behind them. Saved library assets are not
-              touched.
+              {t("library.clearGeneratedCandidatesDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={dismissSlot.isPending}>
-              Cancel
+              {t("library.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -177,10 +182,10 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
               {dismissSlot.isPending ? (
                 <>
                   <Spinner className="h-4 w-4" />
-                  Clearing...
+                  {t("library.clearing")}
                 </>
               ) : (
-                "Clear candidates"
+                t("library.clearCandidates")
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -201,14 +206,14 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <h2 className="truncate text-sm font-semibold">
-                    Generated candidates
+                    {t("library.generatedCandidatesTitle")}
                   </h2>
                   <Badge variant="secondary" className="shrink-0">
                     {statusSummary}
                   </Badge>
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {libraryTitle || "No brand kit"} / {variants.prompt}
+                  {libraryTitle || t("library.noBrandKit")} / {variants.prompt}
                 </p>
               </div>
             </div>
@@ -220,7 +225,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
               onClick={() => setClearAllOpen(true)}
             >
               <IconTrash className="h-3.5 w-3.5" />
-              Clear
+              {t("library.clear")}
             </Button>
           </div>
 
@@ -251,7 +256,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                       },
                       {
                         onSuccess: () => {
-                          toast.success("Saved generated asset.");
+                          toast.success(t("library.savedGeneratedAsset"));
                           void queryClient.invalidateQueries({
                             queryKey: stateQueryKey,
                           });
@@ -260,7 +265,9 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                           });
                         },
                         onError: (error) =>
-                          toast.error(error.message || "Could not save asset."),
+                          toast.error(
+                            error.message || t("library.couldNotSaveCandidate"),
+                          ),
                       },
                     );
                   }}
@@ -275,7 +282,8 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                         },
                         onError: (error) =>
                           toast.error(
-                            error.message || "Could not dismiss slot.",
+                            error.message ||
+                              t("library.couldNotDismissCandidate"),
                           ),
                       },
                     );
@@ -310,6 +318,7 @@ function GenerationResultItem({
   onDismiss: () => void;
 }) {
   const ready = slot.status === "ready" && Boolean(slot.assetId);
+  const t = useT();
   return (
     <article className="overflow-hidden rounded-lg border border-border/80 bg-background/70">
       <div className="relative aspect-[16/10] overflow-hidden bg-muted/40">
@@ -318,10 +327,10 @@ function GenerationResultItem({
           {slot.status === "pending" ? <Spinner className="h-3 w-3" /> : null}
           <span>
             {slot.status === "pending"
-              ? "Generating"
+              ? t("library.generating")
               : slot.status === "ready"
-                ? `Candidate ${index + 1}`
-                : "Failed"}
+                ? t("library.candidateWithNumber", { number: index + 1 })
+                : t("library.failed")}
           </span>
         </div>
       </div>
@@ -329,13 +338,13 @@ function GenerationResultItem({
         <div className="min-w-0 text-xs">
           <div className="truncate font-medium">
             {slot.status === "ready"
-              ? "Ready to save"
+              ? t("library.readyToSave")
               : slot.status === "pending"
-                ? "Still rendering"
-                : "Generation failed"}
+                ? t("library.stillRendering")
+                : t("library.generationFailed")}
           </div>
           <div className="mt-0.5 truncate text-muted-foreground">
-            {libraryTitle || "No brand kit"}
+            {libraryTitle || t("library.noBrandKit")}
             {prompt ? ` / ${prompt}` : null}
           </div>
         </div>
@@ -346,7 +355,7 @@ function GenerationResultItem({
             disabled={!ready || isSaving}
             onClick={onSave}
           >
-            {isSaving ? <Spinner className="h-3 w-3" /> : "Save"}
+            {isSaving ? <Spinner className="h-3 w-3" /> : t("library.save")}
           </Button>
           <Button
             variant="outline"
@@ -372,7 +381,7 @@ function GenerationResultItem({
             }
           >
             <IconMessageCircle className="h-3.5 w-3.5" />
-            Refine
+            {t("library.refine")}
           </Button>
           <Button
             variant="ghost"
@@ -380,7 +389,7 @@ function GenerationResultItem({
             className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             disabled={isDismissing}
             onClick={onDismiss}
-            aria-label="Delete candidate"
+            aria-label={t("library.deleteCandidate")}
           >
             <IconTrash className="h-3.5 w-3.5" />
           </Button>
@@ -395,6 +404,7 @@ function GenerationSlotPreview({
 }: {
   slot: AssetVariantState["slots"][number];
 }) {
+  const t = useT();
   const sources = assetPreviewSources(slot, "thumbnail");
   const src = sources[0];
   if (src) {
@@ -403,7 +413,7 @@ function GenerationSlotPreview({
   if (slot.status === "failed") {
     return (
       <div className="flex h-full w-full items-center justify-center p-2 text-center text-[11px] text-destructive">
-        {slot.error || "Failed"}
+        {slot.error || t("library.failed")}
       </div>
     );
   }

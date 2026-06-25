@@ -424,8 +424,11 @@ export function BrandKitDetailRoute({
   const createFolder = useActionMutation("create-folder");
   const { data: liveVariants } = useQuery({
     queryKey: ["app-state", "asset-variants"],
-    queryFn: ({ signal }) =>
-      readClientAppState<AssetVariantState>("asset-variants", { signal }),
+    queryFn: ({ signal }) => {
+      return readClientAppState<AssetVariantState>("asset-variants", {
+        signal,
+      });
+    },
     refetchInterval: 1000,
   });
 
