@@ -29,7 +29,16 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
 };
 const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@sentry/browser"',
+  '"@sentry/browser-utils"',
+  '"@sentry/conventions"',
+  '"@sentry/core"',
+  '"@sentry/feedback"',
   '"@sentry/node"',
+  '"@sentry/node-core"',
+  '"@sentry/opentelemetry"',
+  '"@sentry/replay"',
+  '"@sentry/replay-canvas"',
+  '"@sentry/server-utils"',
 ];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
