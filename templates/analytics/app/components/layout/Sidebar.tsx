@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useTheme } from "next-themes";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
-import { useAuth } from "@/components/auth/AuthProvider";
 import { toast } from "sonner";
 import {
   useQuery,
@@ -12,7 +11,6 @@ import {
 } from "@tanstack/react-query";
 import {
   IconChartBar,
-  IconLogout,
   IconChevronDown,
   IconSun,
   IconMoon,
@@ -1185,7 +1183,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const { logout } = useAuth();
   const queryClient = useQueryClient();
   const { resolvedTheme, setTheme } = useTheme();
 
@@ -1222,7 +1219,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       })
       .catch(() => {});
   }, [setTheme]);
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
@@ -2289,46 +2285,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       </p>
                     </TooltipContent>
                   </Tooltip>
-                  <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                            <IconLogout className="h-4 w-4 rtl:-scale-x-100" />
-                          </button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p>{t("sidebar.signOut")}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <PopoverContent
-                      className="w-48 p-3"
-                      side="top"
-                      align="start"
-                    >
-                      <p className="text-sm mb-3">
-                        {t("sidebar.signOutTitle")}
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setLogoutOpen(false);
-                            logout();
-                          }}
-                          className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                        >
-                          {t("sidebar.yes")}
-                        </button>
-                        <button
-                          onClick={() => setLogoutOpen(false)}
-                          className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
-                        >
-                          {t("sidebar.cancel")}
-                        </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
