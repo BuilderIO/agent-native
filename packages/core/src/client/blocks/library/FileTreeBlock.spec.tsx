@@ -114,7 +114,9 @@ describe("FileTreeBlock", () => {
     expect(fileButton?.textContent).toContain("Always-on agent instructions.");
 
     const note = Array.from(fileButton?.querySelectorAll("span") ?? []).find(
-      (span) => span.textContent === "Always-on agent instructions.",
+      (span) =>
+        span.textContent === "Always-on agent instructions." &&
+        span.className.includes("an-file-tree-note"),
     );
     expect(note?.className).toContain("an-file-tree-note");
     expect(note?.className).toContain("break-words");
