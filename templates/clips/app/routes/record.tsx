@@ -1013,10 +1013,12 @@ export default function RecordRoute() {
           onWarning: (message) => {
             toast.warning(message);
           },
-          // Camera ended (unplugged / revoked): drop the on-page bubble so the
-          // live overlay matches the screen-only recorded output.
+          // Camera ended (unplugged / revoked): drop the on-page bubble, and in
+          // camera-only mode clear the fullscreen preview too (it renders from
+          // previewStream) so neither freezes on the last frame.
           onCameraEnded: () => {
             setCameraStream(null);
+            if (opts.mode === "camera") setPreviewStream(null);
           },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full

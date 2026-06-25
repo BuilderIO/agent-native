@@ -746,23 +746,36 @@ export class RecorderEngine {
         }
       }
 
-      // Apply background blur once, after the disconnect listeners are bound to
-      // the raw hardware tracks above. Both the preview bubble and the recording
-      // composite read `this.cameraStream`, so swapping it to the blurred
-      // derivative here means "what you see is what's recorded". Never throws:
-      // on any failure it returns a passthrough handle wrapping the raw stream.
+      // Camera is live from here through preview/countdown/recording until
+      // teardown — set before the async blur setup so a disconnect during that
+      // window is handled, not inherited as a dead stream.
+      if (this.cameraStream) this.cameraLive = true;
+
+      // Swap the raw camera for its blurred derivative, which both the preview
+      // bubble and the recording composite read ("what you see is what's
+      // recorded"). createBackgroundBlurStream never throws — it falls back to
+      // the raw stream on failure.
       if (this.opts.cameraBlur && this.cameraStream) {
         this.rawCameraStream = this.cameraStream;
-        this.cameraBlur = await createBackgroundBlurStream(this.cameraStream, {
+        const handle = await createBackgroundBlurStream(this.cameraStream, {
           blurPx: this.opts.cameraBlurRadius,
         });
-        this.cameraStream = this.cameraBlur.stream;
+        if (this.cameraDisconnectNotified) {
+          // Webcam ended while the pipeline was loading: discard it and drop the
+          // dead camera rather than inheriting a frozen processed stream.
+          handle.cleanup();
+          this.cameraStream = null;
+        } else {
+          this.cameraBlur = handle;
+          this.cameraStream = this.cameraBlur.stream;
+        }
       }
 
-      // Camera is live from here (preview + countdown + recording) until
-      // teardown; a disconnect in this window must be handled, not just while
-      // recording.
-      if (this.cameraStream) this.cameraLive = true;
+      if (this.opts.mode === "camera" && !this.cameraStream) {
+        throw new Error(
+          "Camera disconnected before recording could start. Reconnect it and try again.",
+        );
+      }
 
       this.previewStream =
         this.opts.mode === "camera" ? this.cameraStream! : this.displayStream!;
@@ -1456,6 +1469,12 @@ export class RecorderEngine {
       const audio = this.buildMixedAudioTrack([this.micStream]);
       if (audio) combined.addTrack(audio);
       return combined;
+    }
+
+    // Camera dropped before start (disconnected during setup/countdown):
+    // record screen-only rather than compositing a dead stream.
+    if (!this.cameraStream) {
+      return this.buildDisplayRecordingStream();
     }
 
     // Screen + camera: display capture does not reliably include our separate
