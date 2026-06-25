@@ -80,6 +80,7 @@ export interface AgentNativeI18nProviderProps {
 
 interface LocaleContextValue {
   locale: LocaleCode;
+  sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
@@ -438,6 +439,7 @@ export function AgentNativeI18nProvider({
   const context = useMemo<LocaleContextValue>(
     () => ({
       locale,
+      sourceLocale,
       preference,
       dir: localeDirection(locale),
       metadata: LOCALE_METADATA[locale],
