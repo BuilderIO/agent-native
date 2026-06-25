@@ -7918,6 +7918,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 )
                 .catch(() => {});
             }
+            // The worker claims the run UP-FRONT now (dispatch_mode flips to
+            // background-processing before the heavy setup), so a throw here
+            // means a run the foreground already subscribed to. Mark it errored
+            // so it goes terminal immediately instead of sitting in
+            // background-processing until the reaper — otherwise the subscribed
+            // foreground waits out a confusing timeout. This UPDATE is guarded by
+            // `status = 'running'`, so it no-ops when the run already completed,
+            // and a duplicate delivery that lost the claim never reaches here (it
+            // returns a benign ack without throwing).
+            try {
+              const { updateRunStatusIfRunning } =
+                await import("../agent/run-store.js");
+              await updateRunStatusIfRunning(prepared.runId, "errored");
+            } catch {}
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           }
