@@ -76,7 +76,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("Copy page link");
+    expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).not.toContain("absolute top-2 right-2");
     expect(source).not.toContain("shadow-sm");
   });

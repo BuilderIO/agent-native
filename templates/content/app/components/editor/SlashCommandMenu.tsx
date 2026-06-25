@@ -1,4 +1,5 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import {
   IconTypography,
   IconH1,
@@ -41,7 +42,6 @@ import { localContentComponents } from "@/local-components";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { buildRegistrySlashItems } from "./registrySlashItems";
-import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 
 interface SlashCommandMenuProps {
   editor: Editor;

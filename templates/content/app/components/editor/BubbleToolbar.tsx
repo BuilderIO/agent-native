@@ -1,13 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { BubbleMenu } from "@tiptap/react/menus";
-import type { Editor } from "@tiptap/react";
-import {
-  NodeSelection,
-  Plugin,
-  PluginKey,
-  type EditorState,
-} from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   IconBold,
   IconItalic,
@@ -20,13 +11,24 @@ import {
   IconH3,
   IconH4,
 } from "@tabler/icons-react";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type EditorState,
+} from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
 
 export type CommentRange = { from: number; to: number };

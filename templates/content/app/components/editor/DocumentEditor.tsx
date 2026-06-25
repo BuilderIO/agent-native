@@ -199,8 +199,8 @@ export function databaseMembershipDatabaseTitle(
 }
 
 export function documentEditorBreadcrumbItems(
-  document: Pick<Document, "id" | "parentId" | "title" | "icon">,
-  documents: Pick<Document, "id" | "parentId" | "title" | "icon">[],
+  document: Pick<Document, "id" | "parentId" | "title" | "icon">, // i18n-ignore type expression
+  documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
   const parents: { id: string; title: string; icon: string | null }[] = [];

@@ -186,20 +186,24 @@ function formatEditedLabel(updatedAt?: string | null) {
 function ToolbarBreadcrumb({
   items,
   currentDocumentId,
+  ariaLabel,
+  untitledLabel,
   onOpen,
 }: {
   items: { id?: string; title: string; icon?: string | null }[];
   currentDocumentId: string;
+  ariaLabel: string;
+  untitledLabel: string;
   onOpen: (id: string) => void;
 }) {
   return (
     <nav
-      aria-label="Page breadcrumb"
+      aria-label={ariaLabel}
       className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
-        const label = item.title.trim() || "Untitled";
+        const label = item.title.trim() || untitledLabel;
         const content = (
           <>
             {item.icon ? (
@@ -417,22 +421,22 @@ export function DocumentToolbar({
 
   const handleCopyPageLink = useCallback(async () => {
     if (!navigator.clipboard?.writeText) {
-      toast.error("Could not copy link", {
-        description: "Clipboard access is not available in this browser.",
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
       return;
     }
 
     try {
       await navigator.clipboard.writeText(shareUrl);
-      toast.success("Copied page link");
+      toast.success(t("editor.toolbar.copiedPageLink"));
     } catch (error) {
-      toast.error("Could not copy link", {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
         description:
-          error instanceof Error ? error.message : "Something went wrong",
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [shareUrl]);
+  }, [shareUrl, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
@@ -650,6 +654,8 @@ export function DocumentToolbar({
               : [{ id: documentId, title: documentTitle || "Untitled" }]
           }
           currentDocumentId={documentId}
+          ariaLabel={t("editor.toolbar.pageBreadcrumb")}
+          untitledLabel={t("sidebar.untitled")}
           onOpen={(id) => navigate(`/page/${id}`, { flushSync: true })}
         />
 
@@ -726,13 +732,13 @@ export function DocumentToolbar({
               <button
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Copy page link"
+                aria-label={t("editor.toolbar.copyPageLink")}
                 onClick={() => void handleCopyPageLink()}
               >
                 <IconLink size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Copy page link</TooltipContent>
+            <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
           </Tooltip>
 
           <DropdownMenu modal={false}>

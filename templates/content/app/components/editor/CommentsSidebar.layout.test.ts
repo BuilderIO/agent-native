@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
 import type { CommentThread } from "@/hooks/use-comments";
+
 import {
   estimateThreadCardHeight,
   findPendingCommentOffset,
