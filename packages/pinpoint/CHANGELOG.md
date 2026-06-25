@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.10
+
+### Patch Changes
+
+- 2a03c35: Adopt the native TypeScript and oxfmt package build baselines.
+
 ## 0.1.9
 
 ### Patch Changes
