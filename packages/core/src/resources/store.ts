@@ -1539,9 +1539,9 @@ export async function resourceListAllOwners(
   });
   const localResources = (
     await Promise.all(
-      (await localWorkspaceResourceMetas(pathPrefix)).map((resource) =>
-        resourceGet(resource.id),
-      ),
+      (
+        await localWorkspaceResourceMetas(pathPrefix)
+      ).map((resource) => resourceGet(resource.id)),
     )
   ).filter((resource): resource is Resource => !!resource);
   const localPaths = new Set(localResources.map((resource) => resource.path));

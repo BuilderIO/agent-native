@@ -4,12 +4,12 @@ import { and, eq, gte, isNull } from "drizzle-orm";
 
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
+import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { createGetDb } from "../db/create-get-db.js";
 import { recordChange } from "../server/poll.js";
 import {
   getRequestUserEmail,

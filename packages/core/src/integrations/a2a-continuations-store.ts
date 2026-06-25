@@ -4,12 +4,12 @@ import {
   intType,
   retryOnDdlRace,
 } from "../db/client.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
