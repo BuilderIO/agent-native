@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/popover";
 import { useCreateContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { useUpdateDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
@@ -46,7 +45,8 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
-  onDraftCommitted?: () => void;
+  onDraftCommitted?: () => void | Promise<void>;
+  onDraftPersisted?: (markdown: string) => void | Promise<void>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
    * registry-derived block slash items are filtered to specs that round-trip to
@@ -401,13 +401,13 @@ export function SlashCommandMenu({
   documentId,
   notionPageId,
   onDraftCommitted,
+  onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
   const { send } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
   const createDatabase = useCreateContentDatabase(documentId ?? null);
-  const updateDocument = useUpdateDocument();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -582,12 +582,17 @@ export function SlashCommandMenu({
       }
       await waitForEditorUpdateFrame();
       try {
-        await updateDocument.mutateAsync({
-          id: documentId,
-          content: collapseExactRepeatedNfm(docToNfm(editor.getJSON() as any), {
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          {
             requiredText: `id="${pageId}"`,
-          }),
-        });
+          },
+        );
+        if (onDraftPersisted) {
+          await onDraftPersisted(content);
+        } else {
+          await onDraftCommitted?.();
+        }
       } catch (error) {
         toast.error(t("editor.failedToCreatePage"), {
           description:
@@ -808,6 +813,7 @@ export function SlashCommandMenu({
     executeCommand,
     editor,
     onDraftCommitted,
+    onDraftPersisted,
     openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,

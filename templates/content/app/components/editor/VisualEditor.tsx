@@ -735,6 +735,7 @@ interface VisualEditorProps {
    */
   contentUpdatedAt?: string | null;
   onChange: (markdown: string) => void;
+  onSaveContent?: (markdown: string) => void | Promise<void>;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
   /** Shared awareness instance for collaborative cursors/presence. */
@@ -1561,6 +1562,7 @@ export function VisualEditor({
   content,
   contentUpdatedAt,
   onChange,
+  onSaveContent,
   ydoc,
   awareness,
   user,
@@ -1580,6 +1582,8 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onSaveContentRef = useRef(onSaveContent);
+  onSaveContentRef.current = onSaveContent;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
@@ -1657,16 +1661,23 @@ export function VisualEditor({
     lastUserEditIntentAtRef.current = Date.now();
   }, []);
   const persistEditorContent = useCallback(
-    (editorToPersist: CoreEditor) => {
+    (
+      editorToPersist: CoreEditor,
+      options?: { markdown?: string; immediate?: boolean },
+    ) => {
       const guards = guardsRef.current;
       if (!guards) return;
       try {
-        const normalized = docToNfm(editorToPersist.getJSON() as any);
+        const normalized =
+          options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
         if (localFileMode && normalized === content) return;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
         if (!guards.registerEmitted(normalized)) return;
+        if (options?.immediate && onSaveContentRef.current) {
+          return onSaveContentRef.current(normalized);
+        }
         queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
         toast.error(
@@ -2061,6 +2072,9 @@ export function VisualEditor({
           documentId={documentId}
           notionPageId={notionPageId}
           onDraftCommitted={() => persistEditorContent(editor)}
+          onDraftPersisted={(markdown) =>
+            persistEditorContent(editor, { markdown, immediate: true })
+          }
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />

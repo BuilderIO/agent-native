@@ -791,6 +791,20 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     [canEdit, debouncedSave],
   );
 
+  const handleContentSaveNow = useCallback(
+    async (newContent: string) => {
+      if (!canEdit) return;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      localContentRef.current = newContent;
+      setLocalContent(newContent);
+      await saveDocumentImmediately(localTitleRef.current, newContent);
+    },
+    [canEdit, saveDocumentImmediately],
+  );
+
   // Comments state — pending comment from text selection
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
@@ -1110,6 +1124,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                             : document.updatedAt
                         }
                         onChange={handleContentChange}
+                        onSaveContent={handleContentSaveNow}
                         ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
                         awareness={
                           canEdit && !isLocalFileDocument ? awareness : null

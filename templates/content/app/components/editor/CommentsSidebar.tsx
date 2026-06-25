@@ -353,9 +353,7 @@ export function CommentsSidebar({
     if (
       selectedThreadId &&
       shouldClearSelectedThreadOnScroll(
-        offsets.get(selectedThreadId) != null
-          ? offsets.get(selectedThreadId)! - container.scrollTop
-          : null,
+        offsets.get(selectedThreadId) ?? null,
         container.clientHeight,
       )
     ) {

@@ -95,6 +95,48 @@ describe("document editor layout", () => {
     expect(source).toContain("localContentRef.current");
   });
 
+  it("lets slash-created page references use the editor save pipeline", () => {
+    const documentEditorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+    const visualEditorSource = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+    const slashMenuSource = readFileSync(
+      new URL("./SlashCommandMenu.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(documentEditorSource).toContain("const handleContentSaveNow");
+    expect(visualEditorSource).toContain("onDraftPersisted");
+    expect(slashMenuSource).toContain("await onDraftPersisted(content)");
+    expect(slashMenuSource).not.toContain("useUpdateDocument");
+    expect(slashMenuSource).not.toContain("updateDocument.mutateAsync");
+  });
+
+  it("copies the open page route for local-file documents", () => {
+    const source = readFileSync(
+      new URL("./DocumentToolbar.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("const pageUrl");
+    expect(source).toContain(
+      "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
+    );
+    expect(source).toContain("navigator.clipboard.writeText(copyPageUrl)");
+  });
+
   it("builds a Notion-style breadcrumb from parent documents", () => {
     expect(
       documentEditorBreadcrumbItems(

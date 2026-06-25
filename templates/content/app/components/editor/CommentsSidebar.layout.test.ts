@@ -81,6 +81,17 @@ describe("comments sidebar layout", () => {
     expect(shouldClearSelectedThreadOnScroll(120, 500)).toBe(false);
   });
 
+  it("checks selected-thread visibility with viewport-relative offsets", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("offsets.get(selectedThreadId) ?? null");
+    expect(source).not.toContain(
+      "offsets.get(selectedThreadId)! - container.scrollTop",
+    );
+  });
+
   it("keeps card height estimates based on the thread reply count", () => {
     const thread = {
       comments: [{ id: "root" }, { id: "reply" }],

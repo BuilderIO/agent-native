@@ -336,6 +336,11 @@ export function DocumentToolbar({
     typeof window === "undefined"
       ? `/p/${documentId}`
       : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+  const pageUrl =
+    typeof window === "undefined"
+      ? `/page/${documentId}`
+      : `${window.location.origin}${appPath(`/page/${documentId}`)}`;
+  const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
   const editedLabel = formatEditedLabel(documentUpdatedAt);
 
@@ -428,7 +433,7 @@ export function DocumentToolbar({
     }
 
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(copyPageUrl);
       toast.success(t("editor.toolbar.copiedPageLink"));
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
@@ -436,7 +441,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [shareUrl, t]);
+  }, [copyPageUrl, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
