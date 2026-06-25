@@ -1067,12 +1067,15 @@ function postProcessStandalone(
     }
   } catch {}
 
-  fixStandaloneTsconfig(targetDir);
+  fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
 }
 
-function fixStandaloneTsconfig(targetDir: string): void {
+function fixStandaloneTsconfig(
+  targetDir: string,
+  templateName?: string,
+): void {
   const tsconfigPath = path.join(targetDir, "tsconfig.json");
   if (!fs.existsSync(tsconfigPath)) return;
   try {
@@ -1080,16 +1083,23 @@ function fixStandaloneTsconfig(targetDir: string): void {
       compilerOptions?: Record<string, unknown>;
     };
     tsconfig.compilerOptions ??= {};
-    // TS 6 removed baseUrl. Standalone apps extend @agent-native/core's base
-    // config, whose paths resolve from the package install dir unless the app
-    // re-declares paths anchored to the app root.
-    delete tsconfig.compilerOptions.baseUrl;
+    const hasUiApp =
+      templateName !== "headless" &&
+      fs.existsSync(path.join(targetDir, "app"));
     const paths = {
       ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
     };
     paths["*"] ??= ["./*"];
-    paths["@/*"] ??= ["./app/*"];
-    paths["@shared/*"] ??= ["./shared/*"];
+    if (hasUiApp) {
+      paths["@/*"] ??= ["./app/*"];
+      paths["@shared/*"] ??= ["./shared/*"];
+      // Child baseUrl anchors @/* for apps extending legacy core tsconfig bases
+      // that still ship baseUrl. Headless scaffolds omit it so raw tsgo --noEmit
+      // keeps working under TS 6.
+      tsconfig.compilerOptions.baseUrl = ".";
+    } else {
+      delete tsconfig.compilerOptions.baseUrl;
+    }
     tsconfig.compilerOptions.paths = paths;
     fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
   } catch {}
@@ -1768,7 +1778,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
+      .replace(/^(\s*)command = ".*"$/m, `$1command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,

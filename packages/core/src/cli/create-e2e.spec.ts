@@ -1040,6 +1040,29 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
   });
 
+  it("rewrites unindented chat template netlify build commands for standalone apps", () => {
+    const appDir = path.join(tmpDir, "chat-standalone-netlify");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        'publish = "templates/chat/dist"',
+        'functions = "templates/chat/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "builder-agent-native-starter", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("--filter chat");
+    expect(netlify).not.toContain("pnpm install");
+    expect(netlify).toContain('publish = "dist"');
+  });
+
   it("does not add Dispatch root redirects to other workspace apps", () => {
     const appDir = path.join(tmpDir, "chat-app");
     fs.mkdirSync(appDir, { recursive: true });
