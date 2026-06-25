@@ -60,6 +60,8 @@ export default createAgentChatPlugin({
             icon: "file",
             refType: "media-type",
             refId: "image",
+            slotKey: "media-type",
+            slotLabel: "Media",
           },
           {
             id: "media-type:video",
@@ -68,6 +70,8 @@ export default createAgentChatPlugin({
             icon: "file",
             refType: "media-type",
             refId: "video",
+            slotKey: "media-type",
+            slotLabel: "Media",
           },
         ].filter((item) =>
           q
@@ -149,6 +153,32 @@ export default createAgentChatPlugin({
                 icon: "document",
                 refType: "preset",
                 refId: preset.id,
+                refPath: `/library/${preset.libraryId}`,
+                slotKey: "preset",
+                slotLabel: "Preset",
+                metadata: {
+                  libraryId: preset.libraryId,
+                  libraryTitle,
+                  requiredSlotKey: "brand-kit",
+                  requiredRefId: preset.libraryId,
+                  mediaType: preset.mediaType,
+                },
+                relatedReferences: [
+                  {
+                    label: libraryTitle,
+                    icon: "folder",
+                    source: "brandKits",
+                    refType: "brand-kit",
+                    refId: preset.libraryId,
+                    refPath: `/library/${preset.libraryId}`,
+                    slotKey: "brand-kit",
+                    slotLabel: "Brand kit",
+                    clearsSlots: ["preset"],
+                    metadata: {
+                      libraryId: preset.libraryId,
+                    },
+                  },
+                ],
               };
             });
         } catch (err) {
@@ -195,6 +225,12 @@ export default createAgentChatPlugin({
               refType: "brand-kit",
               refId: library.id,
               refPath: `/library/${library.id}`,
+              slotKey: "brand-kit",
+              slotLabel: "Brand kit",
+              clearsSlots: ["preset"],
+              metadata: {
+                libraryId: library.id,
+              },
             }));
         } catch (err) {
           console.error("[assets] Brand kit mention provider failed:", err);

@@ -22,6 +22,11 @@ export interface MentionItem {
   refPath?: string;
   refId?: string;
   section?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionReferenceInsert[];
 }
 
 export interface Reference {
@@ -31,6 +36,23 @@ export interface Reference {
   source: string;
   refType?: string;
   refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MentionReferenceInsert {
+  label: string;
+  icon?: string;
+  source?: string;
+  refType: string;
+  refId?: string | null;
+  refPath?: string | null;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionReferenceInsert[];
 }
 
 export interface SlashCommand {

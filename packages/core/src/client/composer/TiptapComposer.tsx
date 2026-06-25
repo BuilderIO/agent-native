@@ -106,6 +106,120 @@ export function canSubmitComposerContent(options: {
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
+function composerReferenceFromMentionItem(
+  item: MentionItem,
+): AgentComposerReference {
+  return {
+    label: item.label,
+    icon: item.icon || "file",
+    source: item.source,
+    refType: item.refType,
+    refId: item.refId || null,
+    refPath: item.refPath || null,
+    slotKey: item.slotKey,
+    slotLabel: item.slotLabel,
+    metadata: item.metadata,
+    clearsSlots: item.clearsSlots,
+    relatedReferences: item.relatedReferences,
+  };
+}
+
+function mentionReferenceAttrs(ref: AgentComposerReference) {
+  return {
+    label: ref.label,
+    icon: ref.icon || "file",
+    source: ref.source,
+    refType: ref.refType,
+    refId: ref.refId || null,
+    refPath: ref.refPath || null,
+    slotKey: ref.slotKey || null,
+    slotLabel: ref.slotLabel || null,
+    metadata: ref.metadata || null,
+  };
+}
+
+function referenceFromComposerReference(
+  ref: AgentComposerReference,
+): Reference {
+  return {
+    type:
+      ref.refType === "file"
+        ? "file"
+        : ref.refType === "agent"
+          ? "agent"
+          : ref.refType === "custom-agent"
+            ? "custom-agent"
+            : "mention",
+    path: ref.refPath || "",
+    name: ref.label,
+    source: ref.source || "",
+    refType: ref.refType,
+    refId: ref.refId || undefined,
+    slotKey: ref.slotKey,
+    slotLabel: ref.slotLabel,
+    metadata: ref.metadata,
+  };
+}
+
+function applySlotReferenceChanges(
+  current: AgentComposerReference[],
+  references: AgentComposerReference[],
+): AgentComposerReference[] {
+  let next = current;
+
+  const applyOne = (ref: AgentComposerReference) => {
+    for (const related of ref.relatedReferences ?? []) {
+      applyOne(related);
+    }
+    if (!ref.slotKey) return;
+    const cleared = new Set([ref.slotKey, ...(ref.clearsSlots ?? [])]);
+    next = next.filter((existing) => !cleared.has(existing.slotKey ?? ""));
+    next = [...next, ref];
+  };
+
+  for (const ref of references) {
+    applyOne(ref);
+  }
+
+  return next;
+}
+
+function removeSlotReference(
+  current: AgentComposerReference[],
+  ref: AgentComposerReference,
+): AgentComposerReference[] {
+  const removed = new Set([ref.slotKey, ...(ref.clearsSlots ?? [])]);
+  return current.filter((existing) => !removed.has(existing.slotKey ?? ""));
+}
+
+function slotReferenceTitle(ref: AgentComposerReference): string {
+  return ref.slotLabel ? `${ref.slotLabel}: ${ref.label}` : ref.label;
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function filterMentionItemsForSlots(
+  items: MentionItem[],
+  slotReferences: AgentComposerReference[],
+): MentionItem[] {
+  return items.filter((item) => {
+    const requiredSlotKey = metadataString(item.metadata, "requiredSlotKey");
+    const requiredRefId = metadataString(item.metadata, "requiredRefId");
+    if (!requiredSlotKey || !requiredRefId) return true;
+    const selected = slotReferences.find(
+      (ref) => ref.slotKey === requiredSlotKey,
+    );
+    if (!selected?.refId) return true;
+    return selected.refId === requiredRefId;
+  });
+}
+
 function isDocumentAttachment(value: Record<string, unknown>): boolean {
   if (value.type === "document") return true;
   const contentType = String(value.contentType ?? "").toLowerCase();
@@ -1148,14 +1262,17 @@ export function TiptapComposer({
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const [editorHasText, setEditorHasText] = useState(false);
+  const [slotReferences, setSlotReferences] = useState<
+    AgentComposerReference[]
+  >([]);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
   const canSend = canSubmitComposerContent({
-    hasEditorContent: editorHasText,
+    hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
     disabled,
   });
-  const hasContextItems = contextItems.length > 0;
+  const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
@@ -1176,6 +1293,10 @@ export function TiptapComposer({
   const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
     popover?.type === "@",
+  );
+  const filteredMentionItems = useMemo(
+    () => filterMentionItemsForSlots(mentionItems, slotReferences),
+    [mentionItems, slotReferences],
   );
 
   const {
@@ -1225,8 +1346,8 @@ export function TiptapComposer({
   }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
-  const mentionItemsRef = useRef(mentionItems);
-  mentionItemsRef.current = mentionItems;
+  const mentionItemsRef = useRef(filteredMentionItems);
+  mentionItemsRef.current = filteredMentionItems;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
@@ -1534,18 +1655,26 @@ export function TiptapComposer({
       const normalized = normalizeAgentComposerReference(ref);
       const ed = editor;
       if (!normalized || !ed) return;
+      if (normalized.slotKey) {
+        setSlotReferences((current) =>
+          applySlotReferenceChanges(current, [normalized]),
+        );
+        ed.commands.focus("end");
+        return;
+      }
+      if (normalized.relatedReferences?.some((item) => item.slotKey)) {
+        setSlotReferences((current) =>
+          applySlotReferenceChanges(
+            current,
+            normalized.relatedReferences ?? [],
+          ),
+        );
+      }
       ed.chain()
         .focus()
         .insertContent({
           type: "mentionReference",
-          attrs: {
-            label: normalized.label,
-            icon: normalized.icon || "file",
-            source: normalized.source,
-            refType: normalized.refType,
-            refId: normalized.refId || null,
-            refPath: normalized.refPath || null,
-          },
+          attrs: mentionReferenceAttrs(normalized),
         })
         .insertContent(" ")
         .run();
@@ -1566,6 +1695,11 @@ export function TiptapComposer({
       }
       const ed = editor;
       if (!ed || disabled || composerModeRef.current) return;
+      const normalized = normalizeAgentComposerReference(payload);
+      if (normalized?.slotKey) {
+        insertReference(normalized);
+        return;
+      }
       if (composerAttachments.length > 0) return;
       if (composerDocumentHasContent(ed.state.doc)) return;
       insertReference(payload);
@@ -1626,6 +1760,7 @@ export function TiptapComposer({
       editor.commands.focus("end");
       const trimmed = editor.state.doc.textContent.trim();
       setEditorHasText(trimmed.length > 0);
+      setSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
       try {
@@ -1777,10 +1912,15 @@ export function TiptapComposer({
   const extractComposerPayload = useCallback(() => {
     const ed = editor;
     if (!ed) {
-      return { text: "", references: [] as Reference[] };
+      return {
+        text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
+        references: slotReferences.map(referenceFromComposerReference),
+      };
     }
 
-    const references: Reference[] = [];
+    const references: Reference[] = slotReferences.map(
+      referenceFromComposerReference,
+    );
 
     // Build text that preserves @mentions (getText() strips them).
     // Walk the document and reconstruct with @name for mention/file/skill nodes.
@@ -1805,7 +1945,10 @@ export function TiptapComposer({
         textParts.push("\n");
       }
     });
-    const text = textParts.join("").trim();
+    const rawText = textParts.join("").trim();
+    const text =
+      rawText ||
+      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
@@ -1832,6 +1975,9 @@ export function TiptapComposer({
           source: node.attrs.source,
           refType: node.attrs.refType,
           refId: node.attrs.refId,
+          slotKey: node.attrs.slotKey,
+          slotLabel: node.attrs.slotLabel,
+          metadata: node.attrs.metadata,
         });
       } else if (node.type.name === "skillReference") {
         references.push({
@@ -1844,7 +1990,7 @@ export function TiptapComposer({
     });
 
     return { text, references };
-  }, [editor]);
+  }, [editor, slotReferences]);
 
   const syncComposerState = useCallback(() => {
     const { text, references } = extractComposerPayload();
@@ -1941,6 +2087,7 @@ export function TiptapComposer({
         cancelActiveVoice();
         ed.commands.clearContent();
         setEditorHasText(false);
+        setSlotReferences([]);
         setComposerMode(null);
         composerModeRef.current = null;
         try {
@@ -1963,6 +2110,7 @@ export function TiptapComposer({
         cancelActiveVoice();
         ed.commands.clearContent();
         setEditorHasText(false);
+        setSlotReferences([]);
         try {
           localStorage.removeItem(draftKey);
         } catch {}
@@ -1984,6 +2132,7 @@ export function TiptapComposer({
       cancelActiveVoice();
       ed.commands.clearContent();
       setEditorHasText(false);
+      setSlotReferences([]);
       try {
         localStorage.removeItem(draftKey);
       } catch {}
@@ -2015,22 +2164,8 @@ export function TiptapComposer({
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
-    ed.chain()
-      .focus()
-      .deleteRange({ from: deleteFrom, to: currentPos })
-      .insertContent({
-        type: "mentionReference",
-        attrs: {
-          label: item.label,
-          icon: item.icon || "file",
-          source: item.source,
-          refType: item.refType,
-          refId: item.refId || null,
-          refPath: item.refPath || null,
-        },
-      })
-      .insertContent(" ")
-      .run();
+    ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
+    insertReference(composerReferenceFromMentionItem(item));
     popoverStateRef.current = null;
     setPopover(null);
   }
@@ -2082,22 +2217,11 @@ export function TiptapComposer({
         .chain()
         .focus()
         .deleteRange({ from: deleteFrom, to: currentPos })
-        .insertContent({
-          type: "mentionReference",
-          attrs: {
-            label: item.label,
-            icon: item.icon || "file",
-            source: item.source,
-            refType: item.refType,
-            refId: item.refId || null,
-            refPath: item.refPath || null,
-          },
-        })
-        .insertContent(" ")
         .run();
+      insertReference(composerReferenceFromMentionItem(item));
       closePopover();
     },
-    [editor, popover, closePopover],
+    [editor, popover, closePopover, insertReference],
   );
 
   const handleSelectCommand = useCallback(
@@ -2245,12 +2369,39 @@ export function TiptapComposer({
           />
         </div>
       )}
-      {hasContextItems && (
+      {hasContextRows && (
         <div
           data-agent-composer-variant={layoutVariant}
           data-agent-composer-slot="context-row"
           className="agent-composer-context-row flex flex-wrap gap-1.5 px-2.5 pt-2 pb-0"
         >
+          {slotReferences.map((ref) => (
+            <span
+              key={ref.slotKey}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground shadow-sm"
+            >
+              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              {ref.slotLabel && (
+                <span className="shrink-0 text-muted-foreground">
+                  {ref.slotLabel}
+                </span>
+              )}
+              <span className="min-w-0 truncate">{ref.label}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSlotReferences((current) =>
+                    removeSlotReference(current, ref),
+                  );
+                  editor?.commands.focus("end");
+                }}
+                aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
+                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
           {contextItems.map((item) => (
             <span
               key={item.key}
@@ -2274,7 +2425,7 @@ export function TiptapComposer({
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
         className={`agent-composer-editor-wrap ${
-          composerMode || hasContextItems ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
+          composerMode || hasContextRows ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
         }`}
       >
         <EditorContent
@@ -2347,7 +2498,7 @@ export function TiptapComposer({
         ref={popoverRef}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        mentionItems={mentionItems}
+        mentionItems={filteredMentionItems}
         skills={filteredSkills}
         commands={filteredCommands}
         hint={hint}

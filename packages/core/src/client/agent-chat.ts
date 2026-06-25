@@ -124,6 +124,16 @@ export interface AgentComposerReference {
   refType: string;
   refId?: string | null;
   refPath?: string | null;
+  /** Stable composer slot this reference occupies. Slot references replace older values. */
+  slotKey?: string;
+  /** Short label shown before the selected value in the composer chip. */
+  slotLabel?: string;
+  /** Additional app-defined data used by the client for filtering and grouping. */
+  metadata?: Record<string, unknown>;
+  /** Slots to remove when this reference is inserted or removed. */
+  clearsSlots?: string[];
+  /** Additional references to insert before this one. */
+  relatedReferences?: AgentComposerReference[];
 }
 
 export interface AgentComposerReferenceInsertOptions {
@@ -431,8 +441,27 @@ export function appendAgentChatContextToMessage(
   return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
-export function normalizeAgentComposerReference(
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeMetadata(
   value: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeAgentComposerReferenceInternal(
+  value: unknown,
+  depth: number,
 ): AgentComposerReference | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as Partial<AgentComposerReference>;
@@ -441,7 +470,7 @@ export function normalizeAgentComposerReference(
   const refType =
     typeof candidate.refType === "string" ? candidate.refType.trim() : "";
   if (!label || !refType) return null;
-  return {
+  const normalized: AgentComposerReference = {
     label,
     icon:
       typeof candidate.icon === "string" && candidate.icon.trim()
@@ -461,6 +490,31 @@ export function normalizeAgentComposerReference(
         ? candidate.refPath.trim()
         : null,
   };
+  const slotKey =
+    typeof candidate.slotKey === "string" ? candidate.slotKey.trim() : "";
+  if (slotKey) normalized.slotKey = slotKey;
+  const slotLabel =
+    typeof candidate.slotLabel === "string" ? candidate.slotLabel.trim() : "";
+  if (slotLabel) normalized.slotLabel = slotLabel;
+  const metadata = normalizeMetadata(candidate.metadata);
+  if (metadata) normalized.metadata = metadata;
+  const clearsSlots = normalizeStringArray(candidate.clearsSlots);
+  if (clearsSlots) normalized.clearsSlots = clearsSlots;
+  if (depth < 3 && Array.isArray(candidate.relatedReferences)) {
+    const relatedReferences = candidate.relatedReferences
+      .map((item) => normalizeAgentComposerReferenceInternal(item, depth + 1))
+      .filter((item): item is AgentComposerReference => item !== null);
+    if (relatedReferences.length > 0) {
+      normalized.relatedReferences = relatedReferences;
+    }
+  }
+  return normalized;
+}
+
+export function normalizeAgentComposerReference(
+  value: unknown,
+): AgentComposerReference | null {
+  return normalizeAgentComposerReferenceInternal(value, 0);
 }
 
 function postAgentChatContextMessage(

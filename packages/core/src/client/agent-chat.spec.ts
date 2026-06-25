@@ -461,6 +461,18 @@ describe("sendToAgentChat", () => {
         refType: " brand-kit ",
         refId: " lib_123 ",
         refPath: " /library/lib_123 ",
+        slotKey: " brand-kit ",
+        slotLabel: " Brand kit ",
+        metadata: { libraryId: "lib_123" },
+        clearsSlots: [" preset ", "", 123],
+        relatedReferences: [
+          {
+            label: " Library preset ",
+            refType: " preset ",
+            refId: " preset_123 ",
+            slotKey: " preset ",
+          },
+        ],
       }),
     ).toEqual({
       label: "Product shots",
@@ -469,6 +481,19 @@ describe("sendToAgentChat", () => {
       refType: "brand-kit",
       refId: "lib_123",
       refPath: "/library/lib_123",
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      metadata: { libraryId: "lib_123" },
+      clearsSlots: ["preset"],
+      relatedReferences: [
+        {
+          label: "Library preset",
+          refType: "preset",
+          refId: "preset_123",
+          refPath: null,
+          slotKey: "preset",
+        },
+      ],
     });
     expect(
       normalizeAgentComposerReference({ label: "", refType: "preset" }),

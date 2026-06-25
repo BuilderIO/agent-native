@@ -6658,6 +6658,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             refPath?: string;
             refId?: string;
             section?: string;
+            slotKey?: string;
+            slotLabel?: string;
+            metadata?: Record<string, unknown>;
+            clearsSlots?: string[];
+            relatedReferences?: unknown[];
           }
 
           const matchesQuery = (item: MentionItemResponse) =>
@@ -6794,6 +6799,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                         refPath: item.refPath,
                         refId: item.refId,
                         section: provider.label,
+                        slotKey: item.slotKey,
+                        slotLabel: item.slotLabel,
+                        metadata: item.metadata,
+                        clearsSlots: item.clearsSlots,
+                        relatedReferences: item.relatedReferences,
                       })),
                     );
                   } catch (e) {

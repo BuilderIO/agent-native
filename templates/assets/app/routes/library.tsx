@@ -1873,6 +1873,12 @@ export function LibraryWorkspace({
       refType: "brand-kit",
       refId: routeSelectedLibraryId,
       refPath: `/library/${encodeURIComponent(routeSelectedLibraryId)}`,
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      clearsSlots: ["preset"],
+      metadata: {
+        libraryId: routeSelectedLibraryId,
+      },
     });
   }, [currentLibrary?.title, routeSelectedLibraryId]);
 
