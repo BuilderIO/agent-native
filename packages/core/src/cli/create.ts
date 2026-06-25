@@ -1072,10 +1072,7 @@ function postProcessStandalone(
   setupAgentSymlinks(targetDir);
 }
 
-function fixStandaloneTsconfig(
-  targetDir: string,
-  templateName?: string,
-): void {
+function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
   const tsconfigPath = path.join(targetDir, "tsconfig.json");
   if (!fs.existsSync(tsconfigPath)) return;
   try {
@@ -1084,8 +1081,7 @@ function fixStandaloneTsconfig(
     };
     tsconfig.compilerOptions ??= {};
     const hasUiApp =
-      templateName !== "headless" &&
-      fs.existsSync(path.join(targetDir, "app"));
+      templateName !== "headless" && fs.existsSync(path.join(targetDir, "app"));
     const paths = {
       ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
     };
@@ -1758,7 +1754,7 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =

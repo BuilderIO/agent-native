@@ -1040,6 +1040,28 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
   });
 
+  it("keeps unpooled database overrides for unindented template netlify commands", () => {
+    const appDir = path.join(tmpDir, "unpooled-unindented-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build"',
+        'publish = "templates/mail/dist"',
+        'functions = "templates/mail/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NETLIFY_DATABASE_URL_UNPOOLED");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("pnpm install");
+  });
+
   it("rewrites unindented chat template netlify build commands for standalone apps", () => {
     const appDir = path.join(tmpDir, "chat-standalone-netlify");
     fs.mkdirSync(appDir, { recursive: true });

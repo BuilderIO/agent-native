@@ -73,7 +73,9 @@ describe("sync-builder-starter-manifest", () => {
         ).toContain('appId: "builder-agent-native-starter"');
         expect(files.get("netlify.toml")).toContain('publish = "dist"');
         expect(files.get("netlify.toml")).not.toContain("templates/chat");
-        expect(files.get("netlify.toml")).toContain("NITRO_PRESET=netlify pnpm build");
+        expect(files.get("netlify.toml")).toContain(
+          "NITRO_PRESET=netlify pnpm build",
+        );
         expect(files.get("netlify.toml")).not.toContain("--filter chat");
       } finally {
         snapshot.cleanup();
