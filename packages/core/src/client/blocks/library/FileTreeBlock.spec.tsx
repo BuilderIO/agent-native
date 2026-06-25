@@ -112,6 +112,13 @@ describe("FileTreeBlock", () => {
       fileButton?.querySelector('[class*="tabler-icon-chevron-right"]'),
     ).toBeNull();
     expect(fileButton?.textContent).toContain("Always-on agent instructions.");
+
+    const note = Array.from(fileButton?.querySelectorAll("span") ?? []).find(
+      (span) => span.textContent === "Always-on agent instructions.",
+    );
+    expect(note?.className).toContain("line-clamp-2");
+    expect(note?.className).toContain("break-words");
+    expect(note?.className).not.toContain("truncate");
   });
 
   it("flags data-files-expanded only while focused with an open file", () => {

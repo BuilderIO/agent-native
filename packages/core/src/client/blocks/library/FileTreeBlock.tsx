@@ -459,7 +459,7 @@ export function FileTreeRead({
           onClick={hasDetail ? () => toggleFile(node.index) : undefined}
           style={{ paddingLeft: indent + 8 }}
           className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
+            "group flex w-full items-start gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] transition-colors",
             hasDetail ? "hover:bg-accent/40" : "cursor-default",
           )}
         >
@@ -468,44 +468,48 @@ export function FileTreeRead({
           {hasDetail ? (
             <IconChevronRight
               className={cn(
-                "size-3.5 shrink-0 text-plan-muted transition-transform",
+                "mt-0.5 size-3.5 shrink-0 text-plan-muted transition-transform",
                 isOpen && "rotate-90",
               )}
             />
           ) : (
-            <span className="size-3.5 shrink-0" aria-hidden />
+            <span className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           )}
           <IconFile
             className={cn(
-              "size-4 shrink-0",
+              "mt-0.5 size-4 shrink-0",
               change === "removed" ? "text-plan-muted" : "text-plan-muted/80",
             )}
           />
-          <span
-            className={cn(
-              "min-w-0 truncate font-medium",
-              change ? CHANGE_NAME_INK[change] : "text-plan-text",
-            )}
-          >
-            {node.name}
-          </span>
-          {change && (
-            <span
-              title={CHANGE_LABEL[change]}
-              aria-label={CHANGE_LABEL[change]}
-              className={cn(
-                "ml-1 flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
-                CHANGE_BADGE[change],
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="inline-flex min-w-0 max-w-full shrink-0 items-center gap-1.5">
+              <span
+                className={cn(
+                  "min-w-0 truncate font-medium",
+                  change ? CHANGE_NAME_INK[change] : "text-plan-text",
+                )}
+              >
+                {node.name}
+              </span>
+              {change && (
+                <span
+                  title={CHANGE_LABEL[change]}
+                  aria-label={CHANGE_LABEL[change]}
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+                    CHANGE_BADGE[change],
+                  )}
+                >
+                  {CHANGE_GLYPH[change]}
+                </span>
               )}
-            >
-              {CHANGE_GLYPH[change]}
             </span>
-          )}
-          {note && !isOpen && (
-            <span className="ml-1 min-w-0 flex-1 truncate text-xs text-plan-muted">
-              {note}
-            </span>
-          )}
+            {note && !isOpen && (
+              <span className="line-clamp-2 min-w-[min(16rem,100%)] flex-1 break-words text-xs leading-5 text-plan-muted">
+                {note}
+              </span>
+            )}
+          </span>
         </button>
 
         {/* Expanded file detail: the note + a fenced snippet. */}
