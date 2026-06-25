@@ -113,6 +113,11 @@ export interface RecorderEngineOptions {
    */
   onWarning?: (message: string) => void;
   /**
+   * Fired when the camera ends (unplugged / revoked) any time after acquire,
+   * so the UI can drop the on-page camera bubble to match the recorded output.
+   */
+  onCameraEnded?: () => void;
+  /**
    * Called when the display stream's video track ends because the user clicked
    * the browser's native "Stop sharing" button. When provided, the engine
    * delegates the stop flow to this callback instead of calling `stop()`
@@ -381,6 +386,9 @@ export class RecorderEngine {
    */
   private rawCameraStream: MediaStream | null = null;
   private cameraBlur: CameraBlurHandle | null = null;
+  // True once the camera is acquired, through preview/countdown/recording, until
+  // teardown — gates disconnect handling outside the recording state.
+  private cameraLive = false;
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
@@ -718,13 +726,10 @@ export class RecorderEngine {
         }
       }
 
-      // Camera / mic disconnects mid-recording (USB webcam unplugged, mic
-      // permission revoked, a Bluetooth input dropping) are NON-fatal: the
-      // recording continues with whatever inputs remain, and we surface a
-      // non-blocking warning. We use the same recording/paused guard as the
-      // display handler so the `ended` events fired by `cleanupTracks()` during
-      // a normal stop()/cancel() (state is `stopping`/`idle` by then) are
-      // ignored rather than treated as a disconnect.
+      // Camera / mic disconnects (USB webcam unplugged, permission revoked,
+      // Bluetooth dropped) are NON-fatal: keep whatever inputs remain and warn.
+      // The handlers gate on `cameraLive`/state so the `ended` events fired by
+      // `cleanupTracks()` during a normal stop/cancel are ignored.
       if (this.cameraStream) {
         for (const track of this.cameraStream.getVideoTracks()) {
           track.addEventListener("ended", () => {
@@ -753,6 +758,11 @@ export class RecorderEngine {
         });
         this.cameraStream = this.cameraBlur.stream;
       }
+
+      // Camera is live from here (preview + countdown + recording) until
+      // teardown; a disconnect in this window must be handled, not just while
+      // recording.
+      if (this.cameraStream) this.cameraLive = true;
 
       this.previewStream =
         this.opts.mode === "camera" ? this.cameraStream! : this.displayStream!;
@@ -1739,6 +1749,9 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    // Clear before stopping tracks so the `ended` events our own stop() fires
+    // aren't mistaken for a disconnect.
+    this.cameraLive = false;
     this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});
     this.audioMixCtx = null;
@@ -1805,12 +1818,12 @@ export class RecorderEngine {
    * warn the user.
    */
   private onCameraTrackEnded() {
-    if (this.state !== "recording" && this.state !== "paused") return;
+    if (!this.cameraLive) return;
     if (this.cameraDisconnectNotified) return;
     this.cameraDisconnectNotified = true;
-    // When blur is active the disconnect fires on the raw hardware tracks; tear
-    // the blur pipeline down so the composite's camera <video> sees its (blurred)
-    // track end and self-hides the bubble, instead of freezing on a black frame.
+    this.cameraLive = false;
+    // Tear down the blur pipeline so the composite's camera <video> sees its
+    // (blurred) track end and self-hides, instead of freezing on a stale frame.
     if (this.cameraBlur) {
       this.cameraBlur.cleanup();
       this.cameraBlur = null;
@@ -1825,6 +1838,8 @@ export class RecorderEngine {
         // ignore — the track has already ended.
       }
     }
+    // Drop the on-page bubble to match the recorded output (screen-only now).
+    this.opts.onCameraEnded?.();
     this.emitWarning(
       "Camera disconnected — recording continues without webcam.",
     );

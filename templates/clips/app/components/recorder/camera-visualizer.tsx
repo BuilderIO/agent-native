@@ -267,6 +267,13 @@ export function CameraVisualizer({
       }
 
       streamRef.current = stream;
+      // Webcam unplugged mid-test: tear down so the preview + blur pipeline
+      // don't keep running frozen. runId guard skips our own stop().
+      for (const track of stream.getVideoTracks()) {
+        track.addEventListener("ended", () => {
+          if (runIdRef.current === runId) stopTest();
+        });
+      }
       await attachPreview();
       // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
@@ -293,6 +300,7 @@ export function CameraVisualizer({
     disabled,
     onStatusChange,
     stopCurrent,
+    stopTest,
   ]);
 
   useEffect(() => {
