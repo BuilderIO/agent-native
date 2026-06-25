@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 type PrebuildMode = "dev" | "postinstall";
@@ -11,6 +11,34 @@ interface PackageTarget {
   dir: string;
   expectedOutputs: string[];
   tsBuildInfoFiles?: string[];
+}
+
+function exportedDistOutputs(packageJsonPath: string): string[] {
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+    exports?: unknown;
+  };
+  const outputs = new Set<string>();
+
+  function collect(value: unknown): void {
+    if (typeof value === "string") {
+      if (value.startsWith("./dist/") && !value.includes("*")) {
+        outputs.add(value.slice(2));
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item);
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      for (const item of Object.values(value)) collect(item);
+    }
+  }
+
+  collect(packageJson.exports);
+  return [...outputs].sort();
 }
 
 const targets: PackageTarget[] = [
@@ -28,9 +56,8 @@ const targets: PackageTarget[] = [
     name: "@agent-native/core",
     dir: "packages/core",
     expectedOutputs: [
-      "dist/index.js",
+      ...exportedDistOutputs("packages/core/package.json"),
       "dist/cli/index.js",
-      "dist/server/index.js",
     ],
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/core.tsbuildinfo",
@@ -67,11 +94,7 @@ const targets: PackageTarget[] = [
     id: "scheduling",
     name: "@agent-native/scheduling",
     dir: "packages/scheduling",
-    expectedOutputs: [
-      "dist/index.js",
-      "dist/server/index.js",
-      "dist/server/providers/index.js",
-    ],
+    expectedOutputs: exportedDistOutputs("packages/scheduling/package.json"),
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/scheduling.tsbuildinfo",
     ],
@@ -87,7 +110,7 @@ const targets: PackageTarget[] = [
     id: "dispatch",
     name: "@agent-native/dispatch",
     dir: "packages/dispatch",
-    expectedOutputs: ["dist/index.js", "dist/server/index.js"],
+    expectedOutputs: exportedDistOutputs("packages/dispatch/package.json"),
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/dispatch.tsbuildinfo"],
   },
 ];
