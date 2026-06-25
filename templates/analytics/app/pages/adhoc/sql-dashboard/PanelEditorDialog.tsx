@@ -1,9 +1,5 @@
-import { useSendToAgentChat } from "@agent-native/core/client";
-import {
-  IconAlertTriangle,
-  IconAlignLeft,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { PromptComposer, useSendToAgentChat } from "@agent-native/core/client";
+import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -30,7 +26,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, safeFormatPanelSql } from "@/lib/format-sql";
 
@@ -180,7 +175,6 @@ function PanelEditorContent({
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
   const [tab, setTab] = useState<"describe" | "manual">("describe");
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -190,7 +184,6 @@ function PanelEditorContent({
       setForm(panelToForm(panel));
       setError(null);
       setSaving(false);
-      setPrompt("");
       // Editing an existing panel always goes straight to the manual form.
       setTab(panel ? "manual" : "describe");
     }
@@ -198,7 +191,6 @@ function PanelEditorContent({
 
   const isEdit = !!panel;
   const canSave = form.title.trim().length > 0 && form.sql.trim().length > 0;
-  const canGenerate = prompt.trim().length > 0 && !isGenerating;
   const canFormat = canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
@@ -217,13 +209,14 @@ function PanelEditorContent({
     }
   };
 
-  const handleDescribe = () => {
-    if (!canGenerate) return;
+  const handleDescribe = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
     const titlesLine = existingPanelTitles.length
       ? `Existing panels on this dashboard: ${existingPanelTitles.join(", ")}.`
       : "This dashboard has no panels yet.";
     send({
-      message: prompt.trim(),
+      message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
         `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, and dry-run validation do not count as data queries. ` +
@@ -244,7 +237,6 @@ function PanelEditorContent({
         `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
       submit: true,
     });
-    setPrompt("");
     onOpenChange(false);
   };
 
@@ -435,30 +427,14 @@ function PanelEditorContent({
 
       <TabsContent value="describe" className="mt-4">
         <div className="grid gap-3">
-          <Label htmlFor="panel-prompt">What do you want to chart?</Label>
-          <Textarea
-            id="panel-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
-            className="min-h-[140px] resize-y text-sm"
+          <Label>What do you want to chart?</Label>
+          <PromptComposer
             autoFocus
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleDescribe();
-              }
-            }}
+            disabled={isGenerating}
+            placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
+            draftScope="analytics:add-panel"
+            onSubmit={handleDescribe}
           />
-          <p className="text-xs text-muted-foreground">
-            The agent will consult the data dictionary, write the SQL, and
-            append the panel. Press{" "}
-            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter
-            </kbd>{" "}
-            to submit.
-          </p>
         </div>
         <EditorFooter className="mt-4">
           <Button
@@ -468,16 +444,6 @@ function PanelEditorContent({
             disabled={isGenerating}
           >
             Cancel
-          </Button>
-          <Button size="sm" onClick={handleDescribe} disabled={!canGenerate}>
-            {isGenerating ? (
-              <>
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              "Generate"
-            )}
           </Button>
         </EditorFooter>
       </TabsContent>

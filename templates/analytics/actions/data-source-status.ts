@@ -156,27 +156,35 @@ export default defineAction({
       )
       .map((provider) => {
         const optionalKeys = provider.optionalKeys ?? [];
-        const missingRequiredKeys = provider.requiredKeys.filter(
-          (key) => !configuredKeys.has(key),
-        );
+        const requiredMode = provider.requiredMode ?? "all";
+        const hasRequiredCredentials =
+          requiredMode === "any"
+            ? provider.requiredKeys.some((key) => configuredKeys.has(key))
+            : provider.requiredKeys.every((key) => configuredKeys.has(key));
+        const missingRequiredKeys = hasRequiredCredentials
+          ? []
+          : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
         const configuredProviderKeys = [
           ...provider.requiredKeys,
           ...optionalKeys,
         ].filter((key) => configuredKeys.has(key));
+        const workspaceConnection =
+          workspaceProviderStatusById.get(provider.provider) ??
+          summarizeWorkspaceConnections(
+            provider.provider,
+            workspace.connections,
+            workspace.grants,
+          );
         return {
           provider: provider.provider,
           label: provider.label,
-          configured: missingRequiredKeys.length === 0,
+          configured:
+            hasRequiredCredentials ||
+            workspaceConnection.grantState === "connected",
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,
           optionalKeys,
-          workspaceConnection:
-            workspaceProviderStatusById.get(provider.provider) ??
-            summarizeWorkspaceConnections(
-              provider.provider,
-              workspace.connections,
-              workspace.grants,
-            ),
+          workspaceConnection,
         };
       });
     return {

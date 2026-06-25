@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Agent-Native Clips",
   "short_name": "Clips",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Start Clips recordings from Chrome with optional redacted console and network diagnostics.",
   "minimum_chrome_version": "116",
   "action": {

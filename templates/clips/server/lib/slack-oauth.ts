@@ -25,6 +25,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   getActiveOrganizationId,
   getOrganizationRoleForEmail,
+  sameOwnerEmail,
 } from "./recordings.js";
 import type { SlackLinkSharedPayload } from "./slack-unfurls.js";
 
@@ -484,7 +485,7 @@ export async function disconnectSlackInstallation(options: {
     .limit(1);
   if (!row) return null;
 
-  const canDisconnectOwn = row.ownerEmail === options.userEmail;
+  const canDisconnectOwn = sameOwnerEmail(row.ownerEmail, options.userEmail);
   let canDisconnectOrg = false;
   if (row.orgId) {
     const role = await getOrganizationRoleForEmail(

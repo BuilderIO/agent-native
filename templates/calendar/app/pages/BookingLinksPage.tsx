@@ -112,6 +112,7 @@ import {
 } from "@/hooks/use-booking-links";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 import BookingsList from "./BookingsList";
@@ -882,8 +883,11 @@ export default function BookingLinksPage({
   }
 
   async function copyPreviewUrl(slug: string) {
-    await navigator.clipboard.writeText(getBookingUrl(slug));
-    toast.success("Booking link copied");
+    if (await copyTextToClipboard(getBookingUrl(slug))) {
+      toast.success("Booking link copied");
+      return;
+    }
+    toast.error("Clipboard access is unavailable");
   }
 
   function openPreview(slug: string) {

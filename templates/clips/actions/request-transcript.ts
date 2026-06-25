@@ -50,7 +50,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import {
   buildCaptionSegmentsFromText,
@@ -574,7 +577,7 @@ async function completeReadyTranscript({
     .where(
       and(
         eq(schema.recordings.id, recordingId),
-        eq(schema.recordings.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     )
     .limit(1);

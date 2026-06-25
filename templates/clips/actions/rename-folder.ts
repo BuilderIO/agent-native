@@ -4,7 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description: "Rename a folder.",
@@ -22,7 +25,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.folders.id, args.id),
-          eq(schema.folders.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         ),
       );
 
@@ -36,7 +39,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.folders.id, args.id),
-          eq(schema.folders.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         ),
       );
 

@@ -20,14 +20,24 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
   "gi",
 );
 
-export function redactBrowserDiagnosticString(value: string): string {
-  return value
+export interface RedactBrowserDiagnosticStringOptions {
+  /** Redact every query value. Use for URL fields; leave off for console text. */
+  redactQueryValues?: boolean;
+}
+
+export function redactBrowserDiagnosticString(
+  value: string,
+  options: RedactBrowserDiagnosticStringOptions = {},
+): string {
+  const redacted = value
     .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
     .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
     .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
-    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>")
-    .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
+    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>");
+  return options.redactQueryValues
+    ? redacted.replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>")
+    : redacted;
 }
 
 export type BrowserDiagnosticConsoleLevel =

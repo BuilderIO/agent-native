@@ -1,3 +1,7 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("background");
+
 const DEFAULT_CLIPS_BASE_URL = "https://clips.agent-native.com";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const MAX_CONSOLE_LOGS = 400;
@@ -147,6 +151,15 @@ type OffscreenStatusMessage = {
   recordingId?: string;
   result?: Record<string, unknown>;
   error?: string;
+};
+
+type ExtensionErrorMessage = {
+  type: "CLIPS_EXTENSION_ERROR";
+  surface?: string;
+  name?: string;
+  message?: string;
+  stack?: string;
+  context?: Record<string, unknown>;
 };
 
 type PendingNetworkRequest = {
@@ -516,19 +529,24 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-function redactString(value: string): string {
-  return value
+function redactString(
+  value: string,
+  options: { redactQueryValues?: boolean } = {},
+): string {
+  const redacted = value
     .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
     .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
     .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
-    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>")
-    .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
+    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>");
+  return options.redactQueryValues
+    ? redacted.replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>")
+    : redacted;
 }
 
 function sanitizeUrl(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const redacted = redactString(raw);
+  const redacted = redactString(raw, { redactQueryValues: true });
   try {
     const parsed = new URL(redacted);
     parsed.username = "";
@@ -1016,6 +1034,17 @@ async function armRecording(args: {
       visibility: "public",
     });
   } catch (err) {
+    captureExtensionError(err, {
+      tags: {
+        surface: "background",
+        recordingStep: "create-recording",
+      },
+      extra: {
+        captureSurface: settings.captureSurface,
+        includeCamera: settings.includeCamera,
+        includeMicrophone: settings.includeMicrophone,
+      },
+    });
     await abortArming();
     throw err;
   }
@@ -1070,6 +1099,18 @@ async function armRecording(args: {
     });
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
+    captureExtensionError(err, {
+      tags: {
+        surface: "background",
+        recordingStep: "offscreen-begin",
+      },
+      extra: {
+        recordingId: created.id,
+        captureSurface: settings.captureSurface,
+        includeCamera: settings.includeCamera,
+        includeMicrophone: settings.includeMicrophone,
+      },
+    });
     await cancelRecording();
     throw err;
   }
@@ -1923,6 +1964,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         (message as { type?: unknown })?.type,
         err,
       );
+      captureExtensionError(err, {
+        tags: {
+          surface: "background",
+          messageType: String((message as { type?: unknown })?.type ?? ""),
+        },
+      });
       response = {
         ok: false,
         error: err instanceof Error ? err.message : "Could not use Clips.",
@@ -1939,6 +1986,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
+
+  if (type === "CLIPS_EXTENSION_ERROR") {
+    const report = message as ExtensionErrorMessage;
+    const error = new Error(report.message || "Chrome extension error");
+    error.name = report.name || "ExtensionError";
+    if (report.stack) error.stack = report.stack;
+    captureExtensionError(error, {
+      tags: {
+        surface: report.surface || "content-script",
+        mechanism: "content-script-report",
+      },
+      extra: report.context,
+    });
+    return { ok: true };
+  }
 
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {

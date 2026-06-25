@@ -26,21 +26,13 @@ export function useAgentEngineConfigured(
 ): UseAgentEngineConfiguredResult {
   const [state, setState] = useState<AgentEngineConfiguredState>("unknown");
 
-  // Mid-run adapter signal that no key is usable — honored even when disabled.
   useEffect(() => {
-    const onMissing = () => setState("missing");
-    window.addEventListener("agent-chat:missing-api-key", onMissing);
-    return () =>
-      window.removeEventListener("agent-chat:missing-api-key", onMissing);
-  }, []);
-
-  useEffect(() => {
-    if (!enabled) {
-      setState("configured");
-      return;
-    }
     let cancelled = false;
-    const check = async () => {
+    const check = async (options?: { missingFallback?: boolean }) => {
+      if (!enabled) {
+        setState("configured");
+        return;
+      }
       const [envKeys, builderStatus, engineStatus] = await Promise.all([
         fetch(agentNativePath("/_agent-native/env-status"))
           .then((r) => (r.ok ? r.json() : null))
@@ -55,6 +47,7 @@ export function useAgentEngineConfigured(
       if (cancelled) return;
       // All three failed — likely a flaky network; keep the current state.
       if (envKeys == null && builderStatus == null && engineStatus == null) {
+        if (options?.missingFallback) setState("missing");
         return;
       }
       const keys = (envKeys ?? []) as Array<{
@@ -68,11 +61,32 @@ export function useAgentEngineConfigured(
         engineStatus?.configured === true;
       setState(anyConfigured ? "configured" : "missing");
     };
+    const onConfiguredChanged = () => {
+      void check();
+    };
+    const onMissing = () => {
+      if (!enabled) {
+        setState("missing");
+        return;
+      }
+      void check({ missingFallback: true });
+    };
+
     void check();
-    window.addEventListener("agent-engine:configured-changed", check);
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      onConfiguredChanged,
+    );
+    // A stale failed stream can arrive after a reconnect succeeds. Re-check the
+    // current status before pinning the composer in setup.
+    window.addEventListener("agent-chat:missing-api-key", onMissing);
     return () => {
       cancelled = true;
-      window.removeEventListener("agent-engine:configured-changed", check);
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        onConfiguredChanged,
+      );
+      window.removeEventListener("agent-chat:missing-api-key", onMissing);
     };
   }, [enabled]);
 

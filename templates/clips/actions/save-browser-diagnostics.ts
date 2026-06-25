@@ -24,7 +24,7 @@ import {
   type BrowserDiagnosticConsoleLevel,
 } from "../shared/browser-diagnostics.js";
 
-const REDACTION_VERSION = 1;
+const REDACTION_VERSION = 2;
 
 const consoleLevelSchema = z.enum(["debug", "log", "info", "warn", "error"]);
 
@@ -57,8 +57,12 @@ function redactString(value: string): string {
   return redactBrowserDiagnosticString(value);
 }
 
+function redactUrlString(value: string): string {
+  return redactBrowserDiagnosticString(value, { redactQueryValues: true });
+}
+
 function sanitizeUrl(raw: string): string {
-  const redacted = redactString(raw);
+  const redacted = redactUrlString(raw);
   try {
     const parsed = new URL(redacted, "https://clips.local");
     parsed.username = "";

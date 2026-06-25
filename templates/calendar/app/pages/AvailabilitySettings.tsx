@@ -20,6 +20,7 @@ import {
   useUpdateAvailability,
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
 
@@ -61,6 +62,19 @@ export default function AvailabilitySettings() {
   const [timezone, setTimezone] = useState("America/New_York");
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+
+  async function handleCopyBookingLink() {
+    if (isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
+    const url = `${window.location.origin}/book/${bookingSlug}`;
+    if (await copyTextToClipboard(url)) {
+      toast.success("Booking link copied to clipboard");
+      return;
+    }
+    toast.error("Clipboard access is unavailable");
+  }
 
   useEffect(() => {
     if (availability) {
@@ -253,15 +267,7 @@ export default function AvailabilitySettings() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                if (isLocal) {
-                  setShowCloudUpgrade(true);
-                  return;
-                }
-                const url = `${window.location.origin}/book/${bookingSlug}`;
-                navigator.clipboard.writeText(url);
-                toast.success("Booking link copied to clipboard");
-              }}
+              onClick={() => void handleCopyBookingLink()}
             >
               Copy Booking Link
             </Button>

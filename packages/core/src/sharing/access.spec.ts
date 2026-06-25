@@ -314,6 +314,67 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("matches owner and user-share emails case-insensitively", async () => {
+    await insertDoc({
+      id: "doc-owned-case",
+      ownerEmail: "Owner+QA@Example.COM",
+    });
+    await insertDoc({ id: "doc-shared-case", ownerEmail: outsiderEmail });
+    await db.insert(docShares).values({
+      id: "share-case",
+      resourceId: "doc-shared-case",
+      principalType: "user",
+      principalId: "Viewer+QA@Example.COM",
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+
+    await expect(
+      listVisible({ userEmail: "owner+qa@example.com", orgId }),
+    ).resolves.toContain("doc-owned-case");
+
+    await runWithRequestContext(
+      { userEmail: "OWNER+QA@example.com", orgId },
+      async () => {
+        await expect(
+          assertAccess(resourceType, "doc-owned-case", "owner"),
+        ).resolves.toMatchObject({ role: "owner" });
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: "viewer+qa@example.com", orgId },
+      async () => {
+        await expect(
+          assertAccess(resourceType, "doc-shared-case", "editor"),
+        ).resolves.toMatchObject({ role: "editor" });
+      },
+    );
+  });
+
+  it("can opt a resource into owner access regardless of active org", async () => {
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      ownerAccessIgnoresOrg: true,
+    });
+    await insertDoc({ id: "doc-cross-org-owner", orgId: otherOrgId });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        assertAccess(resourceType, "doc-cross-org-owner", "owner"),
+      ).resolves.toMatchObject({ role: "owner" });
+      await expect(
+        listVisible({ userEmail: ownerEmail, orgId }),
+      ).resolves.toContain("doc-cross-org-owner");
+    });
+  });
+
   it("runs share, list, visibility, and unshare actions with role checks", async () => {
     await insertDoc({ id: "doc-actions" });
 

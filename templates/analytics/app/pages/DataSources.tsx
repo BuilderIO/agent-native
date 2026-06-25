@@ -65,7 +65,7 @@ import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
   isSourceReady,
-  isSourceConfigured,
+  isSourceLocallyConfigured,
   credentialRowsFromStatus,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
@@ -668,6 +668,13 @@ function ConnectedView({
     ),
   );
   const optionalKeys = getOptionalCredentialKeys(source);
+  const isAnyCredentialMode = source.credentialRequirementMode === "any";
+  const configuredCredentialKeys = new Set(
+    envStatus.filter((s) => s.configured).map((s) => s.key),
+  );
+  const hasAlternativeCredential =
+    isAnyCredentialMode &&
+    source.envKeys.some((key) => configuredCredentialKeys.has(key));
 
   const handleDisconnect = () => {
     if (sharedCredentialKeys.length > 0) {
@@ -847,8 +854,7 @@ function ConnectedView({
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 space-y-2">
             {source.envKeys.map((key) => {
-              const configured =
-                envStatus.find((s) => s.key === key)?.configured ?? false;
+              const configured = configuredCredentialKeys.has(key);
               const optional = optionalKeys.has(key);
               return (
                 <div
@@ -867,6 +873,11 @@ function ConnectedView({
                     <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
                       <IconCircle className="h-3 w-3" />
                       Optional
+                    </span>
+                  ) : hasAlternativeCredential ? (
+                    <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
+                      <IconCircle className="h-3 w-3" />
+                      Alternative
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 whitespace-nowrap text-rose-400">
@@ -1608,7 +1619,11 @@ export default function DataSources() {
               <DataSourceCard
                 key={source.id}
                 source={source}
-                locallyConfigured={isSourceConfigured(source, envStatus)}
+                locallyConfigured={isSourceLocallyConfigured(
+                  source,
+                  statusData,
+                  envStatus,
+                )}
                 ready={isSourceReady(source, statusData, envStatus)}
                 sharedConnectionStatus={getSharedConnectionStatus(
                   source,
@@ -1641,7 +1656,11 @@ export default function DataSources() {
                   <DataSourceCard
                     key={source.id}
                     source={source}
-                    locallyConfigured={isSourceConfigured(source, envStatus)}
+                    locallyConfigured={isSourceLocallyConfigured(
+                      source,
+                      statusData,
+                      envStatus,
+                    )}
                     ready={isSourceReady(source, statusData, envStatus)}
                     sharedConnectionStatus={getSharedConnectionStatus(
                       source,

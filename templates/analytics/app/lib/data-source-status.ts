@@ -101,9 +101,11 @@ export function isSourceConfigured(
 ): boolean {
   const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
   const optionalKeys = getOptionalCredentialKeys(source);
-  return source.envKeys
-    .filter((key) => !optionalKeys.has(key))
-    .every((key) => statusMap.get(key) === true);
+  const requiredKeys = source.envKeys.filter((key) => !optionalKeys.has(key));
+  if (source.credentialRequirementMode === "any") {
+    return requiredKeys.some((key) => statusMap.get(key) === true);
+  }
+  return requiredKeys.every((key) => statusMap.get(key) === true);
 }
 
 export function getWorkspaceProviderIdForSource(
@@ -130,6 +132,14 @@ export function getWorkspaceConnectionForSource(
     (provider) =>
       provider.provider === providerId || provider.id === providerId,
   );
+}
+
+export function getProviderStatusForSource(
+  source: DataSource,
+  data: DataSourceStatusResponse | undefined,
+): DataSourceProviderStatus | undefined {
+  const providerId = getWorkspaceProviderIdForSource(source) ?? source.id;
+  return data?.providers?.find((provider) => provider.provider === providerId);
 }
 
 export function getSharedConnectionStatus(
@@ -178,12 +188,29 @@ export function isSourceReady(
 ): boolean {
   return (
     isSourceConfigured(source, envStatus) ||
+    getProviderStatusForSource(source, data)?.configured === true ||
     getSharedConnectionStatus(source, data, envStatus)?.kind === "ready"
   );
 }
 
+export function isSourceLocallyConfigured(
+  source: DataSource,
+  data: DataSourceStatusResponse | undefined,
+  envStatus: EnvKeyStatus[],
+): boolean {
+  if (isSourceConfigured(source, envStatus)) return true;
+  const providerStatus = getProviderStatusForSource(source, data);
+  if (!providerStatus?.configured) return false;
+  return providerStatus.configuredKeys.length > 0;
+}
+
 export function getConfiguredDataSources(
   envStatus: EnvKeyStatus[],
+  data?: DataSourceStatusResponse,
 ): DataSource[] {
-  return dataSources.filter((source) => isSourceConfigured(source, envStatus));
+  return dataSources.filter((source) =>
+    data
+      ? isSourceReady(source, data, envStatus)
+      : isSourceConfigured(source, envStatus),
+  );
 }

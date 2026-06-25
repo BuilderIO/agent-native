@@ -569,7 +569,9 @@ export function EmailList({
     // Enter on a single focused row is a single-thread action — clear any
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
-    void ensureThread(targetThreadId, thread.latestMessage.accountEmail);
+    void ensureThread(targetThreadId, thread.latestMessage.accountEmail).catch(
+      () => {},
+    );
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
@@ -618,7 +620,9 @@ export function EmailList({
         // instant down the list.
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
-        void ensureThread(nextTid, nextThread.latestMessage.accountEmail);
+        void ensureThread(nextTid, nextThread.latestMessage.accountEmail).catch(
+          () => {},
+        );
       } else {
         setFocusedId(null);
       }
@@ -1065,7 +1069,7 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    void ensureThread(targetThreadId, email.accountEmail);
+    void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
     onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
