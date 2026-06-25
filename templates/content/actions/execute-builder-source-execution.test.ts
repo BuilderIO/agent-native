@@ -262,7 +262,7 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("blocks synthetic fixture rows before any live write", async () => {
+  it("creates a new Builder entry for an unmatched (synthetic-fixture) row", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
       liveWritesEnabled: true,
@@ -280,36 +280,40 @@ describe("execute Builder source execution", () => {
       source: builderSource,
       changeSet: approvedChangeSet,
     });
-    const deps = depsFor({ source: builderSource, execution });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      writeResult: {
+        ok: true,
+        status: 200,
+        entryId: "new-builder-entry",
+        responseBody: { id: "new-builder-entry" },
+      },
+    });
 
-    await expect(
-      executeBuilderSourceExecutionWithDeps(
-        {
-          databaseId: "database-1",
-          changeSetId: approvedChangeSet.id,
-          pushModeConfirmation: "autosave",
-        },
-        deps,
-      ),
-    ).rejects.toThrow(
-      "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+    await executeBuilderSourceExecutionWithDeps(
+      {
+        databaseId: "database-1",
+        changeSetId: approvedChangeSet.id,
+        pushModeConfirmation: "autosave",
+      },
+      deps,
     );
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    // create_draft skips the live preflight (no entry to read yet) and POSTs a
+    // new draft entry.
+    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.executeWrite).toHaveBeenCalledWith(
       expect.objectContaining({
-        executionId: execution.id,
-        state: "blocked",
-        lastError:
-          "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
-        payload: expect.objectContaining({
-          target: expect.objectContaining({
-            entryId: null,
-            sourceQualifiedId: null,
-          }),
+        request: expect.objectContaining({
+          method: "POST",
+          body: expect.objectContaining({ published: "draft" }),
         }),
       }),
     );
-    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ executionId: execution.id }),
+    );
   });
 
   it("blocks non-test Builder models before any write", async () => {

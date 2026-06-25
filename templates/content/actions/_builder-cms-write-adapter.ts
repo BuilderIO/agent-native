@@ -101,6 +101,26 @@ function normalizeSourceWriteMode(
     : null;
 }
 
+/**
+ * Single source of truth for the push mode that gates an execution. Prepare and
+ * execute MUST resolve this identically, or their idempotency keys diverge and
+ * the gate lookup fails ("Prepare the Builder execution gate before executing
+ * it"). The write tier wins when set, so a change-set's own `pushMode` (e.g. a
+ * local create hardcoded to "autosave") cannot drift from the tier.
+ */
+export function resolveBuilderCmsExecutionPushMode(args: {
+  source: ContentDatabaseSource;
+  changeSet: ContentDatabaseSourceChangeSet;
+}): ContentDatabaseSourcePushMode {
+  const sourceWriteMode = normalizeSourceWriteMode(
+    args.source.metadata.writeMode,
+  );
+  if (sourceWriteMode) {
+    return builderCmsPushModeForTier(sourceWriteMode);
+  }
+  return args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave";
+}
+
 function nestedBuilderPatch(
   operations: BuilderCmsExecutionOperation[],
 ): Record<string, unknown> {
@@ -228,11 +248,9 @@ function builderSafetyChecks(args: {
     checks.push(
       "Create draft writes a new Builder entry with published state set to draft.",
     );
-    if (args.syntheticFixtureTarget) {
-      blockers.push(
-        "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
-      );
-    }
+    // A create_draft target has no Builder entry by definition — that is the
+    // whole point of a create. The unmatched-row blocker only applies to
+    // effects that write to an existing entry (autosave / update_in_place).
   }
   if (args.effect === "publish") {
     checks.push(
@@ -305,9 +323,10 @@ export function buildBuilderCmsExecutionPlan(args: {
   const sourceWriteMode = normalizeSourceWriteMode(
     args.source.metadata.writeMode,
   );
-  const pushMode = sourceWriteMode
-    ? builderCmsPushModeForTier(sourceWriteMode)
-    : (args.changeSet.pushMode ?? args.source.metadata.pushMode ?? "autosave");
+  const pushMode = resolveBuilderCmsExecutionPushMode({
+    source: args.source,
+    changeSet: args.changeSet,
+  });
   const effectivePushMode = pushMode === "none" ? "autosave" : pushMode;
   if (pushMode === "none") {
     if (args.source.capabilities.liveWritesEnabled === true) {

@@ -28,6 +28,7 @@ import type {
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
+  resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
@@ -541,8 +542,14 @@ export async function executeBuilderSourceExecutionWithDeps(
     throw new Error("Only outbound Builder change sets can be executed.");
   }
 
+  const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
+    source,
+    changeSet,
+  });
+  const effectivePushMode =
+    resolvedPushMode === "none" ? "autosave" : resolvedPushMode;
   const pushMode = executablePushMode(
-    args.pushModeConfirmation ?? changeSet.pushMode ?? source.metadata.pushMode,
+    args.pushModeConfirmation ?? effectivePushMode,
   );
   if (!pushMode) {
     throw new Error(

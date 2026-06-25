@@ -7,6 +7,7 @@ import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
+  resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter";
 
@@ -331,6 +332,52 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("resolves the gate push mode from the tier, ignoring a change-set's own pushMode", () => {
+    // Local create change-sets hardcode pushMode "autosave". Under the
+    // publish_updates tier the gate must still key on the tier mode ("publish"),
+    // so prepare and execute compute the same idempotency key.
+    const publishUpdatesSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+    });
+    const autosaveChangeSet: ContentDatabaseSourceChangeSet = {
+      ...approvedChangeSet(),
+      pushMode: "autosave",
+    };
+
+    expect(
+      resolveBuilderCmsExecutionPushMode({
+        source: publishUpdatesSource,
+        changeSet: autosaveChangeSet,
+      }),
+    ).toBe("publish");
+  });
+
+  it("keys a tier create-draft gate on the tier push mode, not autosave", () => {
+    // Reproduces the create-push regression: a new-row create change-set
+    // (no matched Builder entry, pushMode "autosave") pushed with no explicit
+    // confirmation under publish_updates. Prepare's gate key must be :publish so
+    // execute — which resolves the same way — finds the gate.
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          writeMode: "publish_updates",
+          pushMode: "publish",
+          allowedWriteModes: ["autosave", "publish"],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "autosave",
+      },
+    });
+
+    expect(plan.payload.effect).toBe("create_draft");
+    expect(plan.idempotencyKey).toBe("builder-cms:source-1:change-1:publish");
+  });
+
   it("blocks publication transitions when the source has not enabled them", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
@@ -499,7 +546,11 @@ describe("Builder CMS write adapter plan", () => {
     );
   });
 
-  it("blocks live writes for unmatched legacy fixture-wrapped Builder rows", () => {
+  it("creates a draft for an unmatched (synthetic-fixture) Builder row", () => {
+    // A row synthesized as `builder-<documentId>` has no real Builder entry, so
+    // its effect is create_draft. Creating a new entry from such a row is the
+    // intended behavior — the unmatched-row blocker only applies to effects that
+    // write to an existing entry (autosave / update_in_place).
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
@@ -521,10 +572,10 @@ describe("Builder CMS write adapter plan", () => {
     });
 
     expect(plan).toMatchObject({
-      state: "blocked",
-      lastError:
-        "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
+      state: "ready",
+      lastError: null,
       payload: {
+        effect: "create_draft",
         target: {
           entryId: null,
           sourceQualifiedId: null,
@@ -543,10 +594,8 @@ describe("Builder CMS write adapter plan", () => {
           },
         },
         safety: {
-          dryRunOnly: true,
-          blockers: [
-            "This row is not matched to a Builder entry yet. Refresh or match a Builder row before pushing.",
-          ],
+          dryRunOnly: false,
+          blockers: [],
         },
       },
     });
