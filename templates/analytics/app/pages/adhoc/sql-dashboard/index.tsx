@@ -12,8 +12,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -90,6 +89,7 @@ import {
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
+import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
   resourceCanEdit,
   resourceCanManage,
@@ -1119,30 +1119,7 @@ export default function SqlDashboardPage() {
   }
 
   if (!loaded) {
-    // Match the eventual SqlChartCard layout exactly (Card chrome + title row +
-    // chart-body skeleton) so the transition from "dashboard config loading" to
-    // "queries loading" doesn't morph the skeleton's shape — only the title
-    // text fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
-    // panels and the page visibly shifts.
-    return (
-      <div className="dashboard-grid-container space-y-4">
-        <div
-          className="dashboard-grid"
-          style={{ "--dash-cols": 2 } as React.CSSProperties}
-        >
-          {[0, 1].map((i) => (
-            <Card key={i} className="flex flex-col overflow-visible">
-              <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!dashboard) return <BlankDashboard />;

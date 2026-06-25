@@ -106,7 +106,6 @@ const esES = {
     templates: {
       title: "Haz fork y personaliza una app completa",
       eyebrow: "100% gratis y open source",
-      body: "Cuando un action necesita pantallas, empieza con una app validada que puedas personalizar. Chat es el scaffold mínimo de app; las plantillas de dominio añaden workflows de producto, datos de ejemplo y actions listas para agent.",
       cta: "Ver todas las plantillas",
     },
     skills: {

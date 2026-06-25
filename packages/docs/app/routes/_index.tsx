@@ -798,9 +798,6 @@ export default defineAction({
                   <h3 className="mb-3 text-2xl font-semibold tracking-tight text-[var(--fg)]">
                     {t("home.templates.cta")}
                   </h3>
-                  <p className="mx-auto m-0 max-w-[260px] text-sm leading-relaxed text-[var(--fg-secondary)]">
-                    {t("home.templates.body")}
-                  </p>
                 </div>
                 <span className="primary-button">
                   {t("home.templates.cta")}

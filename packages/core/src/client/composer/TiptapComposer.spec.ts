@@ -10,6 +10,7 @@ import {
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
+  MODEL_SELECTOR_POPOVER_STYLE,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -178,5 +179,14 @@ describe("createTiptapComposerExtensions", () => {
     expect(stopped).toBe(true);
     expect(added).toHaveLength(1);
     expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-image\.png$/);
+  });
+
+  it("caps the model picker height without forcing empty vertical space", () => {
+    expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
+      fontSize: 13,
+      maxHeight:
+        "min(500px, var(--radix-popover-content-available-height, 500px))",
+    });
+    expect(MODEL_SELECTOR_POPOVER_STYLE).not.toHaveProperty("height");
   });
 });
