@@ -112,7 +112,7 @@ pub(crate) mod macos {
     use std::ffi::c_void;
     use std::mem::size_of;
     use std::ptr::NonNull;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     use block2::{RcBlock, StackBlock};
@@ -180,6 +180,14 @@ pub(crate) mod macos {
     fn session_slot() -> &'static Mutex<Option<SpeechSession>> {
         static SLOT: OnceLock<Mutex<Option<SpeechSession>>> = OnceLock::new();
         SLOT.get_or_init(|| Mutex::new(None))
+    }
+
+    /// Bumped at the start of every `native_speech_start_impl` call. The
+    /// auto-restart thread captures the value at decision time and skips the
+    /// restart if a newer session has since been requested.
+    fn session_generation() -> &'static AtomicU64 {
+        static GEN: OnceLock<AtomicU64> = OnceLock::new();
+        GEN.get_or_init(|| AtomicU64::new(0))
     }
 
     #[derive(Serialize, Clone)]
@@ -521,10 +529,16 @@ pub(crate) mod macos {
         }
     }
 
-    /// Benign end-of-utterance errors allow auto-restart; config/auth errors do not.
-    fn is_transient_recognizer_error(msg: &str) -> bool {
-        let lower = msg.to_ascii_lowercase();
-        lower.contains("no speech") || lower.contains("timeout") || lower.contains("retry")
+    /// Benign end-of-utterance errors from SFSpeechRecognizer allow auto-restart;
+    /// config/auth errors do not. Keys off the stable NSError domain + code rather
+    /// than localizedDescription, which is locale-dependent.
+    ///
+    /// kAFAssistantErrorDomain codes (internal but stable across macOS versions):
+    ///   203 — no speech detected
+    ///   1110 — recognition request timed out
+    fn is_transient_recognizer_error(err: &NSError) -> bool {
+        let domain: Retained<NSString> = unsafe { objc2::msg_send![err, domain] };
+        domain.to_string() == "kAFAssistantErrorDomain" && matches!(err.code(), 203 | 1110)
     }
 
     /// Pending personal-vocabulary list staged by
@@ -554,6 +568,10 @@ pub(crate) mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
     ) -> Result<(), String> {
+        // Bump the generation so any pending auto-restart for the previous
+        // session's transient error will see the counter has changed and abort.
+        let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
+
         let contextual_strings = {
             let v = take_pending_vocabulary();
             (!v.is_empty()).then_some(v)
@@ -720,38 +738,41 @@ pub(crate) mod macos {
                 // Error path: surface and clean up the slot.
                 if !error_ptr.is_null() && result_ptr.is_null() {
                     let err = unsafe { &*error_ptr };
-                    let code = err.code();
                     let msg = ns_error_message(err);
-                    let transient = is_transient_recognizer_error(&msg);
+                    let transient = is_transient_recognizer_error(err);
                     eprintln!(
-                        "[speech] recognizer ended with error (code {code}, transient={transient}): {msg}"
+                        "[speech] recognizer ended with error (code {}, transient={transient}): {msg}",
+                        err.code()
                     );
 
                     if !is_cancelled && !transient {
                         let _ = app.emit(
                             "voice:speech-error",
-                            ErrorPayload {
-                                error: msg,
-                                source: "mic",
-                            },
+                            ErrorPayload { error: msg, source: "mic" },
                         );
                     }
                     clear_session_slot();
 
                     if !is_cancelled && !is_stopped && transient {
+                        let gen = my_gen;
                         let app = app.clone();
                         let locale = locale.clone();
                         let mic_device_id = mic_device_id.clone();
                         let mic_device_label = mic_device_label.clone();
                         std::thread::spawn(move || {
-                            // Brief pause so we don't tight-loop on misclassified errors.
                             std::thread::sleep(std::time::Duration::from_millis(300));
-                            let _ = native_speech_start_impl(
-                                app,
-                                locale,
-                                mic_device_id,
-                                mic_device_label,
-                            );
+                            // A newer session was started during the wait — don't clobber it.
+                            if session_generation().load(Ordering::SeqCst) != gen {
+                                return;
+                            }
+                            if let Err(e) = native_speech_start_impl(
+                                app.clone(), locale, mic_device_id, mic_device_label,
+                            ) {
+                                let _ = app.emit(
+                                    "voice:speech-error",
+                                    ErrorPayload { error: e, source: "mic" },
+                                );
+                            }
                         });
                     }
                     return;
