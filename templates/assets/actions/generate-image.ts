@@ -43,7 +43,7 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
-import { readGenerationContextDefaults } from "./_generation-context.js";
+import { readImageModelDefault } from "./_image-model-default.js";
 
 function resolveModelForTier(
   tier: ImageQualityTier | undefined,
@@ -57,29 +57,15 @@ function resolveModelForTier(
     : "gemini-3.1-flash-image";
 }
 
-function imageModelDefault(value: unknown): ImageModel | undefined {
-  return typeof value === "string" &&
-    (IMAGE_MODELS as readonly string[]).includes(value)
-    ? (value as ImageModel)
-    : undefined;
-}
-
-function imageAspectRatioDefault(value: unknown) {
-  return typeof value === "string" &&
-    (ASPECT_RATIOS as readonly string[]).includes(value)
-    ? (value as (typeof ASPECT_RATIOS)[number])
-    : undefined;
-}
-
 export default defineAction({
   description:
-    "Generate one brand-consistent image from a library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z
       .string()
       .optional()
       .describe(
-        "Brand kit/library ID. When omitted, uses the current browser tab's generation context, then the global generation context.",
+        "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
@@ -139,21 +125,16 @@ export default defineAction({
   }),
   parallelSafe: true,
   run: async (input, context?: ActionRunContext) => {
-    const generationDefaults = await readGenerationContextDefaults();
-    const libraryId = input.libraryId ?? generationDefaults.libraryId;
+    const imageModelDefault = await readImageModelDefault();
+    const libraryId = input.libraryId;
     if (!libraryId) {
       throw new Error(
-        "No brand kit selected. Choose a brand kit in the generation context bar or pass libraryId.",
+        "No brand kit selected. Tag a brand kit with @ or pass libraryId.",
       );
     }
     const args = {
       ...input,
       libraryId,
-      presetId: input.presetId ?? generationDefaults.presetId,
-      aspectRatio:
-        input.aspectRatio ??
-        imageAspectRatioDefault(generationDefaults.aspectRatio),
-      imageSize: input.imageSize ?? generationDefaults.imageSize,
     };
     await assertAccess("asset-library", args.libraryId, "editor");
     const db = getDb();
@@ -267,7 +248,7 @@ export default defineAction({
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
     const resolvedModel = (args.model ??
-      imageModelDefault(generationDefaults.model) ??
+      imageModelDefault ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
       "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];

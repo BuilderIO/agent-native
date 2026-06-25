@@ -28,44 +28,29 @@ import {
 } from "../server/lib/video-generation.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
-import { readGenerationContextDefaults } from "./_generation-context.js";
-
-function videoAspectRatioDefault(value: unknown) {
-  return typeof value === "string" &&
-    (VIDEO_ASPECT_RATIOS as readonly string[]).includes(value)
-    ? (value as (typeof VIDEO_ASPECT_RATIOS)[number])
-    : "16:9";
-}
-
-function videoModelDefault(value: unknown) {
-  return typeof value === "string" &&
-    (VIDEO_MODELS as readonly string[]).includes(value)
-    ? (value as (typeof VIDEO_MODELS)[number])
-    : "veo-3.1-generate-preview";
-}
 
 export default defineAction({
   description:
-    "Start an async Veo video generation run from an asset library. Poll the returned run with refresh-generation-run until it completes and creates a video asset.",
+    "Start an async Veo video generation run from a brand kit/library. Use a media-type @mention with refId video to choose this instead of image generation, and use a brand-kit @mention as libraryId. Poll the returned run with refresh-generation-run until it completes and creates a video asset.",
   schema: z.object({
     libraryId: z
       .string()
       .optional()
       .describe(
-        "Brand kit/library ID. When omitted, uses the current browser tab's generation context, then the global generation context.",
+        "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     folderId: z.string().min(1).nullable().optional(),
     collectionId: z.string().optional(),
     prompt: z.string().min(1),
     title: z.string().optional(),
     description: z.string().optional(),
-    aspectRatio: z.enum(VIDEO_ASPECT_RATIOS).optional(),
+    aspectRatio: z.enum(VIDEO_ASPECT_RATIOS).default("16:9"),
     durationSeconds: z.coerce
       .number()
       .pipe(z.union([z.literal(4), z.literal(6), z.literal(8)]))
-      .optional(),
-    resolution: z.enum(VIDEO_RESOLUTIONS).optional(),
-    model: z.enum(VIDEO_MODELS).optional(),
+      .default(8),
+    resolution: z.enum(VIDEO_RESOLUTIONS).default("720p"),
+    model: z.enum(VIDEO_MODELS).default("veo-3.1-generate-preview"),
     category: z.enum(IMAGE_CATEGORIES).default("video"),
     referenceAssetIds: z
       .array(z.string())
@@ -86,24 +71,15 @@ export default defineAction({
     waitForCompletion: z.coerce.boolean().default(false),
   }),
   run: async (input) => {
-    const generationDefaults = await readGenerationContextDefaults();
-    const libraryId = input.libraryId ?? generationDefaults.libraryId;
+    const libraryId = input.libraryId;
     if (!libraryId) {
       throw new Error(
-        "No brand kit selected. Choose a brand kit in the generation context bar or pass libraryId.",
+        "No brand kit selected. Tag a brand kit with @ or pass libraryId.",
       );
     }
     const args = {
       ...input,
       libraryId,
-      aspectRatio:
-        input.aspectRatio ??
-        videoAspectRatioDefault(generationDefaults.aspectRatio),
-      durationSeconds:
-        input.durationSeconds ?? generationDefaults.videoDurationSeconds ?? 8,
-      resolution:
-        input.resolution ?? generationDefaults.videoResolution ?? "720p",
-      model: input.model ?? videoModelDefault(generationDefaults.model),
     };
     await assertAccess("asset-library", args.libraryId, "editor");
     const db = getDb();

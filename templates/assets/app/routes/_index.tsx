@@ -10,7 +10,6 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
-import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
 import { GenerationResults } from "@/components/generation/GenerationResults";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
@@ -130,7 +129,6 @@ export default function CreatePage() {
           navigate,
         }}
         browserTabId={getBrowserTabId()}
-        composerToolbarSlot={<GenerationContextBar />}
         threadFooterSlot={({ threadId }) => (
           <GenerationResults threadId={threadId} />
         )}

@@ -39,12 +39,14 @@ Detailed library, generation, image, embed, and engine rules live in
   `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`.
   Embedded picker state keeps `{ view: "picker", mediaType, libraryId, query,
 prompt, aspectRatio }`.
-- `generation-context` is the authoritative default for the next image
-  generation request: `{ libraryId, presetId, model, aspectRatio, imageSize,
-count, mediaType }`. Treat it as the visible composer selection for Brand kit
-  / Preset / Format. Selecting a kit in Library writes the same `libraryId`;
-  selecting "All assets" clears it, so generation should ask for or choose a kit.
-  Omit those action args only when you intend to use the selected defaults.
+- Composer `@` mentions are the source of generation inputs. Map
+  `brand-kit` references to `libraryId`, `preset` references to `presetId`, and
+  `media-type` references to choosing image (`generate-image` /
+  `generate-image-batch`) or video (`generate-video`) generation. The current
+  library view auto-tags its brand kit as a visible removable chip when the
+  composer is empty. The image model is the only remaining composer-side
+  default; the image-model picker writes `imageGenerationModel`, which image
+  generation actions may use when `model` is omitted.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

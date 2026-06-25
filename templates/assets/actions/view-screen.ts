@@ -13,7 +13,6 @@ import listGenerationPresets from "./list-generation-presets.js";
 import listGenerationSessions from "./list-generation-sessions.js";
 import listAuditRuns from "./list-audit-runs.js";
 import listLibraries from "./list-libraries.js";
-import { readGenerationContextDefaults } from "./_generation-context.js";
 
 export default defineAction({
   description:
@@ -22,17 +21,14 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const [navigation, variants, legacyVariants, generationContext] =
-      await Promise.all([
-        readAppStateForCurrentTab("navigation"),
-        readAppState("asset-variants"),
-        readAppState("image-variants").catch(() => null),
-        readGenerationContextDefaults(),
-      ]);
+    const [navigation, variants, legacyVariants] = await Promise.all([
+      readAppStateForCurrentTab("navigation"),
+      readAppState("asset-variants"),
+      readAppState("image-variants").catch(() => null),
+    ]);
     const screen: Record<string, unknown> = {
       navigation,
       variants: variants ?? legacyVariants,
-      generationContext,
     };
     const nav = navigation as any;
     if (nav?.libraryId) {

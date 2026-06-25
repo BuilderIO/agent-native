@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import generateImage from "./generate-image.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
-import { readGenerationContextDefaults } from "./_generation-context.js";
+import { readImageModelDefault } from "./_image-model-default.js";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 import {
@@ -18,25 +18,17 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
-  type ImageModel,
 } from "../shared/api.js";
-
-function imageModelDefault(value: unknown): ImageModel | undefined {
-  return typeof value === "string" &&
-    (IMAGE_MODELS as readonly string[]).includes(value)
-    ? (value as ImageModel)
-    : undefined;
-}
 
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one library. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
       .optional()
       .describe(
-        "Brand kit/library ID. When omitted, uses the current browser tab's generation context, then the global generation context.",
+        "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
     presetId: z.string().optional(),
@@ -81,18 +73,17 @@ export default defineAction({
   }),
   parallelSafe: true,
   run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
-    const generationDefaults = await readGenerationContextDefaults();
-    const libraryId = inputBase.libraryId ?? generationDefaults.libraryId;
+    const imageModelDefault = await readImageModelDefault();
+    const libraryId = inputBase.libraryId;
     if (!libraryId) {
       throw new Error(
-        "No brand kit selected. Choose a brand kit in the generation context bar or pass libraryId.",
+        "No brand kit selected. Tag a brand kit with @ or pass libraryId.",
       );
     }
     const base = {
       ...inputBase,
       libraryId,
-      presetId: inputBase.presetId ?? generationDefaults.presetId,
-      model: inputBase.model ?? imageModelDefault(generationDefaults.model),
+      model: inputBase.model ?? imageModelDefault,
     };
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {

@@ -18,8 +18,8 @@ import {
   getEmbedAuthToken,
   isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
+  insertAgentComposerReference,
   readClientAppState,
-  sendToAgentChat,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
@@ -51,11 +51,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { normalizeGenerationContext } from "@/lib/generation-context";
-import {
-  setAssetsGenerationChatContext,
-  writeClientGenerationContext,
-} from "@/hooks/use-generation-context";
 import {
   Select,
   SelectContent,
@@ -1220,7 +1215,7 @@ function AllAssetsBrowser() {
               readOnly
               value={standaloneSelectionText}
               className="mt-2 h-24 max-w-full resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
-              onFocus={(event) => event.currentmTarget.select()}
+              onFocus={(event) => event.currentTarget.select()}
             />
           </details>
         </section>
@@ -1861,15 +1856,25 @@ export function LibraryWorkspace({
     return result;
   }, [libraries]);
   const hasLibraries = isLoading || libraries.length > 0;
+  const currentLibrary = useMemo(
+    () =>
+      routeSelectedLibraryId
+        ? libraries.find((library) => library.id === routeSelectedLibraryId)
+        : null,
+    [libraries, routeSelectedLibraryId],
+  );
 
   useEffect(() => {
-    void writeClientGenerationContext(
-      normalizeGenerationContext({
-        libraryId: routeSelectedLibraryId ?? null,
-        presetId: null,
-      }),
-    ).catch(() => {});
-  }, [routeSelectedLibraryId]);
+    if (!routeSelectedLibraryId || !currentLibrary?.title) return;
+    insertAgentComposerReference({
+      label: currentLibrary.title,
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: routeSelectedLibraryId,
+      refPath: `/library/${encodeURIComponent(routeSelectedLibraryId)}`,
+    });
+  }, [currentLibrary?.title, routeSelectedLibraryId]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -2260,60 +2265,28 @@ export function AssetPickerSurface() {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
     setVisibleCandidateRunIds([]);
-    const nextGenerationContext = normalizeGenerationContext({
+    const variantScopeId =
+      pickerVariantScopeId ?? `picker:${getBrowserTabId()}`;
+    generateBatch.mutate({
       libraryId: selectedLibraryId,
-      presetId: selectedPreset?.id ?? null,
-      model: selectedPreset?.model ?? "gemini-3.1-flash-image",
-      aspectRatio: effectiveAspectRatio,
-      imageSize: selectedPreset?.imageSize || "2K",
-      count,
-      mediaType: "image",
-    });
-    if (embedded) {
-      const variantScopeId =
-        pickerVariantScopeId ?? `picker:${getBrowserTabId()}`;
-      void writeClientGenerationContext(nextGenerationContext).catch(() => {});
-      generateBatch.mutate({
-        libraryId: selectedLibraryId,
-        presetId: selectedPreset?.id,
-        variantScopeId,
-        slots: Array.from({ length: count }, (_, index) => ({
-          slotId: `picker-candidate-${index + 1}`,
-          prompt: prompt.trim(),
-          aspectRatio: effectiveAspectRatio,
-          imageSize: selectedPreset?.imageSize || "2K",
-          dismissible: false,
-        })),
-        tier: hostConfig.tier,
-        styleStrength: hostConfig.styleStrength ?? "balanced",
-        includeLogo: hostConfig.includeLogo ?? false,
-        source: "ui",
-        callerAppId: hostConfig.callerAppId,
-      } as any);
-      return;
-    }
-    void (async () => {
-      await writeClientGenerationContext(nextGenerationContext).catch(() => {});
-      setAssetsGenerationChatContext({
-        context: nextGenerationContext,
-        libraryTitle:
-          displayLibraries.find((library) => library.id === selectedLibraryId)
-            ?.title ?? null,
-        presetTitle: selectedPreset?.title ?? null,
-        openSidebar: false,
-      });
-      sendToAgentChat({
-        message: prompt.trim(),
-        submit: true,
-        openSidebar: true,
-        newTab: true,
-      });
-    })();
+      presetId: selectedPreset?.id,
+      variantScopeId,
+      slots: Array.from({ length: count }, (_, index) => ({
+        slotId: `picker-candidate-${index + 1}`,
+        prompt: prompt.trim(),
+        aspectRatio: effectiveAspectRatio,
+        imageSize: selectedPreset?.imageSize || "2K",
+        dismissible: false,
+      })),
+      tier: hostConfig.tier,
+      styleStrength: hostConfig.styleStrength ?? "balanced",
+      includeLogo: hostConfig.includeLogo ?? false,
+      source: "ui",
+      callerAppId: hostConfig.callerAppId,
+    } as any);
   }, [
     count,
-    displayLibraries,
     effectiveAspectRatio,
-    embedded,
     generateBatch,
     hostConfig.callerAppId,
     hostConfig.includeLogo,

@@ -117,6 +117,27 @@ export interface AgentChatContextState {
   updatedAt: number;
 }
 
+export interface AgentComposerReference {
+  label: string;
+  icon?: string;
+  source?: string;
+  refType: string;
+  refId?: string | null;
+  refPath?: string | null;
+}
+
+export interface AgentComposerReferenceInsertOptions {
+  /**
+   * Whether to open the agent sidebar before inserting the reference.
+   * Defaults to false so contextual auto-tags can stay quiet.
+   */
+  openSidebar?: boolean;
+}
+
+export interface AgentComposerReferenceInsertPayload extends AgentComposerReference {
+  insertMessageId: string;
+}
+
 export interface AgentChatContextMutationOptions {
   /**
    * Whether to open the agent sidebar if it's currently hidden.
@@ -140,6 +161,10 @@ export const AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE =
   "agentNative.removeChatContext";
 export const AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE =
   "agentNative.clearChatContext";
+export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
+  "agentNative.insertComposerReference";
+export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
+  "agentNative:insert-composer-reference";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 let agentChatContextState: AgentChatContextState = {
@@ -406,6 +431,38 @@ export function appendAgentChatContextToMessage(
   return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
+export function normalizeAgentComposerReference(
+  value: unknown,
+): AgentComposerReference | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Partial<AgentComposerReference>;
+  const label =
+    typeof candidate.label === "string" ? candidate.label.trim() : "";
+  const refType =
+    typeof candidate.refType === "string" ? candidate.refType.trim() : "";
+  if (!label || !refType) return null;
+  return {
+    label,
+    icon:
+      typeof candidate.icon === "string" && candidate.icon.trim()
+        ? candidate.icon.trim()
+        : undefined,
+    source:
+      typeof candidate.source === "string" && candidate.source.trim()
+        ? candidate.source.trim()
+        : undefined,
+    refType,
+    refId:
+      typeof candidate.refId === "string" && candidate.refId.trim()
+        ? candidate.refId.trim()
+        : null,
+    refPath:
+      typeof candidate.refPath === "string" && candidate.refPath.trim()
+        ? candidate.refPath.trim()
+        : null,
+  };
+}
+
 function postAgentChatContextMessage(
   type:
     | typeof AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE
@@ -439,6 +496,51 @@ function postAgentChatContextMessage(
   }
 
   const postToTarget = () => target.postMessage(payload, targetOrigin);
+  if (target === window) {
+    setTimeout(postToTarget, 0);
+  } else {
+    postToTarget();
+  }
+}
+
+function postAgentChatReferenceMessage(
+  payload: AgentComposerReferenceInsertPayload,
+  options: { openSidebar: boolean },
+): void {
+  if (typeof window === "undefined") return;
+
+  const message = {
+    type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+    data: payload,
+  };
+  const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
+  const target = targetSelf
+    ? window
+    : window.parent !== window
+      ? window.parent
+      : window;
+  const targetOrigin = targetSelf
+    ? window.location.origin
+    : getFramePostMessageTargetOrigin() || window.location.origin;
+
+  if (options.openSidebar) {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  } else {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+      detail: payload,
+    }),
+  );
+
+  const postToTarget = () => target.postMessage(message, targetOrigin);
   if (target === window) {
     setTimeout(postToTarget, 0);
   } else {
@@ -684,6 +786,23 @@ export const setContextToAgentChat = setAgentChatContextItem;
 
 /** @deprecated Use `setAgentChatContextItem` instead. */
 export const addContextToAgentChat = setAgentChatContextItem;
+
+export function insertAgentComposerReference(
+  ref: AgentComposerReference,
+  options: AgentComposerReferenceInsertOptions = {},
+): void {
+  const normalized = normalizeAgentComposerReference(ref);
+  if (!normalized || typeof window === "undefined") return;
+  postAgentChatReferenceMessage(
+    {
+      ...normalized,
+      insertMessageId: `reference-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`,
+    },
+    { openSidebar: options.openSidebar === true },
+  );
+}
 
 export function removeAgentChatContextItem(
   keyOrOpts: string | AgentChatContextRemoveOptions,

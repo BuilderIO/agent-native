@@ -15,10 +15,8 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { GenerationContextBar } from "@/components/generation/GenerationContextBar";
 import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useGenerationContextSync } from "@/hooks/use-generation-context";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
@@ -35,26 +33,6 @@ function isEmbeddedWindow() {
   }
 }
 
-function activeBrandKitIdFromLocation(pathname: string, search: string) {
-  const match = pathname.match(/^\/(?:library|brand-kits)\/([^/]+)/);
-  if (match?.[1]) {
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
-  }
-  if (pathname !== "/library") return null;
-  const params = new URLSearchParams(search);
-  if (
-    params.get("__an_picker") === "1" ||
-    params.get("__an_mcp_chat_bridge") === "1"
-  ) {
-    return null;
-  }
-  return params.get("libraryId")?.trim() || null;
-}
-
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
@@ -63,11 +41,6 @@ export function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isCreateRoute =
     location.pathname === "/" || location.pathname.startsWith("/chat/");
-  const activeBrandKitId = activeBrandKitIdFromLocation(
-    location.pathname,
-    location.search,
-  );
-  useGenerationContextSync(activeBrandKitId);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -165,7 +138,6 @@ export function Layout({ children }: LayoutProps) {
           t("chat.suggestionProductVideo"),
           t("chat.suggestionReferenceStyle"),
         ]}
-        composerToolbarSlot={<GenerationContextBar />}
         threadFooterSlot={({ threadId }) => (
           <GenerationResults threadId={threadId} />
         )}

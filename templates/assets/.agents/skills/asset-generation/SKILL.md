@@ -29,6 +29,11 @@ or generated image/video assets that another app can reference by ID and URL.
 - Use unattended actions when the agent already knows what to do:
   `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
   `generate-video`, `refresh-generation-run`, and `export-asset`.
+- In chat, consume composer `@` references as structured generation inputs:
+  `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
+  `media-type` chooses image generation versus video generation. If no mention
+  is available, use `view-screen`, `list-libraries`, and
+  `list-generation-presets` to choose explicit args.
 - Use generation presets when the user asks for a repeatable output format
   like social image, blog hero, or diagram. Call `list-generation-presets` for
   the library and pass `presetId` through generation/refinement actions.
@@ -60,7 +65,8 @@ or generated image/video assets that another app can reference by ID and URL.
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
-4. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
+4. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
+   work, pass `sessionId`.
 5. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
