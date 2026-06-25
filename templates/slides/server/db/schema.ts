@@ -54,6 +54,7 @@ export const deckShareLinks = table("deck_share_links", {
   title: text("title").notNull(),
   slides: text("slides").notNull(), // JSON array of slide snapshots
   aspectRatio: text("aspect_ratio"),
+  designSystemId: text("design_system_id"),
   createdAt: text("created_at").notNull().default(now()),
 });
 

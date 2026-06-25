@@ -177,6 +177,12 @@ export default runMigrations(
   CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
   CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
     },
+    // v20: persist the deck's design system id on share-link snapshots so
+    // shared viewers resolve the same design system the deck creator chose.
+    {
+      version: 20,
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

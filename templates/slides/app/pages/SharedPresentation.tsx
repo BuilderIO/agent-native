@@ -20,7 +20,7 @@ export default function SharedPresentation({
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(!initialDeck && !initialError);
-  const { designSystem } = useDeckDesignSystem(null);
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
 
   useEffect(() => {
     if (!token) return;
