@@ -610,7 +610,7 @@ describe("PlanContentRenderer recap changed files", () => {
       'header a[href="https://github.com/BuilderIO/ai-services/pull/5385"]',
     );
     const stats = container.querySelector<HTMLElement>(
-      'header [aria-label="raw.content.changeStatistics"]',
+      'header [aria-label="Change statistics"]',
     );
     expect(sourceLink?.textContent).toBe("BuilderIO/ai-services#5385");
     expect(stats?.textContent).toBe("2 files · +1");
