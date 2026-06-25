@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  applyStarterToolchainSync,
   applyWorkspaceFileSync,
   collectStarterToolchainFiles,
   createStandaloneChatSnapshot,
+  diffStarterToolchainFiles,
   generateStandaloneChatManifest,
   mergeStarterManifest,
   STARTER_TOOLCHAIN_SYNC_PATHS,
@@ -61,6 +63,8 @@ describe("sync-builder-starter-manifest", () => {
         expect(files.get("server/plugins/agent-chat.ts")).toContain(
           'appId: "builder-agent-native-starter"',
         );
+        expect(files.get("netlify.toml")).toContain('publish = "dist"');
+        expect(files.get("netlify.toml")).not.toContain("templates/chat");
       } finally {
         snapshot.cleanup();
       }
@@ -248,6 +252,32 @@ describe("sync-builder-starter-manifest", () => {
             "utf-8",
           ),
         ).not.toContain("v8_viteEnvironmentApi");
+      },
+      STARTER_MANIFEST_TIMEOUT_MS,
+    );
+
+    it(
+      "deletes stale starter toolchain files removed from templates/chat",
+      () => {
+        tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-starter-sync-spec-"),
+        );
+        fs.writeFileSync(
+          path.join(tempDir, "components.json"),
+          '{"stale":true}\n',
+        );
+
+        const changes = diffStarterToolchainFiles(tempDir, new Map());
+        expect(
+          changes.find((change) => change.relativePath === "components.json")
+            ?.changed,
+        ).toBe(true);
+
+        applyStarterToolchainSync(tempDir, new Map());
+
+        expect(fs.existsSync(path.join(tempDir, "components.json"))).toBe(
+          false,
+        );
       },
       STARTER_MANIFEST_TIMEOUT_MS,
     );

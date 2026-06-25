@@ -22,6 +22,7 @@ export const STARTER_TOOLCHAIN_SYNC_PATHS = [
   "server/middleware/auth.ts",
   "components.json",
   ".oxfmtrc.json",
+  "netlify.toml",
 ] as const;
 
 export type StarterToolchainSyncPath =
@@ -218,18 +219,17 @@ export function diffStarterToolchainFiles(
   starterDir: string,
   canonicalFiles: Map<StarterToolchainSyncPath, string>,
 ): StarterToolchainSyncChange[] {
-  return [...canonicalFiles.entries()].map(
-    ([relativePath, canonicalContent]) => {
-      const targetPath = path.join(starterDir, relativePath);
-      const existingContent = fs.existsSync(targetPath)
-        ? fs.readFileSync(targetPath, "utf-8")
-        : null;
-      return {
-        relativePath,
-        changed: existingContent !== canonicalContent,
-      };
-    },
-  );
+  return STARTER_TOOLCHAIN_SYNC_PATHS.map((relativePath) => {
+    const canonicalContent = canonicalFiles.get(relativePath) ?? null;
+    const targetPath = path.join(starterDir, relativePath);
+    const existingContent = fs.existsSync(targetPath)
+      ? fs.readFileSync(targetPath, "utf-8")
+      : null;
+    return {
+      relativePath,
+      changed: existingContent !== canonicalContent,
+    };
+  });
 }
 
 export function applyStarterToolchainSync(
@@ -237,15 +237,22 @@ export function applyStarterToolchainSync(
   canonicalFiles: Map<StarterToolchainSyncPath, string>,
 ): StarterToolchainSyncChange[] {
   const changes: StarterToolchainSyncChange[] = [];
-  for (const [relativePath, canonicalContent] of canonicalFiles.entries()) {
+  for (const relativePath of STARTER_TOOLCHAIN_SYNC_PATHS) {
+    const canonicalContent = canonicalFiles.get(relativePath) ?? null;
     const targetPath = path.join(starterDir, relativePath);
     const existingContent = fs.existsSync(targetPath)
       ? fs.readFileSync(targetPath, "utf-8")
       : null;
     const changed = existingContent !== canonicalContent;
     if (changed) {
-      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-      fs.writeFileSync(targetPath, canonicalContent);
+      if (canonicalContent === null) {
+        if (fs.existsSync(targetPath)) {
+          fs.unlinkSync(targetPath);
+        }
+      } else {
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.writeFileSync(targetPath, canonicalContent);
+      }
     }
     changes.push({ relativePath, changed });
   }
